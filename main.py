@@ -72,7 +72,6 @@ from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
-import services.sylvex_test_provider as sylvex_test_provider
 from services.price_engine import apply_snapshot_to_estimate
 from services import edit_workspace as edit_workspace_service
 from services import assistant_store
@@ -9629,7 +9628,7 @@ def ensure_admin_tables():
                 updated_at TIMESTAMP DEFAULT NOW()
             )
             """)
-            # Website admins/developers (SYLVEX Test) have a sylvex_accounts.account_id
+            # Website-only admins have a sylvex_accounts.account_id
             # but no Telegram identity at all, so telegram_id can no longer be the
             # primary key - migrate to a surrogate `id`, telegram_id/account_id both
             # nullable+unique, at least one required. Idempotent: safe against both a
@@ -9783,44 +9782,6 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
     if permission and actor["role"] != "owner" and "all" not in permissions and permission not in permissions:
         raise HTTPException(status_code=403, detail="admin_permission_denied")
     return actor
-
-
-def _sylvex_test_permitted(request: Optional[Request], telegram_id: int) -> bool:
-    """Platform-aware admin/developer check for SYLVEX Test - separate from
-    the Telegram-only _admin_actor() used by the admin panel/Support Bot,
-    which stays unchanged. Telegram Bot and Mini App requests keep the
-    existing telegram_id-keyed admin_users lookup. A Website/Pro-Studio-embed
-    request never carries real Telegram initData - SecurityMiddleware stamps
-    the resolved sylvex_accounts.account_id onto request.state.web_account_id
-    for exactly this case (services/security.py), so a Website admin/developer
-    with no Telegram identity at all can still be granted access, checked
-    against the same admin_users.permissions everything else already uses."""
-    web_account_id = int(getattr(getattr(request, "state", None), "web_account_id", 0) or 0)
-    if not DATABASE_URL:
-        return False
-    ensure_admin_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        if web_account_id:
-            cursor.execute("SELECT role, permissions, active FROM admin_users WHERE account_id = %s", (web_account_id,))
-        else:
-            if not telegram_id:
-                return False
-            cursor.execute("SELECT role, permissions, active FROM admin_users WHERE telegram_id = %s", (telegram_id,))
-        row = cursor.fetchone()
-    finally:
-        cursor.close()
-        conn.close()
-    if not row or not row[2]:
-        return False
-    permissions = row[1] or []
-    if isinstance(permissions, str):
-        try:
-            permissions = json.loads(permissions)
-        except Exception:
-            permissions = []
-    return row[0] == "owner" or "all" in permissions or "sylvex_test" in permissions
 
 
 def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=None, after=None, reason: str = ""):
@@ -10136,14 +10097,13 @@ async def admin_set(request: Request):
         actor = _admin_actor(payload, request, owner_only=True)
         ensure_admin_tables()
         target_id = int(payload.get("user_id") or 0)
-        # account_id grants a Website-only admin/developer (no Telegram
-        # identity at all) - see SYLVEX Test's platform-aware admin check.
-        # Exactly one of the two identities is required, never both.
+        # account_id grants a Website-only admin (no Telegram identity at
+        # all). Exactly one of the two identities is required, never both.
         target_account_id = int(payload.get("account_id") or 0)
         active = bool(payload.get("active", True))
         permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
         allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users",
-                   "view_audit", "view_errors", "view_generations", "view_finance", "manage_references", "sylvex_test"}
+                   "view_audit", "view_errors", "view_generations", "view_finance", "manage_references"}
         permissions = [p for p in permissions if p in allowed]
         if not target_id and not target_account_id:
             raise HTTPException(status_code=400, detail="invalid_admin_target")
@@ -10904,175 +10864,6 @@ async def admin_references_upload_media(request: Request):
             extension, content_type = "bin", "application/octet-stream"
     filename = f"{uuid4().hex}.{extension}"
     key = generated_key(f"references/{slot}", filename)
-    url = storage_put_bytes(content, key, content_type)
-    if not url:
-        raise HTTPException(status_code=502, detail="upload_failed")
-    return {"ok": True, "url": url, "content_type": content_type}
-
-
-# =====================================================
-# SYLVEX TEST - admin/developer-only mock provider control surface for the
-# Support Bot. See services/sylvex_test_provider.py for the shared mailbox
-# table these read/write; the actual generation pipeline is unchanged real
-# production code that only diverts to that mailbox at the provider-call
-# boundary. All four endpoints are gated on the "sylvex_test" permission,
-# same _admin_actor() pattern as every other /api/admin/* endpoint here.
-# =====================================================
-@app.post("/api/admin/sylvex-test/queue")
-async def admin_sylvex_test_queue(request: Request):
-    payload = await request.json()
-
-    def _sync():
-        _admin_actor(payload, request, "sylvex_test")
-        sylvex_test_provider.ensure_sylvex_test_table(lambda: db_connect(DATABASE_URL))
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT id, platform, category, model, job_id, grid_run_id, grid_node_id, created_at
-                FROM sylvex_test_requests WHERE status = 'waiting' ORDER BY created_at ASC LIMIT 50
-            """)
-            return [{
-                "id": r[0], "platform": r[1], "category": r[2], "model": r[3] or "",
-                "job_id": r[4] or "", "grid_run_id": r[5] or "", "grid_node_id": r[6] or "",
-                "created_at": _to_iso(r[7]),
-            } for r in cursor.fetchall()]
-        finally:
-            cursor.close()
-            conn.close()
-
-    items = await asyncio.to_thread(_sync)
-    return {"ok": True, "items": items}
-
-
-@app.post("/api/admin/sylvex-test/detail")
-async def admin_sylvex_test_detail(request: Request):
-    payload = await request.json()
-
-    def _sync():
-        _admin_actor(payload, request, "sylvex_test")
-        request_id = str(payload.get("id") or "")
-        if not request_id:
-            raise HTTPException(status_code=400, detail="id_required")
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT id, platform, category, requester_id, requester_account_id, job_id,
-                       grid_run_id, grid_node_id, model, original_prompt, final_prompt,
-                       parameters, reference_urls, status, outcome, created_at
-                FROM sylvex_test_requests WHERE id = %s
-            """, (request_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
-            conn.close()
-        if not row:
-            raise HTTPException(status_code=404, detail="not_found")
-        return {
-            "id": row[0], "platform": row[1], "category": row[2],
-            "requester_id": row[3], "requester_account_id": row[4], "job_id": row[5] or "",
-            "grid_run_id": row[6] or "", "grid_node_id": row[7] or "", "model": row[8] or "",
-            "original_prompt": row[9] or "", "final_prompt": row[10] or "",
-            "parameters": row[11] or {}, "reference_urls": row[12] or [],
-            "status": row[13], "outcome": row[14] or "", "created_at": _to_iso(row[15]),
-        }
-
-    item = await asyncio.to_thread(_sync)
-    return {"ok": True, "item": item}
-
-
-@app.post("/api/admin/sylvex-test/respond")
-async def admin_sylvex_test_respond(request: Request):
-    """The developer's decision from the Support Bot - success/processing/
-    failed/moderation/timeout. Resolving with status='responded' is what
-    wakes the generation pipeline's own wait_for_response()/check_once()
-    poll; "processing" is a heartbeat only and deliberately leaves status
-    as 'waiting' so the caller keeps waiting."""
-    payload = await request.json()
-
-    def _sync():
-        _admin_actor(payload, request, "sylvex_test")
-        request_id = str(payload.get("id") or "")
-        outcome = str(payload.get("outcome") or "").strip().lower()
-        if not request_id or outcome not in {"success", "processing", "failed", "moderation", "timeout"}:
-            raise HTTPException(status_code=400, detail="invalid_response")
-        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        try:
-            if outcome == "processing":
-                cursor.execute(
-                    "UPDATE sylvex_test_requests SET outcome = %s WHERE id = %s AND status = 'waiting'",
-                    (outcome, request_id),
-                )
-            else:
-                cursor.execute("""
-                    UPDATE sylvex_test_requests
-                    SET status = 'responded', outcome = %s, result_json = %s::jsonb, responded_at = NOW()
-                    WHERE id = %s AND status = 'waiting'
-                """, (outcome, json.dumps(result), request_id))
-            conn.commit()
-            found = cursor.rowcount > 0
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cursor.close()
-            conn.close()
-        if not found:
-            raise HTTPException(status_code=404, detail="not_found_or_already_resolved")
-
-    await asyncio.to_thread(_sync)
-    return {"ok": True}
-
-
-@app.post("/api/admin/sylvex-test/upload-file")
-async def admin_sylvex_test_upload_file(request: Request):
-    """Accepts base64 media (the Support Bot downloads the developer's
-    Telegram-attached file and forwards its bytes here) and stores it
-    durably in R2 - the same shape as /api/admin/references/upload-media.
-    This is the ONLY safe way a Success response's file reaches SYLVEX: a
-    raw api.telegram.org/bot<token>/... URL must never be written into a
-    job's result, the database, or logs, since it embeds the Support Bot's
-    own credential as a URL substring."""
-    payload = await request.json()
-    _admin_actor(payload, request, "sylvex_test")
-    content_b64 = str(payload.get("content_base64") or "")
-    if not content_b64:
-        raise HTTPException(status_code=400, detail="content_required")
-    try:
-        content = base64.b64decode(content_b64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="invalid_base64")
-    if not content or len(content) > 200 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="invalid_content_size")
-    content_type = str(payload.get("content_type") or "").strip().lower()
-    extension_by_mime = {
-        "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
-        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
-        "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/wav": "wav",
-    }
-    extension = extension_by_mime.get(content_type)
-    if not extension:
-        if content.startswith(b"\x89PNG\r\n\x1a\n"):
-            extension, content_type = "png", "image/png"
-        elif content.startswith(b"\xff\xd8\xff"):
-            extension, content_type = "jpg", "image/jpeg"
-        elif content.startswith(b"RIFF") and content[8:12] == b"WEBP":
-            extension, content_type = "webp", "image/webp"
-        elif content[4:8] in (b"ftyp",) or content.startswith(b"\x00\x00\x00"):
-            extension, content_type = "mp4", "video/mp4"
-        elif content.startswith(b"ID3") or content[0:2] == b"\xff\xfb":
-            extension, content_type = "mp3", "audio/mpeg"
-        else:
-            # Sniff failed - never trust the client-declared content_type past
-            # this point (it could be "text/html" etc., served back by the
-            # generic storage route to every end user via the public
-            # references catalog). Force a safe, inert default.
-            extension, content_type = "bin", "application/octet-stream"
-    filename = f"{uuid4().hex}.{extension}"
-    key = generated_key("sylvex-test", filename)
     url = storage_put_bytes(content, key, content_type)
     if not url:
         raise HTTPException(status_code=502, detail="upload_failed")
@@ -13263,18 +13054,11 @@ async def account_link_confirm(request: Request):
 # СИНХРОНИЗАЦИЯ С TELEGRAM: public_telegram_user_state
 # Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
 # =====================================================
-async def public_telegram_user_state(request: Request, telegram_id: int = 0):
+async def public_telegram_user_state(telegram_id: int = 0):
     if not telegram_id:
         return telegram_id_required_response()
     try:
-        state = await asyncio.to_thread(get_fast_user_state, int(telegram_id))
-        if isinstance(state, dict):
-            # UI-only convenience so cabinet.js can show the admin/developer-
-            # only "SYLVEX Test" model entry - the real gate is the
-            # server-side re-check in _sylvex_test_permitted() at generate
-            # time, never this flag alone.
-            state["sylvex_test_available"] = await asyncio.to_thread(_sylvex_test_permitted, request, int(telegram_id))
-        return state
+        return await asyncio.to_thread(get_fast_user_state, int(telegram_id))
     except Exception as exc:
         print("USER STATE FAILED:", exc)
         return JSONResponse({"ok": False, "error": "user_state_failed"}, status_code=500)
@@ -17442,27 +17226,7 @@ def text_generation(payload: dict) -> dict:
         prompt = (prompt + f"\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')})").strip()
     messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
-    if payload.get("_sylvex_test_authorized"):
-        # The real prompt/parameter pipeline above has already run (system
-        # prompt, history, attachment instructions) - only the external
-        # provider call below is replaced. See services/sylvex_test_provider.
-        request_id = sylvex_test_provider.submit(
-            lambda: db_connect(DATABASE_URL),
-            platform=payload.get("_sylvex_test_platform") or "telegram",
-            category="text",
-            requester_id=int(payload.get("telegram_id") or 0),
-            job_id=str(payload.get("job_id") or payload.get("generation_id") or ""),
-            grid_run_id=str(payload.get("grid_project_id") or ""),
-            grid_node_id=str(payload.get("grid_node_id") or ""),
-            model=model,
-            original_prompt=str(payload.get("prompt") or ""),
-            final_prompt=json.dumps(messages, ensure_ascii=False),
-            parameters=text_options,
-            reference_urls=[attachment.get("url")] if isinstance(attachment, dict) and attachment.get("url") else [],
-        )
-        generated = sylvex_test_provider.wait_for_response_sync(lambda: db_connect(DATABASE_URL), request_id)
-    else:
-        generated = call_text_provider(model, messages, attachment)
+    generated = call_text_provider(model, messages, attachment)
     if not generated.get("ok"):
         return generated
     text = generated.get("text") or ""
@@ -19046,14 +18810,6 @@ def persist_recraft_logo_assets(svg_url: str) -> tuple[str, str]:
 # =====================================================
 def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
-    if str(payload.get("model") or "").strip().lower() == "sylvex_test":
-        # SYLVEX Test exercises the real reserve/settle/refund pipeline end
-        # to end without a real provider call, so it needs SOME real,
-        # non-zero price rather than any specific real model's tariff (it
-        # isn't calling that model's actual provider) - a fixed nominal cost
-        # per category is enough to make balance deduction/refund meaningful.
-        credits = {"image": 1, "video": 2, "music": 1, "voice": 1}.get(mode, 1)
-        return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True}
     if mode == "music":
         model = str((payload.get("music_options") or {}).get("model") or payload.get("model") or "").lower()
         fixed_prices = {
@@ -19511,25 +19267,6 @@ async def image_generation(payload: dict) -> dict:
         count=opts.get("count") or 1,
         has_references=bool(image_reference_urls(payload)),
     )
-    if payload.get("_sylvex_test_authorized"):
-        # The real prompt/parameter pipeline above (build_image_prompt,
-        # character/object additions) has already run - only the external
-        # provider call below is replaced. See services/sylvex_test_provider.
-        request_id = sylvex_test_provider.submit(
-            lambda: db_connect(DATABASE_URL),
-            platform=payload.get("_sylvex_test_platform") or "telegram",
-            category="image",
-            requester_id=int(payload.get("telegram_id") or 0),
-            job_id=str(payload.get("job_id") or payload.get("generation_id") or ""),
-            grid_run_id=str(payload.get("grid_project_id") or ""),
-            grid_node_id=str(payload.get("grid_node_id") or ""),
-            model=requested_model or "",
-            original_prompt=str(payload.get("prompt") or ""),
-            final_prompt=prompt,
-            parameters=opts,
-            reference_urls=image_reference_urls(payload),
-        )
-        return await sylvex_test_provider.wait_for_response(lambda: db_connect(DATABASE_URL), request_id)
     mapping = image_provider_mapping(requested_model) if requested_model else {}
     model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, frontend_provider)
 
@@ -20621,11 +20358,6 @@ async def public_prostudio_grid_plan(request: Request):
         task = str((body or {}).get("task") or "").strip()
         if not task:
             return JSONResponse({"ok": False, "error": "task_required"}, status_code=400)
-        grid_plan_test_mode = (body or {}).get("sylvex_test") is True
-        if grid_plan_test_mode and not await asyncio.to_thread(
-            _sylvex_test_permitted, request, int((body or {}).get("telegram_id") or 0)
-        ):
-            return JSONResponse({"ok": False, "error": "sylvex_test_not_authorized"}, status_code=403)
         planner_prompt = f"""
 You are SYLVEX Grid Planner. Analyze the user's creative task and return ONLY valid JSON, without markdown.
 Never start generation. Build an editable draft only.
@@ -20663,8 +20395,6 @@ User task:
             "attachment": None,
             "telegram_id": (body or {}).get("telegram_id"),
             "job_id": f"grid-plan:{uuid.uuid4()}",
-            "_sylvex_test_authorized": grid_plan_test_mode,
-            "_sylvex_test_platform": "website" if int(getattr(getattr(request, "state", None), "web_account_id", 0) or 0) else "telegram",
         })
         if not generated.get("ok"):
             return JSONResponse(generated, status_code=502)
@@ -20896,20 +20626,6 @@ async def public_prostudio_generate(request: Request):
         }, status_code=409)
     if mode in generation_modes and is_internal_ui_model(selected_model):
         return invalid_generation_model_response(selected_model)
-
-    # SYLVEX Test: admin/developer-only, re-checked here regardless of what
-    # the frontend sent - the model list only hides the option from normal
-    # users, it never gates it. One check, right where the platform (Telegram
-    # vs Website) is unambiguous, then a trusted internal flag carries the
-    # decision down to the provider-boundary hooks so they never re-derive
-    # identity themselves. See _sylvex_test_permitted() for the platform-
-    # aware (telegram_id vs Website account_id) lookup.
-    wants_sylvex_test = selected_model.strip().lower() == "sylvex_test" or payload.get("sylvex_test") is True
-    if wants_sylvex_test:
-        if not await asyncio.to_thread(_sylvex_test_permitted, request, telegram_id):
-            return JSONResponse({"ok": False, "error": "sylvex_test_not_authorized"}, status_code=403)
-        payload["_sylvex_test_authorized"] = True
-        payload["_sylvex_test_platform"] = "website" if int(getattr(getattr(request, "state", None), "web_account_id", 0) or 0) else "telegram"
 
     voice_media = voice_options.get("attachment") or voice_options.get("uploads")
     if not prompt and not payload.get("attachment") and not voice_media and not reference_images and not video_references and not video_media:
@@ -21143,8 +20859,6 @@ async def public_prostudio_generate(request: Request):
 
 def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model: str, selected_provider: str) -> str:
     """Resolve the real provider before any external generation request."""
-    if payload.get("_sylvex_test_authorized"):
-        return "SYLVEX_TEST"
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit").lower()
         if edit_mode == "upscale":

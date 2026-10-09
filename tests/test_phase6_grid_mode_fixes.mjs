@@ -69,7 +69,6 @@ test('gridGenerationPayload reads a connected image reference via the same key r
   context.providerHintForModel = () => 'sylvex-router';
   context.gridDefaultModel = () => 'seedream_5_0_lite';
   context.getTelegramId = () => 123;
-  context.gridTestModeEnabled = () => false;
   context.uiLang = () => 'en';
   vm.runInContext(extract('gridGenerationPayload'), context);
 
