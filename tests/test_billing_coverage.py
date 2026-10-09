@@ -408,8 +408,7 @@ def test_voice_preview_is_charged_on_the_fixed_sample_text(ledger, monkeypatch):
 
 
 @pytest.mark.parametrize("endpoint", [
-    "elevenlabs_preview", "public_prostudio_runway_avatar", "public_prostudio_transcribe",
-    "public_prostudio_elevenlabs_voice_clone", "public_home_idea_realtime",
+    "public_prostudio_transcribe", "public_prostudio_elevenlabs_voice_clone", "public_home_idea_realtime",
 ])
 def test_helpers_without_a_tariff_are_blocked_before_any_provider(endpoint):
     response = asyncio.run(getattr(main, endpoint)(FakeRequest({"telegram_id": 101})))
@@ -426,13 +425,25 @@ def test_voice_avatar_auto_generation_stays_blocked_even_when_enabled(monkeypatc
 
 # --------------------------------------------- Character / Object creation
 
+def test_dead_legacy_paid_endpoints_are_removed():
+    paths = {getattr(route, "path", "") for route in main.app.router.routes}
+    assert "/api/elevenlabs/preview" not in paths
+    assert "/api/public/prostudio/runway-avatar" not in paths
+    assert not hasattr(main, "elevenlabs_preview") and not hasattr(main, "public_prostudio_runway_avatar")
+
+
 def test_character_and_object_prices_compose_existing_tariffs():
     shot = main._gpt_image_2_shot_price()
     assert shot > 0
     assert main.character_creation_price() == 4 * shot
-    vision = main.helper_text_price("gpt-5.5", main._object_prompt_instruction_text("Bag", "leather"))
+    vision = main.object_vision_reservation("Bag", "leather")
     assert vision > 0
     assert main.object_creation_price("Bag", "leather") == shot + vision
+    # Settled on the vision call's reported usage, never above the reservation.
+    total = shot + vision
+    assert main.object_creation_settled_credits(total, {"answered": True, "credits": 2}) == shot + 2
+    assert main.object_creation_settled_credits(total, {"answered": True, "credits": None}) == total
+    assert main.object_creation_settled_credits(total, {}) == shot
 
 
 def _creation_stubs(monkeypatch, ledger, fail=False):
@@ -493,8 +504,9 @@ def test_object_creation_reserves_and_settles(ledger, monkeypatch):
         seen.append(current_billing_scope())
         return "https://cdn/object.png"
 
-    async def fake_analysis(job_id, name, description, photo):
+    async def fake_analysis(job_id, name, description, photo, usage=None):
         seen.append(current_billing_scope())
+        usage.update(answered=True, credits=2)  # provider-reported vision usage
         return "a brown leather bag"
 
     async def no_progress(*args, **kwargs):
@@ -510,7 +522,9 @@ def test_object_creation_reserves_and_settles(ledger, monkeypatch):
     job_id = main.create_object_creation_job(303, "Bag", "", ["https://cdn/src.png"], credits)
     asyncio.run(main._run_object_creation_job(job_id, 303, "Bag", "", ["https://cdn/src.png"], credits))
     assert {scope["generation_id"] for scope in seen} == {job_id}
-    assert ledger.balance(303) == 500 - credits and ledger.reservation(job_id)[0] == "charged"
+    # Reserved the upper bound, charged the image shot + the vision usage.
+    assert ledger.balance(303) == 500 - (main._gpt_image_2_shot_price() + 2)
+    assert ledger.reservation(job_id)[0] == "charged"
 
 
 def test_unpriced_creation_job_is_failed_without_dispatch(monkeypatch):
@@ -519,3 +533,33 @@ def test_unpriced_creation_job_is_failed_without_dispatch(monkeypatch):
     monkeypatch.setattr(main, "_generate_openai_character_images", _no_network)
     asyncio.run(main._run_character_creation_job("job-x", 1, "Ann", "female", "", [], 0))
     assert updates == [("job-x", "failed")]
+
+
+def test_grid_plan_settles_on_reported_usage_and_returns_the_rest(ledger, monkeypatch):
+    seen = []
+
+    def fake_text_generation(payload):
+        seen.append(payload)
+        # gpt-5.5 at $5 / $30 per 1M: 2,000 in + 1,000 out = $0.04 -> 6 credits.
+        return {"ok": True, "text": json.dumps({"action": "clarify", "question": "?"}),
+                "provider": "openai", "metadata": {"usage": {"input_tokens": 2000, "output_tokens": 1000}}}
+    monkeypatch.setattr(main, "text_generation", fake_text_generation)
+    status, _ = _body(asyncio.run(main.public_prostudio_grid_plan(FakeRequest({"telegram_id": 101, "task": "promo", "model": "gpt-5.5"}))))
+    assert status == 200
+    assert seen[0]["output_token_cap"] == main.GRID_PLAN_MAX_OUTPUT_TOKENS
+    (_, _, _, _, credits), = ledger.charges()
+    assert credits == 6 and ledger.balance(101) == 94
+
+
+def test_helper_usage_above_reservation_never_charges_more(ledger):
+    calls = []
+    result = asyncio.run(main.run_billed_helper(101, 3, "grid_plan", _ok_call(calls), usage_credits=lambda r: 50))
+    assert result["cost_credits"] == 3 and ledger.balance(101) == 97
+
+
+def test_home_idea_refuses_audio_attachments_it_would_have_to_transcribe(ledger, monkeypatch):
+    monkeypatch.setattr(main, "text_generation", _no_network)
+    status, body = _body(asyncio.run(main.public_home_idea_route(FakeRequest({
+        "telegram_id": 101, "message": "listen", "attachment": {"mime": "audio/ogg", "url": "https://cdn/a.ogg"}}))))
+    assert status == 400 and body["error"] == "attachment_not_supported"
+    assert ledger.balance(101) == 100

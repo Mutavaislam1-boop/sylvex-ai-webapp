@@ -71,7 +71,8 @@ from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, billing_scope, require_billing_scope, assert_reserved
-from services.price_engine import apply_snapshot_to_estimate
+from services.price_engine import apply_snapshot_to_estimate, sylvex_credits
+from decimal import Decimal
 from services import edit_workspace as edit_workspace_service
 from services import assistant_store
 from services.assistant_intents import route_intent, intent_by_id as assistant_intent_by_id
@@ -3935,27 +3936,6 @@ def save_heygen_voice_settings_to_db(data: dict):
         cursor.close()
         conn.close()
 
-def safe_log_elevenlabs_preview(data: dict, payload: dict):
-    print("ELEVENLABS PREVIEW REQUEST BODY:", {
-        "telegram_id": data.get("telegram_id"),
-        "voice_id": data.get("voice_id"),
-        "voice_name": data.get("voice_name"),
-        "model_id": data.get("model_id"),
-        "stability": data.get("stability"),
-        "similarity_boost": data.get("similarity_boost"),
-        "style": data.get("style"),
-        "speed": data.get("speed"),
-        "speaker_boost": data.get("speaker_boost"),
-        "language": data.get("language"),
-        "output_format": data.get("output_format"),
-        "text_length": len(data.get("text") or ""),
-    })
-    print("ELEVENLABS PREVIEW PAYLOAD:", {
-        "text_length": len(payload.get("text") or ""),
-        "model_id": payload.get("model_id"),
-        "voice_settings": payload.get("voice_settings"),
-    })
-
 # =====================================================
 # API ENDPOINT: elevenlabs_bootstrap
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -4018,93 +3998,6 @@ async def save_elevenlabs_settings(request: Request):
 
     save_elevenlabs_settings_to_db(data)
     return {"success": True, "message": "ElevenLabs settings saved"}
-
-# =====================================================
-# API ENDPOINT: elevenlabs_preview
-# Принимает HTTP-запрос от Mini App или Telegram Bot.
-# Маршрут FastAPI: @app.post("/api/elevenlabs/preview")
-# Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
-# =====================================================
-@app.post("/api/elevenlabs/preview")
-async def elevenlabs_preview(request: Request):
-    if "elevenlabs_preview_legacy" in UNPRICED_HELPERS:
-        return unpriced_helper_response("elevenlabs_preview_legacy")
-    data = await request.json()
-    voice_id = data.get("voice_id") or ELEVENLABS_DEFAULT_VOICE_ID
-    model_id = data.get("model_id") or ELEVENLABS_DEFAULT_MODEL_ID
-    output_format = data.get("output_format") or ELEVENLABS_DEFAULT_OUTPUT_FORMAT
-    text = (data.get("text") or "SYLVEX voice preview.").strip()[:220]
-
-    payload = {
-        "text": text,
-        "model_id": model_id,
-        "voice_settings": {
-            "stability": float(data.get("stability", 0.5)),
-            "similarity_boost": float(data.get("similarity_boost", 0.75)),
-            "style": float(data.get("style", 0.0)),
-            "speed": float(data.get("speed", 1.0)),
-            "use_speaker_boost": bool(data.get("speaker_boost", True)),
-        },
-    }
-
-    safe_log_elevenlabs_preview(data, payload)
-    print("ELEVENLABS PREVIEW SELECTED VOICE:", voice_id)
-    print("ELEVENLABS PREVIEW SELECTED MODEL:", model_id)
-
-    try:
-        response = await asyncio.to_thread(
-            requests.post,
-            f"{ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}",
-            headers=elevenlabs_headers(),
-            params={"output_format": output_format},
-            json=payload,
-            timeout=60,
-        )
-    except Exception as exc:
-        print("ELEVENLABS PREVIEW REQUEST FAILED:", repr(exc))
-        return JSONResponse({
-            "success": False,
-            "error": str(exc),
-        }, status_code=502)
-
-    content_type = response.headers.get("content-type", "")
-    print("ELEVENLABS PREVIEW HTTP STATUS:", response.status_code)
-    print("ELEVENLABS PREVIEW CONTENT-TYPE:", content_type)
-
-    if response.status_code >= 400:
-        print("ELEVENLABS PREVIEW ERROR RESPONSE:", response.text[:2000])
-        return JSONResponse({
-            "success": False,
-            "error": response.text,
-            "elevenlabs_status": response.status_code,
-            "elevenlabs_content_type": content_type,
-        }, status_code=502)
-
-    if not response.content:
-        print("ELEVENLABS PREVIEW EMPTY AUDIO RESPONSE")
-        return JSONResponse({
-            "success": False,
-            "error": "ElevenLabs returned empty audio",
-            "elevenlabs_status": response.status_code,
-            "elevenlabs_content_type": content_type,
-        }, status_code=502)
-
-    if "audio" not in content_type and "octet-stream" not in content_type:
-        print("ELEVENLABS PREVIEW NON-AUDIO RESPONSE:", response.text[:2000])
-        return JSONResponse({
-            "success": False,
-            "error": "ElevenLabs returned non-audio response",
-            "elevenlabs_status": response.status_code,
-            "elevenlabs_content_type": content_type,
-            "body": response.text[:2000],
-        }, status_code=502)
-
-    print("ELEVENLABS PREVIEW AUDIO BYTES:", len(response.content))
-    return Response(
-        content=response.content,
-        media_type=content_type.split(";")[0] if content_type else "audio/mpeg",
-        headers={"Cache-Control": "no-store"}
-    )
 
 # =====================================================
 # API ENDPOINT: public_prostudio_voice_preview
@@ -5124,11 +5017,26 @@ def helper_generation_id(label: str, telegram_id: int, client_request_id: str = 
     return f"helper-{label}-{digest}"
 
 
-async def run_billed_helper(telegram_id: int, credits: int, label: str, call, *, client_request_id: str = "", model: str = "", provider: str = ""):
+def settled_helper_credits(reserved: int, actual: Optional[int], label: str) -> int:
+    """What a usage-billed helper is charged: the provider-reported usage at
+    the SYLVEX rule, never above the reservation the user agreed to. Unknown
+    usage settles at the reserved upper bound."""
+    reserved = int(reserved or 0)
+    if actual is None:
+        return reserved
+    if actual > reserved:
+        print("HELPER_USAGE_ABOVE_RESERVATION:", {"label": label, "reserved": reserved, "actual": int(actual)})
+        return reserved
+    return max(0, int(actual))
+
+
+async def run_billed_helper(telegram_id: int, credits: int, label: str, call, *, client_request_id: str = "", model: str = "", provider: str = "", usage_credits=None):
     """Priced helper call (Grid plan, idea routing, voice tools, previews,
     assistant AI mode): reserve the SYLVEX price, dispatch inside one billing
     scope, settle on success, release on failure. Unknown/zero price fails
-    closed before any provider is contacted."""
+    closed before any provider is contacted. For usage-billed LLM helpers
+    `credits` is the capped upper bound and usage_credits(result) the actual
+    provider usage at the SYLVEX rule; the difference is returned."""
     credits = int(credits or 0)
     if not telegram_id:
         raise SecurityError("telegram_id_required", 401)
@@ -5146,16 +5054,20 @@ async def run_billed_helper(telegram_id: int, credits: int, label: str, call, *,
     if not ok:
         await asyncio.to_thread(release_direct_text_generation, generation_id)
         return result
+    charged_credits = credits
+    if usage_credits is not None:
+        charged_credits = settled_helper_credits(credits, usage_credits(result), label)
     billing = await asyncio.to_thread(
         charge_generation_balance, telegram_id, generation_id,
         result if isinstance(result, dict) else {},
-        {"mode": "helper", "model": model or label, "provider": provider, "price_snapshot": {"final_credits": credits}},
+        {"mode": "helper", "model": model or label, "provider": provider,
+         "price_snapshot": {"final_credits": charged_credits, "reserved_credits": credits}},
     )
     if not billing.get("charged") and not billing.get("already_charged"):
         await asyncio.to_thread(release_direct_text_generation, generation_id)
         raise SecurityError("billing_failed", 503)
     if isinstance(result, dict):
-        result.setdefault("cost_credits", credits)
+        result.setdefault("cost_credits", charged_credits)
     return result
 
 
@@ -5165,8 +5077,6 @@ async def run_billed_helper(telegram_id: int, credits: int, label: str, call, *,
 UNPRICED_HELPERS = frozenset({
     "home_idea_realtime",        # OpenAI Realtime voice session
     "assistant_realtime",        # OpenAI Realtime voice session
-    "elevenlabs_preview_legacy", # unused endpoint, arbitrary text TTS
-    "runway_avatar",             # unused endpoint
     "transcribe",                # dictation (OpenAI/Gemini STT)
     "voice_clone",               # ElevenLabs instant voice clone
     "voice_avatar_generation",   # automatic voice avatar images
@@ -5182,14 +5092,116 @@ def unpriced_helper_response(operation: str) -> JSONResponse:
     )
 
 
-def helper_text_price(model: str, prompt: str) -> int:
-    """Existing SYLVEX text tariff for one helper call; 0 = no tariff."""
+# Provider list prices, USD per 1M tokens (input, output). Credits follow
+# the SYLVEX rule: ceil(provider_cost_usd * 1.5 * 100) - see sylvex_credits().
+# grok_3 / qwen_* were estimated from each provider's published tier when
+# they were first priced; verify against xAI / DashScope before relying on them.
+TEXT_TOKEN_USD_PER_MILLION = {
+    "byteplus_seed_2_lite": ("0.25", "2.00"), "gpt-5.6": ("4.00", "20.00"), "gpt-5.5": ("5.00", "30.00"),
+    "gpt-5": ("1.25", "10.00"), "gpt-5-mini": ("0.25", "2.00"), "gpt-4.1": ("2.00", "8.00"),
+    "gpt-4.1-mini": ("0.40", "1.60"), "gpt-4o": ("2.50", "10.00"), "gpt-4o-mini": ("0.15", "0.60"),
+    "gemini_3_1_pro": ("2.00", "12.00"), "gemini_3_1_flash": ("0.75", "3.75"),
+    "gemini_2_5_pro": ("1.25", "10.00"), "gemini_2_5_flash": ("0.30", "2.50"),
+    "grok_4_1": ("2.00", "6.00"), "grok_4_fast": ("1.25", "2.50"),
+    "grok_3": ("3.00", "15.00"), "qwen_plus": ("0.40", "1.60"), "qwen_turbo": ("0.05", "0.20"), "qwen_max": ("1.60", "6.40"),
+}
+# Upper bound used only for reservations: an input image on the OpenAI/Gemini
+# vision paths costs fewer tokens than this at the sizes SYLVEX sends.
+HELPER_IMAGE_TOKEN_BOUND = 1600
+
+
+def text_token_rates(model: str) -> Optional[tuple]:
     raw = str(model or "").strip()
-    for candidate in dict.fromkeys([raw, raw.replace("-", "_").replace(".", "_")]):
-        estimate = calculate_generation_price({"mode": "text", "model": candidate, "prompt": prompt})
-        if estimate.get("pricing_available", False):
-            return int((estimate.get("price_snapshot") or {}).get("final_credits") or estimate.get("credits") or 0)
-    return 0
+    for candidate in dict.fromkeys([raw, normalize_text_model(raw) if raw else raw, raw.replace("-", "_").replace(".", "_")]):
+        rates = TEXT_TOKEN_USD_PER_MILLION.get(candidate)
+        if rates:
+            return tuple(Decimal(value) for value in rates)
+    return None
+
+
+def text_tokens_credits(model: str, input_tokens: int, output_tokens: int) -> int:
+    """SYLVEX credits for a token count of `model`; 0 = no rate (fail closed)."""
+    rates = text_token_rates(model)
+    if not rates:
+        return 0
+    cost = (Decimal(max(0, int(input_tokens or 0))) * rates[0] + Decimal(max(0, int(output_tokens or 0))) * rates[1]) / Decimal(1_000_000)
+    return sylvex_credits(cost)
+
+
+def helper_text_reservation(model: str, input_text: str, max_output_tokens: int, image_count: int = 0) -> int:
+    """Upper bound for one capped helper LLM call: every input character
+    counted as a token (natural text never tokenizes above one token per
+    character), each image at HELPER_IMAGE_TOKEN_BOUND, and the full output
+    cap that is sent to the provider. The charge settles on actual usage."""
+    input_tokens = len(str(input_text or "")) + max(0, int(image_count or 0)) * HELPER_IMAGE_TOKEN_BOUND
+    return text_tokens_credits(model, input_tokens, int(max_output_tokens or 0))
+
+
+def text_usage_tokens(metadata) -> Optional[tuple]:
+    """(input_tokens, output_tokens) reported by the provider, reasoning and
+    thinking tokens included in output; None when the response had none."""
+    if not isinstance(metadata, dict):
+        return None
+    usage = metadata.get("usage")
+    if isinstance(usage, dict):
+        if "input_tokens" in usage or "output_tokens" in usage:
+            return int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+        if "prompt_tokens" in usage or "completion_tokens" in usage:
+            return int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
+    gemini = metadata.get("usageMetadata")
+    if isinstance(gemini, dict):
+        return (
+            int(gemini.get("promptTokenCount") or 0) + int(gemini.get("toolUsePromptTokenCount") or 0),
+            int(gemini.get("candidatesTokenCount") or 0) + int(gemini.get("thoughtsTokenCount") or 0),
+        )
+    return None
+
+
+GRID_PLAN_MAX_OUTPUT_TOKENS = 8000
+HOME_IDEA_MAX_OUTPUT_TOKENS = 4000
+ASSISTANT_MAX_OUTPUT_TOKENS = 8000
+OBJECT_VISION_MAX_OUTPUT_TOKENS = 4000
+
+
+def text_generation_price_input(payload: dict) -> tuple:
+    """(input_text, image_count) of what text_generation() sends for this
+    payload - system prompt, history, prompt and attachment text - so a
+    capped helper reservation covers the whole request."""
+    opts = payload.get("text_options") or {}
+    tool = str(opts.get("tool") or "text").strip().lower()
+    parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower())]
+    for item in (payload.get("history") or [])[-10:]:
+        if isinstance(item, dict) and item.get("content"):
+            parts.append(str(item.get("content")))
+    parts.append(f"Mode: {payload.get('mode') or 'text'}\nTool: {tool}\nPrompt: {payload.get('prompt') or ''}")
+    attachment = payload.get("attachment") or {}
+    images = 0
+    if isinstance(attachment, dict) and attachment:
+        mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
+        parts.append(f"Attachment: {attachment.get('name')} ({mime})")
+        if mime.startswith("image/"):
+            images = 1
+        else:
+            parts.append(text_attachment_plain_text(attachment))
+    return "\n".join(parts), images
+
+
+def text_generation_usage_credits(model: str):
+    """usage_credits callback for run_billed_helper around text_generation()."""
+    def _credits(result):
+        if not isinstance(result, dict):
+            return None
+        if result.get("provider") == "sylvex-fast":
+            return 0  # answered locally, no provider call
+        return text_usage_credits(model, result.get("metadata"))
+    return _credits
+
+
+def text_usage_credits(model: str, metadata) -> Optional[int]:
+    tokens = text_usage_tokens(metadata)
+    if tokens is None:
+        return None
+    return text_tokens_credits(model, tokens[0], tokens[1])
 
 
 def release_direct_text_generation(generation_id: str) -> None:
@@ -8074,109 +8086,6 @@ async def public_prostudio_save_resource(request: Request):
     return {"ok": True, "resource": item}
 
 
-@app.post("/api/public/prostudio/runway-avatar")
-async def public_prostudio_runway_avatar(request: Request):
-    if "runway_avatar" in UNPRICED_HELPERS:
-        return unpriced_helper_response("runway_avatar")
-    data = await request.json()
-    telegram_id = int(data.get("telegram_id") or 0)
-    name = str(data.get("name") or "").strip()
-    photos = _json_list(data.get("photos")) or _json_list(data.get("referenceImages"))
-    if not telegram_id:
-        return telegram_id_required_response()
-    if len(name) < 2:
-        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
-    if not photos:
-        return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
-
-    api_key = env_value("RUNWAY_API_KEY", "RUNWAYML_API_SECRET", "RUNWAYML_API_KEY")
-    if not api_key:
-        return JSONResponse({"ok": False, "error": "RUNWAY_API_KEY is not configured"}, status_code=500)
-
-    preview_image = public_media_url(photos[0])
-    reference_image = preview_image
-    if not preview_image.startswith("https://"):
-        return JSONResponse({"ok": False, "error": "Runway requires a public HTTPS reference image"}, status_code=400)
-
-    gender = str(data.get("gender") or "").strip()
-    description = str(data.get("description") or "").strip()
-    personality = (
-        f"You are the persistent SYLVEX character named {name}. "
-        "Keep the visual identity from the reference image consistent across sessions and generated media. "
-        "Respond naturally, briefly, and stay in character when used as an avatar."
-    )
-    if gender:
-        personality += f" Gender/style note: {gender}."
-    if description:
-        personality += f" Character description: {description[:1200]}."
-
-    endpoint = f"{RUNWAY_API_BASE_URL}/v1/avatars"
-    try:
-        from runwayml import RunwayML
-
-        client = RunwayML(
-            api_key=api_key,
-            runway_version=RUNWAY_API_VERSION,
-            base_url=RUNWAY_API_BASE_URL,
-            timeout=120,
-        )
-        file_tuple = image_file_tuple_from_url(photos[0], fallback_name=f"{name or 'character'}.png")
-        if file_tuple:
-            upload = client.uploads.create_ephemeral(file=file_tuple, timeout=240)
-            upload_payload = provider_object_to_dict(upload)
-            reference_image = upload_payload.get("uri") or getattr(upload, "uri", "") or reference_image
-        prostudio_debug(
-            "RUNWAY_AVATAR_CREATE_START",
-            telegram_id=telegram_id,
-            reference_image=reference_image,
-            preview_image=preview_image,
-            name=name,
-            voice_type="runway-live-preset",
-            preset_id="clara",
-            uploaded_to_runway=reference_image.startswith("runway://"),
-        )
-        avatar = client.avatars.create(
-            name=name,
-            reference_image=reference_image,
-            voice={"type": "runway-live-preset", "preset_id": "clara"},
-            personality=personality[:10000],
-            image_processing="optimize",
-        )
-        payload = provider_object_to_dict(avatar)
-    except Exception as exc:
-        prostudio_error("RUNWAY_AVATAR_CREATE_FAILED", exc, telegram_id=telegram_id, endpoint=endpoint, reference_image=reference_image, preview_image=preview_image)
-        return JSONResponse({
-            "ok": False,
-            "error": "Runway avatar creation failed",
-            "details": str(exc)[:1200],
-            "endpoint": endpoint,
-        }, status_code=502)
-
-    avatar_id = str(payload.get("id") or payload.get("avatarId") or payload.get("avatar_id") or "")
-    if not avatar_id:
-        return JSONResponse({"ok": False, "error": "Runway returned no avatar id", "response": payload}, status_code=502)
-
-    resource = {
-        "id": f"custom_character_{avatar_id}",
-        "resource_type": "character",
-        "name": name,
-        "gender": gender,
-        "description": description,
-        "previewUrl": preview_image,
-        "referenceImages": [preview_image],
-        "sourceImages": photos,
-        "avatar_id": avatar_id,
-        "provider": "runway",
-        "model": "gwm1_avatars",
-        "ai_provider": "runway",
-        "ai_model": "gwm1_avatars",
-        "type": "custom",
-        "status": "ready",
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-    return {"ok": True, "resource": resource, "avatar": payload}
-
-
 def _character_gender_text(gender: str) -> str:
     return "male" if gender == "male" else ("female" if gender == "female" else "a person")
 
@@ -8397,10 +8306,33 @@ def character_creation_price() -> int:
     return unit * CHARACTER_CREATION_SHOTS if unit > 0 else 0
 
 
+OBJECT_VISION_SYSTEM_PROMPT = "You write extremely concise visual identity descriptions of physical objects for internal reference use only."
+
+
+def object_vision_reservation(name: str, description: str) -> int:
+    """Upper bound of the gpt-5.5 vision call (system + instruction text, one
+    image, capped output); the job settles on the usage it reports."""
+    return helper_text_reservation(
+        "gpt-5.5", OBJECT_VISION_SYSTEM_PROMPT + _object_prompt_instruction_text(name, description),
+        OBJECT_VISION_MAX_OUTPUT_TOKENS, image_count=1,
+    )
+
+
 def object_creation_price(name: str, description: str) -> int:
     image = _gpt_image_2_shot_price()
-    vision = helper_text_price("gpt-5.5", _object_prompt_instruction_text(name, description))
+    vision = object_vision_reservation(name, description)
     return image + vision if image > 0 and vision > 0 else 0
+
+
+def object_creation_settled_credits(reserved_total: int, vision_usage: dict) -> int:
+    """Fixed GPT Image 2 shot + the vision call's actual usage (capped at its
+    reservation; nothing when the call failed and the fallback prompt was
+    used; the reservation when it answered without reporting usage)."""
+    image = _gpt_image_2_shot_price()
+    vision_reserved = max(0, int(reserved_total or 0) - image)
+    if not vision_usage.get("answered"):
+        return image
+    return image + settled_helper_credits(vision_reserved, vision_usage.get("credits"), "object_vision")
 
 
 def _creation_job_price_snapshot(credits: int, kind: str) -> dict:
@@ -8823,12 +8755,12 @@ async def _generate_object_reference_image(job_id: str, name: str, description: 
     return url
 
 
-async def _analyze_object_prompt(job_id: str, name: str, description: str, image_url: str) -> str:
+async def _analyze_object_prompt(job_id: str, name: str, description: str, image_url: str, usage: Optional[dict] = None) -> str:
     if not image_url:
         raise RuntimeError("object_prompt_analysis_missing_image")
     instruction = _object_prompt_instruction_text(name, description)
     messages = [
-        {"role": "system", "content": "You write extremely concise visual identity descriptions of physical objects for internal reference use only."},
+        {"role": "system", "content": OBJECT_VISION_SYSTEM_PROMPT},
         {"role": "user", "content": [
             {"type": "text", "text": instruction},
             {"type": "image_url", "image_url": {"url": image_url}},
@@ -8843,9 +8775,12 @@ async def _analyze_object_prompt(job_id: str, name: str, description: str, image
     # content part into input_image for OpenAI. asyncio.to_thread() keeps
     # that blocking call off the event loop, same as every other blocking
     # provider/DB call in this job.
-    result = await asyncio.to_thread(call_text_provider, "gpt-5.5", messages)
+    result = await asyncio.to_thread(call_text_provider, "gpt-5.5", messages, None, OBJECT_VISION_MAX_OUTPUT_TOKENS)
     if not result.get("ok"):
         raise RuntimeError(str(result.get("error") or "object_prompt_analysis_failed")[:600])
+    if usage is not None:
+        usage["answered"] = True
+        usage["credits"] = text_usage_credits("gpt-5.5", result.get("metadata"))
     text = str(result.get("text") or "").strip()
     if not text:
         raise RuntimeError("object_prompt_analysis_empty")
@@ -8906,9 +8841,10 @@ async def _run_object_creation_job_billed(job_id: str, telegram_id: int, name: s
     source_photo = photos[0] if photos else ""
     try:
         await _record_object_job_progress(job_id, "reference")
+        vision_usage = {}
         reference_result, prompt_result = await asyncio.gather(
             _generate_object_reference_image(job_id, name, description, source_photo),
-            _analyze_object_prompt(job_id, name, description, source_photo),
+            _analyze_object_prompt(job_id, name, description, source_photo, vision_usage),
             return_exceptions=True,
         )
         if isinstance(reference_result, BaseException):
@@ -8966,7 +8902,7 @@ async def _run_object_creation_job_billed(job_id: str, telegram_id: int, name: s
             "resource": final_resource,
             "result_url": final_resource["previewUrl"],
         }
-        if not await _settle_creation_job(job_id, telegram_id, credits, "object_creation", result):
+        if not await _settle_creation_job(job_id, telegram_id, object_creation_settled_credits(credits, vision_usage), "object_creation", result):
             raise RuntimeError("object_creation_billing_failed")
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "completed", result)
         prostudio_debug("OBJECT_JOB_COMPLETED", job_id=job_id, elapsed_seconds=round(time.monotonic() - job_started, 3))
@@ -9369,6 +9305,11 @@ def _log_upload_media_rejected(reason, media_kind, suffix, mime, size_bytes, sta
     # raise through just returns bare JSON with no server-side log line at
     # all), so a 400 here was previously undiagnosable without frontend
     # network-tab access.
+    if media_kind == "video" or str(mime or "").startswith("video/"):
+        video_probe.log_video_reference_event(
+            "upload_media", meta={"bytes": size_bytes, "extension": suffix, "mime": mime, "width": width, "height": height},
+            validation=reason, inputs={"video": True},
+        )
     print("UPLOAD_MEDIA_REJECTED:", {
         "reason": reason,
         "kind": media_kind,
@@ -12686,7 +12627,17 @@ async def web_assistant_message(request: Request):
     # AI mode is billed per message at the existing text tariff of the
     # assistant model: reserved before the stream opens, charged once any
     # text was produced, released when nothing was (error/disconnect).
-    assistant_credits = helper_text_price(OPENAI_ASSISTANT_MODEL, json.dumps(messages, ensure_ascii=False))
+    # Capped output; reserved at the upper bound, settled on the usage the
+    # stream reports (the reservation when the stream ends without it).
+    assistant_images = sum(
+        1 for message in messages if isinstance(message.get("content"), list)
+        for part in message["content"] if isinstance(part, dict) and part.get("type") in {"image_url", "input_image"}
+    )
+    assistant_credits = helper_text_reservation(
+        OPENAI_ASSISTANT_MODEL,
+        json.dumps([m if not isinstance(m.get("content"), list) else {**m, "content": [p for p in m["content"] if not (isinstance(p, dict) and p.get("type") in {"image_url", "input_image"})]} for m in messages], ensure_ascii=False),
+        ASSISTANT_MAX_OUTPUT_TOKENS, assistant_images,
+    )
     if assistant_credits <= 0:
         return unpriced_helper_response("assistant_ai")
     assistant_generation_id = helper_generation_id("assistant", telegram_id, client_request_id)
@@ -12708,10 +12659,12 @@ async def web_assistant_message(request: Request):
         try:
             yield f"data: {json.dumps({'type': 'start', 'stream_id': stream_id, 'conversation_id': conversation_id})}\n\n"
             q = queue_module.Queue()
+            stream_usage = {}
 
             def worker():
                 try:
-                    for delta in stream_assistant_reply(OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_ASSISTANT_MODEL, messages):
+                    for delta in stream_assistant_reply(OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_ASSISTANT_MODEL, messages,
+                                                        max_output_tokens=ASSISTANT_MAX_OUTPUT_TOKENS, usage_sink=stream_usage):
                         q.put(("delta", delta))
                         with _ASSISTANT_STOP_LOCK:
                             if _ASSISTANT_STOP_FLAGS.get(stream_id):
@@ -12743,7 +12696,11 @@ async def web_assistant_message(request: Request):
                     charge_generation_balance, telegram_id, assistant_generation_id,
                     {"type": "text", "model": OPENAI_ASSISTANT_MODEL},
                     {"mode": "assistant", "model": OPENAI_ASSISTANT_MODEL, "provider": "openai",
-                     "price_snapshot": {"final_credits": assistant_credits}},
+                     "price_snapshot": {"final_credits": settled_helper_credits(
+                         assistant_credits,
+                         text_usage_credits(OPENAI_ASSISTANT_MODEL, stream_usage) if stream_usage else None,
+                         "assistant"),
+                         "reserved_credits": assistant_credits}},
                 )
                 billing_settled = bool(billing.get("charged") or billing.get("already_charged"))
         finally:
@@ -13953,7 +13910,9 @@ def character_replace_cost_info(input_image_count: int, output_mp: float = CHARA
         + images * FLUX_2_MAX_INPUT_IMAGE_COST_USD
     )
     unit_usd = provider_cost_usd * CHARACTER_REPLACE_MARKUP
-    credits = int(math.ceil(unit_usd * 100))
+    # sylvex_credits() is Decimal: one input ($0.10) is 15 credits, not the
+    # 16 the old float ceil produced.
+    credits = sylvex_credits(round(provider_cost_usd, 6))
     return {
         "credits": credits,
         "cost_credits": credits,
@@ -14096,10 +14055,7 @@ def enhance_photo_cost_info() -> dict:
     1.5 * 100), i.e. 1 SYLVEX credit = $0.01 of the marked-up price -
     $0.10 * 1.5 = $0.15 -> 15 credits."""
     unit_usd = TOPAZ_CREDIT_COST_USD * ENHANCE_PHOTO_MARKUP
-    # round() first to absorb float representation error (0.10 * 1.5 * 100
-    # == 15.000000000000002 in IEEE754) before ceiling - otherwise the
-    # intended flat 15 credits would silently become 16.
-    credits = int(math.ceil(round(unit_usd * 100, 6)))
+    credits = sylvex_credits(TOPAZ_CREDIT_COST_USD)
     return {
         "credits": credits,
         "cost_credits": credits,
@@ -14121,7 +14077,7 @@ def edit_upscale_cost_info(width: int, height: int) -> dict:
     pixels = width * height
     provider_credits = 1 if pixels <= 24_000_000 else 2 if pixels <= 40_000_000 else 3 if pixels <= 64_000_000 else 5
     provider_cost = TOPAZ_CREDIT_COST_USD * provider_credits
-    credits = max(1, int(math.ceil(round(provider_cost * ENHANCE_PHOTO_MARKUP * 100, 6))))
+    credits = max(1, sylvex_credits(round(provider_cost, 6)))
     return {"credits": credits, "cost_credits": credits,
             "cost_usd": round(provider_cost * ENHANCE_PHOTO_MARKUP, 4),
             "provider_cost_usd": round(provider_cost, 4), "generation_cost": f"{credits} ⚡",
@@ -14475,8 +14431,7 @@ def animate_photo_cost_info() -> dict:
     rounded up to a whole SYLVEX credit: $0.60 * 1.5 = $0.90 -> 90 credits."""
     provider_cost_usd = RUNWAY_GEN45_CREDITS_PER_SECOND * ANIMATE_PHOTO_DURATION_SECONDS * RUNWAY_CREDIT_COST_USD
     unit_usd = provider_cost_usd * ANIMATE_PHOTO_MARKUP
-    # round() first to absorb float representation error before ceiling.
-    credits = int(math.ceil(round(unit_usd * 100, 6)))
+    credits = sylvex_credits(round(provider_cost_usd, 6))
     return {
         "credits": credits,
         "cost_credits": credits,
@@ -16662,11 +16617,10 @@ FASHN_TRYON_MODEL = "tryon-max"
 FASHN_MAX_GARMENTS = 3
 FASHN_POLL_INTERVAL_SECONDS = 3
 FASHN_POLL_MAX_ATTEMPTS = 40
-# The already-established SYLVEX price for one virtual try-on operation
-# (previously only reachable through a differently-named, never-wired
-# "tryon" tool key) - reused per FASHN call rather than inventing a new
-# number, since FASHN's real /v1/run endpoint bills per garment.
-FASHN_TRYON_CREDITS_PER_GARMENT = 9
+# FASHN bills tryon-max at 2 FASHN credits ($0.10 each) per /v1/run call,
+# one call per garment. The old 9 credits per garment was below cost.
+FASHN_TRYON_MAX_COST_USD = 0.20
+FASHN_TRYON_CREDITS_PER_GARMENT = sylvex_credits(FASHN_TRYON_MAX_COST_USD)
 
 
 def fashn_auth_headers() -> dict:
@@ -17225,7 +17179,7 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
     return True, text, data if isinstance(data, dict) else {}
 
 
-def openai_responses_text_request(provider_model: str, messages: list) -> tuple[bool, str, dict]:
+def openai_responses_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None) -> tuple[bool, str, dict]:
     require_billing_scope("openai_responses_text_request")
     if not OPENAI_API_KEY:
         return False, "OPENAI API key is not configured", {}
@@ -17255,7 +17209,8 @@ def openai_responses_text_request(provider_model: str, messages: list) -> tuple[
     response = requests.post(
         OPENAI_API_BASE.rstrip("/") + "/responses",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-        data=json.dumps({"model": provider_model, "input": response_input}),
+        data=json.dumps({"model": provider_model, "input": response_input,
+                         **({"max_output_tokens": int(max_output_tokens)} if max_output_tokens else {})}),
         timeout=90,
     )
     try:
@@ -17274,7 +17229,7 @@ def openai_responses_text_request(provider_model: str, messages: list) -> tuple[
     return True, text, data if isinstance(data, dict) else {}
 
 
-def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str, dict]:
+def gemini_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None) -> tuple[bool, str, dict]:
     require_billing_scope("gemini_text_request")
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
@@ -17318,6 +17273,8 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
     endpoint_base = env_value("GEMINI_TEXT_ENDPOINT", "GEMINI-GENERATE-CONTENT-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/models").rstrip("/")
     endpoint = f"{endpoint_base}/{provider_model}:generateContent"
     request_payload = {"contents": contents}
+    if max_output_tokens:
+        request_payload["generationConfig"] = {"maxOutputTokens": int(max_output_tokens)}
     if system_text:
         request_payload["systemInstruction"] = {"parts": [{"text": system_text}]}
     response = requests.post(
@@ -17340,31 +17297,35 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
     return True, "\n".join(text_parts).strip(), data if isinstance(data, dict) else {}
 
 
-def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None) -> dict:
+def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None, max_output_tokens: Optional[int] = None) -> dict:
     require_billing_scope("call_text_provider")
     cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-5.5"]
     provider = cfg.get("provider") or "openai"
     provider_model = cfg.get("provider_model") or model
     request_messages = with_text_media_attachment(messages, attachment or {}, provider)
+    # Output cap (priced helpers only): the reservation is computed from it,
+    # so the provider must never return more.
+    cap_body = {"max_tokens": int(max_output_tokens)} if max_output_tokens else {}
     if provider == "gemini":
-        ok, text, data = gemini_text_request(provider_model, request_messages)
+        ok, text, data = gemini_text_request(provider_model, request_messages, max_output_tokens)
     elif provider in {"grok", "xai"}:
         api_key = env_value("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
         endpoint_base = env_value("XAI_API_BASE", "GROK_API_BASE", default="https://api.x.ai/v1")
-        ok, text, data = openai_compatible_text_request("grok", endpoint_base, api_key, provider_model, request_messages)
+        ok, text, data = openai_compatible_text_request("grok", endpoint_base, api_key, provider_model, request_messages, cap_body or None)
         provider = "grok"
     elif provider == "qwen":
         api_key = env_value("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY")
         endpoint_base = env_value("QWEN_TEXT_API_BASE", "DASHSCOPE_COMPATIBLE_API_BASE", default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
-        ok, text, data = openai_compatible_text_request("qwen", endpoint_base, api_key, provider_model, request_messages)
+        ok, text, data = openai_compatible_text_request("qwen", endpoint_base, api_key, provider_model, request_messages, cap_body or None)
     elif provider == "byteplus":
         endpoint_base = BYTEPLUS_ARK_ENDPOINT
-        ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}})
+        ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}, **cap_body})
     else:
         if cfg.get("api") == "responses":
-            ok, text, data = openai_responses_text_request(provider_model, request_messages)
+            ok, text, data = openai_responses_text_request(provider_model, request_messages, max_output_tokens)
         else:
-            ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages)
+            ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages,
+                                                            {"max_completion_tokens": int(max_output_tokens)} if max_output_tokens else None)
         provider = "openai"
     if not ok:
         return {"ok": False, "error": text, "provider": provider, "model": model, "provider_model": provider_model, "metadata": data}
@@ -17458,7 +17419,7 @@ def text_generation(payload: dict) -> dict:
         prompt = (prompt + f"\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')})").strip()
     messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
-    generated = call_text_provider(model, messages, attachment)
+    generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap"))
     if not generated.get("ok"):
         return generated
     text = generated.get("text") or ""
@@ -17746,6 +17707,57 @@ def _reference_video_meta(url: str) -> dict:
     if probed:
         meta.update({k: probed[k] for k in ("bytes", "duration", "width", "height", "extension") if probed.get(k) not in (None, "")})
     return meta
+
+
+def _video_reference_inputs_summary(opts: dict, payload: Optional[dict] = None) -> dict:
+    """Which reference inputs a video request carries (presence and counts
+    only - never URLs)."""
+    payload = payload or {}
+    def _count(*values):
+        found = set()
+        for value in values:
+            for item in (value if isinstance(value, (list, tuple)) else [value]):
+                if str(item or "").strip():
+                    found.add(str(item).strip())
+        return len(found)
+    return {
+        "start_image": bool(opts.get("start_image") or payload.get("start_image")),
+        "end_image": bool(opts.get("end_image")),
+        "reference_images": _count(opts.get("reference_images"), opts.get("referenceImageUrls")),
+        "character_images": _count(opts.get("characterReferences")),
+        "object_images": _count(opts.get("objectReferences")),
+        "video": bool(opts.get("input_video") or opts.get("video_url") or opts.get("reference_video")),
+    }
+
+
+def log_video_reference_failure(entry_point: str, payload: dict, result: Optional[dict] = None, validation: Optional[str] = None) -> Optional[dict]:
+    """VIDEO_REFERENCE_REJECTED record for a video request that carried a
+    reference input and was rejected by SYLVEX validation or the provider."""
+    opts = payload.get("video_options") or payload.get("options") or {}
+    inputs = _video_reference_inputs_summary(opts, payload)
+    if not any(inputs.values()):
+        return None
+    meta = {}
+    video_url = str(opts.get("reference_video") or opts.get("input_video") or opts.get("video_url") or "").strip()
+    if video_url and not video_url.startswith("data:"):
+        try:
+            meta = _reference_video_meta(video_url)
+        except Exception:
+            meta = {}
+    result = result if isinstance(result, dict) else {}
+    response = result.get("provider_response") if isinstance(result.get("provider_response"), dict) else {}
+    error_obj = response.get("error") if isinstance(response.get("error"), dict) else {}
+    return video_probe.log_video_reference_event(
+        entry_point,
+        model=str(opts.get("model") or payload.get("model") or result.get("model") or ""),
+        provider=str(result.get("provider") or payload.get("provider") or ""),
+        meta=meta,
+        validation=validation,
+        provider_status=result.get("status_code") or response.get("status_code"),
+        provider_error_code=result.get("code") or error_obj.get("code") or response.get("code"),
+        provider_error=(result.get("raw_error") or result.get("details") or result.get("error")) if result else None,
+        inputs=inputs,
+    )
 
 
 async def validate_reference_video_media(payload: dict) -> Optional[dict]:
@@ -19174,29 +19186,12 @@ def estimate_generation_cost(payload: dict) -> dict:
         return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True}
     if mode in {"text", "chat", "pro", "lite"}:
         model = normalize_text_model(payload.get("model") or "gpt-5.5")
-        per_million = {
-            "byteplus_seed_2_lite": (38, 300), "gpt-5.6": (600, 3000), "gpt-5.5": (750, 4500),
-            "gpt-5": (188, 1500), "gpt-5-mini": (38, 300), "gpt-4.1": (300, 1200),
-            "gpt-4.1-mini": (60, 240), "gpt-4o": (375, 1500), "gpt-4o-mini": (23, 90),
-            "gemini_3_1_pro": (300, 1800), "gemini_3_1_flash": (113, 563),
-            "gemini_2_5_pro": (188, 1500), "gemini_2_5_flash": (45, 375),
-            "grok_4_1": (300, 900), "grok_4_fast": (188, 375),
-            # These 4 models were selectable in the UI and fully wired in
-            # TEXT_MODEL_VARIANTS but had no pricing entry at all, so every
-            # request for them was rejected with pricing_not_configured
-            # before text_generation() was ever called - regardless of API
-            # keys. Estimated from each provider's published per-token
-            # pricing tier at the time of this fix; verify against xAI's
-            # and DashScope's current pricing pages before relying on the
-            # exact rate for real billing.
-            "grok_3": (450, 2250), "qwen_plus": (60, 240), "qwen_turbo": (8, 30), "qwen_max": (240, 960),
-        }.get(model)
-        if not per_million:
+        if not text_token_rates(model):
             return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
         source_text = str(payload.get("prompt") or "") + " ".join(str(item.get("content") or "") for item in (payload.get("history") or []) if isinstance(item, dict))
         input_tokens = max(1, (len(source_text) + 3) // 4)
         output_tokens = max(256, int((payload.get("text_options") or {}).get("max_output_tokens") or 512))
-        credits = max(1, int(__import__("math").ceil((input_tokens * per_million[0] + output_tokens * per_million[1]) / 1_000_000)))
+        credits = max(1, text_tokens_credits(model, input_tokens, output_tokens))
         return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True, "estimated_input_tokens": input_tokens, "estimated_output_tokens": output_tokens}
     if mode == "video" and is_animate_photo_request(payload):
         # Animate Photo is a flat 5-second Runway Gen-4.5 clip (unlike the
@@ -20692,11 +20687,7 @@ User task:
 {task}
 """.strip()
         planner_model = str((body or {}).get("model") or "gpt-5.5")
-        generated = await run_billed_helper(
-            int((body or {}).get("telegram_id") or 0),
-            helper_text_price(planner_model, planner_prompt),
-            "grid_plan",
-            lambda: asyncio.to_thread(text_generation, {
+        planner_payload = {
             "prompt": planner_prompt,
             "mode": "text",
             "category": "text",
@@ -20707,9 +20698,17 @@ User task:
             "attachment": None,
             "telegram_id": (body or {}).get("telegram_id"),
             "job_id": f"grid-plan:{uuid.uuid4()}",
-            }),
+            "output_token_cap": GRID_PLAN_MAX_OUTPUT_TOKENS,
+        }
+        planner_input, planner_images = text_generation_price_input(planner_payload)
+        generated = await run_billed_helper(
+            int((body or {}).get("telegram_id") or 0),
+            helper_text_reservation(planner_model, planner_input, GRID_PLAN_MAX_OUTPUT_TOKENS, planner_images),
+            "grid_plan",
+            lambda: asyncio.to_thread(text_generation, planner_payload),
             client_request_id=str((body or {}).get("client_request_id") or ""),
             model=planner_model,
+            usage_credits=text_generation_usage_credits(planner_model),
         )
         if not generated.get("ok"):
             return JSONResponse(generated, status_code=502)
@@ -20785,18 +20784,26 @@ async def public_home_idea_route(request: Request):
 Сообщение пользователя: {message}
 """.strip()
         idea_history = history[-12:] if isinstance(history, list) else []
-        idea_price_text = instruction + " ".join(str(item.get("content") or "") for item in idea_history if isinstance(item, dict))
+        attachment_mime = str((attachment or {}).get("mime") or (attachment or {}).get("content_type") or "").lower() if isinstance(attachment, dict) else ""
+        if attachment_mime.startswith(("audio/", "video/")):
+            # text_generation() would transcribe it - a paid call this
+            # helper's text tariff does not cover.
+            return JSONResponse({"ok": False, "error": "attachment_not_supported"}, status_code=400)
+        idea_payload = {
+            "prompt": instruction, "mode": "text", "category": "text", "model": "gpt-5.6",
+            "provider": "openai", "text_options": {"tool": "text", "format": "json", "style": "neutral"},
+            "history": idea_history, "attachment": attachment,
+            "output_token_cap": HOME_IDEA_MAX_OUTPUT_TOKENS,
+        }
+        idea_input, idea_images = await asyncio.to_thread(text_generation_price_input, idea_payload)
         result = await run_billed_helper(
             int((body or {}).get("telegram_id") or 0),
-            helper_text_price("gpt-5.6", idea_price_text),
+            helper_text_reservation("gpt-5.6", idea_input, HOME_IDEA_MAX_OUTPUT_TOKENS, idea_images),
             "home_idea_route",
-            lambda: asyncio.to_thread(text_generation, {
-                "prompt": instruction, "mode": "text", "category": "text", "model": "gpt-5.6",
-                "provider": "openai", "text_options": {"tool": "text", "format": "json", "style": "neutral"},
-                "history": idea_history, "attachment": attachment,
-            }),
+            lambda: asyncio.to_thread(text_generation, idea_payload),
             client_request_id=str((body or {}).get("client_request_id") or ""),
             model="gpt-5.6",
+            usage_credits=text_generation_usage_credits("gpt-5.6"),
         )
         if not result.get("ok"):
             return JSONResponse(result, status_code=502)
@@ -20997,6 +21004,7 @@ async def public_prostudio_generate(request: Request):
     if mode == "video":
         feature_error = validate_video_feature_request(payload) or await validate_reference_video_media(payload)
         if feature_error:
+            await asyncio.to_thread(log_video_reference_failure, "prostudio_generate", payload, None, feature_error.get("error"))
             return JSONResponse(feature_error, status_code=400)
 
         telegram_id = int(payload.get("telegram_id") or 0)
@@ -21409,9 +21417,15 @@ async def run_prostudio_provider_request(
                 raise SecurityError("pricing_not_configured", 402)
             await asyncio.to_thread(verify_job_reservation, job_id, credits)
         with billing_scope(job_id, credits, free=free):
-            return await _run_prostudio_provider_request_billed(
+            result, status = await _run_prostudio_provider_request_billed(
                 job_id, payload, mode, selected_model, selected_provider, text_modes, provider,
             )
+        if mode == "video" and status == "failed":
+            try:
+                await asyncio.to_thread(log_video_reference_failure, "prostudio_job", payload, result)
+            except Exception as exc:
+                print("VIDEO_REFERENCE_LOG_FAILED:", type(exc).__name__)
+        return result, status
     except SecurityError as exc:
         prostudio_debug("JOB_BILLING_BLOCKED", job_id=job_id, mode=mode, reason=exc.code, credits=credits)
         return {"ok": False, "type": mode, "error": "Генерация недоступна: стоимость не подтверждена.", "raw_error": exc.code}, "failed"
@@ -22443,40 +22457,53 @@ async def public_prostudio_voice_text_tool(request: Request):
     openai_model = env_value("OPENAI_VOICE_TEXT_MODEL", default="gpt-5-mini")
     gemini_model = env_value("GEMINI_VOICE_TEXT_MODEL", default="gemini-2.5-flash")
     price_text = instruction + messages[0]["content"]
-    # Priced per use with the existing text tariff of whichever model may
-    # answer (OpenAI first, Gemini fallback); a model without a tariff is
-    # never called.
-    openai_credits = helper_text_price(openai_model, price_text) if OPENAI_API_KEY else 0
-    gemini_credits = helper_text_price(gemini_model, price_text)
+    # The edited script is about as long as the input; the cap keeps the
+    # reservation an upper bound (reasoning/thinking tokens included).
+    output_cap = min(16000, max(2048, len(instruction) * 2))
+    # Reserved for whichever model may answer (OpenAI first, Gemini
+    # fallback; both may run), settled on the usage they report. A model
+    # without a rate is never called.
+    openai_credits = helper_text_reservation(openai_model, price_text, output_cap) if OPENAI_API_KEY else 0
+    gemini_credits = helper_text_reservation(gemini_model, price_text, output_cap)
 
     async def run_text_tool():
         result_text = ""
+        used_credits = 0
+        usage_known = True
         if openai_credits:
-            ok, result_text, _data = await asyncio.to_thread(
+            ok, result_text, data = await asyncio.to_thread(
                 openai_compatible_text_request,
                 "openai",
                 OPENAI_API_BASE,
                 OPENAI_API_KEY,
                 openai_model,
                 messages,
+                {"max_completion_tokens": output_cap},
             )
+            usage = text_usage_credits(openai_model, data)
+            used_credits += usage or 0
+            usage_known = usage_known and (usage is not None or not ok)
             if not ok:
                 provider_errors["openai"] = result_text
                 result_text = ""
         if not result_text and gemini_credits:
-            ok, result_text, _data = await asyncio.to_thread(gemini_text_request, gemini_model, messages)
+            ok, result_text, data = await asyncio.to_thread(gemini_text_request, gemini_model, messages, output_cap)
+            usage = text_usage_credits(gemini_model, data)
+            used_credits += usage or 0
+            usage_known = usage_known and (usage is not None or not ok)
             if not ok:
                 provider_errors["gemini"] = result_text
                 result_text = ""
-        return {"ok": bool(result_text), "text": result_text}
+        return {"ok": bool(result_text), "text": result_text, "usage_credits": used_credits if usage_known else None}
 
     tool_result = await run_billed_helper(
         int(payload.get("telegram_id") or 0),
-        max(openai_credits, gemini_credits),
+        openai_credits + gemini_credits,
         "voice_text_tool",
         run_text_tool,
         client_request_id=str(payload.get("client_request_id") or ""),
         model=openai_model if openai_credits else gemini_model,
+        usage_credits=lambda result: result.get("usage_credits") if isinstance(result, dict) else None,
     )
     result_text = tool_result.get("text") or ""
     if not result_text:

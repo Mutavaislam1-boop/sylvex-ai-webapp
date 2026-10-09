@@ -46,15 +46,20 @@ def _build_responses_input(messages):
     return response_input
 
 
-def stream_assistant_reply(api_key, api_base, model, messages, timeout=90):
+def stream_assistant_reply(api_key, api_base, model, messages, timeout=90, max_output_tokens=None, usage_sink=None):
     """Yields text deltas from OpenAI's Responses API streaming endpoint as
     they arrive. Raises RuntimeError with a caller-safe message on failure -
-    never propagates a raw provider exception/stack trace upward."""
+    never propagates a raw provider exception/stack trace upward. The token
+    usage of the final response.completed event is written to usage_sink
+    (a dict) so the caller can bill what the provider billed."""
     require_billing_scope("stream_assistant_reply")
     if not api_key:
         raise RuntimeError("openai_not_configured")
 
-    body = json.dumps({"model": model, "input": _build_responses_input(messages), "stream": True})
+    request = {"model": model, "input": _build_responses_input(messages), "stream": True}
+    if max_output_tokens:
+        request["max_output_tokens"] = int(max_output_tokens)
+    body = json.dumps(request)
     try:
         response = requests.post(
             api_base.rstrip("/") + "/responses",
@@ -101,7 +106,10 @@ def stream_assistant_reply(api_key, api_base, model, messages, timeout=90):
                 if not saw_any_delta:
                     raise RuntimeError("ai_temporarily_unavailable")
                 return
-            elif event_type == "response.completed":
+            elif event_type in ("response.completed", "response.incomplete"):
+                usage = (event.get("response") or {}).get("usage")
+                if isinstance(usage_sink, dict) and isinstance(usage, dict):
+                    usage_sink["usage"] = usage
                 return
     finally:
         response.close()

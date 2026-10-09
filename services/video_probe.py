@@ -157,3 +157,46 @@ def decode_sidecar(raw: bytes) -> Optional[dict]:
     except Exception:
         return None
     return data if isinstance(data, dict) else None
+
+
+# ---------------------------------------------------------------------------
+# Structured record of every rejected video-reference request, so the next
+# occurrence of an unexplained limit (e.g. the reported "3-1000 seconds")
+# shows where it came from: SYLVEX validation, upload, or the provider.
+
+_URL_RE = re.compile(r"https?://\S+|data:[^\s,]+,[A-Za-z0-9+/=]+")
+_SECRET_RE = re.compile(r"(?i)(bearer\s+|bot)[A-Za-z0-9:_\-\.]{12,}|\b(sk|key|token|secret)[-_][A-Za-z0-9_\-]{8,}|\b[A-Za-z0-9_\-]{40,}\b")
+
+
+def sanitize_provider_message(message, limit: int = 300) -> str:
+    """Provider error text safe for logs: URLs (Telegram file URLs embed the
+    bot token), bearer tokens and key-like strings removed, length capped."""
+    text = str(message or "")
+    text = _URL_RE.sub("<url>", text)
+    text = _SECRET_RE.sub("<redacted>", text)
+    text = " ".join(text.split())
+    return text[:limit]
+
+
+def log_video_reference_event(entry_point: str, *, model: str = "", provider: str = "", meta: Optional[dict] = None,
+                              validation: Optional[str] = None, provider_status=None, provider_error_code=None,
+                              provider_error=None, inputs: Optional[dict] = None) -> dict:
+    meta = meta or {}
+    record = {
+        "entry_point": entry_point,
+        "model": model or "",
+        "provider": provider or "",
+        "inputs": inputs or {},
+        "duration": meta.get("duration"),
+        "bytes": meta.get("bytes"),
+        "container": meta.get("extension") or "",
+        "mime": meta.get("mime") or "",
+        "width": meta.get("width"),
+        "height": meta.get("height"),
+        "sylvex_validation": validation or "passed",
+        "provider_http_status": provider_status,
+        "provider_error_code": sanitize_provider_message(provider_error_code, 80) if provider_error_code not in (None, "") else None,
+        "provider_error": sanitize_provider_message(provider_error) if provider_error else None,
+    }
+    print("VIDEO_REFERENCE_REJECTED:", json.dumps(record, ensure_ascii=False, default=str))
+    return record
