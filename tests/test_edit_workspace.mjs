@@ -61,6 +61,20 @@ test('Background rejects unsupported or oversized uploads before touching the cu
  for(const file of [{type:'image/svg+xml',size:10},{type:'image/png',size:51*1024*1024}])await h.context.loadEditBackgroundImage(file);
  assert.equal(h.state.background.url,'https://cdn.example/previous.png');assert.equal(h.revoked.length,0);assert.equal(h.messages.length,2);
 });
+test('compact Background replacement keeps its selected photo or color until explicitly cleared',async()=>{
+ const h=harness();h.state.mode='background';h.state.prompt='A quiet studio';
+ h.context.setEditBackgroundMode(null,'replace');
+ await h.context.loadEditBackgroundImage({name:'Background.png',type:'image/png',size:10});
+ assert.equal(h.state.backgroundMode,'image');
+ h.context.setEditBackgroundMode(null,'replace');assert.equal(h.state.backgroundMode,'image');
+ h.context.updateEditBackgroundColor(null,'#2456ab');assert.equal(h.state.backgroundMode,'color');
+ h.context.setEditBackgroundMode(null,'replace');assert.equal(h.state.backgroundMode,'color');
+ assert.equal(h.context.editBackgroundOptions(h.state).url,undefined);
+ h.context.clearEditBackgroundImage();
+ assert.equal(h.state.backgroundMode,'replace');assert.equal(h.state.background.url,'');assert.equal(h.state.background.color,'#ffffff');
+ assert.equal(h.context.editBackgroundPrompt(h.state),'A quiet studio');
+ assert.equal(h.context.editBackgroundColorText('#ffffff'),'#000000');assert.equal(h.context.editBackgroundColorText('#000000'),'#ffffff');
+});
 test('Background settings and drafts survive session restore; older canvases get safe defaults',()=>{
  const h=harness();h.context.ensureEditWorkspaceChain();h.state.mode='background';h.state.backgroundMode='image';
  h.state.background={color:'#dbeafe',url:'https://cdn.example/background.png',name:'Room.png'};
