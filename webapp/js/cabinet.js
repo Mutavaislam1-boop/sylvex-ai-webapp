@@ -6742,7 +6742,7 @@ function createEditWorkspaceState() {
     width:0,height:0,showBefore:false,history:[],chain:[],activeNodeId:'',nodeSequence:0,maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:0,right:0,top:0,bottom:0},
-    backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
+    backgroundMode:'transparent',background:{color:'#ffffff',url:'',name:''},translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
     upscaleEstimate:null,
     upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
 }
@@ -6836,6 +6836,7 @@ function restoreEditSessionState(saved){
   const fresh=createEditWorkspaceState();
   Object.assign(editWorkspaceState,fresh,JSON.parse(JSON.stringify(saved)),{busy:false,uploading:false,upscaleEstimate:null,viewNeedsFit:false});
   delete editWorkspaceState.localUnsynced;
+  editWorkspaceState.background={...fresh.background,...saved.background};
   // Blob previews never survive a WebView restart; durable URLs do.
   editWorkspaceState.chain.forEach(node=>{node.preview=node.url||'';});
   editWorkspaceState.sourcePreview=editWorkspaceState.sourceUrl;
@@ -7557,7 +7558,12 @@ function editWorkspaceValidation() {
   if(s.mode==='edit'&&!prompt)return 'Опишите, что нужно изменить.';
   if(s.mode==='retouch'&&!s.maskStrokes.length)return 'Выделите область кистью.';
   if(s.mode==='retouch'&&s.brushMode==='replace'&&!prompt)return 'Опишите замену выделенной области.';
-  if(s.mode==='background'&&s.backgroundMode==='replace'&&!prompt)return 'Опишите новый фон.';
+  if(s.mode==='background'){
+    if(!['transparent','replace','color','image'].includes(s.backgroundMode))return 'Выберите режим фона.';
+    if(s.backgroundMode==='replace'&&!prompt)return 'Опишите новый фон.';
+    if(s.backgroundMode==='color'&&!/^#[0-9a-f]{6}$/i.test(s.background.color))return 'Введите цвет фона в формате #RRGGBB.';
+    if(s.backgroundMode==='image'&&!s.background.url)return 'Загрузите изображение для нового фона.';
+  }
   if(s.mode==='translate'&&!s.translateLanguage)return 'Выберите язык перевода.';
   if(s.mode==='lighting'&&!s.light.layers.some(l=>l.enabled!==false&&l.brightness>0))return 'Включите источник света и задайте яркость.';
   if(s.mode==='resize'&&(s.resize.width*s.resize.height>16777216||Math.max(s.resize.width,s.resize.height)>8192))return 'Resize: максимум 8192 px по стороне и 16 мегапикселей.';
@@ -7814,7 +7820,7 @@ function renderEditWorkspace() {
   }
   if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button title="Attach image" onclick="document.getElementById(\'editWorkspaceFile\').click()">⌁</button><span class="edit-workspace-model-label">GPT Image 2.5</span>'+generate+'</div>';
   if(mode==='retouch')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Draw a selection and describe what you want to change" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.brushMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'replace\')">Replace</button><button class="'+(state.brushMode==='erase'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'erase\')">Erase</button><span>✎</span><input type="range" min="4" max="80" value="'+state.brushSize+'" oninput="SYLVEX.updateEditBrushSize(event)"><output id="editBrushSizeOutput">'+state.brushSize+'</output><button data-mask-action="undo" title="Undo stroke" aria-label="Undo stroke" onclick="SYLVEX.clearEditWorkspaceMask(event,true)">↶</button><button data-mask-action="redo" title="Redo stroke" aria-label="Redo stroke" onclick="SYLVEX.redoEditWorkspaceMask(event)">↷</button><button data-mask-action="clear" onclick="SYLVEX.clearEditWorkspaceMask(event)">Clear selection</button>'+generate+'</div>';
-  if(mode==='background')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Describe how you want to replace the background" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.backgroundMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBackgroundMode(event,\'replace\')">Replace</button><button class="'+(state.backgroundMode==='transparent'?'active':'')+'" onclick="SYLVEX.setEditBackgroundMode(event,\'transparent\')">Transparent</button>'+generate+'</div>';
+  if(mode==='background')action=editBackgroundPanel(generate);
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action=editExpandPanel(generate);
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
@@ -7897,7 +7903,55 @@ function filterEditLanguages(e){const query=String(e&&e.currentTarget&&e.current
 function selectEditLanguage(e,language){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.translateLanguage=language;renderEditWorkspace()}
 function setEditBrushMode(e,mode){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.brushMode=mode;renderEditWorkspace()}
 function updateEditBrushSize(e){const input=e&&e.currentTarget;if(input&&!editWorkspaceLocked()){editWorkspaceState.brushSize=Number(input.value)||24;const out=document.getElementById('editBrushSizeOutput');if(out)out.textContent=editWorkspaceState.brushSize}}
-function setEditBackgroundMode(e,mode){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.backgroundMode=mode;renderEditWorkspace()}
+function editBackgroundPrompt(state){return state.mode==='background'&&state.backgroundMode!=='replace'?'':state.prompt;}
+function editBackgroundOptions(state){
+  return state.mode!=='background'?{}:state.backgroundMode==='color'?{color:state.background.color}:state.backgroundMode==='image'?{url:state.background.url}:{};
+}
+function editBackgroundPanel(generate){
+  const s=editWorkspaceState,b=s.background,safe=v=>S.escapeHtml(String(v||''));
+  const modes=[['transparent','Удалить фон'],['replace','По описанию'],['color','Цвет'],['image','Своё фото']];
+  const tabs='<div class="edit-background-modes" role="group" aria-label="Режим фона">'+modes.map(([mode,label])=>'<button type="button" aria-pressed="'+(s.backgroundMode===mode)+'" class="'+(s.backgroundMode===mode?'active':'')+'" onclick="SYLVEX.setEditBackgroundMode(event,\''+mode+'\')">'+label+'</button>').join('')+'</div>';
+  let body='';
+  if(s.backgroundMode==='transparent')body='<p class="edit-background-help">Удалим фон, сохранив объект и размер кадра. Результат — PNG с прозрачностью.</p>';
+  if(s.backgroundMode==='replace')body='<textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Описание нового фона" placeholder="Например: светлая фотостудия с мягкими тенями" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea>';
+  if(s.backgroundMode==='color')body='<div class="edit-background-colors"><label>Цвет фона <input type="color" aria-label="Цвет фона" data-background-color value="'+(/^#[0-9a-f]{6}$/i.test(b.color)?b.color:'#ffffff')+'" oninput="SYLVEX.updateEditBackgroundColor(event)"></label><input type="text" aria-label="HEX цвета фона" data-background-hex maxlength="7" spellcheck="false" value="'+safe(b.color)+'" oninput="SYLVEX.updateEditBackgroundColor(event)"><div class="edit-background-swatches" role="group" aria-label="Готовые цвета">'+[['#ffffff','Белый'],['#000000','Чёрный'],['#e5e7eb','Серый'],['#dbeafe','Голубой'],['#fce7f3','Розовый'],['#dcfce7','Зелёный']].map(([color,label])=>'<button type="button" data-background-swatch="'+color+'" aria-label="'+label+'" aria-pressed="'+(b.color.toLowerCase()===color)+'" style="--swatch:'+color+'" onclick="SYLVEX.updateEditBackgroundColor(event,\''+color+'\')"></button>').join('')+'</div></div>';
+  if(s.backgroundMode==='image')body='<div class="edit-background-upload">'+(b.url?'<img src="'+safe(b.url)+'" alt="Выбранный фон"><span>'+safe(b.name||'Свой фон')+'</span>':'<span>Выберите изображение для фона</span>')+'<button type="button" onclick="document.getElementById(\'editBackgroundFile\').click()">'+(b.url?'Заменить фото':'Загрузить фон')+'</button>'+(b.url?'<button type="button" aria-label="Убрать выбранный фон" onclick="SYLVEX.clearEditBackgroundImage(event)">×</button>':'')+'<input id="editBackgroundFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditBackgroundFile(event)"></div><p class="edit-background-help">Фон заполнит кадр по центру с сохранением пропорций. Края могут быть обрезаны.</p>';
+  return '<div class="edit-background-heading"><b>Background</b><span>Объект и размер кадра сохраняются</span></div>'+tabs+body+'<div class="edit-workspace-action-row edit-background-submit">'+generate+'</div>';
+}
+function setEditBackgroundMode(e,mode){if(editWorkspaceLocked()||!['transparent','replace','color','image'].includes(mode))return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.backgroundMode=mode;renderEditWorkspace()}
+function updateEditBackgroundColor(e,color){
+  if(editWorkspaceLocked())return;
+  const value=String(color??e?.currentTarget?.value??'').trim().toLowerCase();editWorkspaceState.background.color=value;
+  const root=document.getElementById('editWorkspace');
+  if(root){
+    const hex=root.querySelector('[data-background-hex]'),picker=root.querySelector('[data-background-color]');
+    if(hex&&hex!==e?.currentTarget)hex.value=value;
+    if(picker&&/^#[0-9a-f]{6}$/.test(value))picker.value=value;
+    root.querySelectorAll('[data-background-swatch]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.backgroundSwatch===value)));
+  }
+  updateEditWorkspaceReady();
+}
+async function onEditBackgroundFile(e){
+  const input=e?.target,file=input?.files?.[0];if(!file)return;input.value='';await loadEditBackgroundImage(file);
+}
+async function loadEditBackgroundImage(file){
+  const s=editWorkspaceState;if(editWorkspaceLocked())return;
+  if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type))return editWorkspaceToast('Выберите JPEG, PNG или WebP.');
+  if(file.size>50*1024*1024)return editWorkspaceToast('Изображение должно быть меньше 50 MB.');
+  const version=++s.uploadVersion,preview=URL.createObjectURL(file);s.uploading=true;renderEditWorkspace();
+  try{
+    const probe=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('Не удалось прочитать изображение.'));img.src=preview;});
+    if(probe.naturalWidth*probe.naturalHeight>100000000)throw new Error('Изображение превышает 100 мегапикселей.');
+    const url=await uploadProStudioMediaFile(file,'image');
+    if(s.uploadVersion!==version)return;
+    s.background={...s.background,url,name:file.name};
+  }catch(error){editWorkspaceToast(error.message||'Не удалось загрузить фон.');}
+  finally{URL.revokeObjectURL(preview);if(s.uploadVersion===version){s.uploading=false;renderEditWorkspace();}}
+}
+function clearEditBackgroundImage(e){
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  Object.assign(editWorkspaceState.background,{url:'',name:''});renderEditWorkspace();
+}
 function resetEditResize(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;s.resize={width:s.width,height:s.height,locked:s.resize.locked};renderEditWorkspace()}
 function cycleEditWorkspaceZoom(e){fitEditWorkspace(e);}
 function adjustEditWorkspaceZoom(e,delta){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceSetViewZoom(editWorkspaceState.zoom+delta);}
@@ -7909,7 +7963,7 @@ async function downloadEditWorkspaceResult(e){
   catch(error){editWorkspaceToast('Не удалось скачать изображение. Попробуйте снова.');}
 }
 async function onEditWorkspaceFile(e){const input=e&&e.target,file=input&&input.files&&input.files[0];if(!file)return;input.value='';await loadEditWorkspaceImage(file)}
-function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(state.prompt.trim()?': '+state.prompt.trim():'')}
+function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);const prompt=editBackgroundPrompt(state).trim();if(state.mode==='background')return 'Edit · Background · '+({transparent:'Удалить фон',replace:prompt,color:'Цвет '+state.background.color,image:'Своё фото'}[state.backgroundMode]);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(prompt?': '+prompt:'')}
 function completeEditChainResult(node,response,before){
   const s=editWorkspaceState,result=response.result||response,urls=generatedUrlsFromResponse(result,'image');
   const url=urls?.[0]||result.image_url||result.result_url||'';
@@ -7946,7 +8000,7 @@ async function generateEditWorkspace(e){
   state.busy=true;const chainResult=beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
   const mode=state.mode,refs=[state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
-  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:state.prompt,editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
   try{
     prompt=editWorkspaceInstruction(state);
     const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:mode==='upscale'?'topaz':'openai',model:mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
@@ -26138,7 +26192,7 @@ async function waitGeneration(jobId, options) {
   S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;
   S.setEditLightPreset=setEditLightPreset;
   S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode;
-  S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
+  S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.updateEditBackgroundColor=updateEditBackgroundColor; S.onEditBackgroundFile=onEditBackgroundFile; S.clearEditBackgroundImage=clearEditBackgroundImage; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
   S.updateEditExpandField=updateEditExpandField; S.resetEditExpand=resetEditExpand;
   S.updateEditWorkspacePrompt=updateEditWorkspacePrompt; S.addEditWorkspaceLight=addEditWorkspaceLight; S.onEditWorkspaceFile=onEditWorkspaceFile;
   S.clearEditWorkspaceMask=clearEditWorkspaceMask;S.redoEditWorkspaceMask=redoEditWorkspaceMask;S.undoEditWorkspace=undoEditWorkspace;S.compareEditWorkspace=compareEditWorkspace;

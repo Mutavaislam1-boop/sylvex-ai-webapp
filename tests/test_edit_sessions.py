@@ -25,6 +25,17 @@ def test_canvas_roundtrip_keeps_layout_and_camera():
     assert json.loads(history.validate_session(state['sessionId'], state)) == state
 
 
+def test_background_settings_roundtrip_and_uploaded_backdrop_url_is_refreshed(monkeypatch):
+    state = canvas()
+    state.update(backgroundMode='image', background={'url': 'https://cdn.example/background.png', 'name': 'Background.png', 'color': '#abcdef'})
+    assert json.loads(history.validate_session(state['sessionId'], state)) == state
+    monkeypatch.setattr(history, 'sign_media_url', lambda url: url + '?fresh=1' if url else '')
+    assert history.refresh_media(state)['background'] == {**state['background'], 'url': 'https://cdn.example/background.png?fresh=1'}
+    state['background']['url'] = 'javascript:alert(1)'
+    with pytest.raises(ValueError):
+        history.validate_session(state['sessionId'], state)
+
+
 @pytest.mark.parametrize('change', [
     lambda s: s.update(sessionId='another'),
     lambda s: s.update(activeNodeId='missing'),

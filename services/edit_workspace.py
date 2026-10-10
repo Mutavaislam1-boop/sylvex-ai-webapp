@@ -3,7 +3,7 @@ import io
 import math
 import re
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageOps
 
 MODES = {'edit', 'retouch', 'resize', 'background', 'expand', 'upscale', 'lighting', 'camera', 'translate'}
 MAX_CANVAS_PIXELS = 16_777_216
@@ -56,10 +56,16 @@ def validate_options(opts):
         if brush.get('mode') == 'replace' and not prompt:
             raise ValueError('Опишите, чем заменить выделенную область.')
     if mode == 'background':
-        if opts.get('editWorkspaceBackgroundMode') not in {'transparent', 'replace'}:
+        background_mode = opts.get('editWorkspaceBackgroundMode')
+        if background_mode not in {'transparent', 'replace', 'color', 'image'}:
             raise ValueError('Выберите режим фона.')
-        if opts.get('editWorkspaceBackgroundMode') == 'replace' and not prompt:
+        background = settings('editWorkspaceBackground')
+        if background_mode == 'replace' and not prompt:
             raise ValueError('Опишите новый фон.')
+        if background_mode == 'color' and not re.fullmatch(r'#[0-9a-fA-F]{6}', str(background.get('color') or '')):
+            raise ValueError('Введите цвет фона в формате #RRGGBB.')
+        if background_mode == 'image' and not str(background.get('url') or '').strip():
+            raise ValueError('Загрузите изображение для нового фона.')
     if mode == 'translate' and not str(opts.get('editWorkspaceTranslateLanguage') or '').strip():
         raise ValueError('Выберите язык перевода.')
     if mode == 'resize':
@@ -291,17 +297,53 @@ def output_size(size):
     return f'{width}x{height}'
 
 
+def composite_background(source_png, generated, mode, settings, background_png=None):
+    """Use the generated matte while retaining the source's foreground pixels."""
+    with Image.open(io.BytesIO(source_png)) as original:
+        source = original.convert('RGBA')
+    with Image.open(io.BytesIO(generated)) as result:
+        result = ImageOps.exif_transpose(result).convert('RGBA')
+        if mode == 'replace':
+            return png(result.resize(source.size, Image.Resampling.LANCZOS))
+        alpha = result.getchannel('A').resize(source.size, Image.Resampling.LANCZOS)
+    if alpha.getextrema()[0] == 255:
+        raise ValueError('Модель вернула фон без прозрачности. Попробуйте ещё раз.')
+    # Never fill transparent pixels or dim an existing soft edge twice.
+    alpha = ImageChops.darker(alpha, source.getchannel('A'))
+    if alpha.getbbox() is None:
+        raise ValueError('Не удалось выделить объект на фото. Попробуйте другое изображение.')
+    source.putalpha(alpha)
+    if mode == 'transparent':
+        return png(source)
+    if mode == 'color':
+        backdrop = Image.new('RGBA', source.size, settings['color'])
+    elif mode == 'image' and background_png:
+        with Image.open(io.BytesIO(background_png)) as background:
+            backdrop = ImageOps.fit(background.convert('RGBA'), source.size, Image.Resampling.LANCZOS)
+    else:
+        raise ValueError('Не удалось прочитать новый фон.')
+    return png(Image.alpha_composite(backdrop, source))
+
+
 def instruction(opts):
     mode = opts.get('editWorkspaceMode', 'edit')
     user = str(opts.get('editWorkspacePrompt') or '').strip()
+    if mode == 'background' and opts.get('editWorkspaceBackgroundMode') != 'replace':
+        # Ignore a saved replacement description when removing the background.
+        user = ''
     tasks = {
         'edit': 'Apply the requested edit. Preserve all unrequested details and subject identity.',
         'retouch': ('Remove the content inside the masked area and reconstruct the background naturally.'
                     if (opts.get('editWorkspaceBrush') or {}).get('mode') == 'erase' else
                     'Replace only the masked area according to the instruction. Preserve everything outside it.'),
-        'background': ('Remove the background. Keep the foreground subject, fine hair and edges. Return true transparency.'
-                       if opts.get('editWorkspaceBackgroundMode') == 'transparent' else
-                       'Replace only the background. Keep the foreground subject and its identity unchanged.'),
+        'background': ('Remove only the background. Keep every foreground subject in the exact original position, '
+                       'pose, scale and orientation. Preserve the original full image framing, fine hair, fur, '
+                       'translucent details and edges. Return true transparency in the removed areas. '
+                       'Do not add a solid backdrop, checkerboard, new objects or text. Do not crop or reframe.'
+                       if opts.get('editWorkspaceBackgroundMode') != 'replace' else
+                       'Replace only the background. Keep every foreground subject and its identity, appearance, '
+                       'clothing, pose, scale and position unchanged. Preserve framing and camera viewpoint. '
+                       'Do not crop, move, resize, duplicate or redraw the subjects.'),
         'expand': 'Fill only the transparent canvas margins. Continue the scene naturally. Preserve the original image in place without moving, scaling or duplicating its subjects.',
         'translate': 'Translate all visible text into ' + str(opts.get('editWorkspaceTranslateLanguage') or '') + '. Preserve layout, fonts, typography, colors and all non-text content.',
     }
