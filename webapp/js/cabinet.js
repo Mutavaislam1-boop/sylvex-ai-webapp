@@ -7907,28 +7907,47 @@ function editBackgroundPrompt(state){return state.mode==='background'&&state.bac
 function editBackgroundOptions(state){
   return state.mode!=='background'?{}:state.backgroundMode==='color'?{color:state.background.color}:state.backgroundMode==='image'?{url:state.background.url}:{};
 }
-function editBackgroundPanel(generate){
-  const s=editWorkspaceState,b=s.background,safe=v=>S.escapeHtml(String(v||''));
-  const modes=[['transparent','Удалить фон'],['replace','По описанию'],['color','Цвет'],['image','Своё фото']];
-  const tabs='<div class="edit-background-modes" role="group" aria-label="Режим фона">'+modes.map(([mode,label])=>'<button type="button" aria-pressed="'+(s.backgroundMode===mode)+'" class="'+(s.backgroundMode===mode?'active':'')+'" onclick="SYLVEX.setEditBackgroundMode(event,\''+mode+'\')">'+label+'</button>').join('')+'</div>';
-  let body='';
-  if(s.backgroundMode==='transparent')body='<p class="edit-background-help">Удалим фон, сохранив объект и размер кадра. Результат — PNG с прозрачностью.</p>';
-  if(s.backgroundMode==='replace')body='<textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Описание нового фона" placeholder="Например: светлая фотостудия с мягкими тенями" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea>';
-  if(s.backgroundMode==='color')body='<div class="edit-background-colors"><label>Цвет фона <input type="color" aria-label="Цвет фона" data-background-color value="'+(/^#[0-9a-f]{6}$/i.test(b.color)?b.color:'#ffffff')+'" oninput="SYLVEX.updateEditBackgroundColor(event)"></label><input type="text" aria-label="HEX цвета фона" data-background-hex maxlength="7" spellcheck="false" value="'+safe(b.color)+'" oninput="SYLVEX.updateEditBackgroundColor(event)"><div class="edit-background-swatches" role="group" aria-label="Готовые цвета">'+[['#ffffff','Белый'],['#000000','Чёрный'],['#e5e7eb','Серый'],['#dbeafe','Голубой'],['#fce7f3','Розовый'],['#dcfce7','Зелёный']].map(([color,label])=>'<button type="button" data-background-swatch="'+color+'" aria-label="'+label+'" aria-pressed="'+(b.color.toLowerCase()===color)+'" style="--swatch:'+color+'" onclick="SYLVEX.updateEditBackgroundColor(event,\''+color+'\')"></button>').join('')+'</div></div>';
-  if(s.backgroundMode==='image')body='<div class="edit-background-upload">'+(b.url?'<img src="'+safe(b.url)+'" alt="Выбранный фон"><span>'+safe(b.name||'Свой фон')+'</span>':'<span>Выберите изображение для фона</span>')+'<button type="button" onclick="document.getElementById(\'editBackgroundFile\').click()">'+(b.url?'Заменить фото':'Загрузить фон')+'</button>'+(b.url?'<button type="button" aria-label="Убрать выбранный фон" onclick="SYLVEX.clearEditBackgroundImage(event)">×</button>':'')+'<input id="editBackgroundFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditBackgroundFile(event)"></div><p class="edit-background-help">Фон заполнит кадр по центру с сохранением пропорций. Края могут быть обрезаны.</p>';
-  return '<div class="edit-background-heading"><b>Background</b><span>Объект и размер кадра сохраняются</span></div>'+tabs+body+'<div class="edit-workspace-action-row edit-background-submit">'+generate+'</div>';
+function editBackgroundColorText(color){
+  const rgb=(/^#[0-9a-f]{6}$/i.test(color)?color:'#ffffff').slice(1).match(/../g).map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+  return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722>.179?'#000000':'#ffffff';
 }
-function setEditBackgroundMode(e,mode){if(editWorkspaceLocked()||!['transparent','replace','color','image'].includes(mode))return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.backgroundMode=mode;renderEditWorkspace()}
+function editBackgroundPanel(generate){
+  const s=editWorkspaceState,b=s.background,safe=v=>S.escapeHtml(String(v||'')),replacing=s.backgroundMode!=='transparent';
+  const color=/^#[0-9a-f]{6}$/i.test(b.color)?b.color:'#ffffff';
+  return '<div class="edit-background-controls" data-background-choice="'+s.backgroundMode+'" style="--background-choice-color:'+color+';--background-choice-text:'+editBackgroundColorText(color)+'">'+
+    '<div class="edit-background-toolbar" role="group" aria-label="Режим фона">'+
+    '<button type="button" class="edit-background-mode" data-background-mode="transparent" aria-pressed="'+!replacing+'" onclick="SYLVEX.setEditBackgroundMode(event,\'transparent\')">Удалить фон</button>'+
+    '<div class="edit-background-replacement">'+
+    '<button type="button" class="edit-background-upload" aria-label="Загрузить фото для фона" title="Загрузить фото для фона" onclick="document.getElementById(\'editBackgroundFile\').click()">+</button>'+
+    '<div class="edit-background-choice"><button type="button" class="edit-background-mode edit-background-replace" data-background-mode="replace" aria-pressed="'+replacing+'" onclick="SYLVEX.setEditBackgroundMode(event,\'replace\')">'+
+    (b.url?'<img class="edit-background-choice-image" src="'+safe(b.url)+'" alt="">':'')+'<span>Заменить фон</span></button>'+
+    '<button type="button" class="edit-background-clear" aria-label="Очистить выбранный фон" title="Очистить выбранный фон" onclick="SYLVEX.clearEditBackgroundImage(event)">×</button></div>'+
+    '<label class="edit-background-color" title="Выбрать цвет фона"><input type="color" aria-label="Цвет фона" data-background-color value="'+color+'" oninput="SYLVEX.updateEditBackgroundColor(event)"></label>'+
+    '<input id="editBackgroundFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditBackgroundFile(event)"></div></div>'+
+    '<div class="edit-background-description"><textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Описание нового фона" placeholder="Опишите новый фон или выберите фото / цвет" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea></div>'+
+    '<div class="edit-workspace-action-row edit-background-submit">'+generate+'</div></div>';
+}
+function setEditBackgroundMode(e,mode){
+  if(editWorkspaceLocked()||!['transparent','replace','color','image'].includes(mode))return;
+  if(e){e.preventDefault();e.stopPropagation()}
+  // Clicking the active replacement button must not discard its photo or color.
+  if(mode==='replace'&&['image','color'].includes(editWorkspaceState.backgroundMode))return;
+  editWorkspaceState.backgroundMode=mode;renderEditWorkspace();
+}
 function updateEditBackgroundColor(e,color){
   if(editWorkspaceLocked())return;
-  const value=String(color??e?.currentTarget?.value??'').trim().toLowerCase();editWorkspaceState.background.color=value;
-  const root=document.getElementById('editWorkspace');
-  if(root){
-    const hex=root.querySelector('[data-background-hex]'),picker=root.querySelector('[data-background-color]');
-    if(hex&&hex!==e?.currentTarget)hex.value=value;
-    if(picker&&/^#[0-9a-f]{6}$/.test(value))picker.value=value;
-    root.querySelectorAll('[data-background-swatch]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.backgroundSwatch===value)));
+  const s=editWorkspaceState,value=String(color??e?.currentTarget?.value??'').trim().toLowerCase();s.background.color=value;
+  if(/^#[0-9a-f]{6}$/.test(value))s.backgroundMode='color';
+  const root=document.getElementById('editWorkspace'),controls=root?.querySelector('.edit-background-controls');
+  if(controls){
+    controls.dataset.backgroundChoice=s.backgroundMode;
+    if(/^#[0-9a-f]{6}$/.test(value)){
+      controls.style.setProperty('--background-choice-color',value);controls.style.setProperty('--background-choice-text',editBackgroundColorText(value));
+      const picker=controls.querySelector('[data-background-color]');if(picker)picker.value=value;
+    }
+    controls.querySelectorAll('[data-background-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.backgroundMode==='replace')));
   }
+  // Keep the native color picker mounted while it emits live color changes.
   updateEditWorkspaceReady();
 }
 async function onEditBackgroundFile(e){
@@ -7944,13 +7963,13 @@ async function loadEditBackgroundImage(file){
     if(probe.naturalWidth*probe.naturalHeight>100000000)throw new Error('Изображение превышает 100 мегапикселей.');
     const url=await uploadProStudioMediaFile(file,'image');
     if(s.uploadVersion!==version)return;
-    s.background={...s.background,url,name:file.name};
+    s.background={...s.background,url,name:file.name};s.backgroundMode='image';
   }catch(error){editWorkspaceToast(error.message||'Не удалось загрузить фон.');}
   finally{URL.revokeObjectURL(preview);if(s.uploadVersion===version){s.uploading=false;renderEditWorkspace();}}
 }
 function clearEditBackgroundImage(e){
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
-  Object.assign(editWorkspaceState.background,{url:'',name:''});renderEditWorkspace();
+  Object.assign(editWorkspaceState.background,{url:'',name:'',color:'#ffffff'});editWorkspaceState.backgroundMode='replace';renderEditWorkspace();
 }
 function resetEditResize(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;s.resize={width:s.width,height:s.height,locked:s.resize.locked};renderEditWorkspace()}
 function cycleEditWorkspaceZoom(e){fitEditWorkspace(e);}
