@@ -19,6 +19,8 @@ def app(monkeypatch):
     monkeypatch.setattr(main, "update_prostudio_generation_job", lambda *a, **k: True)
     monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda *a, **k: None)
     monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
+    # A priced job with its reservation held: the billing gate lets it dispatch.
+    monkeypatch.setattr(main, "verify_job_reservation", lambda job_id, credits: None)
     monkeypatch.setattr(main, "circuit_record_outcome", lambda *a, **k: {"state": "CLOSED", "closed": False})
 
     import provider_concurrency as pc
@@ -62,7 +64,7 @@ async def test_slot_is_released_during_dispatch_retry_backoff(app, monkeypatch):
     monkeypatch.setattr(app, "dispatch_prostudio_provider_request", flaky_dispatch)
 
     result, status = await app.run_prostudio_provider_request(
-        "job-a", {"telegram_id": 1}, "text", "gpt-5.5", "openai", {"text"}, "openai",
+        "job-a", {"telegram_id": 1, "price_snapshot": {"final_credits": 5}}, "text", "gpt-5.5", "openai", {"text"}, "openai",
     )
 
     assert status == "completed"
@@ -98,7 +100,7 @@ async def test_slot_stays_held_continuously_while_provider_job_is_processing(app
     monkeypatch.setattr(app.asyncio, "sleep", fast_sleep)
 
     result, status = await app.run_prostudio_provider_request(
-        "job-b", {"telegram_id": 1}, "video", "kling-model", "kling", {"text"}, "kling",
+        "job-b", {"telegram_id": 1, "price_snapshot": {"final_credits": 5}}, "video", "kling-model", "kling", {"text"}, "kling",
     )
 
     assert status == "completed"

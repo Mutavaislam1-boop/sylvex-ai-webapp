@@ -12,6 +12,17 @@ from typing import Any
 from services.edit_workspace import is_free_resize
 
 PRICE_VERSION = "2026-09-full"
+# SYLVEX pricing rule: user credits = ceil(provider_cost_usd * 1.5 * 100).
+SYLVEX_MARKUP = Decimal("1.5")
+
+
+def sylvex_credits(provider_cost_usd: Any) -> int:
+    """The single provider-cost -> credits conversion. Decimal, so a
+    $0.10 cost is 15 credits rather than float's 15.000000000000002 -> 16."""
+    cost = Decimal(str(provider_cost_usd or 0))
+    if cost <= 0:
+        return 0
+    return int((cost * SYLVEX_MARKUP * 100).to_integral_value(rounding=ROUND_CEILING))
 STYLE_CREDITS = Decimal("0.1")
 CHARACTER_CREDITS = Decimal("0.1")
 OBJECT_CREDITS = Decimal("0.1")
@@ -36,6 +47,10 @@ def sylvex_additions(payload: dict) -> dict[str, Decimal]:
     """Return internal additions without conflating them with provider input fees."""
     additions: dict[str, Decimal] = {}
     if is_free_resize(payload):
+        return additions
+    # Text is billed on provider token usage; its writing "style" and other
+    # text options are prompt settings, not priced SYLVEX assets.
+    if str(payload.get("mode") or payload.get("category") or "").lower() in {"text", "chat", "pro", "lite"}:
         return additions
     if _option(payload, "style", "style_id", "selected_style"):
         additions["style"] = STYLE_CREDITS

@@ -16,6 +16,19 @@ import pytest
 
 import main
 
+
+@pytest.fixture(autouse=True)
+def _creation_job_settlement(monkeypatch):
+    """Character/Object creation now reserves a composed SYLVEX price at job
+    creation and settles it on success (see test_billing_coverage.py); the
+    settlement is recorded here instead of touching a database."""
+    charges = []
+    monkeypatch.setattr(
+        main, "charge_generation_balance",
+        lambda telegram_id, job_id, result, payload: charges.append((job_id, payload["price_snapshot"]["final_credits"])) or {"charged": True},
+    )
+    return charges
+
 CHARACTER_SAFETY_MESSAGE = (
     "Не удалось сгенерировать референс персонажа: запрос был отклонён системой безопасности "
     "провайдера изображений. Попробуйте другое фото или измените описание персонажа."
@@ -100,7 +113,7 @@ def _run_character_job_with_failure(monkeypatch, exc):
         main, "update_prostudio_generation_job",
         lambda job_id, status, result=None, error=None, conversation_id="": updates.append((status, result, error)),
     )
-    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
     assert updates
     return updates[-1]
 
@@ -120,7 +133,7 @@ def _run_object_job_with_failure(monkeypatch, exc):
         main, "update_prostudio_generation_job",
         lambda job_id, status, result=None, error=None, conversation_id="": updates.append((status, result, error)),
     )
-    asyncio.run(main._run_object_creation_job("job-1", 42, "Watch", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-1", 42, "Watch", "", ["https://cdn.sylvex.ai/a.jpg"], credits=36))
     assert updates
     return updates[-1]
 

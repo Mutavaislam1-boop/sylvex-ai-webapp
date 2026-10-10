@@ -4,6 +4,7 @@ from services.safe_io import safe_get, safe_client_get, safe_local_path, read_up
 # Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
+from services.billing_safety import require_billing_scope
 import asyncio
 import base64
 import json
@@ -434,6 +435,23 @@ def _elevenlabs_audio_tool(payload: dict) -> str:
     voice_options = payload.get("voice_options") or {}
     tool = str(voice_options.get("elevenlabs_tool") or voice_options.get("elevenlabsTool") or "text_to_speech").strip().lower()
     return tool if tool in ELEVENLABS_AUDIO_TOOLS else "text_to_speech"
+
+
+# Only text-to-speech has a confirmed SYLVEX cost basis (per character).
+# Speech-to-speech, dialogue, dubbing and voice design are billed by
+# ElevenLabs on other units (audio minutes, generations); until their cost
+# basis is confirmed they stay blocked, in pricing and at dispatch.
+ELEVENLABS_PRICED_TOOLS = frozenset({"text_to_speech"})
+
+
+def elevenlabs_dispatch_tool(payload: dict) -> str:
+    """The ElevenLabs endpoint this payload will really call: an *_sts_v2
+    model always goes to speech-to-speech whatever the tool selector says."""
+    voice_options = payload.get("voice_options") or {}
+    frontend_model = payload.get("model") or voice_options.get("model") or "elevenlabs_eleven_v3"
+    if _elevenlabs_voice_model_mapping(frontend_model) in ELEVENLABS_STS_MODELS:
+        return "speech_to_speech"
+    return _elevenlabs_audio_tool(payload)
 
 
 # =====================================================
@@ -1360,6 +1378,7 @@ async def _prepare_document_voice_payload(payload: dict) -> Optional[dict]:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def audio_generation(payload: dict) -> dict:
+    require_billing_scope("audio_generation")
     mode = str(payload.get("mode") or payload.get("category") or "").lower()
     if mode == "voice":
         voice_options = payload.get("voice_options") or {}
@@ -1898,6 +1917,7 @@ async def elevenlabs_clone_voice_from_audio(
     emotion: str = "neutral",
     settings: dict | None = None,
 ) -> dict:
+    require_billing_scope("elevenlabs_clone_voice_from_audio")
     provider = "elevenlabs"
     frontend_model = "elevenlabs_voice_clone"
     api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
@@ -2007,6 +2027,9 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         tool = "speech_to_speech"
     elif tool == "speech_to_speech" and provider_model not in ELEVENLABS_STS_MODELS:
         provider_model = ELEVENLABS_DEFAULT_STS_MODEL
+    if tool not in ELEVENLABS_PRICED_TOOLS:
+        print("UNPRICED_HELPER_BLOCKED:", {"operation": f"elevenlabs_{tool}"})
+        return _audio_error(provider, frontend_model, provider_model, "pricing_not_configured", type="voice", tool=tool)
     if not api_key:
         return _audio_error(provider, frontend_model, provider_model, "ELEVENLABS_API_KEY is not configured", type="voice")
 
@@ -2211,6 +2234,7 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
 # Генерирует короткий JSON-preview ElevenLabs для общей кнопки прослушивания голосов Pro Studio.
 # =====================================================
 async def elevenlabs_voice_preview(payload: dict) -> dict:
+    require_billing_scope("elevenlabs_voice_preview")
     frontend_model = payload.get("model") or "elevenlabs_multilingual_v2"
     voice = str(payload.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID).strip() or ELEVENLABS_DEFAULT_VOICE_ID
     sample_text = (payload.get("text") or "Привет! Это пример голоса в SYLVEX.").strip()[:220]
@@ -2572,6 +2596,7 @@ async def fetch_runway_voices() -> dict:
 # Используется только кнопкой прослушивания голоса в Mini App.
 # =====================================================
 async def runway_voice_preview(payload: dict) -> dict:
+    require_billing_scope("runway_voice_preview")
     frontend_model = payload.get("model") or "runway_eleven_multilingual_v2"
     voice = str(payload.get("voice") or "Maya").strip() or "Maya"
     sample_text = (payload.get("text") or "Привет! Это пример голоса в SYLVEX.").strip()[:220]
@@ -2707,6 +2732,7 @@ async def voice_generation(payload: dict) -> dict:
 # Mini App использует этот endpoint только для прослушивания голоса перед выбором.
 # =====================================================
 async def gemini_tts_voice_preview(payload: dict) -> dict:
+    require_billing_scope("gemini_tts_voice_preview")
     provider = "gemini"
     frontend_model = payload.get("model") or "gemini_3_1_flash_tts_preview"
     provider_model = _gemini_tts_model_mapping(frontend_model)
