@@ -37,7 +37,12 @@ def provider(monkeypatch):
     generated = image_bytes(color=(200, 120, 50, 255))
     def post(url, **kwargs):
         calls.append((url, kwargs))
-        return Response({'data': [{'b64_json': base64.b64encode(generated).decode()}]})
+        output = generated
+        if kwargs['data']['prompt'].startswith('Remove only the background.'):
+            cutout = Image.new('RGBA', (64, 48))
+            cutout.paste((200, 120, 50, 255), (20, 10, 40, 30))
+            output = edit.png(cutout)
+        return Response({'data': [{'b64_json': base64.b64encode(output).decode()}]})
     def put(raw, key, content_type):
         stored.append(raw)
         return 'https://cdn.example.com/' + key
@@ -528,6 +533,84 @@ def test_explicit_background_replacement_can_add_a_background(provider):
     request['image_options']['editWorkspaceSourceUrl'] = uri(image_bytes(color=(80, 40, 120, 0)))
     assert asyncio.run(main.generate_edit_workspace_image(request))['ok']
     assert 'background' not in provider[0][0][1]['data']
+
+
+@pytest.mark.parametrize('mode,settings', [
+    ('transparent', {}), ('color', {'color': '#12AbEF'}),
+    ('image', {'url': uri(image_bytes((96, 96), (80, 170, 30, 255)))}),
+])
+def test_background_cutouts_keep_foreground_pixels_and_isolate_replacement_settings(provider, mode, settings):
+    request = payload('background', editWorkspaceBackgroundMode=mode, editWorkspaceBackground=settings,
+                      editWorkspacePrompt='STALE: replace background with a red wall')
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok']
+    (endpoint, call), = provider[0]
+    assert endpoint == f'{main.OPENAI_API_BASE}/images/edits'
+    assert call['data']['model'] == 'gpt-image-2.5-sunburst'
+    assert call['data']['background'] == 'transparent'
+    assert 'STALE' not in call['data']['prompt'] and 'UNRELATED' not in str(call)
+    assert len(call['files']) == 1  # A custom backdrop is composited, never another subject reference.
+    output = Image.open(io.BytesIO(provider[1][0]))
+    assert output.size == (result['canvas_width'], result['canvas_height']) == (64, 48)
+    assert output.getpixel((25, 15)) == (20, 40, 60, 255)
+    expected = {'transparent': (20, 40, 60, 0), 'color': (18, 171, 239, 255), 'image': (80, 170, 30, 255)}
+    assert output.getpixel((0, 0)) == expected[mode]
+    assert result['reference_images'] == [request['image_options']['editWorkspaceSourceUrl']]
+    assert result['cost_credits'] == main.calculate_generation_price(request)['credits']
+
+
+@pytest.mark.parametrize('mode,settings', [
+    ('unknown', {}), ('color', {}), ('color', {'color': '#fff'}),
+    ('color', {'color': 'red'}), ('image', {}), ('image', {'url': ' '}),
+    ('color', []),
+])
+def test_background_invalid_controls_fail_before_provider(provider, mode, settings):
+    request = payload('background', editWorkspaceBackgroundMode=mode, editWorkspaceBackground=settings)
+    assert main.validate_image_feature_request(request)['ok'] is False
+    assert asyncio.run(main.generate_edit_workspace_image(request))['ok'] is False
+    assert not provider[0] and not provider[1]
+
+
+def test_unreadable_custom_background_fails_before_paid_request(provider):
+    result = asyncio.run(main.generate_edit_workspace_image(payload('background',
+        editWorkspaceBackgroundMode='image', editWorkspaceBackground={'url': uri(b'not an image')})))
+    assert not result['ok'] and not provider[0]
+
+
+@pytest.mark.parametrize('alpha', [0, 255])
+def test_background_rejects_empty_or_opaque_result_without_persisting(provider, monkeypatch, alpha):
+    generated = base64.b64encode(image_bytes(color=(20, 40, 60, alpha))).decode()
+    monkeypatch.setattr(main.requests, 'post', lambda *args, **kwargs: Response({'data': [{'b64_json': generated}]}))
+    result = asyncio.run(main.generate_edit_workspace_image(payload('background', editWorkspaceBackgroundMode='transparent')))
+    assert not result['ok'] and not provider[1]
+    assert ('прозрачности' if alpha == 255 else 'выделить объект') in result['error']
+
+
+def test_background_matte_preserves_soft_edges_and_never_fills_existing_transparency():
+    source = Image.new('RGBA', (8, 8), (12, 34, 56, 255))
+    source.putpixel((0, 0), (12, 34, 56, 0))
+    source.putpixel((2, 2), (12, 34, 56, 128))
+    matte = Image.new('RGBA', (8, 8), (250, 0, 0, 255))
+    matte.putpixel((7, 7), (250, 0, 0, 0))
+    matte.putpixel((2, 2), (250, 0, 0, 128))
+    result = Image.open(io.BytesIO(edit.composite_background(edit.png(source), edit.png(matte), 'transparent', {})))
+    assert result.getpixel((0, 0)) == (12, 34, 56, 0)
+    assert result.getpixel((2, 2)) == (12, 34, 56, 128)
+    assert result.getpixel((3, 3)) == (12, 34, 56, 255)
+
+
+def test_background_photo_uses_center_cover_and_text_result_retains_source_dimensions():
+    source = image_bytes((40, 40))
+    matte = Image.new('RGBA', (80, 80))
+    matte.paste((0, 0, 0, 255), (20, 20, 60, 60))
+    backdrop = Image.new('RGBA', (120, 40), 'red')
+    backdrop.paste('blue', (40, 0, 80, 40))
+    photo = Image.open(io.BytesIO(edit.composite_background(source, edit.png(matte), 'image', {}, edit.png(backdrop))))
+    assert photo.size == (40, 40)
+    assert photo.getpixel((0, 0)) == (0, 0, 255, 255)
+    assert photo.getpixel((20, 20)) == (20, 40, 60, 255)
+    result = Image.open(io.BytesIO(edit.composite_background(source, image_bytes((128, 64)), 'replace', {})))
+    assert result.size == (40, 40)
 
 
 def test_upscale_and_resize_preserve_transparent_and_partial_alpha():

@@ -16285,8 +16285,11 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         prompt = lighting_instruction = edit_workspace_service.lighting_prompt(light)
     else:
         prompt = edit_workspace_service.instruction({**opts, "editWorkspaceMode": mode})
-    preserve_transparency = edit_workspace_service.has_transparency(source_png) and not (
-        mode == "background" and opts.get("editWorkspaceBackgroundMode") == "replace")
+    background_mode = opts.get("editWorkspaceBackgroundMode")
+    background_settings = opts.get("editWorkspaceBackground") or {}
+    background_png = None
+    background_cutout = mode == "background" and background_mode in {"transparent", "color", "image"}
+    preserve_transparency = edit_workspace_service.has_transparency(source_png) and mode != "background"
     if preserve_transparency:
         prompt += ("\nThe source has a transparent background. Keep the edited subject isolated on true alpha transparency. "
                    "Preserve translucent details and fine edges. Do not add a backdrop, floor, solid color, or checkerboard. "
@@ -16294,7 +16297,12 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     edit_source = source_png
     api_mask = b""
     try:
-        if mode == "retouch":
+        if mode == "background" and background_mode == "image":
+            background_raw = _read_image_bytes_for_generation(str(background_settings["url"]).strip())
+            if not background_raw:
+                raise ValueError("Не удалось прочитать новый фон.")
+            background_png, _ = edit_workspace_service.normalize_source(background_raw)
+        elif mode == "retouch":
             mask_raw = _read_image_bytes_for_generation(str(opts.get("editWorkspaceMaskUrl") or ""))
             if not mask_raw:
                 raise ValueError("Не удалось прочитать выделенную область.")
@@ -16314,7 +16322,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         files.append(("mask", ("mask.png", api_mask, "image/png")))
     request_data = {"model": model, "prompt": prompt, "size": edit_workspace_service.output_size(output_dimensions),
                     "quality": "high", "n": "1", "output_format": "png"}
-    if preserve_transparency or (mode == "background" and opts.get("editWorkspaceBackgroundMode") == "transparent"):
+    if preserve_transparency or background_cutout:
         request_data["background"] = "transparent"
     if mode == "camera":
         prostudio_debug("OPENAI_CAMERA_REQUEST", endpoint=endpoint, provider_model=model, camera=camera)
@@ -16337,12 +16345,19 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     if not provider_urls:
         return image_error_response(provider, "edit_workspace", model, endpoint, "Provider returned no image", provider_response, response_data)
     try:
-        if mode in {"retouch", "expand"}:
+        if mode in {"retouch", "expand", "background"}:
             generated = _read_image_bytes_for_generation(provider_urls[0])
             if not generated:
                 raise ValueError("Could not read edited image")
-            final_png = (composite_replace_object_inside_mask(source_png, generated, mask_raw) if mode == "retouch"
-                         else edit_workspace_service.composite_expansion(source_png, generated, output_dimensions, expansion))
+            if mode == "background":
+                try:
+                    final_png = edit_workspace_service.composite_background(
+                        source_png, generated, background_mode, background_settings, background_png)
+                except ValueError as exc:
+                    return {"ok": False, "type": "image", "error": str(exc)}
+            else:
+                final_png = (composite_replace_object_inside_mask(source_png, generated, mask_raw) if mode == "retouch"
+                             else edit_workspace_service.composite_expansion(source_png, generated, output_dimensions, expansion))
             image_url = storage_put_bytes(final_png, generated_key("images", f"edit_{uuid4().hex}.png"), "image/png")
         else:
             image_url = _persist_remote_media_url(provider_urls[0], "images", provider=provider)

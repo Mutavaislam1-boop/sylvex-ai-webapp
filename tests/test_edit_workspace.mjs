@@ -18,6 +18,57 @@ function harness(){
   return {context,state:context.state,requests,messages,revoked,failUpload:()=>{rejectUpload=true;}};
 }
 test('mode-specific prompts persist independently',()=>{const h=harness();h.context.setEditWorkspaceMode(null,'translate');assert.equal(h.state.prompt,'');h.context.setEditWorkspaceMode(null,'edit');assert.equal(h.state.prompt,'Turn blue');});
+test('Background modes isolate drafts and custom backdrop from other image tools',async()=>{
+ for(const mode of ['transparent','replace','color','image']){
+  const h=harness();h.state.mode='background';h.state.prompt='A beach at sunset';
+  h.state.background={color:'#123abc',url:'https://cdn.example/background.png',name:'Beach'};
+  h.context.setEditBackgroundMode(null,mode);await h.context.generateEditWorkspace();
+  const request=h.requests[0],opts=request[4].imageOptions;
+  assert.equal(opts.editWorkspacePrompt,mode==='replace'?'A beach at sunset':'');
+  assert.equal(request[0].includes('A beach at sunset'),mode==='replace');
+  assert.equal(opts.editWorkspaceBackground.color,mode==='color'?'#123abc':undefined);
+  assert.equal(opts.editWorkspaceBackground.url,mode==='image'?'https://cdn.example/background.png':undefined);
+  assert.equal(request[2].length,1);assert.equal(request[2][0],'https://cdn.example/source.png');
+  assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1].parentId,h.state.chain[0].id);
+  h.context.setEditBackgroundMode(null,'replace');assert.equal(h.state.prompt,'A beach at sunset');
+ }
+ const h=harness();h.state.background.url='https://cdn.example/unrelated.png';h.state.mode='camera';
+ await h.context.generateEditWorkspace();assert.equal(Object.keys(h.requests[0][4].imageOptions.editWorkspaceBackground).length,0);
+});
+test('Background validates color/photo, rejects unknown modes and locks controls during work',async()=>{
+ const h=harness();h.state.mode='background';h.context.setEditBackgroundMode(null,'image');
+ await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/нового фона/);
+ h.context.setEditBackgroundMode(null,'color');h.context.updateEditBackgroundColor({currentTarget:{value:'#bad'}});
+ assert.match(h.context.editWorkspaceValidation(),/#RRGGBB/);
+ h.context.updateEditBackgroundColor(null,'#12ABef');assert.equal(h.context.editWorkspaceValidation(),'');assert.equal(h.state.background.color,'#12abef');
+ h.context.setEditBackgroundMode(null,'nonsense');assert.equal(h.state.backgroundMode,'color');
+ h.state.busy=true;h.context.setEditBackgroundMode(null,'transparent');h.context.updateEditBackgroundColor(null,'#ffffff');h.context.clearEditBackgroundImage();
+ assert.equal(h.state.backgroundMode,'color');assert.equal(h.state.background.color,'#12abef');
+});
+test('uploading a backdrop never replaces the source or chain and failure preserves the previous backdrop',async()=>{
+ const h=harness();h.context.ensureEditWorkspaceChain();
+ const chain=JSON.stringify(h.state.chain),session=h.state.sessionId,sourceUrl=h.state.sourceUrl;
+ await h.context.loadEditBackgroundImage({name:'Background.png',type:'image/png',size:10});
+ assert.equal(h.state.background.url,'https://cdn.example/new.png');assert.equal(h.state.background.name,'Background.png');
+ assert.equal(h.state.sessionId,session);assert.equal(h.state.sourceUrl,sourceUrl);assert.equal(JSON.stringify(h.state.chain),chain);
+ assert.deepEqual(h.revoked,['blob:new']);assert.equal(h.state.uploading,false);
+ h.failUpload();await h.context.loadEditBackgroundImage({name:'Fail.png',type:'image/png',size:10});
+ assert.equal(h.state.background.name,'Background.png');assert.equal(h.state.uploading,false);
+ h.context.clearEditBackgroundImage();assert.equal(h.state.background.url,'');assert.equal(JSON.stringify(h.state.chain),chain);
+});
+test('Background rejects unsupported or oversized uploads before touching the current workspace',async()=>{
+ const h=harness();h.state.background.url='https://cdn.example/previous.png';
+ for(const file of [{type:'image/svg+xml',size:10},{type:'image/png',size:51*1024*1024}])await h.context.loadEditBackgroundImage(file);
+ assert.equal(h.state.background.url,'https://cdn.example/previous.png');assert.equal(h.revoked.length,0);assert.equal(h.messages.length,2);
+});
+test('Background settings and drafts survive session restore; older canvases get safe defaults',()=>{
+ const h=harness();h.context.ensureEditWorkspaceChain();h.state.mode='background';h.state.backgroundMode='image';
+ h.state.background={color:'#dbeafe',url:'https://cdn.example/background.png',name:'Room.png'};
+ const saved=h.context.editSessionSnapshot();h.context.restoreEditSessionState(saved);
+ assert.equal(h.state.background.url,saved.background.url);assert.equal(h.state.prompt,saved.prompt);
+ delete saved.background;h.context.restoreEditSessionState(saved);
+ assert.equal(h.state.background.color,'#ffffff');assert.equal(h.state.background.url,'');
+});
 test('Generate reserves a connected slot immediately, then fills that same slot without replacing the source',async()=>{
  const h=harness();let finish;h.context.callGenerate=async(...args)=>{h.requests.push(args);return new Promise(resolve=>{finish=resolve;});};
  const pending=h.context.generateEditWorkspace();
