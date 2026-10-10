@@ -49,7 +49,10 @@ from provider_resilience import (
     circuit_release_probe,
     run_with_provider_retry,
 )
-from db_pool import close_db_pool, db_connect, db_connection, db_pool_status, start_db_pool
+from db_pool import (
+    close_db_pool, db_connect, db_connection, db_pool_status, start_db_pool,
+    set_db_trace_job, reset_db_trace_job,
+)
 
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, Response
@@ -5376,9 +5379,10 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
         return None
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL, operation="prostudio.claim_next_job")
         cursor = conn.cursor()
         try:
+            conn.set_trace_phase("sql:UPDATE prostudio_generation_jobs FOR UPDATE SKIP LOCKED")
             cursor.execute("""
                 UPDATE prostudio_generation_jobs
                 SET status = 'processing',
@@ -5399,9 +5403,12 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
                 )
                 RETURNING id, request_json, attempts, EXTRACT(EPOCH FROM (NOW() - created_at))
             """, (PROSTUDIO_MAX_JOB_ATTEMPTS,))
+            conn.set_trace_phase("fetch:claimed_job")
             row = cursor.fetchone()
+            conn.set_trace_phase("commit:claim_transaction")
             conn.commit()
         finally:
+            conn.set_trace_phase("release:claim_connection")
             cursor.close()
             conn.close()
         if not row:
@@ -5435,9 +5442,10 @@ def requeue_stale_prostudio_jobs():
         return
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL, operation="prostudio.requeue_stale_jobs")
         cursor = conn.cursor()
         try:
+            conn.set_trace_phase("sql:SELECT stale prostudio_generation_jobs")
             cursor.execute("""
                 SELECT id
                 FROM prostudio_generation_jobs
@@ -5446,8 +5454,10 @@ def requeue_stale_prostudio_jobs():
                 ORDER BY created_at ASC
                 LIMIT 200
             """, (PROSTUDIO_STALE_PROCESSING_MINUTES,))
+            conn.set_trace_phase("fetch:stale_job_ids")
             job_ids = [str(row[0]) for row in cursor.fetchall()]
         finally:
+            conn.set_trace_phase("release:stale_scan_connection")
             cursor.close()
             conn.close()
         for job_id in job_ids:
@@ -22166,6 +22176,27 @@ async def _run_prostudio_generation_pool(
     )
     active_job_ids = set()
     active_lock = asyncio.Lock()
+    claim_lock = asyncio.Lock()
+    next_idle_claim_at = 0.0
+
+    async def claim_when_due():
+        """One empty-queue poll per worker process, regardless of free slots."""
+        nonlocal next_idle_claim_at
+        async with claim_lock:
+            now = asyncio.get_running_loop().time()
+            remaining = next_idle_claim_at - now
+            if remaining > 0:
+                return None, remaining
+            try:
+                claimed = await asyncio.to_thread(claim_next_prostudio_generation_job)
+            except Exception as exc:
+                prostudio_error("WORKER_CLAIM_FAILED", exc)
+                claimed = None
+            if not claimed or not claimed.get("id") or not claimed.get("payload"):
+                delay = max(0.05, PROSTUDIO_WORKER_INTERVAL)
+                next_idle_claim_at = asyncio.get_running_loop().time() + delay
+                return None, delay
+            return claimed, 0.0
 
     async def pool_counts():
         async with active_lock:
@@ -22184,11 +22215,7 @@ async def _run_prostudio_generation_pool(
 
     async def worker_slot(slot_id: int):
         while not stop_event.is_set():
-            claimed = None
-            try:
-                claimed = await asyncio.to_thread(claim_next_prostudio_generation_job)
-            except Exception as exc:
-                prostudio_error("WORKER_CLAIM_FAILED", exc, slot_id=slot_id)
+            claimed, retry_delay = await claim_when_due()
 
             if stop_event.is_set():
                 # A claim that completed concurrently with shutdown is already
@@ -22196,7 +22223,7 @@ async def _run_prostudio_generation_pool(
                 if not claimed:
                     return
             if not claimed or not claimed.get("id") or not claimed.get("payload"):
-                if await _wait_for_prostudio_worker_stop(stop_event, PROSTUDIO_WORKER_INTERVAL):
+                if await _wait_for_prostudio_worker_stop(stop_event, retry_delay):
                     return
                 continue
 
@@ -22217,6 +22244,7 @@ async def _run_prostudio_generation_pool(
                 )
                 continue
 
+            trace_token = set_db_trace_job(job_id)
             finished_event = asyncio.Event()
             heartbeat_task = asyncio.create_task(
                 _prostudio_job_heartbeat_loop(job_id, finished_event),
@@ -22260,6 +22288,7 @@ async def _run_prostudio_generation_pool(
                     job_id=job_id,
                     slot_id=slot_id,
                 )
+                reset_db_trace_job(trace_token)
 
     # Recover abandoned work before accepting new jobs. Heartbeats protect all
     # subsequently active pool jobs during periodic recovery passes.
