@@ -1,6 +1,53 @@
 """Transactional additions around existing tariffs and accounting tables."""
 from __future__ import annotations
+import contextlib
+import contextvars
 from services.security import SecurityError
+
+# Invariant: no billable provider dispatch without a SYLVEX price and a
+# billing transaction. Every billed entry point (queued job, direct text,
+# priced helper) opens billing_scope() after its credits are reserved; the
+# low-level provider dispatchers call require_billing_scope() and refuse to
+# run outside one. Internal calls of the same job (retries, polling,
+# downloads, storage) run inside the job's single scope and are never
+# charged again. contextvars follow asyncio tasks and asyncio.to_thread.
+_BILLING_SCOPE = contextvars.ContextVar('sylvex_billing_scope', default=None)
+
+
+@contextlib.contextmanager
+def billing_scope(generation_id, credits, *, free=False):
+ """Mark provider dispatch as billed under generation_id.
+ credits must be a known positive SYLVEX price unless the operation is
+ explicitly free (local work such as pixel resize)."""
+ generation_id=str(generation_id or '').strip()
+ if not generation_id:raise SecurityError('billing_id_required',500)
+ credits=int(credits or 0)
+ if credits<=0 and not free:raise SecurityError('pricing_not_configured',402)
+ token=_BILLING_SCOPE.set({'generation_id':generation_id,'credits':max(0,credits),'free':bool(free)})
+ try:yield _BILLING_SCOPE.get()
+ finally:_BILLING_SCOPE.reset(token)
+
+
+def current_billing_scope():
+ return _BILLING_SCOPE.get()
+
+
+def require_billing_scope(operation):
+ scope=_BILLING_SCOPE.get()
+ if scope is None:
+  print('UNBILLED_PROVIDER_DISPATCH_BLOCKED:',{'operation':str(operation)})
+  raise SecurityError('unbilled_provider_dispatch',402)
+ return scope
+
+
+def assert_reserved(cur,job_id,credits):
+ """A queued job may dispatch only while its own reservation is held:
+ never after release (failed/cancelled) or settlement (already charged)."""
+ credits=max(0,int(credits or 0))
+ cur.execute('SELECT credits,status FROM generation_reservations WHERE generation_id=%s',(job_id,))
+ row=cur.fetchone()
+ if not row or row[1]!='reserved' or int(row[0])<credits:
+  raise SecurityError('billing_reservation_missing',402)
 
 def ensure_reservations(connect):
  with connect() as conn:

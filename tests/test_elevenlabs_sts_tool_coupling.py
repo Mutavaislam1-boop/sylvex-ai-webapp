@@ -46,78 +46,41 @@ def _patch_common(monkeypatch, calls):
     monkeypatch.setattr(audio_router, "_completed_elevenlabs_voice_response", fake_completed)
 
 
+# Speech-to-speech has no confirmed SYLVEX cost basis yet, so the reconciled
+# STS request is refused before any HTTP call (and is not priced either).
+
+@pytest.mark.parametrize("payload", [
+    # STS model while the tool selector still says text_to_speech.
+    {"prompt": "hello there", "voice_options": {"model": "elevenlabs_multilingual_sts_v2"}, "model": "elevenlabs_multilingual_sts_v2"},
+    # STS tool with a plain TTS model.
+    {"voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "speech_to_speech"}, "model": "elevenlabs_eleven_v3"},
+])
+def test_sts_model_or_tool_resolves_to_speech_to_speech(payload):
+    assert audio_router.elevenlabs_dispatch_tool(payload) == "speech_to_speech"
+
+
 @pytest.mark.asyncio
-async def test_selecting_an_sts_model_without_the_sts_tool_still_requires_audio(monkeypatch):
-    """The frontend left elevenlabs_tool at its text_to_speech default even
-    though an *_sts_v2 model was picked. The tool must be auto-forced to
-    speech_to_speech, and since no audio was uploaded, the request must be
-    rejected with a clear "requires uploaded audio" error - not silently
-    sent as a broken text-to-speech call."""
+@pytest.mark.parametrize("payload", [
+    {"prompt": "hello there", "voice_options": {"model": "elevenlabs_multilingual_sts_v2"}, "model": "elevenlabs_multilingual_sts_v2"},
+    {"voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "speech_to_speech"}, "model": "elevenlabs_eleven_v3"},
+    {"prompt": "hi", "voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dubbing"}, "model": "elevenlabs_eleven_v3"},
+    {"prompt": "hi", "voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dialogue"}, "model": "elevenlabs_eleven_v3"},
+    {"prompt": "hi", "voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "voice_design"}, "model": "elevenlabs_eleven_v3"},
+])
+async def test_unpriced_elevenlabs_tools_never_reach_the_provider(monkeypatch, payload):
     calls = []
     _patch_common(monkeypatch, calls)
-    monkeypatch.setattr(audio_router, "_runway_input_media_url", lambda payload: "")
+    monkeypatch.setattr(audio_router, "_runway_input_media_url", lambda payload: "https://example.com/source.wav")
 
-    payload = {
-        "prompt": "hello there",
-        "voice_options": {"model": "elevenlabs_multilingual_sts_v2"},
-        "model": "elevenlabs_multilingual_sts_v2",
-    }
+    async def fake_load_media(client, media_url):
+        return b"fake-wav-bytes", "source.wav", "audio/wav"
+
+    monkeypatch.setattr(audio_router, "_load_provider_media", fake_load_media)
     result = await audio_router.elevenlabs_voice_generation(payload)
 
     assert result.get("ok") is False
-    assert not calls, "no HTTP request should go out without the required audio"
-    assert "audio" in (result.get("raw_error") or result.get("error") or "").lower()
-
-
-@pytest.mark.asyncio
-async def test_selecting_an_sts_model_with_audio_hits_the_speech_to_speech_endpoint(monkeypatch):
-    calls = []
-    _patch_common(monkeypatch, calls)
-    monkeypatch.setattr(audio_router, "_runway_input_media_url", lambda payload: "https://example.com/source.wav")
-
-    async def fake_load_media(client, media_url):
-        return b"fake-wav-bytes", "source.wav", "audio/wav"
-
-    monkeypatch.setattr(audio_router, "_load_provider_media", fake_load_media)
-
-    payload = {
-        "voice_options": {"model": "elevenlabs_multilingual_sts_v2"},
-        "model": "elevenlabs_multilingual_sts_v2",
-    }
-    result = await audio_router.elevenlabs_voice_generation(payload)
-
-    assert result.get("ok") is True, result
-    assert len(calls) == 1
-    url, kwargs = calls[0]
-    assert "/speech-to-speech/" in url
-    assert kwargs["data"]["model_id"] == "eleven_multilingual_sts_v2"
-    assert result.get("tool") == "speech_to_speech"
-
-
-@pytest.mark.asyncio
-async def test_speech_to_speech_tool_with_a_non_sts_model_is_coerced_to_an_sts_model(monkeypatch):
-    """If the tool selector says speech_to_speech but the chosen model is a
-    plain TTS model (e.g. left over from a previous selection), the
-    provider_model must be swapped to a real STS model - ElevenLabs' STS
-    endpoint rejects a non-STS model_id."""
-    calls = []
-    _patch_common(monkeypatch, calls)
-    monkeypatch.setattr(audio_router, "_runway_input_media_url", lambda payload: "https://example.com/source.wav")
-
-    async def fake_load_media(client, media_url):
-        return b"fake-wav-bytes", "source.wav", "audio/wav"
-
-    monkeypatch.setattr(audio_router, "_load_provider_media", fake_load_media)
-
-    payload = {
-        "voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "speech_to_speech"},
-        "model": "elevenlabs_eleven_v3",
-    }
-    result = await audio_router.elevenlabs_voice_generation(payload)
-
-    assert result.get("ok") is True, result
-    url, kwargs = calls[0]
-    assert kwargs["data"]["model_id"] in audio_router.ELEVENLABS_STS_MODELS
+    assert not calls, "no HTTP request may go out for an unpriced ElevenLabs tool"
+    assert "pricing_not_configured" in str(result)
 
 
 @pytest.mark.asyncio
