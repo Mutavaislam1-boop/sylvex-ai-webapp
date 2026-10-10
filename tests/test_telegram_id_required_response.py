@@ -53,14 +53,15 @@ def test_helper_returns_a_fresh_response_object_each_call():
 
 
 # ---------------------------------------------------------------------------
-# Static source checks: exactly 32 call sites use the helper, the raw
+# Static source checks: exactly 31 call sites use the helper (32 before the
+# dead legacy /prostudio/runway-avatar endpoint that used it was deleted), the raw
 # literal construction appears nowhere else, and the 3 genuinely
 # different occurrences were left alone.
 # ---------------------------------------------------------------------------
 
-def test_exactly_32_call_sites_now_use_the_shared_helper():
+def test_exactly_31_call_sites_now_use_the_shared_helper():
     count = MAIN_PY_SOURCE.count("return telegram_id_required_response()")
-    assert count == 32, f"expected exactly 32 call sites using the helper, found {count}"
+    assert count == 31, f"expected exactly 31 call sites using the helper, found {count}"
 
 
 def test_the_raw_duplicate_literal_appears_only_inside_the_helpers_own_definition():

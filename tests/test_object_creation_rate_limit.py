@@ -317,7 +317,7 @@ async def test_create_object_calls_the_dedicated_quota_check_before_creating_the
     # asyncio.to_thread() in the real handler - the replacement must stay
     # sync too, or asyncio.to_thread() would just hand back an unawaited
     # coroutine object instead of a job id.
-    def fake_create_job(telegram_id, name, description, photos):
+    def fake_create_job(telegram_id, name, description, photos, credits=0):
         return "job-123"
 
     monkeypatch.setattr(main, "create_object_creation_job", fake_create_job)

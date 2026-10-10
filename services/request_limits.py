@@ -10,9 +10,9 @@ from services.security import SecurityError
 _lock=threading.Lock();_ready=False
 COSTLY=frozenset({
  '/api/public/prostudio/generate','/api/public/prostudio/character',
- '/api/public/prostudio/runway-avatar','/api/public/prostudio/transcribe',
+ '/api/public/prostudio/transcribe',
  '/api/public/prostudio/voice/text-tool','/api/public/prostudio/elevenlabs/voice-clone',
- '/api/public/prostudio/voice-preview','/api/elevenlabs/preview',
+ '/api/public/prostudio/voice-preview',
  '/api/public/prostudio/voice-avatars/ensure','/api/public/home-idea/route',
  '/api/public/home-idea/realtime','/api/public/prostudio/grid/plan',
  '/api/public/prostudio/upload-media',

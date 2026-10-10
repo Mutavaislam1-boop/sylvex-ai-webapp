@@ -1374,6 +1374,20 @@ function getVideoModelCapabilities(modelId) {
   return { character: build('character'), object: build('object') };
 }
 
+// Explicit notice for reference inputs videoOptionsPayload() did not send
+// because the selected model's adapter cannot use them.
+function videoDroppedReferenceNotice(dropped) {
+  const labels = {
+    reference_images: 'загруженные референс-фото',
+    character_images: 'фото персонажа',
+    object_images: 'фото объекта',
+    video: 'референс-видео',
+  };
+  const names = (dropped || []).map((key) => labels[key]).filter(Boolean);
+  if (!names.length) return '';
+  return 'Выбранная модель не принимает: ' + names.join(', ') + '. Они не будут отправлены; персонаж и объект учитываются по описанию.';
+}
+
 function isGrokImageModel(modelId) {
   const raw = String(modelId || '').trim().replace(/-/g, '_');
   return raw === 'grok' || raw === 'grok_pro';
@@ -2699,6 +2713,41 @@ function videoOptionsPayload(referenceImagesOverride) {
     if (capability.maxRefs === null) return list.slice();
     return list.slice(0, capability.maxRefs);
   };
+  // Reference-input slots (registry reference_inputs, built from what each
+  // provider adapter really forwards). Inputs the model cannot take are not
+  // sent and are listed in reference_inputs_dropped so the send path can
+  // tell the user explicitly - the backend rejects them otherwise. No
+  // fetched data = previous behaviour (send as-is).
+  const fetchedVideoEntry = (typeof fetchedModelCapabilities !== 'undefined' && fetchedModelCapabilities && fetchedModelCapabilities.models)
+    ? fetchedModelCapabilities.models[String(videoState.modelId || '').trim()]
+    : null;
+  const referenceInputs = fetchedVideoEntry && fetchedVideoEntry.reference_inputs ? fetchedVideoEntry.reference_inputs : null;
+  let plannedUploadRefs = (referenceImages || []).slice();
+  let plannedCharacterRefs = sliceReferencesForCapability(characterVisual.references, videoVisualCapabilities.character);
+  let plannedObjectRefs = sliceReferencesForCapability(objectVisual.references, videoVisualCapabilities.object);
+  let plannedEditVideo = currentVideoEditInputUrl() || '';
+  let plannedReferenceVideo = currentVideoReferenceUrl() || '';
+  const droppedReferenceInputs = [];
+  if (referenceInputs) {
+    let slots = referenceInputs.image_slots;
+    if (typeof slots === 'number') {
+      if (referenceInputs.start_frame_uses_image_slot && videoState.startImage) slots -= 1;
+      const take = (list, kind) => {
+        const keep = list.slice(0, Math.max(0, slots));
+        if (keep.length < list.length) droppedReferenceInputs.push(kind);
+        slots -= keep.length;
+        return keep;
+      };
+      plannedUploadRefs = take(plannedUploadRefs, 'reference_images');
+      plannedCharacterRefs = take(plannedCharacterRefs, 'character_images');
+      plannedObjectRefs = take(plannedObjectRefs, 'object_images');
+    }
+    if (!referenceInputs.accepts_video && (plannedEditVideo || plannedReferenceVideo)) {
+      droppedReferenceInputs.push('video');
+      plannedEditVideo = '';
+      plannedReferenceVideo = '';
+    }
+  }
 
   return {
     section: videoState.section || 'generate',
@@ -2711,11 +2760,12 @@ function videoOptionsPayload(referenceImagesOverride) {
     sound: !!videoState.sound,
     start_image: videoState.startImage || '',
     end_image: videoState.endImage || '',
-    reference_images: referenceImages,
-    referenceImageUrls: referenceImages,
-    input_video: currentVideoEditInputUrl() || currentVideoReferenceUrl() || '',
-    video_url: currentVideoEditInputUrl() || currentVideoReferenceUrl() || '',
-    reference_video: currentVideoReferenceUrl() || '',
+    reference_images: plannedUploadRefs,
+    referenceImageUrls: plannedUploadRefs,
+    input_video: plannedEditVideo || plannedReferenceVideo || '',
+    video_url: plannedEditVideo || plannedReferenceVideo || '',
+    reference_video: plannedReferenceVideo || '',
+    reference_inputs_dropped: droppedReferenceInputs,
     image_url: '',
     motion_preset: videoState.motionPreset || '',
     video_template: videoTemplate,
@@ -2727,7 +2777,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     characterId: characterVisual.id || '',
     characterName: characterVisual.name || '',
     characterPrompt: '',
-    characterReferences: sliceReferencesForCapability(characterVisual.references, videoVisualCapabilities.character),
+    characterReferences: plannedCharacterRefs,
     avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_photo_avatar_id: characterVisual.heygenPhotoAvatarId || '',
@@ -2738,11 +2788,11 @@ function videoOptionsPayload(referenceImagesOverride) {
     objectId: objectVisual.id || '',
     objectName: objectVisual.name || '',
     objectPrompt: objectVisual.prompt || '',
-    objectReferences: sliceReferencesForCapability(objectVisual.references, videoVisualCapabilities.object),
+    objectReferences: plannedObjectRefs,
     model: videoState.modelId || '',
     native_audio: !!(config.native_audio && videoState.sound),
     motion_control: !!config.motion_control && !isKlingEffect,
-    video_input: !!(config.video_input || config.video_upload || currentVideoEditInputUrl() || currentVideoReferenceUrl()),
+    video_input: !!(config.video_input || config.video_upload || plannedEditVideo || plannedReferenceVideo),
     avatar: !!config.avatar,
     lip_sync: !!config.lip_sync,
     multi_image: !!config.multi_image,
@@ -2752,7 +2802,7 @@ function videoOptionsPayload(referenceImagesOverride) {
       native_audio: !!(config.native_audio && videoState.sound),
       motion_control: !!config.motion_control && !isKlingEffect,
       video_effects: isKlingEffect,
-      video_input: !!(config.video_input || config.video_upload || currentVideoEditInputUrl() || currentVideoReferenceUrl()),
+      video_input: !!(config.video_input || config.video_upload || plannedEditVideo || plannedReferenceVideo),
       avatar: !!config.avatar,
       lip_sync: !!config.lip_sync,
       multi_image: !!config.multi_image,
@@ -12737,6 +12787,16 @@ function openVideoEndUpload(e) {
 // =====================================================
 function openVideoReferencesUpload(e) {
   closeVideoAddMenu();
+  // Generate section only takes reference images here; a model whose
+  // adapter forwards none (registry image_slots === 0) says so up front.
+  const models = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const entry = models ? models[String(videoState.modelId || '').trim()] : null;
+  const inputs = entry && entry.reference_inputs;
+  if (inputs && inputs.image_slots === 0 && videoState.section !== 'edit' && videoState.section !== 'motion') {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    toast('Выбранная модель не принимает референс-фото. Используйте начальный кадр или другую модель.');
+    return;
+  }
   openUploadTarget(UPLOAD_TARGETS.VIDEO_REFERENCES, e);
 }
 
@@ -19012,13 +19072,54 @@ function closeUploadPanel(e) {
     );
   }
 
-  function klingOmniVideoFileError(file) {
+  // Reference/edit video limits come from the capability registry
+  // (reference_inputs, services/model_capabilities.py). The hardcoded Kling
+  // Omni values below are only the fallback when capabilities have not
+  // loaded yet - the same values the registry carries for Kling Omni.
+  const KLING_OMNI_VIDEO_LIMITS_FALLBACK = {
+    video_min_seconds: 3, video_max_seconds: 15.5, video_max_bytes: 200 * 1024 * 1024,
+    video_extensions: ['.mp4', '.mov'], video_min_px: 700, video_max_px: 4553,
+    video_min_ratio: 0.4, video_max_ratio: 2, video_max_area: 8294400,
+  };
+
+  function currentReferenceVideoLimits() {
+    if (!isVideoMode()) return null;
+    const models = (typeof fetchedModelCapabilities !== 'undefined' && fetchedModelCapabilities && fetchedModelCapabilities.models) || null;
+    const entry = models ? models[String(videoState.modelId || '').trim()] : null;
+    const limits = entry && entry.reference_inputs;
+    if (limits && limits.accepts_video) {
+      const hasLimit = ['video_min_seconds', 'video_max_seconds', 'video_max_bytes', 'video_min_px', 'video_max_px']
+        .some((key) => typeof limits[key] === 'number') || (limits.video_extensions || []).length;
+      if (!hasLimit) return null;
+      const orientation = String((videoState.videoTemplate && videoState.videoTemplate.character_orientation) || 'image').toLowerCase();
+      const byOrientation = limits.video_max_seconds_by_orientation || {};
+      return Object.assign({}, limits, typeof byOrientation[orientation] === 'number' ? { video_max_seconds: byOrientation[orientation] } : {});
+    }
+    if (limits) return null;
+    return isKlingOmniEditUploadContext() ? KLING_OMNI_VIDEO_LIMITS_FALLBACK : null;
+  }
+
+  function referenceVideoModelLabel() {
+    const model = typeof currentVideoModel === 'function' ? currentVideoModel() : null;
+    return (model && model.label) || 'выбранной модели';
+  }
+
+  function klingOmniVideoFileError(file, limitsOverride) {
     if (!file) return 'Видео не выбрано';
+    const limits = limitsOverride || currentReferenceVideoLimits() || KLING_OMNI_VIDEO_LIMITS_FALLBACK;
+    const label = referenceVideoModelLabel();
     const name = String(file.name || '').toLowerCase();
     const mime = String(file.type || '').toLowerCase();
-    const isMp4OrMov = /\.(mp4|mov)$/.test(name) || mime === 'video/mp4' || mime === 'video/quicktime';
-    if (!isMp4OrMov) return 'Для Kling 3.0 Omni выберите видео MP4 или MOV';
-    if ((file.size || 0) > 200 * 1024 * 1024) return 'Для Kling 3.0 Omni видео должно быть до 200 MB';
+    const extensions = (limits.video_extensions || []).map((ext) => String(ext).toLowerCase());
+    if (extensions.length) {
+      const mimeOk = (extensions.includes('.mp4') && mime === 'video/mp4') || (extensions.includes('.mov') && mime === 'video/quicktime');
+      if (!extensions.some((ext) => name.endsWith(ext)) && !mimeOk) {
+        return 'Для ' + label + ' выберите видео ' + extensions.map((ext) => ext.slice(1).toUpperCase()).join(' или ');
+      }
+    }
+    if (typeof limits.video_max_bytes === 'number' && (file.size || 0) > limits.video_max_bytes) {
+      return 'Для ' + label + ' видео должно быть до ' + Math.round(limits.video_max_bytes / (1024 * 1024)) + ' MB';
+    }
     return '';
   }
 
@@ -19043,7 +19144,9 @@ function closeUploadPanel(e) {
     return /^image\/(jpeg|png|webp|heic|heif)$/.test(mime) || /\.(jpg|jpeg|png|webp|heic|heif)$/.test(name);
   }
 
-  function klingOmniVideoMetadataError(file) {
+  function klingOmniVideoMetadataError(file, limitsOverride) {
+    const limits = limitsOverride || currentReferenceVideoLimits() || KLING_OMNI_VIDEO_LIMITS_FALLBACK;
+    const label = referenceVideoModelLabel();
     return new Promise((resolve) => {
       if (!file || !window.URL || !URL.createObjectURL) {
         resolve('');
@@ -19060,31 +19163,42 @@ function closeUploadPanel(e) {
       };
       video.preload = 'metadata';
       video.onloadedmetadata = () => {
-        const duration = Number(video.duration || 0);
-        const width = Number(video.videoWidth || 0);
-        const height = Number(video.videoHeight || 0);
-        if (duration && (duration < 3 || duration > 15.5)) {
-          finish('Для Kling 3.0 Omni выберите видео 3–15.5 секунд');
-          return;
-        }
-        if ((width && (width < 700 || width > 4553)) || (height && (height < 700 || height > 4553))) {
-          finish('Для Kling 3.0 Omni размер видео должен быть от 700 до 4553 px по ширине и высоте');
-          return;
-        }
-        if (width && height) {
-          const area = width * height;
-          const ratio = width / height;
-          if (area > 8294400 || ratio < 0.4 || ratio > 2) {
-            finish('Для Kling 3.0 Omni выберите видео с ratio от 0.4 до 2 и площадью кадра до 8294400 px');
-            return;
-          }
-        }
-        finish('');
+        finish(referenceVideoMetadataError({
+          duration: Number(video.duration || 0),
+          width: Number(video.videoWidth || 0),
+          height: Number(video.videoHeight || 0),
+        }, limits, label));
       };
       video.onerror = () => finish('Не удалось прочитать параметры видео');
       video.src = url;
       setTimeout(() => finish(''), 2500);
     });
+  }
+
+  function referenceVideoMetadataError(meta, limits, label) {
+    const duration = Number(meta.duration || 0);
+    const width = Number(meta.width || 0);
+    const height = Number(meta.height || 0);
+    const minSeconds = typeof limits.video_min_seconds === 'number' ? limits.video_min_seconds : null;
+    const maxSeconds = typeof limits.video_max_seconds === 'number' ? limits.video_max_seconds : null;
+    if (duration && ((minSeconds !== null && duration < minSeconds) || (maxSeconds !== null && duration > maxSeconds))) {
+      return 'Для ' + label + ' выберите видео ' + (minSeconds !== null ? minSeconds : 0) + '–' + maxSeconds + ' секунд';
+    }
+    const minPx = typeof limits.video_min_px === 'number' ? limits.video_min_px : null;
+    const maxPx = typeof limits.video_max_px === 'number' ? limits.video_max_px : null;
+    const outOfRange = (v) => v && ((minPx !== null && v < minPx) || (maxPx !== null && v > maxPx));
+    if (outOfRange(width) || outOfRange(height)) {
+      return 'Для ' + label + ' размер видео должен быть от ' + (minPx || 0) + ' до ' + maxPx + ' px по ширине и высоте';
+    }
+    if (width && height) {
+      const ratio = width / height;
+      if ((typeof limits.video_max_area === 'number' && width * height > limits.video_max_area)
+        || (typeof limits.video_min_ratio === 'number' && ratio < limits.video_min_ratio)
+        || (typeof limits.video_max_ratio === 'number' && ratio > limits.video_max_ratio)) {
+        return 'Для ' + label + ' выберите видео с ratio от ' + limits.video_min_ratio + ' до ' + limits.video_max_ratio + ' и площадью кадра до ' + limits.video_max_area + ' px';
+      }
+    }
+    return '';
   }
 
   function klingOmniImageFileError(file) {
@@ -19306,10 +19420,10 @@ function closeUploadPanel(e) {
       return;
     }
     const isKlingOmniEdit = isKlingOmniEditUploadContext();
-    const isKlingOmniVideo = isKlingOmniEdit && pendingKind === 'video';
+    const referenceVideoLimits = pendingKind === 'video' ? currentReferenceVideoLimits() : null;
     const isKlingOmniImage = isKlingOmniEdit && pendingKind === 'image';
-    if (isKlingOmniVideo) {
-      const videoError = klingOmniVideoFileError(f) || await klingOmniVideoMetadataError(f);
+    if (referenceVideoLimits) {
+      const videoError = klingOmniVideoFileError(f, referenceVideoLimits) || await klingOmniVideoMetadataError(f, referenceVideoLimits);
       if (videoError) {
         toast(videoError);
         return;
@@ -21780,6 +21894,8 @@ async function waitGeneration(jobId, options) {
       });
     }
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
+    const droppedReferenceNotice = videoOptionsSnapshot ? videoDroppedReferenceNotice(videoOptionsSnapshot.reference_inputs_dropped) : '';
+    if (droppedReferenceNotice) toast(droppedReferenceNotice);
     const referenceVideos = isVideoMode() && videoOptionsSnapshot
       ? Array.from(new Set([
           videoOptionsSnapshot.input_video || videoOptionsSnapshot.video_url || '',
