@@ -21,6 +21,19 @@ import main
 
 
 @pytest.fixture(autouse=True)
+def _creation_job_settlement(monkeypatch):
+    """Character/Object creation now reserves a composed SYLVEX price at job
+    creation and settles it on success (see test_billing_coverage.py); the
+    settlement is recorded here instead of touching a database."""
+    charges = []
+    monkeypatch.setattr(
+        main, "charge_generation_balance",
+        lambda telegram_id, job_id, result, payload: charges.append((job_id, payload["price_snapshot"]["final_credits"])) or {"charged": True},
+    )
+    return charges
+
+
+@pytest.fixture(autouse=True)
 def _stub_character_pipeline(monkeypatch):
     async def fake_generate_images(job_id, name, gender, description, photos):
         return [
@@ -41,7 +54,7 @@ def _run_job_and_capture_result(monkeypatch, job_id, telegram_id=42, name="Islam
         main, "update_prostudio_generation_job",
         lambda job_id, status, result=None, error=None, conversation_id="": updates.append((status, result, error)),
     )
-    asyncio.run(main._run_character_creation_job(job_id, telegram_id, name, gender, description, photos or ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job(job_id, telegram_id, name, gender, description, photos or ["https://cdn.sylvex.ai/a.jpg"], credits=132))
     assert updates, "update_prostudio_generation_job was never called"
     return updates[-1]
 

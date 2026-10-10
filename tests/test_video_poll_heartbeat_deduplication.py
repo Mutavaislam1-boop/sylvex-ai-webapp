@@ -21,6 +21,8 @@ def app(monkeypatch):
     monkeypatch.setattr(main, "ensure_provider_slot_table", lambda database_url: None)
     monkeypatch.setattr(main, "update_prostudio_generation_job", lambda *a, **k: True)
     monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
+    # A priced job with its reservation held: the billing gate lets it dispatch.
+    monkeypatch.setattr(main, "verify_job_reservation", lambda job_id, credits: None)
     monkeypatch.setattr(main, "circuit_record_outcome", lambda *a, **k: {"state": "CLOSED", "closed": False})
 
     import provider_concurrency as pc
@@ -60,7 +62,7 @@ async def test_video_poll_loop_never_calls_job_heartbeat_directly(app, monkeypat
     monkeypatch.setattr(app.asyncio, "sleep", fast_sleep)
 
     result, status = await app.run_prostudio_provider_request(
-        "job-heartbeat-dedup", {"telegram_id": 1}, "video", "kling-model", "kling", {"text"}, "kling",
+        "job-heartbeat-dedup", {"telegram_id": 1, "price_snapshot": {"final_credits": 5}}, "video", "kling-model", "kling", {"text"}, "kling",
     )
 
     assert status == "completed"

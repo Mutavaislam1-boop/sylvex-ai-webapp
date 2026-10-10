@@ -32,6 +32,8 @@ async def test_provider_timeout_fails_job_and_releases_slot(monkeypatch):
         await asyncio.Event().wait()
 
     monkeypatch.setattr(main, "dispatch_prostudio_provider_request", hanging_provider)
+    # A priced job with its reservation held: the billing gate lets it dispatch.
+    monkeypatch.setattr(main, "verify_job_reservation", lambda job_id, credits: None)
 
     async def process_with_provider_slot(job_id, payload):
         await main.run_prostudio_provider_request(
@@ -39,7 +41,7 @@ async def test_provider_timeout_fails_job_and_releases_slot(monkeypatch):
         )
 
     monkeypatch.setattr(main, "process_prostudio_generation", process_with_provider_slot)
-    await main.run_prostudio_generation_with_timeout("job-timeout", {"telegram_id": 1})
+    await main.run_prostudio_generation_with_timeout("job-timeout", {"telegram_id": 1, "price_snapshot": {"final_credits": 5}})
 
     assert released == ["job-timeout"]
     assert len(terminal_updates) == 1

@@ -347,7 +347,7 @@ def test_ai_message_streams_and_persists(env, monkeypatch):
     monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900030)
     _set_subscriber(main, monkeypatch, active=True)
 
-    def fake_stream(api_key, api_base, model, messages):
+    def fake_stream(api_key, api_base, model, messages, **kwargs):
         assert api_key == "test-openai-key"
         yield "Here is an idea: "
         yield "[PROMPT]a cozy coffee shop, warm light[/PROMPT]"
@@ -377,7 +377,7 @@ def test_ai_message_cancellation_via_stop(env, monkeypatch):
     monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900031)
     _set_subscriber(main, monkeypatch, active=True)
 
-    def fake_stream(api_key, api_base, model, messages):
+    def fake_stream(api_key, api_base, model, messages, **kwargs):
         yield "first chunk"
         # A brief pause models real network latency between provider chunks
         # and gives the test's own coroutine below a window to call the
@@ -527,6 +527,8 @@ def test_realtime_session_requires_subscription(env, monkeypatch):
 def test_realtime_session_mints_session_and_never_exposes_key(env, monkeypatch):
     main, _ = env
     _set_subscriber(main, monkeypatch, active=True)
+    # Transport check: lift the no-tariff gate (tested in test_billing_coverage.py).
+    monkeypatch.setattr(main, "UNPRICED_HELPERS", frozenset())
 
     captured = {}
     def fake_mint(api_key, sdp, instructions, uid, model):
@@ -579,7 +581,7 @@ def test_subscriber_ai_message_checks_quota_exactly_once_with_real_uid(env, monk
         calls.append((uid, path))
     monkeypatch.setattr(main, "check_request_quota", spy_quota)
 
-    def fake_stream(api_key, api_base, model, messages):
+    def fake_stream(api_key, api_base, model, messages, **kwargs):
         yield "hi"
     monkeypatch.setattr(main, "stream_assistant_reply", fake_stream)
 
@@ -633,7 +635,7 @@ def test_message_with_valid_owned_attachment_is_used(env, monkeypatch):
 
     captured = {}
 
-    def fake_stream(api_key, api_base, model, messages):
+    def fake_stream(api_key, api_base, model, messages, **kwargs):
         captured["messages"] = messages
         yield "I can see the image."
     monkeypatch.setattr(main, "stream_assistant_reply", fake_stream)
@@ -697,7 +699,7 @@ def test_arbitrary_url_in_request_body_never_fetched(env, monkeypatch):
         raise AssertionError("requests.get must never be called for a client-supplied URL")
     monkeypatch.setattr(main.requests, "get", _explode_get)
 
-    def fake_stream(api_key, api_base, model, messages):
+    def fake_stream(api_key, api_base, model, messages, **kwargs):
         yield "ok"
     monkeypatch.setattr(main, "stream_assistant_reply", fake_stream)
 
