@@ -7,12 +7,13 @@
    strings (t), locale and purchase callbacks; nothing here talks to the
    network or changes how a purchase is paid.
 
-   Purchase rules for this phase:
-   - Credit cards whose price matches an existing backend product
-     (SHOP_ITEMS pack_500..pack_5000) continue to the host's existing
-     checkout. $100, $200 and custom amounts render but cannot be bought.
-   - The new subscription plans are not purchasable yet: their button is
-     disabled unless the host reports the plan as available. */
+   What can be bought is decided by the host, never by this file:
+   - plans are selectable only when isPlanAvailable(plan, period) says so;
+   - a credit card continues only when packIdForUsd(usd) returns a product;
+   - a custom amount continues only when the host sets customPurchase.
+   The Telegram Mini App enables all three from the server catalog
+   (/api/public/shop/catalog); the Website keeps its existing packs only.
+   Prices, credits and Stars are always re-derived on the server. */
 (function (root) {
   'use strict';
 
@@ -35,33 +36,56 @@
   // sylvex-ai-webapp/main.py). Only these continue to checkout.
   var LEGACY_PACK_IDS = { 5: 'pack_500', 10: 'pack_1000', 20: 'pack_2000', 30: 'pack_3000', 40: 'pack_4000', 50: 'pack_5000' };
 
-  // Credits per example, from the SYLVEX price engine
-  // (calculate_generation_price) for the model Pro Studio uses for that
-  // kind of result. A count is how many of that one example the balance
-  // covers; the five rows are alternatives, not separate allowances.
-  // Text is billed on the tokens actually used, so it has no fixed count.
+  // Credits per example: the cheapest user-selectable generation in each
+  // category at SYLVEX retail prices. These defaults mirror the server's
+  // live selection (main.py store_generation_examples); a host passing the
+  // catalog's `examples` overrides them. A count is how many of that one
+  // example the balance covers; the rows are alternative uses of the same
+  // balance, not separate allowances. Text is one request of 1,000 input +
+  // 1,000 output tokens.
   var EXAMPLES = [
-    { key: 'photo', cost: 6, model: 'seedream_5_0_lite' },
-    { key: 'video', cost: 90, model: 'seedance_2_fast' },
-    { key: 'music', cost: 6, model: 'google_lyria_3_clip' },
-    { key: 'voice', cost: 40, model: 'elevenlabs_eleven_v3' },
-    { key: 'text', cost: null, model: 'gpt-5.5' },
+    { key: 'photo', cost: 3, model: 'imagen_4_fast', label: 'Imagen 4 Fast' },
+    { key: 'video', cost: 9, model: 'seedance_1_5_pro', label: 'Seedance 1.5 Pro', seconds: 5, resolution: '480p' },
+    { key: 'music', cost: 6, model: 'google_lyria_3_clip', label: 'Google Lyria 3 Clip', seconds: 30 },
+    { key: 'voice', cost: 1, model: 'gemini_3_1_flash_tts_preview', label: 'Gemini 3.1 Flash TTS', characters: 1000 },
+    { key: 'text', cost: 1, model: 'qwen_turbo', label: 'Qwen Turbo', inputTokens: 1000, outputTokens: 1000, inputCredits: 0.0075, outputCredits: 0.03 },
   ];
+
+  // Server catalog examples ({photo: {credits, label, ...}, ...}) -> rows.
+  function resolveExamples(server) {
+    return EXAMPLES.map(function (example) {
+      var live = server && server[example.key];
+      if (!live || !(Number(live.credits) > 0)) return example;
+      return {
+        key: example.key,
+        cost: Number(live.credits),
+        model: live.model || example.model,
+        label: live.label || example.label,
+        seconds: live.seconds || example.seconds,
+        resolution: live.resolution || example.resolution,
+        characters: live.characters || example.characters,
+        inputTokens: live.input_tokens || example.inputTokens,
+        outputTokens: live.output_tokens || example.outputTokens,
+        inputCredits: live.input_credits != null ? Number(live.input_credits) : example.inputCredits,
+        outputCredits: live.output_credits != null ? Number(live.output_credits) : example.outputCredits,
+      };
+    });
+  }
 
   var EN = {
     store_period_month: 'Monthly',
     store_period_year: 'Annual',
     store_per_month: '/ mo',
-    store_billed_monthly: 'Billed monthly',
-    store_billed_annually: '{total} billed yearly · save {pct}%',
+    store_billed_monthly: 'One month · no auto-renewal',
+    store_billed_annually: '{total} for 12 months · save {pct}%',
     store_credits_monthly: 'Every paid month',
     store_credits_annual: 'Full annual allocation upfront',
     store_examples_title: 'What you can create',
     store_example_photo: 'Images',
     store_example_video: 'Video · 5 sec',
-    store_example_music: 'Music · 30 sec',
+    store_example_music: 'Music · {seconds} sec',
     store_example_voice: 'Voice · 1,000 chars',
-    store_example_text: 'Text',
+    store_example_text: 'Text · 1K in + 1K out',
     store_by_tokens: 'By tokens',
     store_select_plan: 'Select plan',
     store_plan_soon: 'Coming soon',
@@ -83,7 +107,12 @@
     store_continue: 'Continue to payment',
     store_pack_soon: 'This package isn’t available for purchase yet.',
     store_custom_soon: 'Custom amounts will be available soon.',
-    store_examples_note: 'Examples are alternative uses of the same balance, not separate allowances. Based on the default Pro Studio models: images Seedream 5.0 Lite, video Seedance 2.0 Fast 720p, music Lyria 3 (30 sec), voice ElevenLabs v3. Text is billed by the tokens used.',
+    store_examples_note: 'Examples are alternative uses of the same balance, not separate allowances. Each uses the cheapest model in its category at current prices: images {photo}; video {video}; music {music}; voice {voice}; text {text}.',
+    store_note_photo: '{model}, {credits} ⚡ per image',
+    store_note_video: '{model} {resolution}, {credits} ⚡ per {seconds} sec',
+    store_note_music: '{model}, {credits} ⚡ per {seconds} sec',
+    store_note_voice: '{model}, {credits} ⚡ per 1,000 characters',
+    store_note_text: '{model}, {input} ⚡ for 1,000 input + {output} ⚡ for 1,000 output tokens, minimum {credits} ⚡ per request',
   };
 
   var ICONS = {
@@ -150,8 +179,10 @@
 
   function makeFormat(locale) {
     var number = new Intl.NumberFormat(locale || 'en', { maximumFractionDigits: 0 });
+    var decimal = new Intl.NumberFormat(locale || 'en', { maximumFractionDigits: 4 });
     return {
       number: function (n) { return number.format(n); },
+      decimal: function (n) { return n == null ? '—' : decimal.format(n); },
       // Dollar amounts keep the locale's digit grouping ("$1 000" in
       // Russian) but always use a point before cents ("$10.00").
       usd: function (n, decimals) {
@@ -179,22 +210,38 @@
     '</div>';
   }
 
-  function examplesBlock(tr, fmt, credits) {
+  function exampleValue(tr, fmt, credits, example) {
+    if (example.cost == null) return tr('store_by_tokens');
+    var count = exampleCount(credits, example.cost);
+    return count == null ? '—' : fmt.number(count);
+  }
+
+  function examplesBlock(tr, fmt, credits, examples) {
     return '<div class="sxs-examples">' +
       '<div class="sxs-examples-title">' + escapeHtml(tr('store_examples_title')) + '</div>' +
-      EXAMPLES.map(function (example) {
-        var count = exampleCount(credits, example.cost);
-        var value = example.cost == null ? tr('store_by_tokens') : (count == null ? '—' : fmt.number(count));
+      examples.map(function (example) {
+        var value = exampleValue(tr, fmt, credits, example);
         return '<div class="sxs-example" data-example="' + example.key + '">' +
-          '<span class="sxs-example-label">' + icon(example.key) + '<span>' + escapeHtml(tr('store_example_' + example.key)) + '</span></span>' +
+          '<span class="sxs-example-label">' + icon(example.key) + '<span>' + escapeHtml(tr('store_example_' + example.key, { seconds: example.seconds || 30 })) + '</span></span>' +
           '<span class="sxs-example-value" data-sxs-example-value>' + escapeHtml(value) + '</span>' +
         '</div>';
       }).join('') +
     '</div>';
   }
 
-  function examplesNote(tr) {
-    return '<p class="sxs-footnote">' + escapeHtml(tr('store_examples_note')) + '</p>';
+  function examplesNote(tr, fmt, examples) {
+    var parts = {};
+    examples.forEach(function (example) {
+      parts[example.key] = tr('store_note_' + example.key, {
+        model: example.label || example.model,
+        credits: fmt.decimal(example.cost),
+        seconds: example.seconds || '',
+        resolution: example.resolution || '',
+        input: fmt.decimal(example.inputCredits),
+        output: fmt.decimal(example.outputCredits),
+      }).replace(/\s+,/g, ',');
+    });
+    return '<p class="sxs-footnote">' + escapeHtml(tr('store_examples_note', parts)) + '</p>';
   }
 
   /* ---------------- subscriptions ---------------- */
@@ -208,6 +255,7 @@
     var state = planState.get(container) || { periods: {} };
     planState.set(container, state);
     var isAvailable = opts.isPlanAvailable || function () { return false; };
+    var examples = resolveExamples(opts.examples);
 
     function planCard(plan) {
       var period = state.periods[plan.id] || 'month';
@@ -227,7 +275,7 @@
         '<div class="sxs-price"><span class="sxs-price-amount">' + escapeHtml(fmt.usd(price.displayUsd, price.decimals)) + '</span><span class="sxs-price-unit">' + escapeHtml(tr('store_per_month')) + '</span></div>' +
         '<div class="sxs-price-note">' + escapeHtml(note) + '</div>' +
         creditPanel(fmt, price.credits, tr(period === 'year' ? 'store_credits_annual' : 'store_credits_monthly'), true) +
-        examplesBlock(tr, fmt, price.credits) +
+        examplesBlock(tr, fmt, price.credits, examples) +
         '<button type="button" class="sxs-plan-cta" data-sxs-select-plan' + (available ? '' : ' disabled aria-disabled="true"') + '>' +
           escapeHtml(tr(available ? 'store_select_plan' : 'store_plan_soon')) + '</button>' +
       '</article>';
@@ -243,7 +291,7 @@
     }
 
     container.classList.add('sxs-root', 'sxs-plans');
-    container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + businessCard() + '</div>' + examplesNote(tr);
+    container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + businessCard() + '</div>' + examplesNote(tr, fmt, examples);
 
     if (!container.__sxsPlansBound) {
       container.__sxsPlansBound = true;
@@ -282,6 +330,7 @@
     var state = creditState.get(container) || { usd: opts.defaultUsd || DEFAULT_PACK_USD, customOpen: false, customRaw: '' };
     creditState.set(container, state);
     var range = { min: fmt.usd(CUSTOM_MIN_USD, 0), max: fmt.usd(CUSTOM_MAX_USD, 0) };
+    var examples = resolveExamples(opts.examples);
 
     function packCard(usd) {
       var selected = !state.customOpen && state.usd === usd;
@@ -291,7 +340,7 @@
         '<div class="sxs-pack-head"><span class="sxs-pack-price">' + escapeHtml(fmt.usd(usd, 0)) + '</span>' +
           (selected ? icon('check', 'sxs-pick sxs-pick--on') : '<span class="sxs-pick" aria-hidden="true"></span>') + '</div>' +
         creditPanel(fmt, credits, tr('store_credits_label'), false) +
-        examplesBlock(tr, fmt, credits) +
+        examplesBlock(tr, fmt, credits, examples) +
         '<button type="button" class="sxs-pack-cta" data-sxs-pick="' + usd + '" aria-pressed="' + selected + '">' + escapeHtml(tr(selected ? 'store_selected' : 'store_select')) + '</button>' +
       '</article>';
     }
@@ -314,28 +363,43 @@
               ' aria-invalid="' + !!error + '" aria-describedby="sxsCustomError"></span></label>' +
           '<div class="sxs-field-error" id="sxsCustomError" role="alert">' + escapeHtml(error) + '</div>' +
           creditPanel(fmt, credits, tr('store_credits_label'), false) +
-          examplesBlock(tr, fmt, credits) +
+          examplesBlock(tr, fmt, credits, examples) +
         '</div>' +
       '</section>';
     }
 
+    // What Continue would buy right now: a host product id for a package,
+    // a canonical USD string for a custom amount, or nothing.
+    function continueTarget() {
+      if (state.customOpen) {
+        var parsed = parseCustomAmount(state.customRaw);
+        if (!opts.customPurchase) return { note: tr('store_custom_soon') };
+        return parsed.ok ? { customUsd: parsed.usd.toFixed(2) } : {};
+      }
+      var packId = (opts.packIdForUsd || packIdForUsd)(state.usd);
+      return packId ? { packId: packId } : { note: tr('store_pack_soon') };
+    }
+
+    function continueAttrs(target) {
+      if (target.packId) return ' data-pack-id="' + escapeHtml(target.packId) + '"';
+      if (target.customUsd) return ' data-custom-usd="' + escapeHtml(target.customUsd) + '"';
+      return ' disabled aria-disabled="true"';
+    }
+
     function summary() {
-      var usd, credits, packId = null, note = '';
+      var usd, credits, target = continueTarget(), note = target.note || '';
       if (state.customOpen) {
         var parsed = parseCustomAmount(state.customRaw);
         usd = parsed.ok ? parsed.usd : 0;
         credits = parsed.ok ? parsed.credits : 0;
-        note = tr('store_custom_soon');
       } else {
         usd = state.usd;
         credits = creditsForUsd(usd);
-        packId = (opts.packIdForUsd || packIdForUsd)(usd);
-        if (!packId) note = tr('store_pack_soon');
       }
       return '<div class="sxs-summary" data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ⚡') + '" data-checkout-price="' + escapeHtml(fmt.usd(usd, 2)) + '">' +
         '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_package')) + '</span><b data-sxs-summary-usd>' + escapeHtml(fmt.usd(usd, 2)) + '</b></div>' +
         '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_credits')) + '</span><b>' + icon('bolt', 'sxs-bolt') + '<span data-sxs-summary-credits>' + escapeHtml(fmt.number(credits)) + '</span><span class="sxs-emoji" aria-hidden="true">⚡</span></b></div>' +
-        '<button type="button" class="sxs-continue" data-sxs-continue' + (packId ? ' data-pack-id="' + packId + '"' : ' disabled aria-disabled="true"') + '>' +
+        '<button type="button" class="sxs-continue" data-sxs-continue' + continueAttrs(target) + '>' +
           escapeHtml(tr('store_continue')) + icon('arrow', 'sxs-arrow') + '</button>' +
         (note ? '<p class="sxs-summary-note">' + escapeHtml(note) + '</p>' : '') +
       '</div>';
@@ -345,7 +409,7 @@
       container.classList.add('sxs-root', 'sxs-credits');
       container.innerHTML =
         '<div class="sxs-grid" role="group">' + CREDIT_PACK_USD.map(packCard).join('') + '</div>' +
-        customCard() + summary() + examplesNote(tr);
+        customCard() + summary() + examplesNote(tr, fmt, examples);
     }
 
     // Typing in the custom amount updates credits, examples and summary in
@@ -362,9 +426,7 @@
       input.setAttribute('aria-invalid', String(!!error));
       body.querySelector('[data-sxs-credits]').textContent = fmt.number(credits);
       body.querySelectorAll('.sxs-example').forEach(function (row, i) {
-        var example = EXAMPLES[i];
-        var count = exampleCount(credits, example.cost);
-        row.querySelector('[data-sxs-example-value]').textContent = example.cost == null ? tr('store_by_tokens') : fmt.number(count);
+        row.querySelector('[data-sxs-example-value]').textContent = exampleValue(tr, fmt, credits, examples[i]);
       });
       var usd = parsed.ok ? parsed.usd : 0;
       var summaryEl = container.querySelector('.sxs-summary');
@@ -372,6 +434,11 @@
       summaryEl.querySelector('[data-sxs-summary-credits]').textContent = fmt.number(credits);
       summaryEl.dataset.checkoutTitle = fmt.number(credits) + ' ⚡';
       summaryEl.dataset.checkoutPrice = fmt.usd(usd, 2);
+      var button = summaryEl.querySelector('[data-sxs-continue]');
+      var target = continueTarget();
+      button.disabled = !(target.packId || target.customUsd);
+      if (button.disabled) button.setAttribute('aria-disabled', 'true'); else button.removeAttribute('aria-disabled');
+      if (target.customUsd) button.setAttribute('data-custom-usd', target.customUsd); else button.removeAttribute('data-custom-usd');
     }
 
     paint();
@@ -392,8 +459,12 @@
       }
       var cont = event.target.closest('[data-sxs-continue]');
       if (cont) {
-        if (!cont.disabled && cont.dataset.packId && typeof container.__sxsCreditOptions.onContinue === 'function') {
-          container.__sxsCreditOptions.onContinue(cont.dataset.packId, cont);
+        var hostOptions = container.__sxsCreditOptions;
+        if (cont.disabled) return;
+        if (cont.dataset.packId && typeof hostOptions.onContinue === 'function') {
+          hostOptions.onContinue(cont.dataset.packId, cont);
+        } else if (cont.dataset.customUsd && hostOptions.customPurchase && typeof hostOptions.onContinueCustom === 'function') {
+          hostOptions.onContinueCustom(cont.dataset.customUsd, cont);
         }
         return;
       }

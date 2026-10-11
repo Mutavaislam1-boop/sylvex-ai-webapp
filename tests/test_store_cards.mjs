@@ -63,11 +63,37 @@ test('custom amount validation', () => {
   assert.deepEqual({...S.parseCustomAmount(' 12,5 ')}, {ok: true, usd: 12.5, credits: 1250});
 });
 
-test('examples are counts of one example each; text is billed by tokens', () => {
+test('examples are counts of one example each, with live server costs overriding defaults', () => {
   assert.deepEqual(Array.from(S.EXAMPLES, (e) => e.key), ['photo', 'video', 'music', 'voice', 'text']);
-  const counts = Array.from(S.EXAMPLES, (e) => S.exampleCount(1000, e.cost));
-  assert.deepEqual(counts, [166, 11, 166, 25, null]);
+  assert.deepEqual(Array.from(S.EXAMPLES, (e) => S.exampleCount(1000, e.cost)), [333, 111, 166, 1000, 1000]);
   assert.equal(S.exampleCount(0, 6), 0);
+  const container = fakeContainer();
+  S.renderCredits(container, {locale: 'en', defaultUsd: 10, examples: {
+    photo: {credits: 4, model: 'm', label: 'Cheap Image'},
+    text: {credits: 2, model: 't', label: 'Tiny LLM', input_credits: 0.01, output_credits: 0.04},
+  }});
+  const html = container.innerHTML;
+  assert.match(html, /data-example="photo">[\s\S]*?data-sxs-example-value>250</);
+  assert.match(html, /data-example="text">[\s\S]*?data-sxs-example-value>500</);
+  assert.match(html, /Cheap Image, 4 ⚡ per image/);
+  assert.match(html, /Tiny LLM, 0\.01 ⚡ for 1,000 input \+ 0\.04 ⚡ for 1,000 output tokens, minimum 2 ⚡ per request/);
+  assert.match(html, /Text · 1K in \+ 1K out/);
+  assert.doesNotMatch(html, /By tokens/);
+});
+
+test('copy never promises automatic renewal', () => {
+  const container = fakeContainer();
+  S.renderPlans(container, {locale: 'en'});
+  assert.match(container.innerHTML, /One month · no auto-renewal/);
+  assert.equal(S.EN.store_billed_annually, '{total} for 12 months · save {pct}%');
+  assert.doesNotMatch(container.innerHTML, /[Bb]illed monthly|auto-renews/);
+});
+
+test('the host decides purchasability: all packs and custom amounts when enabled', () => {
+  const container = fakeContainer();
+  S.renderCredits(container, {locale: 'en', defaultUsd: 200, packIdForUsd: (usd) => 'pack_' + usd * 100, customPurchase: true});
+  assert.match(container.innerHTML, /data-sxs-continue data-pack-id="pack_20000"/);
+  assert.doesNotMatch(container.innerHTML, /sxs-summary-note/);
 });
 
 test('plan cards render all five plans plus Business, none purchasable yet', () => {

@@ -13,39 +13,21 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = (ROOT / "webapp" / "js" / "store-cards.js").read_text(encoding="utf-8")
 LANGUAGE = (ROOT / "webapp" / "js" / "language.js").read_text(encoding="utf-8")
 
-EXAMPLE_PAYLOADS = {
-    "photo": {"mode": "image", "image_options": {"count": 1}},
-    "video": {"mode": "video", "video_options": {"duration": 5, "resolution": "720p"}},
-    "music": {"mode": "music", "music_options": {}},
-    "voice": {"mode": "voice", "prompt": "x" * 1000, "voice_options": {}},
-}
-
-
 def _examples():
-    found = re.findall(r"\{ key: '(\w+)', cost: (null|\d+), model: '([\w.-]+)' \}", SOURCE)
-    return {key: (None if cost == "null" else int(cost), model) for key, cost, model in found}
+    """EXAMPLES defaults in store-cards.js: key -> (cost, model)."""
+    found = re.findall(r"\{ key: '(\w+)', cost: (\d+), model: '([\w.-]+)'", SOURCE)
+    return {key: (int(cost), model) for key, cost, model in found}
 
 
-def test_example_costs_match_the_price_engine():
-    examples = _examples()
-    assert set(examples) == {"photo", "video", "music", "voice", "text"}
-    for key, payload in EXAMPLE_PAYLOADS.items():
-        cost, model = examples[key]
-        request = json.loads(json.dumps(payload))
-        request["model"] = model
-        options_key = {"photo": "image_options", "video": "video_options", "music": "music_options", "voice": "voice_options"}[key]
-        request[options_key]["model"] = model
-        request.setdefault("prompt", "x")
-        estimate = main.calculate_generation_price(request)
-        assert estimate.get("pricing_available", True), key
-        assert estimate["credits"] == cost, (key, model, estimate["credits"])
-
-
-def test_text_example_is_usage_billed():
-    cost, model = _examples()["text"]
-    assert cost is None
-    estimate = main.calculate_generation_price({"mode": "text", "model": model, "prompt": "x"})
-    assert estimate["billing"] == "usage"
+def test_example_defaults_match_the_live_cheapest_selection(monkeypatch):
+    # The Mini App overrides these with the catalog's live examples; the
+    # defaults (also used by the Website) must equal what the server picks.
+    monkeypatch.setitem(main._STORE_EXAMPLES_CACHE, "value", None)
+    live = main.store_generation_examples()
+    defaults = _examples()
+    assert set(defaults) == set(live) == {"photo", "video", "music", "voice", "text"}
+    for key, (cost, model) in defaults.items():
+        assert (cost, model) == (live[key]["credits"], live[key]["model"]), key
 
 
 def test_checkout_cards_map_to_existing_packs_at_the_same_price():
