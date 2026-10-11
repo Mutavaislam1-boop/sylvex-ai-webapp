@@ -24251,6 +24251,22 @@ async function waitGeneration(jobId, options) {
   function applyAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0',fab=document.getElementById('aiAssistantFab'),control=document.getElementById('aiAssistantVisibilitySwitch');if(fab)fab.hidden=!visible;if(control)control.classList.toggle('on',visible)}
   function toggleAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0';localStorage.setItem('sylvex-ai-assistant-visible',visible?'0':'1');if(visible)closeAiAssistant();applyAiAssistantVisibility()}
 
+  // Store cards (js/store-cards.js). A credit card whose price matches an
+  // existing pack continues to the existing pay view through openBuy; the
+  // new plans, $100/$200 and custom amounts render but cannot be bought yet.
+  function mountStoreCards() {
+    const cards = window.SylvexStoreCards;
+    if (!cards) return;
+    const options = { t: window.t, locale: (S.getLang && S.getLang()) || 'en' };
+    const plans = document.getElementById('storePlanCards');
+    const credits = document.getElementById('storeCreditCards');
+    if (plans) cards.renderPlans(plans, Object.assign({ onContactSales: contactAdmin }, options));
+    if (credits) cards.renderCredits(credits, Object.assign({ onContinue: (packId) => openBuy(packId) }, options));
+    if (!mountStoreCards.bound) {
+      mountStoreCards.bound = true;
+      window.addEventListener('sylvex:languagechange', mountStoreCards);
+    }
+  }
   function switchShopTab(tab){const selected=tab==='tokens'?'tokens':'subscriptions';document.querySelectorAll('[data-shop-tab]').forEach(button=>button.classList.toggle('active',button.dataset.shopTab===selected));document.querySelectorAll('[data-shop-panel]').forEach(panel=>panel.hidden=panel.dataset.shopPanel!==selected)}
   function openSpendingStats(){let modal=document.getElementById('spendingStatsModal');if(!modal){modal=document.createElement('div');modal.id='spendingStatsModal';modal.className='community-modal spending-stats-modal';document.body.appendChild(modal)}const spent=Number((S.user&&S.user.tokens_spent)||0);modal.innerHTML='<section><header><div><small>Статистика расходов</small><h3>Токены SYLVEX</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><div class="spending-total"><small>Потрачено за всё время</small><b>'+spent.toLocaleString()+' ⚡️</b></div><div class="spending-chart-empty"><span style="height:22%"></span><span style="height:38%"></span><span style="height:31%"></span><span style="height:54%"></span><span style="height:44%"></span><span style="height:70%"></span><span style="height:62%"></span></div><p class="spending-note">Детализация по дням появится после подключения серверной истории списаний. Текущая сумма взята из реальных данных профиля.</p><button class="community-publish-submit" type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\');switchView(\'history\')">Открыть историю генераций</button></section>';modal.classList.add('show')}
 
@@ -26128,6 +26144,7 @@ async function waitGeneration(jobId, options) {
 
     // Restore saved theme.
     restoreAppTheme();
+    mountStoreCards();
 
     const initialShareId = shareStartId();
     if (initialShareId) {
