@@ -59,9 +59,12 @@ def test_helper_returns_a_fresh_response_object_each_call():
 # different occurrences were left alone.
 # ---------------------------------------------------------------------------
 
-def test_exactly_31_call_sites_now_use_the_shared_helper():
+def test_exactly_34_call_sites_now_use_the_shared_helper():
+    # 31 from the original extraction, plus the Store order endpoints
+    # (store Stars invoice, store Crypto invoice, order status), which use
+    # the helper from the start.
     count = MAIN_PY_SOURCE.count("return telegram_id_required_response()")
-    assert count == 31, f"expected exactly 31 call sites using the helper, found {count}"
+    assert count == 34, f"expected exactly 34 call sites using the helper, found {count}"
 
 
 def test_the_raw_duplicate_literal_appears_only_inside_the_helpers_own_definition():
