@@ -6,8 +6,9 @@
 //
 // Covers the plan/credit math shown on the cards, custom-amount
 // validation, which credit cards may continue to the existing checkout
-// (only the packs SHOP_ITEMS already sells), and that the new plans,
-// $100/$200 and custom amounts are rendered as not purchasable yet.
+// (only the packs SHOP_ITEMS already sells, unless the host says
+// otherwise), and that without host purchase options the new plans,
+// $100/$200 and custom amounts are rendered as not purchasable.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync, readFileSync} from 'node:fs';
@@ -94,6 +95,39 @@ test('the host decides purchasability: all packs and custom amounts when enabled
   S.renderCredits(container, {locale: 'en', defaultUsd: 200, packIdForUsd: (usd) => 'pack_' + usd * 100, customPurchase: true});
   assert.match(container.innerHTML, /data-sxs-continue data-pack-id="pack_20000"/);
   assert.doesNotMatch(container.innerHTML, /sxs-summary-note/);
+});
+
+// A container that records listeners and hands out stub elements, enough to
+// drive the bound click/input handlers without a DOM.
+function interactiveContainer() {
+  const listeners = {};
+  const button = {disabled: true, attrs: {}, dataset: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; }};
+  const stub = () => ({textContent: '', dataset: {}, classList: {toggle() {}}, setAttribute() {}, removeAttribute() {}, focus() {},
+    querySelector: (sel) => (sel === '[data-sxs-continue]' ? button : stub()), querySelectorAll: () => []});
+  return {
+    innerHTML: '', classList: {add() {}}, button,
+    addEventListener(type, fn) { listeners[type] = fn; },
+    querySelector: (sel) => (sel === '.sxs-summary' ? {dataset: {}, querySelector: (s) => (s === '[data-sxs-continue]' ? button : stub())} : stub()),
+    fire(type, target) { listeners[type]({target}); },
+  };
+}
+
+test('custom amounts follow the latest render options after the host re-renders', () => {
+  const container = interactiveContainer();
+  // First render happens before the host catalog loads: custom not purchasable.
+  S.renderCredits(container, {locale: 'en'});
+  const bought = [];
+  S.renderCredits(container, {locale: 'en', customPurchase: true, onContinueCustom: (usd) => bought.push(usd)});
+  container.fire('click', {closest: (sel) => (sel === '[data-sxs-custom-toggle]' ? {} : null)});
+  container.fire('input', {matches: () => true, value: '25'});
+  assert.equal(container.button.disabled, false);
+  assert.equal(container.button.attrs['data-custom-usd'], '25.00');
+  container.fire('input', {matches: () => true, value: '1000.01'});
+  assert.equal(container.button.disabled, true);
+  assert.equal(container.button.attrs['data-custom-usd'], undefined);
+  const cont = {disabled: false, dataset: {customUsd: '25.00'}};
+  container.fire('click', {closest: (sel) => (sel === '[data-sxs-continue]' ? cont : null)});
+  assert.deepEqual(bought, ['25.00']);
 });
 
 test('plan cards render all five plans plus Business, none purchasable yet', () => {
