@@ -9980,3 +9980,8 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
 .edit-background-controls:is([data-background-choice="transparent"],[data-background-choice="color"]) .edit-background-replace{padding-left:18px}
 .edit-background-controls button:focus-visible,.edit-background-color:focus-within{outline:2px solid var(--edit-primary);outline-offset:3px}
 .edit-workspace-action-background textarea{box-sizing:border-box;width:100%;height:62px;min-height:62px}
+
+/* Store purchases on the pay screen: renewal note and methods a product
+   cannot use (e.g. above the Telegram Stars invoice limit). */
+.view[data-view="pay"] .pay-store-note{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:var(--surface);color:var(--text);color:color-mix(in srgb,var(--text) 78%,transparent);font-size:12.5px;line-height:1.45}
+.view[data-view="pay"] .pm-card.is-unavailable{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
