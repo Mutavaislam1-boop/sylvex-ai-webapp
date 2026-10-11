@@ -9972,8 +9972,7 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
 .edit-background-clear{position:absolute;z-index:2;top:-6px;right:-6px;width:18px;height:18px;padding:0;border:1px solid var(--edit-border-strong);border-radius:50%;background:var(--edit-surface-raised);color:var(--edit-text);font:14px/16px system-ui;cursor:pointer}
 .edit-background-controls[data-background-choice="transparent"] :is(.edit-background-upload,.edit-background-color),
 .edit-background-controls[data-background-choice="color"] .edit-background-upload,
-.edit-background-controls:is([data-background-choice="transparent"],[data-background-choice="replace"]) .edit-background-clear,
-.edit-background-controls:not([data-background-choice="replace"]) .edit-background-description{display:none}
+.edit-background-controls:is([data-background-choice="transparent"],[data-background-choice="replace"]) .edit-background-clear{display:none}
 .edit-background-controls[data-background-choice="image"] .edit-background-choice-image{display:block}
 .edit-background-controls[data-background-choice="image"] .edit-background-replace:after{content:"";position:absolute;inset:0;background:#0007}
 .edit-background-controls[data-background-choice="image"] :is(.edit-background-replace span,.edit-background-upload){color:#fff}
