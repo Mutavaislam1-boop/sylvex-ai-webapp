@@ -442,8 +442,12 @@
     }
 
     paint();
+    // Listeners are bound once; they reach the latest render's options and
+    // closures through these, so a re-render (e.g. after the host's catalog
+    // loads) takes effect.
     container.__sxsCreditOptions = opts;
     container.__sxsCreditPaint = paint;
+    container.__sxsCreditUpdate = updateCustom;
     if (container.__sxsCreditsBound) return;
     container.__sxsCreditsBound = true;
 
@@ -480,7 +484,7 @@
     container.addEventListener('input', function (event) {
       if (!event.target.matches('[data-sxs-custom-input]')) return;
       state.customRaw = event.target.value;
-      updateCustom();
+      container.__sxsCreditUpdate();
     });
   }
 

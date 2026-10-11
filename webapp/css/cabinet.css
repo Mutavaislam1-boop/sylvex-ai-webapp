@@ -9983,5 +9983,5 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
 
 /* Store purchases on the pay screen: renewal note and methods a product
    cannot use (e.g. above the Telegram Stars invoice limit). */
-.view[data-view="pay"] .pay-store-note{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:var(--surface);color:var(--text-dim);font-size:12.5px;line-height:1.45}
+.view[data-view="pay"] .pay-store-note{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:var(--surface);color:var(--text);color:color-mix(in srgb,var(--text) 78%,transparent);font-size:12.5px;line-height:1.45}
 .view[data-view="pay"] .pm-card.is-unavailable{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}

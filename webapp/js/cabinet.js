@@ -23644,7 +23644,7 @@ async function waitGeneration(jobId, options) {
       + '<section class="subscription-celebration-card" role="dialog" aria-modal="true">'
       + '<button type="button" aria-label="Закрыть" onclick="this.closest(\'#subscriptionCelebration\').remove()">×</button>'
       + '<span class="subscription-celebration-mark"><svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span>'
-      + '<h2>Подписка активирована!</h2><p>' + S.escapeHtml(name) + ', добро пожаловать в SYLVEX Pro.</p>'
+      + '<h2>Подписка активирована!</h2><p>' + S.escapeHtml(name) + ', добро пожаловать в ' + S.escapeHtml(planLabel.split(' · ')[0]) + '.</p>'
       + '<strong>' + S.escapeHtml(planLabel) + '</strong>'
       + '<button class="subscription-celebration-go" type="button" onclick="this.closest(\'#subscriptionCelebration\').remove();switchView(\'tools\')">Перейти в Pro Studio</button>'
       + '</section>';
@@ -24462,9 +24462,9 @@ async function waitGeneration(jobId, options) {
   function applyAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0',fab=document.getElementById('aiAssistantFab'),control=document.getElementById('aiAssistantVisibilitySwitch');if(fab)fab.hidden=!visible;if(control)control.classList.toggle('on',visible)}
   function toggleAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0';localStorage.setItem('sylvex-ai-assistant-visible',visible?'0':'1');if(visible)closeAiAssistant();applyAiAssistantVisibility()}
 
-  // Store cards (js/store-cards.js). A credit card whose price matches an
-  // existing pack continues to the existing pay view through openBuy; the
-  // new plans, $100/$200 and custom amounts render but cannot be bought yet.
+  // Store cards (js/store-cards.js). Once the server catalog loads, plans,
+  // packs and custom amounts open the existing pay view as server-side
+  // orders (openStoreProduct); before that, existing packs use openBuy.
   function mountStoreCards() {
     const cards = window.SylvexStoreCards;
     if (!cards) return;
