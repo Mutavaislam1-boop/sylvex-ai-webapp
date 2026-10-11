@@ -40,6 +40,7 @@ from services import edit_sessions as edit_sessions_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
 from services import video_probe
+from services import shop_catalog, shop_orders
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -1055,7 +1056,9 @@ LEMONSQUEEZY_API_BASE = (os.getenv("LEMONSQUEEZY_API_BASE") or "https://api.lemo
 LEMONSQUEEZY_VARIANT_MONTH = os.getenv("LEMONSQUEEZY_VARIANT_MONTH")
 LEMONSQUEEZY_VARIANT_YEAR = os.getenv("LEMONSQUEEZY_VARIANT_YEAR")
 CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
-CRYPTO_PAY_API_URL = "https://pay.crypt.bot/api"
+# Point at https://testnet-pay.crypt.bot/api with a testnet token to test
+# invoices without real funds.
+CRYPTO_PAY_API_URL = os.getenv("CRYPTO_PAY_API_URL", "https://pay.crypt.bot/api").rstrip("/")
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
@@ -2508,11 +2511,11 @@ def send_subscription_congratulations(telegram_id: int, item: dict, provider: st
     except Exception as exc:
         prostudio_error("SUBSCRIPTION_CONGRATULATION_PROFILE_FAILED", exc, telegram_id=telegram_id)
 
-    plan_label = "1 год" if str(item.get("plan_key") or "").lower() == "year" else "1 месяц"
+    plan_label = shop_catalog.plan_label(item.get("plan_key"))
     handle = f"@{html.escape(username)}" if username else "без username"
     expiry_label = expires_at.strftime("%d.%m.%Y %H:%M") if expires_at else "активна"
     text = (
-        "🎉 <b>Поздравляем с подпиской SYLVEX Pro!</b>\n\n"
+        f"🎉 <b>Поздравляем с подпиской {html.escape(shop_catalog.plan_product_name(item.get('plan_key')))}!</b>\n\n"
         f"👤 <b>{html.escape(str(name))}</b> · {handle}\n"
         f"🆔 <code>{int(telegram_id)}</code>\n"
         f"💎 План: <b>{plan_label}</b>\n"
@@ -11768,6 +11771,331 @@ async def public_lemonsqueezy_webhook(request: Request):
     return {"ok": True, "created": created}
 
 
+
+# =====================================================
+# STORE ORDERS (Telegram Mini App)
+# The Store sells the catalog in services/shop_catalog.py through the
+# existing Telegram Stars and Crypto Pay integrations. Each purchase is a
+# server-side order (services/shop_orders.py): the invoice carries only
+# "sylvex_order:<id>", the polling bot (Stars) or the Crypto Pay poller
+# below verifies the payment against the order, and the order grants its
+# own snapshot of credits/subscription exactly once.
+# =====================================================
+SHOP_STARS_ORDER_TTL_SECONDS = 3600
+SHOP_CRYPTO_INVOICE_TTL_SECONDS = 1800
+_SHOP_ORDERS_READY = False
+_SHOP_ORDERS_LOCK = threading.Lock()
+_STORE_EXAMPLES_CACHE = {"value": None, "expires_at": 0.0}
+STORE_EXAMPLES_TTL_SECONDS = 600
+
+
+def shop_db():
+    return db_connect(DATABASE_URL)
+
+
+def ensure_shop_orders():
+    global _SHOP_ORDERS_READY
+    if _SHOP_ORDERS_READY:
+        return
+    with _SHOP_ORDERS_LOCK:
+        if _SHOP_ORDERS_READY:
+            return
+        ensure_payment_tables()
+        shop_orders.ensure_order_tables(shop_db)
+        _SHOP_ORDERS_READY = True
+
+
+def shop_provider_configured(provider: str) -> bool:
+    if provider == shop_catalog.PROVIDER_STARS:
+        return bool(BOT_TOKEN)
+    if provider == shop_catalog.PROVIDER_CRYPTO:
+        return bool(CRYPTO_API_KEY)
+    return False
+
+
+def _cheapest_example(candidates, payload_for):
+    best = None
+    for model_id, label in candidates:
+        for payload in payload_for(model_id):
+            try:
+                estimate = calculate_generation_price(payload)
+            except Exception:
+                continue
+            credits = int(estimate.get("credits") or 0)
+            if not estimate.get("pricing_available", bool(credits)) or credits <= 0:
+                continue
+            if best is None or credits < best["credits"]:
+                best = {"credits": credits, "model": model_id, "label": label, "payload": payload}
+    return best
+
+
+def store_generation_examples() -> dict:
+    """Cheapest user-selectable generation per category at live retail prices."""
+    now = time.time()
+    if _STORE_EXAMPLES_CACHE["value"] is not None and now < _STORE_EXAMPLES_CACHE["expires_at"]:
+        return _STORE_EXAMPLES_CACHE["value"]
+    c = shop_catalog
+    examples = {}
+
+    image = _cheapest_example(c.EXAMPLE_IMAGE_MODELS, lambda mid: [{
+        "mode": "image", "model": mid, "prompt": "example",
+        "image_options": {"model": mid, "modelId": mid, "count": 1, "size": "auto"},
+    }])
+
+    def video_payloads(mid):
+        cap = model_capabilities_service.MODEL_CAPABILITIES.get(mid)
+        if not cap or cap.avatar or not ({"text_to_video", "image_to_video"} & set(cap.modes or ())):
+            return []
+        if cap.durations and c.EXAMPLE_VIDEO_SECONDS not in cap.durations:
+            return []
+        return [{"mode": "video", "model": mid, "prompt": "example",
+                 "video_options": {"model": mid, "duration": c.EXAMPLE_VIDEO_SECONDS, **({"resolution": res} if res else {})}}
+                for res in (cap.resolutions or (None,))]
+    video = _cheapest_example(c.EXAMPLE_VIDEO_MODELS, video_payloads)
+
+    music = _cheapest_example(c.EXAMPLE_MUSIC_MODELS, lambda mid: [{
+        "mode": "music", "model": mid, "prompt": "example", "music_options": {"model": mid},
+    }])
+    voice = _cheapest_example([m for m in c.EXAMPLE_VOICE_MODELS if m[0] not in c.EXAMPLE_VOICE_EXCLUDED], lambda mid: [{
+        "mode": "voice", "model": mid, "prompt": "x" * c.EXAMPLE_VOICE_CHARS, "voice_options": {"model": mid},
+    }])
+
+    text = None
+    for model_id, label in c.EXAMPLE_TEXT_MODELS:
+        rates = text_token_rates(model_id)
+        if not rates:
+            continue
+        credits = text_tokens_credits(model_id, c.EXAMPLE_TEXT_INPUT_TOKENS, c.EXAMPLE_TEXT_OUTPUT_TOKENS)
+        exact = (Decimal(c.EXAMPLE_TEXT_INPUT_TOKENS) * rates[0] + Decimal(c.EXAMPLE_TEXT_OUTPUT_TOKENS) * rates[1])
+        if credits > 0 and (text is None or (credits, exact) < (text["credits"], text["_exact"])):
+            markup = Decimal(150) / Decimal(1_000_000)
+            text = {
+                "credits": credits, "model": model_id, "label": label, "_exact": exact,
+                "input_tokens": c.EXAMPLE_TEXT_INPUT_TOKENS, "output_tokens": c.EXAMPLE_TEXT_OUTPUT_TOKENS,
+                "input_credits": float((Decimal(c.EXAMPLE_TEXT_INPUT_TOKENS) * rates[0] * markup).normalize()),
+                "output_credits": float((Decimal(c.EXAMPLE_TEXT_OUTPUT_TOKENS) * rates[1] * markup).normalize()),
+            }
+
+    for key, found in (("photo", image), ("video", video), ("music", music), ("voice", voice), ("text", text)):
+        if not found:
+            continue
+        entry = {key2: value for key2, value in found.items() if key2 not in {"payload", "_exact"}}
+        if key == "video":
+            entry["seconds"] = c.EXAMPLE_VIDEO_SECONDS
+            entry["resolution"] = (found["payload"]["video_options"] or {}).get("resolution")
+        if key == "music":
+            entry["seconds"] = c.EXAMPLE_MUSIC_SECONDS.get(found["model"])
+        if key == "voice":
+            entry["characters"] = c.EXAMPLE_VOICE_CHARS
+        examples[key] = entry
+    _STORE_EXAMPLES_CACHE.update(value=examples, expires_at=now + STORE_EXAMPLES_TTL_SECONDS)
+    return examples
+
+
+def store_order_public(order: dict) -> dict:
+    if not order:
+        return {}
+    return {
+        "order_id": order["order_id"],
+        "product_id": order["product_id"],
+        "kind": order["kind"],
+        "title": order["title"],
+        "usd_cents": order["usd_cents"],
+        "credits": order["credits"],
+        "plan_key": order["plan_key"],
+        "provider": order["provider"],
+        "stars": order["stars"],
+        "status": order["status"],
+    }
+
+
+def create_store_stars_invoice_link(order: dict) -> str:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
+        json={
+            "title": order["title"][:32],
+            "description": f"Оплата {order['title']} в SYLVEX.",
+            "payload": shop_orders.order_payload(order["order_id"]),
+            "currency": "XTR",
+            "prices": [{"label": order["title"][:32], "amount": int(order["stars"])}],
+        },
+        timeout=30,
+    )
+    data = response.json() if response.content else {}
+    if response.status_code >= 400 or not data.get("ok"):
+        prostudio_debug("STORE_STARS_INVOICE_FAILED", order_id=order["order_id"], status=response.status_code,
+                        telegram_error=data.get("description") or data.get("error_code") or "unknown")
+        raise RuntimeError("stars_invoice_failed")
+    return data["result"]
+
+
+def finalize_store_order(order_id: str, provider: str, currency: str, amount, charge_id: str, payer_id=None, notify: bool = True) -> dict:
+    ensure_shop_orders()
+    result = shop_orders.finalize_order(shop_db, order_id, provider, currency, amount, charge_id, payer_id=payer_id)
+    order = result.get("order") or {}
+    prostudio_debug("STORE_ORDER_FINALIZE", order_id=order_id, provider=provider, status=result["status"],
+                    reason=result.get("reason") or "", charge_id=charge_id)
+    if result["status"] != "granted":
+        return result
+    try:
+        telegram_id = int(order["telegram_id"])
+        log_user_event(
+            telegram_id=telegram_id, source="payment", event_type="payment_success", event_name="payment_success",
+            payload={"provider": provider, "pack_id": order["product_id"], "order_id": order_id,
+                     "amount": str(amount), "currency": currency, "charge_id": charge_id},
+        )
+        log_user_event(
+            telegram_id=telegram_id, source="payment", event_type="credits_added",
+            event_name="plan_credits" if order["kind"] == "subscription" else "credits_purchase",
+            payload={"credits": int(order["credits"]), "order_id": order_id, "charge_id": charge_id},
+        )
+        if order["kind"] == "subscription":
+            log_user_event(
+                telegram_id=telegram_id, source="payment", event_type="subscription_activated",
+                event_name=f"activate_{order['plan_key']}",
+                payload={"subscription_type": order["plan_key"], "expires_in_days": order["days"], "charge_id": charge_id},
+            )
+            if notify:
+                send_subscription_congratulations(telegram_id, {"plan_key": order["plan_key"], "days": order["days"]}, provider)
+    except Exception as exc:
+        print("STORE ORDER POST-COMMIT NOTIFICATION FAILED:", type(exc).__name__)
+    return result
+
+
+def sync_crypto_order(order: dict) -> dict:
+    """Check a pending Crypto Pay order with the provider and settle it."""
+    if not order or order["provider"] != shop_catalog.PROVIDER_CRYPTO or order["status"] != shop_orders.STATUS_PENDING:
+        return order
+    if not order.get("provider_invoice_id"):
+        return order
+    invoice = get_crypto_invoice(int(order["provider_invoice_id"]))
+    if not invoice:
+        return order
+    status = str(invoice.get("status") or "")
+    if status == "paid":
+        if str(invoice.get("payload") or "") != shop_orders.order_payload(order["order_id"]):
+            prostudio_debug("STORE_CRYPTO_PAYLOAD_MISMATCH", order_id=order["order_id"])
+            return order
+        finalize_store_order(order["order_id"], shop_catalog.PROVIDER_CRYPTO, str(invoice.get("asset") or ""),
+                             str(invoice.get("amount") or ""), f"crypto_invoice_{order['provider_invoice_id']}")
+    elif status == "expired":
+        shop_orders.mark_order(shop_db, order["order_id"], shop_orders.STATUS_EXPIRED, "invoice_expired")
+    return shop_orders.get_order(shop_db, order["order_id"])
+
+
+async def poll_crypto_order(order_id: str):
+    for _ in range(SHOP_CRYPTO_INVOICE_TTL_SECONDS // 20 + 6):
+        await asyncio.sleep(20)
+        try:
+            order = await asyncio.to_thread(shop_orders.get_order, shop_db, order_id)
+            if not order or order["status"] != shop_orders.STATUS_PENDING:
+                return
+            order = await asyncio.to_thread(sync_crypto_order, order)
+            if not order or order["status"] != shop_orders.STATUS_PENDING:
+                return
+        except Exception as exc:
+            prostudio_error("STORE_CRYPTO_POLL_ERROR", exc, order_id=order_id)
+            return
+
+
+def _store_product_from_request(data: dict, provider: str):
+    try:
+        product = shop_catalog.resolve_product(data.get("product_id"), data.get("usd"))
+    except shop_catalog.CatalogError as exc:
+        return None, JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    availability = shop_catalog.provider_availability(product)[provider]
+    if not availability["available"]:
+        return None, JSONResponse({"ok": False, "error": availability["reason"]}, status_code=400)
+    if not shop_provider_configured(provider):
+        return None, JSONResponse({"ok": False, "error": "stars_not_configured" if provider == shop_catalog.PROVIDER_STARS else "crypto_not_configured"}, status_code=503)
+    return product, None
+
+
+async def store_stars_invoice(data: dict, telegram_id: int):
+    product, error = _store_product_from_request(data, shop_catalog.PROVIDER_STARS)
+    if error:
+        return error
+    await asyncio.to_thread(ensure_shop_orders)
+    order = await asyncio.to_thread(shop_orders.create_order, shop_db, telegram_id, product,
+                                    shop_catalog.PROVIDER_STARS, SHOP_STARS_ORDER_TTL_SECONDS)
+    try:
+        invoice_url = await asyncio.to_thread(create_store_stars_invoice_link, order)
+    except Exception as exc:
+        await asyncio.to_thread(shop_orders.mark_order, shop_db, order["order_id"], shop_orders.STATUS_FAILED, "invoice_failed")
+        prostudio_error("STORE_STARS_INVOICE_ERROR", exc, telegram_id=telegram_id, order_id=order["order_id"])
+        return JSONResponse({"ok": False, "error": "stars_invoice_failed"}, status_code=502)
+    log_user_event(telegram_id=telegram_id, source="mini_app", event_type="payment_invoice_created",
+                   event_name="stars_invoice_created", payload={"pack_id": product["product_id"], "order_id": order["order_id"]})
+    return {"ok": True, "invoice_url": invoice_url, "order": store_order_public(order), "order_id": order["order_id"]}
+
+
+async def store_crypto_invoice(data: dict, telegram_id: int):
+    product, error = _store_product_from_request(data, shop_catalog.PROVIDER_CRYPTO)
+    if error:
+        return error
+    await asyncio.to_thread(ensure_shop_orders)
+    order = await asyncio.to_thread(shop_orders.create_order, shop_db, telegram_id, product,
+                                    shop_catalog.PROVIDER_CRYPTO, SHOP_CRYPTO_INVOICE_TTL_SECONDS + 300)
+    try:
+        invoice = await asyncio.to_thread(crypto_pay_request, "createInvoice", {
+            "asset": "USDT",
+            "amount": f"{order['usd_cents'] / 100:.2f}",
+            "description": f"SYLVEX {order['title']}",
+            "payload": shop_orders.order_payload(order["order_id"]),
+            "expires_in": SHOP_CRYPTO_INVOICE_TTL_SECONDS,
+        })
+        url = crypto_invoice_url(invoice)
+        if not url or not invoice.get("invoice_id"):
+            raise RuntimeError("Crypto Pay did not return an invoice")
+    except Exception as exc:
+        await asyncio.to_thread(shop_orders.mark_order, shop_db, order["order_id"], shop_orders.STATUS_FAILED, "invoice_failed")
+        prostudio_error("STORE_CRYPTO_INVOICE_ERROR", exc, telegram_id=telegram_id, order_id=order["order_id"])
+        return JSONResponse({"ok": False, "error": "crypto_invoice_failed"}, status_code=502)
+    await asyncio.to_thread(shop_orders.set_provider_invoice, shop_db, order["order_id"], invoice["invoice_id"])
+    asyncio.create_task(poll_crypto_order(order["order_id"]))
+    log_user_event(telegram_id=telegram_id, source="mini_app", event_type="payment_invoice_created",
+                   event_name="crypto_invoice_created", payload={"pack_id": product["product_id"], "order_id": order["order_id"],
+                                                                 "invoice_id": invoice["invoice_id"]})
+    return {"ok": True, "url": url, "invoice_id": invoice["invoice_id"], "order": store_order_public(order), "order_id": order["order_id"]}
+
+
+@app.get("/api/public/shop/catalog")
+async def public_shop_catalog():
+    data = shop_catalog.public_catalog()
+    data["ok"] = True
+    data["examples"] = await asyncio.to_thread(store_generation_examples)
+    data["providers"] = {
+        shop_catalog.PROVIDER_STARS: shop_provider_configured(shop_catalog.PROVIDER_STARS),
+        shop_catalog.PROVIDER_CRYPTO: shop_provider_configured(shop_catalog.PROVIDER_CRYPTO),
+    }
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.post("/api/public/payments/orders/status")
+async def public_store_order_status(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    order_id = str(data.get("order_id") or "")
+    if not telegram_id:
+        return telegram_id_required_response()
+    if not shop_orders.parse_order_payload(shop_orders.order_payload(order_id)):
+        return JSONResponse({"ok": False, "error": "invalid_order_id"}, status_code=400)
+    await asyncio.to_thread(ensure_shop_orders)
+    order = await asyncio.to_thread(shop_orders.get_order, shop_db, order_id)
+    if not order or int(order["telegram_id"]) != telegram_id:
+        return JSONResponse({"ok": False, "error": "order_not_found"}, status_code=404)
+    if order["provider"] == shop_catalog.PROVIDER_CRYPTO and order["status"] == shop_orders.STATUS_PENDING:
+        try:
+            order = await asyncio.to_thread(sync_crypto_order, order)
+        except Exception as exc:
+            prostudio_error("STORE_CRYPTO_STATUS_ERROR", exc, order_id=order_id)
+    user = None
+    if order and order["status"] == shop_orders.STATUS_PAID:
+        user = await asyncio.to_thread(get_user_state, telegram_id)
+    return {"ok": True, "order": store_order_public(order), "user": user}
+
 # =====================================================
 # API ENDPOINT: public_stars_invoice
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -11778,8 +12106,12 @@ async def public_lemonsqueezy_webhook(request: Request):
 async def public_stars_invoice(request: Request):
     data = await request.json()
     pack_id = data.get("pack_id") or ""
-    item = shop_item(pack_id)
     telegram_id = int(data.get("telegram_id") or 0)
+    if data.get("product_id"):
+        if not telegram_id:
+            return telegram_id_required_response()
+        return await store_stars_invoice(data, telegram_id)
+    item = shop_item(pack_id)
 
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
@@ -11849,6 +12181,19 @@ async def public_stars_webhook(request: Request):
 
     update = await request.json()
     pre_checkout = update.get("pre_checkout_query") or {}
+    if pre_checkout and shop_orders.parse_order_payload(pre_checkout.get("invoice_payload")):
+        order_id = shop_orders.parse_order_payload(pre_checkout.get("invoice_payload"))
+        await asyncio.to_thread(ensure_shop_orders)
+        valid, reason = await asyncio.to_thread(
+            shop_orders.checkout_check, shop_db, order_id, int((pre_checkout.get("from") or {}).get("id") or 0),
+            shop_catalog.PROVIDER_STARS, pre_checkout.get("currency"), pre_checkout.get("total_amount"),
+        )
+        answered = _answer_stars_pre_checkout(
+            str(pre_checkout.get("id") or ""), valid,
+            "Счёт устарел или уже оплачен. Вернитесь в магазин и создайте новый счёт.",
+        )
+        prostudio_debug("STORE_STARS_PRE_CHECKOUT", order_id=order_id, approved=valid, reason=reason or "", answered=answered)
+        return {"ok": answered, "approved": valid}
     if pre_checkout:
         payload = str(pre_checkout.get("invoice_payload") or "")
         parsed = parse_shop_payload(payload)
@@ -11886,6 +12231,15 @@ async def public_stars_webhook(request: Request):
     payment = message.get("successful_payment") or {}
     if not payment:
         return {"ok": True, "ignored": True}
+
+    order_id = shop_orders.parse_order_payload(payment.get("invoice_payload"))
+    if order_id:
+        result = await asyncio.to_thread(
+            finalize_store_order, order_id, shop_catalog.PROVIDER_STARS, payment.get("currency"),
+            payment.get("total_amount"), str(payment.get("telegram_payment_charge_id") or ""),
+            int((message.get("from") or {}).get("id") or 0),
+        )
+        return {"ok": result["status"] != "rejected", "status": result["status"], "reason": result.get("reason")}
 
     payload = str(payment.get("invoice_payload") or "")
     parsed = parse_shop_payload(payload)
@@ -12091,8 +12445,12 @@ async def public_dev_reset(request: Request):
 async def public_crypto_invoice(request: Request):
     data = await request.json()
     pack_id = data.get("pack_id") or ""
-    item = shop_item(pack_id)
     telegram_id = int(data.get("telegram_id") or 0)
+    if data.get("product_id"):
+        if not telegram_id:
+            return telegram_id_required_response()
+        return await store_crypto_invoice(data, telegram_id)
+    item = shop_item(pack_id)
 
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
@@ -22392,9 +22750,9 @@ def process_subscription_reminders() -> dict:
             continue
 
         day_word = "день" if days_before == 1 else ("дня" if days_before in {2, 3, 4} else "дней")
-        plan_label = "1 год" if str(plan or "").lower() == "year" else "1 месяц"
+        plan_label = shop_catalog.plan_label(plan)
         text = (
-            "⏳ <b>Подписка SYLVEX Pro скоро закончится</b>\n\n"
+            f"⏳ <b>Подписка {html.escape(shop_catalog.plan_product_name(plan))} скоро закончится</b>\n\n"
             f"До окончания осталось: <b>{days_before} {day_word}</b>\n"
             f"Текущий план: <b>{plan_label}</b>\n"
             f"Дата окончания: <b>{expires_at.strftime('%d.%m.%Y %H:%M')}</b>\n\n"
