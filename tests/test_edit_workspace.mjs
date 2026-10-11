@@ -37,7 +37,7 @@ test('Background modes isolate drafts and custom backdrop from other image tools
 });
 test('Background validates color/photo, rejects unknown modes and locks controls during work',async()=>{
  const h=harness();h.state.mode='background';h.context.setEditBackgroundMode(null,'image');
- await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/нового фона/);
+ await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/new background/);
  h.context.setEditBackgroundMode(null,'color');h.context.updateEditBackgroundColor({currentTarget:{value:'#bad'}});
  assert.match(h.context.editWorkspaceValidation(),/#RRGGBB/);
  h.context.updateEditBackgroundColor(null,'#12ABef');assert.equal(h.context.editWorkspaceValidation(),'');assert.equal(h.state.background.color,'#12abef');
@@ -82,6 +82,26 @@ test('Background settings and drafts survive session restore; older canvases get
  assert.equal(h.state.background.url,saved.background.url);assert.equal(h.state.prompt,saved.prompt);
  delete saved.background;h.context.restoreEditSessionState(saved);
  assert.equal(h.state.background.color,'#ffffff');assert.equal(h.state.background.url,'');
+});
+test('typing a Background description selects text replacement and sends it without stale photo or color',async()=>{
+ for(const mode of ['transparent','replace','color','image']){
+  const h=harness();Object.assign(h.state,{mode:'background',backgroundMode:mode,prompt:''});
+  h.state.background={color:'#123abc',url:'https://cdn.example/backdrop.png',name:'Backdrop.png'};
+  const input={value:'A sunlit courtyard'};
+  h.context.updateEditWorkspacePrompt({currentTarget:input});
+  assert.equal(h.state.backgroundMode,'replace');assert.equal(h.state.prompt,input.value);
+  assert.equal(h.context.editWorkspaceValidation(),'');
+  h.context.updateEditWorkspacePrompt({currentTarget:{value:''}});
+  assert.equal(h.context.editWorkspaceValidation(),'Describe the new background.');
+  h.context.updateEditWorkspacePrompt({currentTarget:input});
+  await h.context.generateEditWorkspace();
+  const options=h.requests[0][4].imageOptions;
+  assert.equal(options.editWorkspaceBackgroundMode,'replace');assert.equal(options.editWorkspacePrompt,input.value);
+  assert.deepEqual(Object.keys(options.editWorkspaceBackground),[]);
+ }
+ const h=harness();h.state.mode='background';h.state.busy=true;
+ h.context.updateEditWorkspacePrompt({currentTarget:{value:'A new draft'}});
+ assert.equal(h.state.backgroundMode,'transparent');assert.equal(h.state.prompt,'Turn blue');
 });
 test('Generate reserves a connected slot immediately, then fills that same slot without replacing the source',async()=>{
  const h=harness();let finish;h.context.callGenerate=async(...args)=>{h.requests.push(args);return new Promise(resolve=>{finish=resolve;});};
@@ -204,7 +224,7 @@ test('failed upload preserves existing document and chain; successful upload sta
  assert.equal(ok.state.chain.length,1);assert.equal(ok.state.chain[0].url,ok.state.sourceUrl);assert.equal(ok.state.chain[0].parentId,'');assert.equal(ok.state.activeNodeId,ok.state.chain[0].id);
 });
 test('lights are limited to eight and all-disabled is rejected',()=>{const h=harness();h.state.mode='lighting';for(let i=0;i<12;i++)h.context.addEditWorkspaceLight();assert.equal(h.state.light.layers.length,8);h.state.light.layers.forEach(l=>l.enabled=false);assert.match(h.context.editWorkspaceValidation(),/источник/);});
-test('comparison view cannot submit a retouch without its visible mask canvas',async()=>{const h=harness();h.state.mode='retouch';h.state.maskStrokes=[{}];h.state.showBefore=true;await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/Вернитесь к результату/);});
+test('comparison view cannot submit a retouch without its visible mask canvas',async()=>{const h=harness();h.state.mode='retouch';h.state.maskStrokes=[{}];h.state.showBefore=true;await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/Return to the result/);});
 test('completed job downloads through the protected file endpoint',async()=>{const h=harness();const downloads=[];h.state.resultUrl='https://cdn.example/result.png';h.state.jobId='job-123';h.context.completedGenerationDownloadUrl=id=>'/download/'+id;h.context.downloadGeneratedFile=event=>downloads.push(event.currentTarget.dataset);await h.context.downloadEditWorkspaceResult();assert.equal(downloads[0].downloadUrl,'/download/job-123');});
 test('brush strokes can be undone and redone; clearing resets both stacks',()=>{const h=harness();const stroke={points:[{x:.2,y:.4}],size:.05};h.state.maskStrokes=[stroke];h.context.clearEditWorkspaceMask(null,true);assert.equal(h.state.maskStrokes.length,0);h.context.redoEditWorkspaceMask();assert.equal(h.state.maskStrokes[0],stroke);h.context.clearEditWorkspaceMask();assert.equal(h.state.maskStrokes.length,0);assert.equal(h.state.maskRedo.length,0);});
 test('shared request builder preserves isolated masks without reading composer state',async()=>{
