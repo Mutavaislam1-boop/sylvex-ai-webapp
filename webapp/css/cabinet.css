@@ -9957,26 +9957,27 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
 
 /* Two Background modes; photo and color are compact replacement choices. */
 .edit-background-controls{display:grid;gap:12px}
+.edit-background-footer{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .edit-background-toolbar,.edit-background-replacement{display:flex;align-items:center;gap:10px}
 .edit-background-toolbar{flex-wrap:wrap}
 .edit-background-mode{min-width:150px;min-height:40px;padding:10px 18px;border:1px solid var(--edit-border);border-radius:11px;background:var(--edit-surface-raised);color:var(--edit-text);font:inherit;font-size:12px;cursor:pointer}
 .edit-background-mode[aria-pressed="true"]{border-color:var(--edit-primary);background:var(--edit-selected)}
 .edit-background-choice{position:relative}
-.edit-background-replace{position:relative;overflow:hidden;display:grid;place-items:center}
+.edit-background-replace{position:relative;overflow:hidden;display:grid;place-items:center;padding-left:34px}
 .edit-background-replace span{position:relative;z-index:1}
 .edit-background-choice-image{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.edit-background-upload,.edit-background-color{position:relative;flex:none;width:26px;height:26px;border:1px solid var(--edit-border-strong);border-radius:50%;background:var(--edit-surface-raised);color:var(--edit-text);cursor:pointer}
-.edit-background-upload{padding:0;font:20px/24px system-ui;text-align:center}
-.edit-background-color{display:block;background:var(--background-choice-color)}
+.edit-background-upload{position:absolute;z-index:2;left:5px;top:50%;transform:translateY(-50%);width:26px;height:28px;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;color:var(--edit-text);font:20px/28px system-ui;text-align:center;cursor:pointer}
+.edit-background-color{position:relative;display:block;flex:none;width:26px;height:26px;border:1px solid var(--edit-border-strong);border-radius:50%;background:var(--background-choice-color);cursor:pointer}
 .edit-background-color input{position:absolute;inset:0;width:100%;height:100%;padding:0;opacity:0;cursor:pointer}
 .edit-background-clear{position:absolute;z-index:2;top:-6px;right:-6px;width:18px;height:18px;padding:0;border:1px solid var(--edit-border-strong);border-radius:50%;background:var(--edit-surface-raised);color:var(--edit-text);font:14px/16px system-ui;cursor:pointer}
 .edit-background-controls[data-background-choice="transparent"] :is(.edit-background-upload,.edit-background-color),
+.edit-background-controls[data-background-choice="color"] .edit-background-upload,
 .edit-background-controls:is([data-background-choice="transparent"],[data-background-choice="replace"]) .edit-background-clear,
 .edit-background-controls:not([data-background-choice="replace"]) .edit-background-description{display:none}
 .edit-background-controls[data-background-choice="image"] .edit-background-choice-image{display:block}
 .edit-background-controls[data-background-choice="image"] .edit-background-replace:after{content:"";position:absolute;inset:0;background:#0007}
-.edit-background-controls[data-background-choice="image"] .edit-background-replace span{color:#fff}
+.edit-background-controls[data-background-choice="image"] :is(.edit-background-replace span,.edit-background-upload){color:#fff}
 .edit-background-controls[data-background-choice="color"] .edit-background-replace{background:var(--background-choice-color);color:var(--background-choice-text)}
+.edit-background-controls:is([data-background-choice="transparent"],[data-background-choice="color"]) .edit-background-replace{padding-left:18px}
 .edit-background-controls button:focus-visible,.edit-background-color:focus-within{outline:2px solid var(--edit-primary);outline-offset:3px}
-.edit-background-submit{justify-content:flex-end}
 .edit-workspace-action-background textarea{box-sizing:border-box;width:100%;height:62px;min-height:62px}

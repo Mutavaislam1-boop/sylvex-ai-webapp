@@ -7915,17 +7915,16 @@ function editBackgroundPanel(generate){
   const s=editWorkspaceState,b=s.background,safe=v=>S.escapeHtml(String(v||'')),replacing=s.backgroundMode!=='transparent';
   const color=/^#[0-9a-f]{6}$/i.test(b.color)?b.color:'#ffffff';
   return '<div class="edit-background-controls" data-background-choice="'+s.backgroundMode+'" style="--background-choice-color:'+color+';--background-choice-text:'+editBackgroundColorText(color)+'">'+
-    '<div class="edit-background-toolbar" role="group" aria-label="Режим фона">'+
+    '<div class="edit-background-description"><textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Описание нового фона" placeholder="Опишите новый фон или выберите фото / цвет" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea></div>'+
+    '<div class="edit-background-footer"><div class="edit-background-toolbar" role="group" aria-label="Режим фона">'+
     '<button type="button" class="edit-background-mode" data-background-mode="transparent" aria-pressed="'+!replacing+'" onclick="SYLVEX.setEditBackgroundMode(event,\'transparent\')">Удалить фон</button>'+
     '<div class="edit-background-replacement">'+
-    '<button type="button" class="edit-background-upload" aria-label="Загрузить фото для фона" title="Загрузить фото для фона" onclick="document.getElementById(\'editBackgroundFile\').click()">+</button>'+
     '<div class="edit-background-choice"><button type="button" class="edit-background-mode edit-background-replace" data-background-mode="replace" aria-pressed="'+replacing+'" onclick="SYLVEX.setEditBackgroundMode(event,\'replace\')">'+
     (b.url?'<img class="edit-background-choice-image" src="'+safe(b.url)+'" alt="">':'')+'<span>Заменить фон</span></button>'+
+    '<button type="button" class="edit-background-upload" aria-label="Загрузить фото для фона" title="Загрузить фото для фона" onclick="document.getElementById(\'editBackgroundFile\').click()">+</button>'+
     '<button type="button" class="edit-background-clear" aria-label="Очистить выбранный фон" title="Очистить выбранный фон" onclick="SYLVEX.clearEditBackgroundImage(event)">×</button></div>'+
     '<label class="edit-background-color" title="Выбрать цвет фона"><input type="color" aria-label="Цвет фона" data-background-color value="'+color+'" oninput="SYLVEX.updateEditBackgroundColor(event)"></label>'+
-    '<input id="editBackgroundFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditBackgroundFile(event)"></div></div>'+
-    '<div class="edit-background-description"><textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Описание нового фона" placeholder="Опишите новый фон или выберите фото / цвет" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea></div>'+
-    '<div class="edit-workspace-action-row edit-background-submit">'+generate+'</div></div>';
+    '<input id="editBackgroundFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditBackgroundFile(event)"></div></div>'+generate+'</div></div>';
 }
 function setEditBackgroundMode(e,mode){
   if(editWorkspaceLocked()||!['transparent','replace','color','image'].includes(mode))return;
