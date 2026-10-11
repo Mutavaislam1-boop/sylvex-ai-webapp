@@ -23142,9 +23142,16 @@ async function waitGeneration(jobId, options) {
       return;
     }
     pendingPack = packId;
+    pendingStoreProduct = null;
+    setStorePayMethods(null);
     const m = PACK_META[packId] || { title: packId, price: '—' };
-    const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.textContent = m.title;
-    const pEl = document.getElementById('payPackPrice'); if (pEl) pEl.textContent = m.price;
+    showPayView(m.title, m.price);
+  }
+  // Fills the existing pay screen (title, price, user, balance) and opens it.
+  function showPayView(title, price) {
+    const u = S.user || {};
+    const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.textContent = title;
+    const pEl = document.getElementById('payPackPrice'); if (pEl) pEl.textContent = price;
     const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Guest';
     const handle   = u.username ? '@' + u.username : '@user';
     const nm = document.getElementById('payUserName');   if (nm) nm.textContent = fullName;
@@ -23171,6 +23178,203 @@ async function waitGeneration(jobId, options) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeBuy
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
+
+  /* ===== Store: server catalog + purchase orders =====
+     The Store cards (js/store-cards.js) sell the catalog served by
+     /api/public/shop/catalog. A purchase opens the existing pay screen;
+     payWith() then asks the server for a Stars or Crypto Pay invoice for
+     the product id (plus the USD amount for a custom purchase). The server
+     re-derives price, Stars and credits, and grants the order only after
+     the provider confirms payment; this screen just waits for it. */
+  let storeCatalog = null;
+  let storeCatalogLoading = null;
+  let pendingStoreProduct = null;
+  const storeOrderWatchers = {};
+  const STORE_METHODS = { stars: 'telegram_stars', crypto: 'crypto_pay' };
+  const STORE_ERRORS = {
+    unknown_product: 'Этот товар сейчас недоступен',
+    amount_required: 'Введите сумму',
+    invalid_amount: 'Сумма указана неверно',
+    amount_out_of_range: 'Введите сумму от $1 до $1 000',
+    stars_amount_above_limit: 'Сумма выше лимита Telegram Stars — выберите криптовалюту',
+    crypto_amount_out_of_range: 'Эта сумма недоступна для крипто-оплаты',
+    stars_not_configured: 'Оплата звёздами временно недоступна',
+    crypto_not_configured: 'Крипто-оплата ещё не настроена',
+    stars_invoice_failed: 'Не удалось создать счёт Telegram Stars',
+    crypto_invoice_failed: 'Не удалось создать крипто-счёт',
+  };
+  function loadStoreCatalog() {
+    if (storeCatalogLoading) return storeCatalogLoading;
+    storeCatalogLoading = fetch('/api/public/shop/catalog', { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.ok) { storeCatalog = data; mountStoreCards(); }
+        return storeCatalog;
+      })
+      .catch(() => null)
+      .finally(() => { if (!storeCatalog) storeCatalogLoading = null; });
+    return storeCatalogLoading;
+  }
+  function storeProviderOpen(provider) {
+    return !!(storeCatalog && storeCatalog.providers && storeCatalog.providers[provider]);
+  }
+  function storeProduct(productId) {
+    return (storeCatalog && (storeCatalog.products || []).find((p) => p.product_id === productId)) || null;
+  }
+  // Display-only mirror of the server's custom pricing; the server re-derives it.
+  function storeCustomProduct(usd) {
+    if (!storeCatalog || !storeCatalog.custom) return null;
+    const cents = Math.round(Number(usd) * 100);
+    const custom = storeCatalog.custom;
+    if (!(cents >= custom.min_cents && cents <= custom.max_cents)) return null;
+    const stars = Math.max(1, Math.round(cents * Number(storeCatalog.stars_per_usd || 46) / 100));
+    return {
+      product_id: custom.product_id, kind: 'credits', usd_cents: cents, credits: cents, stars,
+      title: cents.toLocaleString('ru-RU') + ' ⚡ SYLVEX',
+      providers: {
+        telegram_stars: { available: cents <= custom.stars_max_cents, reason: cents <= custom.stars_max_cents ? null : 'stars_amount_above_limit' },
+        crypto_pay: { available: cents >= custom.crypto_min_cents && cents <= custom.crypto_max_cents, reason: null },
+      },
+    };
+  }
+  function storeMethodState(product, method) {
+    const provider = STORE_METHODS[method];
+    const info = (product.providers || {})[provider] || {};
+    if (!info.available) {
+      return { available: false, message: method === 'stars'
+        ? 'Недоступно для этой суммы (лимит Telegram Stars)'
+        : 'Недоступно для этой суммы' };
+    }
+    if (!storeProviderOpen(provider)) return { available: false, message: 'Временно недоступно' };
+    return { available: true, message: '' };
+  }
+  function storeProductAvailable(productId) {
+    const product = storeProduct(productId);
+    return !!product && Object.keys(STORE_METHODS).some((method) => storeMethodState(product, method).available);
+  }
+  function setStorePayMethods(product) {
+    document.querySelectorAll('[data-pay-method]').forEach((button) => {
+      const sub = button.querySelector('[data-pm-sub]');
+      const state = product ? storeMethodState(product, button.dataset.payMethod) : { available: true, message: '' };
+      button.disabled = !state.available;
+      button.classList.toggle('is-unavailable', !state.available);
+      if (sub) sub.textContent = state.available ? sub.dataset.pmDefault : state.message;
+    });
+    const note = document.getElementById('payStoreNote');
+    if (!note) return;
+    let text = '';
+    if (product && product.kind === 'subscription') {
+      const active = (S.user || {}).subscription_status === 'active';
+      text = active
+        ? 'Срок нового тарифа добавится к текущей подписке. ⚡ начисляются сразу после оплаты. Автопродления нет.'
+        : '⚡ начисляются сразу после оплаты. Автопродления нет — продлите тариф в магазине, когда он закончится.';
+    }
+    note.textContent = text;
+    note.hidden = !text;
+  }
+  function openStoreProduct(productId, usd) {
+    const isCustom = productId === 'credits_custom';
+    const product = isCustom ? storeCustomProduct(usd) : storeProduct(productId);
+    if (!product) { toast(STORE_ERRORS.unknown_product); return; }
+    pendingStoreProduct = { productId, usd: isCustom ? String(usd) : null, product };
+    pendingPack = null;
+    const usdLabel = '$' + (product.usd_cents / 100).toLocaleString('en-US', { minimumFractionDigits: product.usd_cents % 100 ? 2 : 0, maximumFractionDigits: 2 });
+    const starsLabel = storeMethodState(product, 'stars').available ? ' · ' + Number(product.stars).toLocaleString('ru-RU') + ' ⭐' : '';
+    const credits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
+    setStorePayMethods(product);
+    showPayView(product.title + credits, usdLabel + starsLabel);
+  }
+  async function payStoreProduct(method) {
+    const selected = pendingStoreProduct;
+    if (!selected) return;
+    const tg = getTelegramId();
+    if (!tg) { toast('Telegram ID не найден'); return; }
+    if (!STORE_METHODS[method]) { toast('Способ оплаты недоступен'); return; }
+    const state = storeMethodState(selected.product, method);
+    if (!state.available) { toast(state.message); return; }
+    toast('Создаём счёт…');
+    let response, data;
+    try {
+      response = await fetch(method === 'stars' ? '/api/public/payments/stars/invoice' : '/api/public/payments/crypto/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: tg, product_id: selected.productId, usd: selected.usd }),
+      });
+      data = await response.json();
+    } catch {
+      toast('Сетевая ошибка');
+      return;
+    }
+    if (!response.ok || !data || !data.ok) {
+      toast(STORE_ERRORS[data && data.error] || 'Не удалось создать счёт');
+      return;
+    }
+    if (method === 'stars') {
+      const tgApp = S.tg;
+      if (!tgApp || !tgApp.openInvoice || !data.invoice_url) { toast('Оплата звёздами доступна в Telegram'); return; }
+      tgApp.openInvoice(data.invoice_url, (status) => {
+        if (status === 'paid') {
+          toast('Оплата получена, начисляем…');
+          watchStoreOrder(data.order_id, 3 * 60 * 1000);
+        } else if (status === 'cancelled') {
+          toast('Оплата отменена');
+        } else if (status === 'failed') {
+          toast('Оплата не прошла');
+        }
+      });
+      return;
+    }
+    openPaymentUrl(data.url, 'crypto');
+    watchStoreOrder(data.order_id, 35 * 60 * 1000);
+  }
+  // Polls the server until the provider-confirmed grant lands (the bot for
+  // Stars, Crypto Pay verification for crypto), then refreshes the user.
+  function watchStoreOrder(orderId, maxMs) {
+    if (!orderId || storeOrderWatchers[orderId]) return;
+    const started = Date.now();
+    storeOrderWatchers[orderId] = true;
+    const tick = async () => {
+      let result = null;
+      try {
+        const response = await fetch('/api/public/payments/orders/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegram_id: getTelegramId(), order_id: orderId }),
+        });
+        result = await response.json();
+      } catch {}
+      const order = result && result.order;
+      if (order && order.status === 'paid') {
+        delete storeOrderWatchers[orderId];
+        if (result.user && S.renderUser) S.renderUser(result.user);
+        if (S.syncUser) S.syncUser({ force: true });
+        if (order.kind === 'subscription') showSubscriptionCelebration(result.user || S.user || {}, order.plan_key);
+        else toast('Зачислено ' + Number(order.credits).toLocaleString('ru-RU') + ' ⚡');
+        return;
+      }
+      if (order && (order.status === 'expired' || order.status === 'failed')) {
+        delete storeOrderWatchers[orderId];
+        toast(order.status === 'expired' ? 'Счёт истёк — создайте новый в магазине' : 'Оплата не прошла');
+        return;
+      }
+      if (Date.now() - started > maxMs) {
+        delete storeOrderWatchers[orderId];
+        return;
+      }
+      setTimeout(tick, Date.now() - started < 60000 ? 3000 : 10000);
+    };
+    setTimeout(tick, 1500);
+  }
+  function subscriptionPlanLabel(plan) {
+    const key = String(plan || '').toLowerCase();
+    if (key === 'year') return 'SYLVEX Pro · 1 год';
+    const match = key.match(/^(starter|pro|max|ultra|creator)_(month|year)$/);
+    if (match) return 'SYLVEX ' + match[1].charAt(0).toUpperCase() + match[1].slice(1) + ' · ' + (match[2] === 'year' ? '12 месяцев' : '1 месяц');
+    return 'SYLVEX Pro · 1 месяц';
+  }
+  function isStorePlanKey(plan) {
+    return /^(starter|pro|max|ultra|creator)_(month|year)$/.test(String(plan || '').toLowerCase());
+  }
   function closeBuy() { switchView('shop'); }
 
   /* ===== Subscription state rendering ===== */
@@ -23330,7 +23534,7 @@ async function waitGeneration(jobId, options) {
     // Manage-subscription row subtitle
     const ms = document.getElementById('manageSubSub');
     if (ms) ms.textContent = active
-      ? (plan === 'year' ? '1 год · до ' : '1 месяц · до ') + fmtDate(expIso)
+      ? subscriptionPlanLabel(plan).replace(/^SYLVEX (Pro · )?/, '') + ' · до ' + fmtDate(expIso)
       : 'Нет активной подписки';
     // Live countdown every second while subscription is active.
     if (_cdTimer) clearInterval(_cdTimer);
@@ -23432,7 +23636,7 @@ async function waitGeneration(jobId, options) {
     document.getElementById('subscriptionCelebration')?.remove();
     const user = Object.assign({}, S.user || {}, userState || {});
     const name = user.display_name || [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Пользователь';
-    const planLabel = String(plan || user.subscription_plan || '').toLowerCase() === 'year' ? 'SYLVEX Pro · 1 год' : 'SYLVEX Pro · 1 месяц';
+    const planLabel = subscriptionPlanLabel(plan || user.subscription_plan);
     const overlay = document.createElement('div');
     overlay.id = 'subscriptionCelebration';
     overlay.className = 'subscription-celebration';
@@ -23475,7 +23679,7 @@ async function waitGeneration(jobId, options) {
     const u = S.user || {};
     const plan = u.subscription_plan || (packId === 'sub_year' ? 'year' : 'month');
     const exp = u.subscription_expires_at;
-    document.getElementById('saPlan').textContent = plan === 'year' ? 'SYLVEX Pro · 1 год' : 'SYLVEX Pro · 1 месяц';
+    document.getElementById('saPlan').textContent = subscriptionPlanLabel(plan);
     document.getElementById('saExpires').textContent = fmtDate(exp);
     document.getElementById('saCountdown').textContent = exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—';
     const renewButton = document.querySelector('#subActiveModal .btn-primary');
@@ -23486,7 +23690,7 @@ async function waitGeneration(jobId, options) {
       renewButton.textContent = yearlyRenewalLocked ? 'Продление доступно за 7 дней' : 'Продлить подписку';
     }
     document.getElementById('subActiveModal').classList.add('show');
-    pendingPack = 'sub_' + plan;
+    pendingPack = isStorePlanKey(plan) ? 'plan_' + plan : 'sub_' + plan;
   }
   function renewFromModal() {
     const user = S.user || {};
@@ -23496,6 +23700,12 @@ async function waitGeneration(jobId, options) {
       return;
     }
     closeModal(null, 'subActiveModal');
+    // New Store plans renew through the Store (time stacks on the active plan).
+    if (String(pendingPack || '').indexOf('plan_') === 0) {
+      const productId = pendingPack;
+      loadStoreCatalog().then(() => (storeProductAvailable(productId) ? openStoreProduct(productId) : switchView('shop')));
+      return;
+    }
     // Force purchase flow (bypass "already subscribed" branch).
     const pack = pendingPack || 'sub_month';
     const savedUser = S.user; S.user = Object.assign({}, savedUser, { subscription_status: 'free' });
@@ -23530,11 +23740,11 @@ async function waitGeneration(jobId, options) {
     const body = document.getElementById('proInfoBody');
     if (!body) return;
     if (u.subscription_status === 'active') {
-      const plan = u.subscription_plan === 'year' ? '1 год' : '1 месяц';
+      const plan = subscriptionPlanLabel(u.subscription_plan);
       const exp = u.subscription_expires_at;
       body.innerHTML = '<h3 style="margin:6px 0 4px;font-size:17px">✅ Вы подписаны</h3>'
         + '<div class="sub-info-grid" style="margin-top:12px">'
-        + '<div><div class="k">Тариф</div><div class="v">SYLVEX Pro · ' + plan + '</div></div>'
+        + '<div><div class="k">Тариф</div><div class="v">' + S.escapeHtml(plan) + '</div></div>'
         + '<div><div class="k">Осталось</div><div class="v">' + (exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—') + '</div></div>'
         + '<div><div class="k">Окончание</div><div class="v">' + fmtDate(exp) + '</div></div>'
         + '</div>';
@@ -23922,6 +24132,7 @@ async function waitGeneration(jobId, options) {
     else window.open(url, '_blank');
   }
   async function payWith(method) {
+    if (pendingStoreProduct) return payStoreProduct(method);
     const packId = pendingPack;
     if (!packId) return;
     const tg = getTelegramId();
@@ -24257,11 +24468,28 @@ async function waitGeneration(jobId, options) {
   function mountStoreCards() {
     const cards = window.SylvexStoreCards;
     if (!cards) return;
-    const options = { t: window.t, locale: (S.getLang && S.getLang()) || 'en' };
+    const options = {
+      t: window.t,
+      locale: (S.getLang && S.getLang()) || 'en',
+      examples: storeCatalog && storeCatalog.examples,
+    };
     const plans = document.getElementById('storePlanCards');
     const credits = document.getElementById('storeCreditCards');
-    if (plans) cards.renderPlans(plans, Object.assign({ onContactSales: contactAdmin }, options));
-    if (credits) cards.renderCredits(credits, Object.assign({ onContinue: (packId) => openBuy(packId) }, options));
+    if (plans) cards.renderPlans(plans, Object.assign({
+      onContactSales: contactAdmin,
+      isPlanAvailable: (plan, period) => storeProductAvailable('plan_' + plan + '_' + period),
+      onSelectPlan: (plan, period) => openStoreProduct('plan_' + plan + '_' + period),
+    }, options));
+    if (credits) cards.renderCredits(credits, Object.assign({
+      // Until the catalog loads, the existing packs keep their existing flow.
+      packIdForUsd: (usd) => (storeCatalog
+        ? (storeProductAvailable('pack_' + usd * 100) ? 'pack_' + usd * 100 : null)
+        : cards.packIdForUsd(usd)),
+      onContinue: (packId) => (storeCatalog ? openStoreProduct(packId) : openBuy(packId)),
+      customPurchase: !!(storeCatalog && (storeProviderOpen('telegram_stars') || storeProviderOpen('crypto_pay'))),
+      onContinueCustom: (usd) => openStoreProduct('credits_custom', usd),
+    }, options));
+    if (!storeCatalog) loadStoreCatalog();
     if (!mountStoreCards.bound) {
       mountStoreCards.bound = true;
       window.addEventListener('sylvex:languagechange', mountStoreCards);
