@@ -126,11 +126,11 @@ test('custom amounts follow the latest render options after the host re-renders'
   container.fire('click', {closest: (sel) => (sel === '[data-sxs-custom-toggle]' ? {} : null)});
   container.fire('input', {matches: () => true, value: '25'});
   assert.equal(container.button.disabled, false);
-  assert.equal(container.button.attrs['data-custom-usd'], '25.00');
+  assert.equal(container.button.attrs['data-custom-amount'], '25.00');
   container.fire('input', {matches: () => true, value: '1000.01'});
   assert.equal(container.button.disabled, true);
-  assert.equal(container.button.attrs['data-custom-usd'], undefined);
-  const cont = {disabled: false, dataset: {customUsd: '25.00'}};
+  assert.equal(container.button.attrs['data-custom-amount'], undefined);
+  const cont = {disabled: false, dataset: {customAmount: '25.00'}};
   container.fire('click', {closest: (sel) => (sel === '[data-sxs-continue]' ? cont : null)});
   assert.deepEqual(bought, ['25.00']);
 });
@@ -189,4 +189,70 @@ test('host text is escaped', () => {
   S.renderPlans(container, {locale: 'en', t: (key) => (key === 'store_popular' ? '<img src=x onerror=alert(1)>' : key)});
   assert.doesNotMatch(container.innerHTML, /<img/);
   assert.match(container.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
+// Telegram Mini App: Stars mode (starsPrice), as the host prices it.
+const starsPrice = (cents) => Math.max(1, Math.ceil(cents * 499 / 500));
+
+test('stars mode shows only Telegram Stars prices on plans', () => {
+  const container = fakeContainer();
+  S.renderPlans(container, {locale: 'en', starsPrice});
+  const html = container.innerHTML;
+  for (const [stars] of [['499'], ['998'], ['2,495'], ['4,990'], ['9,980']]) {
+    assert.match(html, new RegExp(stars + ' ⭐</span><span class="sxs-price-unit">/ mo'));
+  }
+  assert.doesNotMatch(html, /\$\d/);
+  assert.match(html, /One month · no auto-renewal/);
+});
+
+test('stars mode with renewing monthly plans says so, annual stays one payment', () => {
+  const container = fakeContainer();
+  const plans = new Map();
+  container.addEventListener = (type, fn) => plans.set(type, fn);
+  container.querySelector = () => null;
+  S.renderPlans(container, {locale: 'en', starsPrice, renewal: 'auto'});
+  assert.match(container.innerHTML, /Automatically renews every 30 days\. Cancel anytime\./);
+  assert.doesNotMatch(container.innerHTML, /no auto-renewal|Billed monthly/);
+  const card = {dataset: {plan: 'pro'}};
+  plans.get('click')({target: {closest: (sel) => (sel === '[data-sxs-period]' ? {dataset: {sxsPeriod: 'year'}} : sel === '[data-plan]' ? card : null)}});
+  assert.match(container.innerHTML, /One payment for 12 months · save 20% · no auto-renewal/);
+});
+
+test('stars mode annual plans show the one-time yearly payment', () => {
+  const container = fakeContainer();
+  const plans = new Map();
+  container.addEventListener = (type, fn) => plans.set(type, fn);
+  container.querySelector = () => null;
+  S.renderPlans(container, {locale: 'en', starsPrice});
+  for (const [id, stars] of [['starter', '4,791'], ['pro', '9,581'], ['max', '23,952'], ['ultra', '47,904'], ['creator', '95,808']]) {
+    const card = {dataset: {plan: id}};
+    plans.get('click')({target: {closest: (sel) => (sel === '[data-sxs-period]' ? {dataset: {sxsPeriod: 'year'}} : sel === '[data-plan]' ? card : null)}});
+    assert.match(container.innerHTML, new RegExp(stars + ' ⭐</span><span class="sxs-price-unit">/ year'));
+  }
+  assert.match(container.innerHTML, /One payment for 12 months · save 20% · no auto-renewal/);
+  assert.doesNotMatch(container.innerHTML, /\$\d/);
+});
+
+test('stars mode credits: host packs, Stars prices and custom amounts in credits', () => {
+  const container = interactiveContainer();
+  const bought = [];
+  S.renderCredits(container, {locale: 'en', starsPrice, packUsd: [1, 5, 10, 20, 30, 40, 50, 100, 200],
+    packIdForUsd: (usd) => (usd === 200 ? null : 'pack_' + usd * 100), customPurchase: true,
+    customCredits: {min: 100, max: 10020}, onContinueCustom: (amount) => bought.push(amount)});
+  const html = container.innerHTML;
+  assert.equal((html.match(/class="sxs-card sxs-pack/g) || []).length, 9);
+  for (const stars of ['100', '499', '998', '1,996', '2,994', '3,992', '4,990', '9,980', '19,960']) {
+    assert.match(html, new RegExp('<span class="sxs-pack-price">' + stars + ' ⭐</span>'));
+  }
+  assert.doesNotMatch(html, /\$\d/);
+  assert.match(html, /From 100 to 10,020 ⚡/);
+  container.fire('click', {closest: (sel) => (sel === '[data-sxs-custom-toggle]' ? {} : null)});
+  for (const [raw, ok] of [['1234', true], ['10020', true], ['10021', false], ['99', false], ['12.5', false], ['', false]]) {
+    container.fire('input', {matches: () => true, value: raw});
+    assert.equal(container.button.disabled, !ok, raw);
+    assert.equal(container.button.attrs['data-custom-amount'], ok ? raw : undefined, raw);
+  }
+  container.fire('input', {matches: () => true, value: '1234'});
+  container.fire('click', {closest: (sel) => (sel === '[data-sxs-continue]' ? {disabled: false, dataset: {customAmount: '1234'}} : null)});
+  assert.deepEqual(bought, ['1234']);
 });

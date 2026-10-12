@@ -49,8 +49,10 @@ test('PROSTUDIO IMAGE METADATA DEBUG console.debug block is gone', () => {
 // Unrelated console output must be untouched
 // ---------------------------------------------------------------------------
 
-test('the unrelated PAYPAL CHECKOUT URL console.log is untouched', () => {
-  assert.equal(source.includes("console.log('PAYPAL CHECKOUT URL:', paypalUrl);"), true);
+test('the Mini App no longer starts PayPal checkouts (Telegram Stars only)', () => {
+  // The legacy payWith PayPal/Crypto flow that held this log line was
+  // removed when Telegram Stars became the only Mini App purchase method.
+  assert.equal(source.includes("console.log('PAYPAL CHECKOUT URL:', paypalUrl);"), false);
 });
 
 // ---------------------------------------------------------------------------

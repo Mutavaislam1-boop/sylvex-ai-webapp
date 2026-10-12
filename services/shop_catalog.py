@@ -1,38 +1,30 @@
-"""Server-authoritative Store catalog for the Telegram Mini App.
+"""Server-authoritative USD Store catalog (Website: Stripe; Crypto Pay).
 
 Every purchasable product, its USD price, the credits it grants and (for
 plans) the subscription it activates are defined here. Clients only send a
 product id, plus a USD amount for a custom purchase; nothing they send about
-credits or Stars is trusted. Orders snapshot these values when created (see
+credits is trusted. Orders snapshot these values when created (see
 services/shop_orders.py), so a paid order always grants what was quoted.
 
-Legacy products (SHOP_ITEMS in main.py: sub_month, sub_year, pack_100) keep
-their own unchanged flow. pack_500..pack_5000 are listed here with the same
-price and credits as SHOP_ITEMS so the Store can sell them through orders.
+Telegram Stars prices are NOT here: everything sold inside Telegram comes
+from services/telegram_catalog.py, the separate Telegram catalog.
 """
 from __future__ import annotations
 
 import os
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 
 CREDITS_PER_USD = 100
 CUSTOM_MIN_CENTS = 100
 CUSTOM_MAX_CENTS = 100_000
 
-# Stars price policy: the same rate the existing products use (SHOP_ITEMS
-# prices $1 = 46 Stars; sylvex-ai-bot reads TELEGRAM_STARS_PER_USD, default
-# 46). Rounded half up to whole Stars, minimum 1.
-STARS_PER_USD = Decimal(os.getenv("TELEGRAM_STARS_PER_USD", "46"))
-
-# Provider limits. Telegram does not publish a per-invoice Stars maximum in
-# the Bot API reference, so the default is conservative; raise it with
-# STARS_MAX_PER_INVOICE once a createInvoiceLink for the larger amount is
-# confirmed. Crypto Pay limits are configurable for the same reason.
-STARS_MAX_PER_INVOICE = int(os.getenv("STARS_MAX_PER_INVOICE", "10000"))
+# Crypto Pay limits are configurable: they are not confirmed per invoice.
 CRYPTO_MIN_CENTS = int(round(float(os.getenv("CRYPTO_MIN_USD", "1")) * 100))
 CRYPTO_MAX_CENTS = int(round(float(os.getenv("CRYPTO_MAX_USD", "1000")) * 100))
 
+# Provider ids as stored on orders and purchases. Stars orders are created
+# only from services/telegram_catalog.py.
 PROVIDER_STARS = "telegram_stars"
 PROVIDER_CRYPTO = "crypto_pay"
 PROVIDERS = (PROVIDER_STARS, PROVIDER_CRYPTO)
@@ -53,6 +45,7 @@ PLAN_DAYS = {"month": 30, "year": 365}
 
 CREDIT_PACK_USD = (5, 10, 20, 30, 40, 50, 100, 200)
 CUSTOM_PRODUCT_ID = "credits_custom"
+PLAN_NAMES = {plan[0]: plan[1] for plan in PLANS}
 
 
 # ---------------------------------------------------------------------------
@@ -204,21 +197,6 @@ EXAMPLE_TEXT_MODELS = (
 )
 
 
-def stars_for_cents(usd_cents: int) -> int:
-    stars = (Decimal(int(usd_cents)) * STARS_PER_USD / 100).quantize(Decimal(1), rounding=ROUND_HALF_UP)
-    return max(1, int(stars))
-
-
-def max_cents_for_stars(limit: int) -> int:
-    """Largest USD amount (cents) whose Stars price stays within limit."""
-    cents = int((Decimal(int(limit)) + Decimal("0.5")) * 100 / STARS_PER_USD)
-    while cents > 0 and stars_for_cents(cents) > limit:
-        cents -= 1
-    while stars_for_cents(cents + 1) <= limit:
-        cents += 1
-    return cents
-
-
 def pack_id_for_usd(usd: int) -> str:
     return f"pack_{int(usd) * CREDITS_PER_USD}"
 
@@ -293,7 +271,7 @@ def parse_usd_cents(raw) -> int:
 
 
 def resolve_product(product_id: str, usd=None) -> dict:
-    """The authoritative product for a purchase request, with its Stars price."""
+    """The authoritative USD product for a purchase request."""
     product_id = str(product_id or "").strip()
     if product_id == CUSTOM_PRODUCT_ID:
         product = _pack_product(parse_usd_cents(usd), CUSTOM_PRODUCT_ID)
@@ -301,16 +279,13 @@ def resolve_product(product_id: str, usd=None) -> dict:
         product = dict(FIXED_PRODUCTS[product_id])
     else:
         raise CatalogError("unknown_product")
-    product["stars"] = stars_for_cents(product["usd_cents"])
     return product
 
 
 def provider_availability(product: dict) -> dict:
-    """Which payment methods may sell this product, and why not."""
-    stars_ok = product["stars"] <= STARS_MAX_PER_INVOICE
+    """Which USD payment methods may sell this product, and why not."""
     crypto_ok = CRYPTO_MIN_CENTS <= product["usd_cents"] <= CRYPTO_MAX_CENTS
     return {
-        PROVIDER_STARS: {"available": stars_ok, "reason": None if stars_ok else "stars_amount_above_limit"},
         PROVIDER_CRYPTO: {"available": crypto_ok, "reason": None if crypto_ok else "crypto_amount_out_of_range"},
     }
 
@@ -323,7 +298,7 @@ def plan_label(plan_key: str) -> str:
     if key in {"month", ""}:
         return "1 месяц"
     plan_id, _, period = key.rpartition("_")
-    names = {plan[0]: plan[1] for plan in PLANS}
+    names = PLAN_NAMES
     if plan_id in names and period in PLAN_DAYS:
         return f"{names[plan_id]} · {'1 месяц' if period == 'month' else '12 месяцев'}"
     return key
@@ -332,7 +307,7 @@ def plan_label(plan_key: str) -> str:
 def plan_product_name(plan_key: str) -> str:
     """"SYLVEX Pro" for the legacy month/year plans, else "SYLVEX <Plan>"."""
     key = str(plan_key or "").strip().lower()
-    names = {plan[0]: plan[1] for plan in PLANS}
+    names = PLAN_NAMES
     plan_id = key.rpartition("_")[0]
     return f"SYLVEX {names[plan_id]}" if plan_id in names else "SYLVEX Pro"
 
@@ -342,19 +317,17 @@ def public_catalog() -> dict:
     for product_id in FIXED_PRODUCTS:
         product = resolve_product(product_id)
         products.append({
-            **{key: product[key] for key in ("product_id", "kind", "title", "usd_cents", "credits", "stars", "plan_key", "days")},
+            **{key: product[key] for key in ("product_id", "kind", "title", "usd_cents", "credits", "plan_key", "days")},
             **({"plan_id": product["plan_id"], "period": product["period"]} if product["kind"] == "subscription" else {}),
             "providers": provider_availability(product),
         })
     return {
         "credits_per_usd": CREDITS_PER_USD,
-        "stars_per_usd": str(STARS_PER_USD),
         "products": products,
         "custom": {
             "product_id": CUSTOM_PRODUCT_ID,
             "min_cents": CUSTOM_MIN_CENTS,
             "max_cents": CUSTOM_MAX_CENTS,
-            "stars_max_cents": min(CUSTOM_MAX_CENTS, max_cents_for_stars(STARS_MAX_PER_INVOICE)),
             "crypto_min_cents": max(CUSTOM_MIN_CENTS, CRYPTO_MIN_CENTS),
             "crypto_max_cents": min(CUSTOM_MAX_CENTS, CRYPTO_MAX_CENTS),
         },

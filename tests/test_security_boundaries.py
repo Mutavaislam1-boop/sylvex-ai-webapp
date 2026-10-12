@@ -378,3 +378,20 @@ def test_subscription_preserves_referral_events(monkeypatch):
  assert main.finalize_shop_payment(101,'stars',{'kind':'subscription','plan_key':'month','bonus_credits':40,'days':30},5,'XTR','test','charge')
  types=[c.kwargs.get('event_type') for c in event.call_args_list]
  assert types==['payment_success','subscription_activated','credits_added']
+
+@pytest.mark.asyncio
+async def test_telegram_requests_cannot_reach_non_stars_purchase_routes(client):
+ # Inside Telegram, Telegram Stars is the only purchase method: every other
+ # purchase route refuses a request that carries Telegram initData (also
+ # from older Mini App builds), before any handler runs.
+ from services.security import TELEGRAM_BLOCKED_PURCHASE_ROUTES
+ assert TELEGRAM_BLOCKED_PURCHASE_ROUTES == {
+  '/api/public/payments/crypto/invoice','/api/public/payments/paypal/create-order',
+  '/api/public/payments/paypal/subscription-binding','/api/public/payments/paypal/subscription-created',
+  '/api/public/payments/lemonsqueezy/checkout','/api/public/payments/stripe/checkout','/api/public/payments/stripe/portal'}
+ for path in sorted(TELEGRAM_BLOCKED_PURCHASE_ROUTES):
+  r=await client.post(path,headers={'X-Telegram-Init-Data':signed()},json={'product_id':'pack_500','pack_id':'pack_500'})
+  assert (r.status_code,r.json().get('error'))==(403,'telegram_stars_only'),(path,r.status_code,r.text)
+ # The Stars route and order status stay open to Telegram.
+ r=await client.post('/api/public/payments/stars/invoice',headers={'X-Telegram-Init-Data':signed()},json={'product_id':'plan_gold_month'})
+ assert r.status_code==400 and r.json()['error']=='unknown_product'

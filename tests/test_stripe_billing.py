@@ -209,7 +209,7 @@ def db(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS shop_orders, purchases, subscriptions, users, stripe_catalog, stripe_customers, "
+        cur.execute("DROP TABLE IF EXISTS payment_inbox, payment_reconcile_state, subscription_events, subscription_agreements, subscription_payments, shop_orders, purchases, subscriptions, users, stripe_catalog, stripe_customers, "
                     "stripe_subscriptions, stripe_events CASCADE")
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
@@ -287,7 +287,8 @@ def test_wrong_amount_unpaid_or_unknown_sessions_grant_nothing(db):
     assert sb.handle_event(db.connect, client_for(fake), event("checkout.session.completed", unpaid), finalizer(db))["outcome"] == "pending"
     stranger = dict(paid_session(order), client_reference_id="f" * 32, metadata={})
     assert sb.handle_event(db.connect, client_for(fake), event("checkout.session.completed", stranger), finalizer(db))["outcome"] == "ignored"
-    stars_order = orders.create_order(db.connect, UID, catalog.resolve_product("pack_1000"), "telegram_stars", 3600)
+    from services import telegram_catalog
+    stars_order = orders.create_order(db.connect, UID, telegram_catalog.resolve("pack_1000"), "telegram_stars", 3600)
     assert sb.handle_event(db.connect, client_for(fake), event("checkout.session.completed", paid_session(stars_order)),
                            finalizer(db))["outcome"] == "ignored"
     assert balance(db) == 50

@@ -40,7 +40,7 @@ from services import edit_sessions as edit_sessions_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
 from services import video_probe
-from services import shop_catalog, shop_orders, stripe_billing
+from services import payment_inbox, shop_catalog, shop_orders, stripe_billing, telegram_catalog
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -1070,6 +1070,9 @@ STRIPE_WEBHOOK_SECRET = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
 # clock, so renewals can be triggered by advancing the clock in the Dashboard.
 STRIPE_TEST_MODE_ONLY = os.getenv("STRIPE_TEST_MODE_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 STRIPE_TEST_CLOCKS = os.getenv("STRIPE_TEST_CLOCKS", "0").lower() in {"1", "true", "yes", "on"}
+# Mini App "Compare prices" link to the Website price list (see the
+# /api/public/shop/catalog route). Off unless explicitly enabled.
+STORE_COMPARE_PRICES_ENABLED = os.getenv("STORE_COMPARE_PRICES_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
@@ -1087,7 +1090,6 @@ SHOP_ITEMS = {
         "credits": 0,
         "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 5.0,
-        "stars": 230,
     },
     "sub_year": {
         "kind": "subscription",
@@ -1097,16 +1099,21 @@ SHOP_ITEMS = {
         "credits": 0,
         "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 59.0,
-        "stars": 2751,
     },
-    "pack_100": {"kind": "credits", "title": "100 ⚡", "credits": 100, "usd": 1.0, "stars": 46},
-    "pack_500": {"kind": "credits", "title": "500 ⚡", "credits": 500, "usd": 5.0, "stars": 230},
-    "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0, "stars": 460},
-    "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0, "stars": 920},
-    "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0, "stars": 1380},
-    "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0, "stars": 1840},
-    "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0, "stars": 2300},
+    "pack_100": {"kind": "credits", "title": "100 ⚡", "credits": 100, "usd": 1.0},
+    "pack_500": {"kind": "credits", "title": "500 ⚡", "credits": 500, "usd": 5.0},
+    "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0},
+    "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0},
+    "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0},
+    "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0},
+    "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0},
 }
+# Telegram Stars prices follow the Telegram catalog's formula
+# (services/telegram_catalog.py: ceil(usd * 499 / 5)). These legacy items
+# are only used to finish invoices created before the Telegram catalog; new
+# Telegram purchases are catalog orders.
+for _shop_item in SHOP_ITEMS.values():
+    _shop_item["stars"] = telegram_catalog.stars_for_cents(round(_shop_item["usd"] * 100))
 
 
 def design(title: str, body: str) -> str:
@@ -1298,60 +1305,6 @@ def _restore_active_subscription(telegram_id: int) -> bool:
             },
         )
     return inserted
-
-
-# =====================================================
-# СИНХРОНИЗАЦИЯ С TELEGRAM: create_telegram_stars_invoice_link
-# Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
-# =====================================================
-def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dict, charge_id: str) -> str:
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN is not configured")
-
-    invoice_payload = {
-            "title": item["title"],
-            "description": f"Оплата {item['title']} в SYLVEX.",
-            # The polling Telegram bot currently consumes the canonical
-            # four-part payload. Keep the internal invoice id outside the
-            # Bot API payload so both deployments parse the same contract.
-            "payload": bot_stars_payload(telegram_id, item),
-            "currency": "XTR",
-            "prices": [
-                {
-                    "label": item["title"],
-                    "amount": int(item["stars"]),
-                }
-            ],
-        }
-    response = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
-        # Bot API requires provider_token to be omitted for Telegram Stars.
-        json=invoice_payload,
-        timeout=30,
-    )
-
-    data = response.json()
-    if response.status_code >= 400 or not data.get("ok"):
-        prostudio_debug(
-            "STARS_INVOICE_CREATE_FAILED",
-            telegram_id=telegram_id,
-            pack_id=pack_id,
-            charge_id=charge_id,
-            status=response.status_code,
-            telegram_error=data.get("description") or data.get("error_code") or "unknown",
-        )
-        raise RuntimeError(str(data))
-
-    prostudio_debug(
-        "STARS_INVOICE_CREATED",
-        telegram_id=telegram_id,
-        pack_id=pack_id,
-        charge_id=charge_id,
-        stars=int(item.get("stars") or 0),
-        payload_parts=4,
-    )
-
-    return data["result"]
 
 
 def crypto_pay_request(method: str, payload=None):
@@ -2021,12 +1974,10 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
 
         q_start = time.monotonic()
         cursor.execute("""
-            SELECT subscription_type, expires_at::timestamp
-            FROM subscriptions
-            WHERE telegram_id = %s
-              AND status = 'active'
-              AND expires_at::timestamp > NOW()
-            ORDER BY expires_at::timestamp DESC
+            SELECT s.subscription_type, s.expires_at::timestamp
+            FROM subscriptions s
+            WHERE s.telegram_id = %s AND """ + shop_orders.VALID_ENTITLEMENT_SQL + """
+            ORDER BY """ + shop_orders.EFFECTIVE_ORDER_SQL + """
             LIMIT 1
         """, (telegram_id,))
         active_sub = cursor.fetchone()
@@ -2151,6 +2102,13 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
 
     profile = get_user_profile(telegram_id)
     subscription_status = "active" if active_sub else "free"
+    subscription_details = None
+    if latest_sub:  # only users who ever had a plan; keeps the hot path cheap
+        try:
+            ensure_shop_orders()
+            subscription_details = _subscription_public(shop_orders.subscription_summary(shop_db, telegram_id))
+        except Exception as exc:
+            prostudio_error("USER_STATE_SUBSCRIPTION_DETAILS_FAILED", exc, telegram_id=telegram_id)
     last_subscription_expires_at = _to_iso(latest_sub[1]) if latest_sub and latest_sub[1] else None
     subscription_expired = bool(latest_sub and latest_sub[1] and not active_sub and latest_sub[1].timestamp() <= time.time())
     result = {
@@ -2164,6 +2122,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         "subscription_expires_at": _to_iso(active_sub[1]) if active_sub and active_sub[1] else None,
         "last_subscription_expires_at": last_subscription_expires_at,
         "subscription_expired": subscription_expired,
+        "subscription_details": subscription_details,
         "display_name": profile.get("display_name"),
         "custom_avatar_url": profile.get("custom_avatar_url"),
         "theme_preference": profile.get("theme_preference") or {},
@@ -2238,12 +2197,10 @@ def get_fast_user_state(telegram_id: int) -> dict:
         user_row = cursor.fetchone()
 
         cursor.execute("""
-            SELECT subscription_type, expires_at::timestamp
-            FROM subscriptions
-            WHERE telegram_id = %s
-              AND status = 'active'
-              AND expires_at::timestamp > NOW()
-            ORDER BY expires_at::timestamp DESC
+            SELECT s.subscription_type, s.expires_at::timestamp
+            FROM subscriptions s
+            WHERE s.telegram_id = %s AND """ + shop_orders.VALID_ENTITLEMENT_SQL + """
+            ORDER BY """ + shop_orders.EFFECTIVE_ORDER_SQL + """
             LIMIT 1
         """, (telegram_id,))
         active_sub = cursor.fetchone()
@@ -10538,7 +10495,7 @@ async def admin_user_detail(request: Request):
                 SELECT id, subscription_type, payment_method, amount, currency, starts_at, expires_at, status, created_at
                 FROM subscriptions WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
             """, (target_id,))
-            subscription_history = [{"id": r[0], "type": r[1] or "", "payment_method": r[2] or "",
+            subscription_history = [{"id": r[0], "type": r[1] or "", "plan_label": shop_catalog.plan_label(r[1]) if r[1] else "", "payment_method": r[2] or "",
                     "amount": int(r[3] or 0), "currency": r[4], "starts_at": _to_iso(r[5]), "expires_at": _to_iso(r[6]),
                     "status": r[7], "created_at": _to_iso(r[8])} for r in cursor.fetchall()]
             cursor.execute("""
@@ -10683,7 +10640,7 @@ async def admin_subscribers(request: Request):
                 LEFT JOIN user_profiles p ON p.telegram_id=s.telegram_id
                 ORDER BY s.created_at DESC LIMIT %s OFFSET %s
             """, (limit, offset))
-            items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4],
+            items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4], "plan_label": shop_catalog.plan_label(r[4]) if r[4] else "",
                     "amount": int(r[5] or 0), "currency": r[6], "starts_at": _to_iso(r[7]), "expires_at": _to_iso(r[8]),
                     "status": r[9], "created_at": _to_iso(r[10]), "total_subscription_purchases": int(r[11] or 0)}
                     for r in cursor.fetchall()]
@@ -11816,6 +11773,7 @@ def ensure_shop_orders():
             return
         ensure_payment_tables()
         shop_orders.ensure_order_tables(shop_db)
+        payment_inbox.ensure_inbox_tables(shop_db)
         _SHOP_ORDERS_READY = True
 
 
@@ -11926,15 +11884,25 @@ def store_order_public(order: dict) -> dict:
 def create_store_stars_invoice_link(order: dict) -> str:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not configured")
+    # Monthly plans are Telegram Stars subscriptions (subscription_period,
+    # at most 10,000 Stars); everything else is a one-time invoice bounded by
+    # the one-time limit, never by the recurring cap.
+    period = int(order.get("subscription_period") or 0) or None
+    stars = telegram_catalog.check_invoice_amount(int(order["stars"]), period)
+    invoice = {
+        "title": order["title"][:32],
+        "description": f"Оплата {order['title']} в SYLVEX.",
+        "payload": shop_orders.order_payload(order["order_id"]),
+        "currency": "XTR",
+        "prices": [{"label": order["title"][:32], "amount": stars}],
+    }
+    if period:
+        invoice["subscription_period"] = period
+        invoice["description"] = (f"Подписка {order['title']}: {stars} ⭐ каждые 30 дней. "
+                                  "Автоматически продлевается каждые 30 дней. Отменить можно в любой момент.")
     response = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
-        json={
-            "title": order["title"][:32],
-            "description": f"Оплата {order['title']} в SYLVEX.",
-            "payload": shop_orders.order_payload(order["order_id"]),
-            "currency": "XTR",
-            "prices": [{"label": order["title"][:32], "amount": int(order["stars"])}],
-        },
+        json=invoice,
         timeout=30,
     )
     data = response.json() if response.content else {}
@@ -11945,13 +11913,92 @@ def create_store_stars_invoice_link(order: dict) -> str:
     return data["result"]
 
 
-def finalize_store_order(order_id: str, provider: str, currency: str, amount, charge_id: str, payer_id=None, notify: bool = True) -> dict:
+def telegram_bot_api(method: str, params: dict):
+    """(ok, error_description) for a Bot API call. The token never leaves the server."""
+    if not BOT_TOKEN:
+        return False, "bot_token_not_configured"
+    try:
+        response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/{method}", json=params, timeout=20)
+        data = response.json() if response.content else {}
+    except Exception as exc:
+        return False, f"network_error:{type(exc).__name__}"
+    if response.status_code < 400 and data.get("ok"):
+        return True, None
+    return False, str(data.get("description") or f"http_{response.status_code}")[:200]
+
+
+def cancel_replaced_star_renewals(result: dict):
+    """A newer plan replaced renewing Telegram subscriptions: stop them."""
+    if not result.get("cancel_renewals"):
+        return []
+    outcomes = shop_orders.stop_renewals(shop_db, result["cancel_renewals"], telegram_bot_api)
+    for agreement_id, stopped, error in outcomes:
+        prostudio_debug("STORE_REPLACED_RENEWAL_STOP", agreement_id=agreement_id, stopped=stopped,
+                        telegram_error=error or "")
+    return outcomes
+
+
+def send_subscription_renewed_message(telegram_id: int, order: dict, period_end) -> bool:
+    if not BOT_TOKEN:
+        return False
+    until = period_end.strftime("%d.%m.%Y") if period_end else "—"
+    ok, error = telegram_bot_api("sendMessage", {
+        "chat_id": int(telegram_id),
+        "parse_mode": "HTML",
+        "text": (f"🔁 <b>Подписка {html.escape(shop_catalog.plan_product_name(order.get('plan_key')))} продлена</b>\n\n"
+                 f"Оплачено: <b>{int(order.get('stars') or 0)} ⭐</b>\n"
+                 f"Начислено: <b>{int(order.get('credits') or 0)} ⚡</b>\n"
+                 f"Следующее продление: <b>{until}</b>\n\n"
+                 "Автоматически продлевается каждые 30 дней. Отменить можно в любой момент."),
+    })
+    if not ok:
+        prostudio_debug("SUBSCRIPTION_RENEWED_MESSAGE_FAILED", telegram_id=telegram_id, telegram_error=error or "")
+    return ok
+
+
+def finalize_store_order(order_id: str, provider: str, currency: str, amount, charge_id: str, payer_id=None, notify: bool = True,
+                         recurring: dict = None) -> dict:
     ensure_shop_orders()
-    result = shop_orders.finalize_order(shop_db, order_id, provider, currency, amount, charge_id, payer_id=payer_id)
+    try:
+        result = shop_orders.finalize_order(shop_db, order_id, provider, currency, amount, charge_id, payer_id=payer_id,
+                                            recurring=recurring)
+    except Exception as exc:
+        # Nothing was granted (the transaction rolled back). Report it; the
+        # caller fails the request so the provider retries the delivery.
+        shop_orders.record_event_now(shop_db, f"paymenterror:{charge_id}:{type(exc).__name__}", "payment_error",
+                                     int(payer_id or 0) or None, status="finalize_failed", currency=currency,
+                                     reference=charge_id, details=f"order={order_id} error={type(exc).__name__}")
+        raise
     order = result.get("order") or {}
+    if result["status"] == "rejected" and provider == shop_catalog.PROVIDER_STARS:
+        # A Telegram Stars payment that cannot be matched: money may have been
+        # taken, so the administration has to look at it.
+        shop_orders.record_event_now(shop_db, f"paymentrejected:{charge_id}", "payment_error",
+                                     int(payer_id or 0) or (order.get("telegram_id") if order else None),
+                                     plan_key=order.get("plan_key") if order else None, amount=None, currency=currency,
+                                     status=result.get("reason"), reference=charge_id,
+                                     details=f"order={order_id} amount={amount}")
     prostudio_debug("STORE_ORDER_FINALIZE", order_id=order_id, provider=provider, status=result["status"],
-                    reason=result.get("reason") or "", charge_id=charge_id)
+                    reason=result.get("reason") or "", charge_id=charge_id, payment_kind=result.get("payment_kind") or "")
     if result["status"] != "granted":
+        return result
+    try:
+        cancel_replaced_star_renewals(result)
+    except Exception as exc:
+        prostudio_error("STORE_REPLACED_RENEWAL_CANCEL_FAILED", exc, order_id=order_id)
+    if result.get("payment_kind") == "renewal":
+        try:
+            telegram_id = int(order["telegram_id"])
+            log_user_event(
+                telegram_id=telegram_id, source="payment", event_type="subscription_renewed",
+                event_name=f"renew_{order['plan_key']}",
+                payload={"subscription_type": order["plan_key"], "order_id": order_id, "charge_id": charge_id,
+                         "credits": int(order["credits"]), "stars": int(order.get("stars") or 0)},
+            )
+            if notify:
+                send_subscription_renewed_message(telegram_id, order, result.get("period_end"))
+        except Exception as exc:
+            print("STORE RENEWAL POST-COMMIT NOTIFICATION FAILED:", type(exc).__name__)
         return result
     try:
         telegram_id = int(order["telegram_id"])
@@ -12027,13 +12074,64 @@ def _store_product_from_request(data: dict, provider: str):
     return product, None
 
 
+def _telegram_product_from_request(data: dict):
+    """The Telegram catalog product for a Stars purchase, or an error."""
+    try:
+        product = telegram_catalog.resolve(data.get("product_id"), data.get("credits"))
+    except telegram_catalog.CatalogError as exc:
+        return None, JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    if not shop_provider_configured(shop_catalog.PROVIDER_STARS):
+        return None, JSONResponse({"ok": False, "error": "stars_not_configured"}, status_code=503)
+    return product, None
+
+
+import datetime as _datetime_module  # noqa: E402
+
+
+def _json_dates(value):
+    if isinstance(value, dict):
+        return {key: _json_dates(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_dates(item) for item in value]
+    if isinstance(value, _datetime_module.datetime):
+        return _to_iso(value)
+    return value
+
+
+def _subscription_public(summary):
+    """shop_orders.subscription_summary() / conflict details for the Mini App:
+    ISO dates, plan names and labels."""
+    if not summary:
+        return None
+    out = _json_dates(summary)
+    for item in [out] + [out.get("primary") or {}, out.get("renewal") or {}] + list(out.get("entitlements") or []):
+        if item and item.get("plan_key"):
+            item["plan_label"] = shop_catalog.plan_label(item["plan_key"])
+            item["plan_name"] = shop_catalog.plan_product_name(item["plan_key"])
+    pending = out.get("pending_plan_key")
+    pending_product = telegram_catalog.monthly_plan_product(pending) if pending else None
+    out["pending_plan_label"] = shop_catalog.plan_label(pending) if pending else None
+    out["pending_product_id"] = pending_product["product_id"] if pending_product else None
+    out["pending_price_stars"] = pending_product["stars"] if pending_product else None
+    return out
+
+
 async def store_stars_invoice(data: dict, telegram_id: int):
-    product, error = _store_product_from_request(data, shop_catalog.PROVIDER_STARS)
+    product, error = _telegram_product_from_request(data)
     if error:
         return error
     await asyncio.to_thread(ensure_shop_orders)
+    # Buying a plan next to another valid paid plan needs the user's explicit
+    # confirmation of the full price and what changes (never a second
+    # renewal of the same monthly plan).
+    confirmed = data.get("confirm_change") is True
+    conflict = await asyncio.to_thread(shop_orders.subscription_conflict, shop_db, telegram_id, product, confirmed)
+    if conflict:
+        return JSONResponse({"ok": False, "error": conflict["error"],
+                             "subscription": _subscription_public(conflict["subscription"]),
+                             "change": _subscription_public(conflict["change"])}, status_code=409)
     order = await asyncio.to_thread(shop_orders.create_order, shop_db, telegram_id, product,
-                                    shop_catalog.PROVIDER_STARS, SHOP_STARS_ORDER_TTL_SECONDS)
+                                    shop_catalog.PROVIDER_STARS, SHOP_STARS_ORDER_TTL_SECONDS, confirmed)
     try:
         invoice_url = await asyncio.to_thread(create_store_stars_invoice_link, order)
     except Exception as exc:
@@ -12077,13 +12175,19 @@ async def store_crypto_invoice(data: dict, telegram_id: int):
 
 @app.get("/api/public/shop/catalog")
 async def public_shop_catalog():
-    data = shop_catalog.public_catalog()
+    # The Mini App sells only the Telegram catalog, for Telegram Stars only.
+    data = telegram_catalog.public_catalog()
     data["ok"] = True
     data["examples"] = await asyncio.to_thread(store_generation_examples)
     data["providers"] = {
         shop_catalog.PROVIDER_STARS: shop_provider_configured(shop_catalog.PROVIDER_STARS),
-        shop_catalog.PROVIDER_CRYPTO: shop_provider_configured(shop_catalog.PROVIDER_CRYPTO),
     }
+    if STORE_COMPARE_PRICES_ENABLED:
+        # Mini App "Compare prices": the public Website price list, with no
+        # purchase, cart or session attached. Off by default - Telegram
+        # requires digital goods in Mini Apps to be sold for Stars and does
+        # not except links to outside checkouts; enable only after review.
+        data["compare_prices_url"] = f"{WEBSITE_URL.rstrip('/')}/store.html"
     return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
 
 
@@ -12109,6 +12213,91 @@ async def public_store_order_status(request: Request):
     if order and order["status"] == shop_orders.STATUS_PAID:
         user = await asyncio.to_thread(get_user_state, telegram_id)
     return {"ok": True, "order": store_order_public(order), "user": user}
+
+
+# ---------------------------------------------------------------------------
+# Telegram Stars subscriptions: status, cancel / re-enable renewal, and plan
+# changes. Renewal state changes only after Telegram's editUserStarSubscription
+# confirms; the response always says whether it did. Paid access always runs
+# to the confirmed expiration date.
+# ---------------------------------------------------------------------------
+SUBSCRIPTION_MANAGE_ERRORS = {
+    "no_recurring_subscription": 404,
+    "another_subscription_renewing": 409,
+    "reactivation_unavailable": 502,
+    "same_plan": 400,
+    "unknown_plan": 400,
+    "confirmation_required": 400,
+    "telegram_refused": 502,
+}
+
+
+async def _subscription_request(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if telegram_id:
+        await asyncio.to_thread(ensure_shop_orders)
+    return data, telegram_id
+
+
+def _subscription_manage_response(result: dict, telegram_id: int, action: str):
+    prostudio_debug("STARS_SUBSCRIPTION_MANAGE", telegram_id=telegram_id, action=action, ok=bool(result.get("ok")),
+                    status=result.get("status") or "", error=result.get("error") or "",
+                    telegram_error=result.get("telegram_error") or "")
+    body = {"ok": bool(result.get("ok")), "status": result.get("status"), "error": result.get("error"),
+            "subscription": _subscription_public(result.get("subscription"))}
+    if result.get("telegram_error"):
+        body["telegram_error"] = result["telegram_error"]
+    if result.get("ok"):
+        return body
+    return JSONResponse(body, status_code=SUBSCRIPTION_MANAGE_ERRORS.get(result.get("error"), 400))
+
+
+@app.post("/api/public/subscription/status")
+async def public_subscription_status(request: Request):
+    _, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    summary = await asyncio.to_thread(shop_orders.subscription_summary, shop_db, telegram_id)
+    return {"ok": True, "subscription": _subscription_public(summary)}
+
+
+@app.post("/api/public/subscription/cancel")
+async def public_subscription_cancel(request: Request):
+    """Stop future renewals; access stays until the paid period ends."""
+    _, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    result = await asyncio.to_thread(shop_orders.set_auto_renew, shop_db, telegram_id, True, telegram_bot_api)
+    return _subscription_manage_response(result, telegram_id, "cancel")
+
+
+@app.post("/api/public/subscription/reactivate")
+async def public_subscription_reactivate(request: Request):
+    """Re-enable the renewal of a subscription cancelled through SYLVEX
+    (also drops a scheduled plan change)."""
+    _, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    result = await asyncio.to_thread(shop_orders.set_auto_renew, shop_db, telegram_id, False, telegram_bot_api)
+    return _subscription_manage_response(result, telegram_id, "reactivate")
+
+
+@app.post("/api/public/subscription/change")
+async def public_subscription_change(request: Request):
+    """Switch to another monthly plan at the end of the paid period: the
+    current renewal is cancelled now (nothing is charged), and the new plan is
+    offered for purchase once the current period ends."""
+    data, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    plan_key = str(data.get("plan_key") or "").strip().lower()
+    if not telegram_catalog.monthly_plan_product(plan_key):
+        return _subscription_manage_response({"ok": False, "error": "unknown_plan"}, telegram_id, "change")
+    if data.get("confirm") is not True:
+        return _subscription_manage_response({"ok": False, "error": "confirmation_required"}, telegram_id, "change")
+    result = await asyncio.to_thread(shop_orders.schedule_plan_change, shop_db, telegram_id, plan_key, telegram_bot_api)
+    return _subscription_manage_response(result, telegram_id, "change")
 
 # ---------------------------------------------------------------------------
 # Stripe: Website card payments for the same Store products and orders.
@@ -12391,46 +12580,16 @@ async def public_stripe_webhook(request: Request):
 @app.post("/api/public/payments/stars/invoice")
 async def public_stars_invoice(request: Request):
     data = await request.json()
-    pack_id = data.get("pack_id") or ""
     telegram_id = int(data.get("telegram_id") or 0)
-    if data.get("product_id"):
-        if not telegram_id:
-            return telegram_id_required_response()
-        return await store_stars_invoice(data, telegram_id)
-    item = shop_item(pack_id)
-
-    if not item:
-        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
     if not telegram_id:
         return telegram_id_required_response()
-
-    charge_id = f"stars_{uuid4().hex}"
-    try:
-        invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item, charge_id)
-    except Exception as exc:
-        # Do not return str(exc) here: on a network-level failure it can embed
-        # the full Telegram Bot API URL, which contains BOT_TOKEN.
-        prostudio_error("STARS_INVOICE_ERROR", exc, telegram_id=telegram_id, pack_id=pack_id, charge_id=charge_id)
-        return JSONResponse({"ok": False, "error": "stars_invoice_failed"}, status_code=502)
-
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="payment_invoice_created",
-        event_name="stars_invoice_created",
-        payload={
-            "pack_id": pack_id,
-            "charge_id": charge_id,
-            "invoice_url": invoice_url,
-        },
-    )
-
-    return {
-        "ok": True,
-        "invoice_url": invoice_url,
-        "pack_id": pack_id,
-        "charge_id": charge_id,
-    }
+    product_id = data.get("product_id")
+    if not product_id and data.get("pack_id"):
+        # Older Mini App builds send a legacy pack_id: the same Telegram
+        # catalog product is sold through an order at the catalog price.
+        # Legacy subscriptions (sub_month/sub_year) are no longer sold.
+        product_id = data.get("pack_id")
+    return await store_stars_invoice(dict(data, product_id=product_id), telegram_id)
 
 
 def _stars_item_from_payment_payload(payload: str):
@@ -12456,6 +12615,12 @@ def _answer_stars_pre_checkout(query_id: str, ok: bool, error_message: str = "")
     return response.status_code < 400 and bool(data.get("ok"))
 
 
+STARS_PRE_CHECKOUT_MESSAGES = {
+    "already_subscribed": "Этот тариф уже оформлен и продлевается автоматически.",
+    "subscription_change_confirmation_required": "Сначала подтвердите смену тарифа в магазине SYLVEX, затем оплатите новый счёт.",
+}
+
+
 @app.post("/api/public/payments/stars/webhook")
 async def public_stars_webhook(request: Request):
     if not TELEGRAM_PAYMENT_WEBHOOK_SECRET:
@@ -12476,6 +12641,7 @@ async def public_stars_webhook(request: Request):
         )
         answered = _answer_stars_pre_checkout(
             str(pre_checkout.get("id") or ""), valid,
+            STARS_PRE_CHECKOUT_MESSAGES.get(reason) or
             "Счёт устарел или уже оплачен. Вернитесь в магазин и создайте новый счёт.",
         )
         prostudio_debug("STORE_STARS_PRE_CHECKOUT", order_id=order_id, approved=valid, reason=reason or "", answered=answered)
@@ -12487,8 +12653,12 @@ async def public_stars_webhook(request: Request):
         telegram_id = int(parsed.get("telegram_id") or 0)
         payer_id = int((pre_checkout.get("from") or {}).get("id") or 0)
         expected_amount = int(item.get("stars") or 0) if item else 0
+        # Legacy payloads are only honored for packages the Telegram catalog
+        # still sells, at its price; legacy subscriptions are refused.
+        still_sold = bool(item and item.get("kind") == "credits"
+                          and telegram_catalog.pack_stars(item.get("credits") or 0) == expected_amount)
         valid = bool(
-            item and telegram_id and telegram_id == payer_id
+            item and still_sold and telegram_id and telegram_id == payer_id
             and pre_checkout.get("currency") == "XTR"
             and int(pre_checkout.get("total_amount") or 0) == expected_amount
         )
@@ -12517,46 +12687,91 @@ async def public_stars_webhook(request: Request):
     payment = message.get("successful_payment") or {}
     if not payment:
         return {"ok": True, "ignored": True}
+    payer_id = int((message.get("from") or {}).get("id") or 0)
+    record = payment_inbox.payment_record(payer_id, payment, paid_at=message.get("date"), raw=message)
+    if record is None:
+        return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
+    # Durable before acknowledged: a confirmed payment is stored (database
+    # inbox, or the on-disk spool if the database is down) before Telegram
+    # gets a 2xx. If neither works, 503 makes Telegram deliver it again.
+    stored = await asyncio.to_thread(payment_inbox.record_durably, shop_db, record, "webhook", PAYMENT_SPOOL)
+    if not stored:
+        prostudio_debug("STARS_PAYMENT_NOT_RECORDED", charge_id=record["charge_id"], telegram_id=payer_id)
+        return JSONResponse({"ok": False, "error": "payment_not_recorded"}, status_code=503)
+    if stored == "spool":
+        prostudio_debug("STARS_PAYMENT_SPOOLED", charge_id=record["charge_id"], telegram_id=payer_id)
+        return {"ok": True, "status": "spooled", "charge_id": record["charge_id"]}
+    result = await asyncio.to_thread(payment_inbox.process, shop_db, record, process_star_payment_record)
+    status = result.get("status")
+    if status == "rejected" and not record["order_id"]:
+        return JSONResponse({"ok": False, "error": result.get("reason") or "invalid_successful_payment"}, status_code=400)
+    # "error": the payment is in the inbox and is replayed automatically.
+    return {"ok": status != "rejected", "status": "queued" if status == "error" else status,
+            "reason": result.get("reason"), "charge_id": record["charge_id"]}
 
-    order_id = shop_orders.parse_order_payload(payment.get("invoice_payload"))
-    if order_id:
-        result = await asyncio.to_thread(
-            finalize_store_order, order_id, shop_catalog.PROVIDER_STARS, payment.get("currency"),
-            payment.get("total_amount"), str(payment.get("telegram_payment_charge_id") or ""),
-            int((message.get("from") or {}).get("id") or 0),
-        )
-        return {"ok": result["status"] != "rejected", "status": result["status"], "reason": result.get("reason")}
 
-    payload = str(payment.get("invoice_payload") or "")
+PAYMENT_SPOOL = payment_inbox.Spool(os.getenv("PAYMENT_SPOOL_DIR", ""))
+PAYMENT_REPLAY_INTERVAL_SECONDS = int(os.getenv("PAYMENT_REPLAY_INTERVAL_SECONDS", "30") or 30)
+PAYMENT_RECONCILE_INTERVAL_SECONDS = int(os.getenv("PAYMENT_RECONCILE_INTERVAL_SECONDS", "600") or 600)
+
+
+def process_star_payment_record(record: dict) -> dict:
+    """Process one stored Telegram Stars payment (live webhook delivery or
+    replay). Idempotent by charge id."""
+    if record.get("order_id"):
+        ensure_shop_orders()
+        return finalize_store_order(record["order_id"], shop_catalog.PROVIDER_STARS, record["currency"], record["amount"],
+                                    record["charge_id"], record.get("telegram_id"), True,
+                                    payment_inbox.recurring_fields(record))
+    return process_legacy_star_payment(record)
+
+
+def process_legacy_star_payment(record: dict) -> dict:
+    """Legacy sylvex_stars:/sylvex_sub: invoices (still payable from old chat
+    messages): granted only for packages the Telegram catalog still sells."""
+    payload = str(record.get("invoice_payload") or "")
     parsed = parse_shop_payload(payload)
     item = _stars_item_from_payment_payload(payload)
     telegram_id = int(parsed.get("telegram_id") or 0)
-    payer_id = int((message.get("from") or {}).get("id") or 0)
     expected_amount = int(item.get("stars") or 0) if item else 0
-    if not item or not telegram_id or telegram_id != payer_id or payment.get("currency") != "XTR" or int(payment.get("total_amount") or 0) != expected_amount:
-        return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
-
-    charge_id = str(payment.get("telegram_payment_charge_id") or parsed.get("charge_id") or "")
-    prostudio_debug(
-        "STARS_SUCCESSFUL_PAYMENT_RECEIVED",
-        telegram_id=telegram_id,
-        kind=parsed.get("kind") or "",
-        plan_key=parsed.get("plan_key") or "",
-        amount=expected_amount,
-        charge_id=charge_id,
-        payload_parts=len(payload.split(":")),
-    )
-    created = finalize_shop_payment(
-        telegram_id=telegram_id,
-        provider="telegram_stars",
-        item=item,
-        amount=expected_amount,
-        currency="XTR",
-        payload=payload,
-        charge_id=charge_id,
-    )
+    if (not item or not telegram_id or telegram_id != int(record.get("telegram_id") or 0)
+            or record.get("currency") != "XTR" or int(record.get("amount") or 0) != expected_amount):
+        shop_orders.record_event_now(shop_db, f"paymentrejected:{record['charge_id']}", "payment_error",
+                                     record.get("telegram_id"), currency=record.get("currency"),
+                                     status="invalid_successful_payment", reference=record["charge_id"],
+                                     details=f"legacy payload amount={record.get('amount')}")
+        return {"status": "rejected", "reason": "invalid_successful_payment"}
+    charge_id = record["charge_id"]
+    prostudio_debug("STARS_SUCCESSFUL_PAYMENT_RECEIVED", telegram_id=telegram_id, kind=parsed.get("kind") or "",
+                    plan_key=parsed.get("plan_key") or "", amount=expected_amount, charge_id=charge_id,
+                    payload_parts=len(payload.split(":")))
+    created = finalize_shop_payment(telegram_id=telegram_id, provider="telegram_stars", item=item, amount=expected_amount,
+                                    currency="XTR", payload=payload, charge_id=charge_id)
     prostudio_debug("STARS_SUCCESSFUL_PAYMENT_FINALIZED", telegram_id=telegram_id, charge_id=charge_id, created=created)
-    return {"ok": True, "created": created, "charge_id": charge_id}
+    return {"status": "granted" if created else "duplicate", "created": created}
+
+
+def fetch_star_transactions(offset: int, limit: int) -> list:
+    """Telegram's own Star transaction history (getStarTransactions)."""
+    response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/getStarTransactions",
+                             json={"offset": int(offset), "limit": int(limit)}, timeout=30)
+    data = response.json() if response.content else {}
+    if response.status_code >= 400 or not data.get("ok"):
+        raise RuntimeError(f"getStarTransactions failed: {data.get('description') or response.status_code}")
+    return list((data.get("result") or {}).get("transactions") or [])
+
+
+def replay_star_payments() -> dict:
+    """Recover confirmed payments stored but not yet processed (spool first).
+    Order payments from any source; legacy payloads this service received."""
+    return payment_inbox.replay(shop_db, process_star_payment_record, PAYMENT_SPOOL,
+                                legacy_sources=("webhook", "webhook+spool", "reconcile"))
+
+
+def reconcile_star_payments() -> dict:
+    ensure_shop_orders()
+    return payment_inbox.reconcile_star_transactions(shop_db, fetch_star_transactions)
+
 
 # =====================================================
 # API ENDPOINT: public_stars_confirm
@@ -22977,6 +23192,7 @@ def process_subscription_reminders() -> dict:
         return {"checked": 0, "sent": 0}
     ensure_payment_tables()
     ensure_stripe_tables()
+    ensure_shop_orders()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -22997,6 +23213,11 @@ def process_subscription_reminders() -> dict:
               -- A Stripe plan that renews automatically needs no reminder.
               AND NOT """ + stripe_billing.renews_automatically_sql(
                   "s", stripe_billing.key_livemode(STRIPE_SECRET_KEY) if STRIPE_SECRET_KEY else True) + """
+              -- Neither does a Telegram Stars subscription that renews automatically.
+              AND NOT EXISTS (
+                  SELECT 1 FROM subscription_agreements agreement
+                  WHERE agreement.id = s.agreement_id AND agreement.renewal_status = 'auto'
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM subscriptions newer
@@ -23100,6 +23321,140 @@ def process_subscription_reminders() -> dict:
     return {"checked": checked, "sent": sent}
 
 
+# ---------------------------------------------------------------------------
+# Subscription administration notifications and the expiry sweep.
+#
+# Payment code queues events in shop_orders' subscription_events outbox inside
+# the payment transaction (webapp webhook and polling bot alike); this worker
+# delivers them to the administration chat with retries, so a notification
+# failure never affects a payment. Messages carry identifiers only: SYLVEX ID,
+# Telegram ID, plan, amount, status, time and the Telegram charge reference -
+# never tokens, secrets, names or usernames.
+# ---------------------------------------------------------------------------
+SUBSCRIPTION_ADMIN_CHAT_ID = int(os.getenv("SUBSCRIPTION_ADMIN_CHAT_ID", str(PROSTUDIO_ADMIN_ID)) or PROSTUDIO_ADMIN_ID)
+SUBSCRIPTION_EVENTS_WORKER_ENABLED = os.getenv("SUBSCRIPTION_EVENTS_WORKER_ENABLED", "1") == "1"
+SUBSCRIPTION_EVENTS_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_EVENTS_INTERVAL_SECONDS", "30") or 30)
+SUBSCRIPTION_SWEEP_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_SWEEP_INTERVAL_SECONDS", "600") or 600)
+
+SUBSCRIPTION_EVENT_TITLES = {
+    "subscription_purchased": "🟢 Новая подписка",
+    "subscription_renewed": "🔁 Подписка продлена",
+    "renewal_canceled": "⏹ Автопродление отменено через SYLVEX",
+    "renewal_reactivated": "▶️ Автопродление возобновлено",
+    "subscription_expired": "⌛ Подписка закончилась",
+    "primary_changed": "🔀 Сменился основной тариф",
+    "payment_error": "⚠️ Ошибка обработки платежа",
+    "payment_attention": "⚠️ Платёж требует внимания",
+    "management_error": "⚠️ Ошибка управления подпиской",
+}
+
+
+def sylvex_account_id_for(telegram_id):
+    if not telegram_id or not DATABASE_URL:
+        return None
+    try:
+        conn = db_connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass('public.sylvex_accounts')")
+                if not cur.fetchone()[0]:
+                    return None
+                cur.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s LIMIT 1", (int(telegram_id),))
+                row = cur.fetchone()
+                return int(row[0]) if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def format_subscription_event(event: dict, sylvex_id=None) -> str:
+    lines = [SUBSCRIPTION_EVENT_TITLES.get(event["event_type"], event["event_type"])]
+    lines.append(f"SYLVEX ID: {sylvex_id if sylvex_id else '—'}")
+    lines.append(f"Telegram ID: {event['telegram_id'] or '—'}")
+    if event.get("plan_key"):
+        lines.append(f"Тариф: {shop_catalog.plan_product_name(event['plan_key'])} · {shop_catalog.plan_label(event['plan_key'])}")
+    if event.get("amount") is not None:
+        lines.append(f"Сумма: {event['amount']} {event.get('currency') or ''}".rstrip())
+    if event.get("status"):
+        lines.append(f"Статус: {event['status']}")
+    created = event.get("created_at")
+    lines.append(f"Время: {created.strftime('%Y-%m-%d %H:%M:%S') if created else '—'}")
+    if event.get("reference"):
+        lines.append(f"Транзакция: {event['reference']}")
+    if event.get("details"):
+        lines.append(f"Детали: {event['details']}")
+    return "\n".join(lines)
+
+
+def deliver_subscription_events(limit: int = 20) -> dict:
+    ensure_shop_orders()
+    sent = failed = 0
+    for event in shop_orders.claim_events(shop_db, limit):
+        ok, error = telegram_bot_api("sendMessage", {
+            "chat_id": SUBSCRIPTION_ADMIN_CHAT_ID,
+            "text": format_subscription_event(event, sylvex_account_id_for(event.get("telegram_id"))),
+            "disable_web_page_preview": True,
+        })
+        if ok:
+            shop_orders.mark_event_sent(shop_db, event["id"])
+            sent += 1
+        else:
+            shop_orders.mark_event_failed(shop_db, event["id"], error)
+            failed += 1
+    return {"sent": sent, "failed": failed}
+
+
+def run_subscription_sweep() -> dict:
+    """Record ended subscriptions (and fall back to still-valid plans), then
+    retry stopping replaced renewals Telegram has not confirmed yet."""
+    ensure_shop_orders()
+    result = shop_orders.sweep_subscriptions(shop_db)
+    if result["stop_pending"]:
+        result["stopped"] = shop_orders.stop_renewals(shop_db, result["stop_pending"], telegram_bot_api)
+    return result
+
+
+async def subscription_events_worker_loop():
+    print("SUBSCRIPTION EVENTS WORKER STARTED")
+    last_sweep = 0.0
+    while True:
+        try:
+            if time.monotonic() - last_sweep >= SUBSCRIPTION_SWEEP_INTERVAL_SECONDS:
+                last_sweep = time.monotonic()
+                swept = await asyncio.to_thread(run_subscription_sweep)
+                if swept.get("expired") or swept.get("stop_pending"):
+                    prostudio_debug("SUBSCRIPTION_SWEEP", expired=swept.get("expired"),
+                                    stop_pending=len(swept.get("stop_pending") or []))
+            delivered = await asyncio.to_thread(deliver_subscription_events)
+            if delivered["sent"] or delivered["failed"]:
+                prostudio_debug("SUBSCRIPTION_EVENTS_DELIVERED", **delivered)
+        except Exception as exc:
+            prostudio_error("SUBSCRIPTION_EVENTS_WORKER_FAILED", exc)
+        await asyncio.sleep(max(5, SUBSCRIPTION_EVENTS_INTERVAL_SECONDS))
+
+
+async def payment_recovery_worker_loop():
+    """Always on (independent of notifications): replay confirmed Telegram
+    Stars payments that are stored but unprocessed - after an outage, crash or
+    restart - and reconcile with Telegram's Star transaction history."""
+    print("PAYMENT RECOVERY WORKER STARTED")
+    last_reconcile = 0.0
+    while True:
+        try:
+            replayed = await asyncio.to_thread(replay_star_payments)
+            if replayed.get("spooled") or replayed.get("processed") or replayed.get("rejected") or replayed.get("error"):
+                prostudio_debug("STARS_PAYMENTS_REPLAYED", **replayed)
+            if time.monotonic() - last_reconcile >= PAYMENT_RECONCILE_INTERVAL_SECONDS:
+                reconciled = await asyncio.to_thread(reconcile_star_payments)
+                last_reconcile = time.monotonic()
+                if reconciled.get("ingested"):
+                    prostudio_debug("STARS_PAYMENTS_RECONCILED", **reconciled)
+        except Exception as exc:
+            prostudio_error("STARS_PAYMENT_RECOVERY_FAILED", exc)
+        await asyncio.sleep(max(5, PAYMENT_REPLAY_INTERVAL_SECONDS))
+
+
 async def subscription_reminder_worker_loop():
     if not SUBSCRIPTION_REMINDER_WORKER_ENABLED:
         print("SUBSCRIPTION REMINDER WORKER DISABLED")
@@ -23142,11 +23497,20 @@ async def start_prostudio_generation_worker():
         await asyncio.to_thread(ensure_user_events_table)
         await asyncio.to_thread(ensure_generations_index)
         await asyncio.to_thread(account_identity_service.ensure_account_tables, DATABASE_URL)
+        try:
+            # Payment inbox and order tables before the first payment arrives.
+            await asyncio.to_thread(ensure_shop_orders)
+        except Exception as exc:
+            prostudio_error("SHOP_ORDER_TABLES_STARTUP_FAILED", exc)
         db_pool_status()
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
+    if SUBSCRIPTION_EVENTS_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
+        app.state.background_tasks.append(asyncio.create_task(subscription_events_worker_loop()))
+    if (DATABASE_URL or PAYMENT_SPOOL.enabled) and BOT_TOKEN:
+        app.state.background_tasks.append(asyncio.create_task(payment_recovery_worker_loop()))
     if STRIPE_SECRET_KEY and not stripe_key_allowed():
         print("STRIPE DISABLED: a live key is configured but STRIPE_TEST_MODE_ONLY=1")
     if stripe_enabled():

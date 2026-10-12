@@ -6,12 +6,14 @@ duplicate callbacks, amount/payer/provider mismatches, expired orders and
 rollback on failure. Runs only against a disposable database given by
 SYLVEX_TEST_DATABASE_URL (skipped otherwise)."""
 import os
+import time
 from datetime import datetime, timedelta
 
 import pytest
 
 from services import shop_catalog as catalog
 from services import shop_orders as orders
+from services import telegram_catalog as tg
 
 DATABASE = os.getenv("SYLVEX_TEST_DATABASE_URL")
 UID = 777001
@@ -28,7 +30,7 @@ def connect():
 
     conn = factory()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS shop_orders, purchases, subscriptions, users CASCADE")
+        cur.execute("DROP TABLE IF EXISTS payment_inbox, payment_reconcile_state, subscription_events, subscription_agreements, subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
         # Same shape as production (main.py ensure_payment_tables + users).
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
@@ -58,12 +60,26 @@ def balance(connect):
     return q(connect, "SELECT balance FROM users WHERE telegram_id = %s", (UID,))[0][0]
 
 
+def stars_product(product_id, credits=None):
+    """A Telegram catalog product as Stars orders snapshot it (ledger tests
+    pay it directly, independent of the invoice limit)."""
+    if product_id == tg.CUSTOM_PRODUCT_ID:
+        return tg._credits_product(tg.parse_custom_credits(credits), tg.CUSTOM_PRODUCT_ID)
+    return dict(tg.PRODUCTS[product_id])
+
+
 def pay(connect, product, provider, charge_id, ttl=1800):
     order = orders.create_order(connect, UID, product, provider, ttl)
     if provider == catalog.PROVIDER_STARS:
         ok, reason = orders.checkout_check(connect, order["order_id"], UID, provider, "XTR", product["stars"])
         assert ok, reason
-        result = orders.finalize_order(connect, order["order_id"], provider, "XTR", product["stars"], charge_id, payer_id=UID)
+        # Monthly plans are Telegram Stars subscriptions: their first payment
+        # carries Telegram's subscription fields.
+        recurring = ({"is_recurring": True, "is_first_recurring": True,
+                      "subscription_expiration_date": int(time.time()) + 30 * 86400}
+                     if product.get("recurring") else None)
+        result = orders.finalize_order(connect, order["order_id"], provider, "XTR", product["stars"], charge_id, payer_id=UID,
+                                       recurring=recurring)
     else:
         result = orders.finalize_order(connect, order["order_id"], provider, "USDT", f"{product['usd_cents'] / 100:.2f}", charge_id)
     return order, result
@@ -86,21 +102,41 @@ def test_catalog_matches_the_approved_price_table():
         assert (pack["usd_cents"], pack["credits"], pack["kind"]) == (usd * 100, usd * 100, "credits")
 
 
-def test_stars_prices_reuse_the_existing_policy():
+STARS_TABLE = {
+    # Telegram catalog: stars = ceil(usd * 499 / 5)
+    "pack_100": 100, "pack_500": 499, "pack_1000": 998, "pack_2000": 1996, "pack_3000": 2994, "pack_4000": 3992,
+    "pack_5000": 4990, "pack_10000": 9980, "pack_20000": 19960,
+    "plan_starter_month": 499, "plan_starter_year": 4791, "plan_pro_month": 998, "plan_pro_year": 9581,
+    "plan_max_month": 2495, "plan_max_year": 23952, "plan_ultra_month": 4990, "plan_ultra_year": 47904,
+    "plan_creator_month": 9980, "plan_creator_year": 95808,
+}
+
+
+def test_telegram_catalog_prices_follow_the_499_per_5_usd_table():
     import main
-    # Packs that already exist keep exactly the Stars price SHOP_ITEMS charges.
-    for pack_id in ("pack_500", "pack_1000", "pack_2000", "pack_3000", "pack_4000", "pack_5000"):
-        assert catalog.resolve_product(pack_id)["stars"] == main.SHOP_ITEMS[pack_id]["stars"]
-        assert catalog.resolve_product(pack_id)["credits"] == main.SHOP_ITEMS[pack_id]["credits"]
-    assert catalog.stars_for_cents(1234) == 568  # 12.34 * 46 = 567.64 -> 568
+    assert {pid: p["stars"] for pid, p in tg.PRODUCTS.items()} == STARS_TABLE
+    for plan_id, (_m, _a, month_credits, year_credits) in PLAN_TABLE.items():
+        assert tg.PRODUCTS[f"plan_{plan_id}_month"]["credits"] == month_credits
+        assert tg.PRODUCTS[f"plan_{plan_id}_year"]["credits"] == year_credits
+        assert (tg.PRODUCTS[f"plan_{plan_id}_month"]["days"], tg.PRODUCTS[f"plan_{plan_id}_year"]["days"]) == (30, 365)
+    # Legacy items finishing old invoices use the same formula.
+    assert {k: main.SHOP_ITEMS[k]["stars"] for k in ("sub_month", "sub_year", "pack_100", "pack_500")} == \
+        {"sub_month": 499, "sub_year": 5889, "pack_100": 100, "pack_500": 499}
+    # Rounding is always up: 1,234 credits = $12.34 -> 1231.53 -> 1232 Stars.
+    assert tg.stars_for_cents(1234) == 1232 and tg.stars_for_cents(1) == 1 and tg.stars_for_cents(100000) == 99800
+    for cents in range(1, 100001, 7):
+        assert tg.stars_for_cents(cents) == -(-cents * 499 // 500)
+    limit = tg.max_cents_for_stars(10000)
+    assert tg.stars_for_cents(limit) <= 10000 < tg.stars_for_cents(limit + 1)
+    # The Website/Stripe catalog carries no Stars prices at all.
+    assert not any("stars" in product for product in catalog.FIXED_PRODUCTS.values())
 
 
 @pytest.mark.parametrize("plan_id", list(PLAN_TABLE))
 @pytest.mark.parametrize("period", ["month", "year"])
 def test_every_subscription_variant_grants_its_credits_once(connect, plan_id, period):
-    product = catalog.resolve_product(f"plan_{plan_id}_{period}")
-    providers = catalog.provider_availability(product)
-    provider = catalog.PROVIDER_STARS if providers[catalog.PROVIDER_STARS]["available"] else catalog.PROVIDER_CRYPTO
+    product = stars_product(f"plan_{plan_id}_{period}")
+    provider = catalog.PROVIDER_STARS
     before = balance(connect)
     order, result = pay(connect, product, provider, f"charge-{plan_id}-{period}")
     assert result["status"] == "granted"
@@ -120,18 +156,73 @@ def test_every_subscription_variant_grants_its_credits_once(connect, plan_id, pe
     assert q(connect, "SELECT COUNT(*) FROM purchases")[0][0] == 1
 
 
-def test_annual_plans_above_the_stars_limit_are_crypto_only():
-    for product_id in ("plan_max_year", "plan_ultra_year", "plan_creator_year"):
-        product = catalog.resolve_product(product_id)
-        assert product["stars"] > catalog.STARS_MAX_PER_INVOICE
-        providers = catalog.provider_availability(product)
-        assert not providers[catalog.PROVIDER_STARS]["available"]
-        assert providers[catalog.PROVIDER_CRYPTO]["available"]
+# Verified with createInvoiceLink on the SYLVEX bot (invoice creation only,
+# no payment completed): one-time 10,000 / 19,960 / 23,952 / 95,808 Stars
+# accepted; recurring 30-day 10,000 accepted, 10,001 rejected.
+@pytest.mark.parametrize("stars", [10000, 19960, 23952, 95808])
+def test_verified_one_time_amounts_are_allowed(stars):
+    assert tg.STARS_MAX_PER_INVOICE == 95808
+    assert tg.check_invoice_amount(stars) == stars
+    # The recurring-subscription cap is not applied to one-time invoices.
+    if stars > tg.STARS_MAX_PER_SUBSCRIPTION:
+        with pytest.raises(tg.CatalogError) as err:
+            tg.check_invoice_amount(stars, tg.SUBSCRIPTION_PERIOD_SECONDS)
+        assert err.value.code == "subscription_amount_above_limit"
+
+
+def test_recurring_subscription_amounts_keep_the_10000_cap():
+    assert (tg.STARS_MAX_PER_SUBSCRIPTION, tg.SUBSCRIPTION_PERIOD_SECONDS) == (10000, 2592000)
+    assert tg.check_invoice_amount(10000, 2592000) == 10000
+    for stars, period, code in ((10001, 2592000, "subscription_amount_above_limit"),
+                                (499, 31536000, "unsupported_subscription_period"),
+                                (0, 2592000, "invalid_amount")):
+        with pytest.raises(tg.CatalogError) as err:
+            tg.check_invoice_amount(stars, period)
+        assert err.value.code == code
+    for bad in (0, -1, 1.5, "100", True):
+        with pytest.raises(tg.CatalogError):
+            tg.check_invoice_amount(bad)
+
+
+def test_every_telegram_product_is_sold_within_the_verified_one_time_amounts():
+    for product_id, stars in STARS_TABLE.items():
+        assert tg.resolve(product_id)["stars"] == stars
+        assert tg.check_invoice_amount(stars) == stars
+    # Only the monthly plans renew (30-day Telegram Stars subscriptions).
+    recurring = {pid for pid, p in tg.PRODUCTS.items() if p["recurring"]}
+    assert recurring == {f"plan_{plan}_month" for plan in PLAN_TABLE}
+    assert all(tg.PRODUCTS[pid]["subscription_period"] == 2592000 for pid in recurring)
+    assert all(p["subscription_period"] is None for pid, p in tg.PRODUCTS.items() if pid not in recurring)
+    assert tg.public_catalog()["renewal"] == {"month": "auto_30_days", "year": "none", "credits": "none"}
+
+
+def test_a_lower_one_time_limit_makes_products_unavailable_never_cheaper(monkeypatch):
+    monkeypatch.setattr(tg, "STARS_MAX_PER_INVOICE", 10000)
+    for product_id in ("plan_max_year", "plan_ultra_year", "plan_creator_year", "pack_20000"):
+        with pytest.raises(tg.CatalogError) as err:
+            tg.resolve(product_id)
+        assert err.value.code == "stars_amount_above_limit"
+    assert tg.pack_stars(20000) is None and tg.custom_max_credits() == 10020
+    # Prices are never changed to fit the limit.
+    assert tg.PRODUCTS["plan_creator_year"]["stars"] == 95808
+
+
+@pytest.mark.parametrize("credits", [100, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000])
+def test_every_telegram_credit_package_grants_once(connect, credits):
+    product = stars_product(f"pack_{credits}")
+    before = balance(connect)
+    order, result = pay(connect, product, catalog.PROVIDER_STARS, f"pack-{credits}")
+    assert result["status"] == "granted" and balance(connect) == before + credits
+    row = q(connect, "SELECT provider, credits, amount, currency FROM purchases")[0]
+    assert row == (catalog.PROVIDER_STARS, credits, STARS_TABLE[f"pack_{credits}"], "XTR")
+    again = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", product["stars"], f"pack-{credits}", payer_id=UID)
+    assert again["status"] == "duplicate" and balance(connect) == before + credits
 
 
 @pytest.mark.parametrize("usd", [5, 10, 20, 30, 40, 50, 100, 200])
-@pytest.mark.parametrize("provider", [catalog.PROVIDER_STARS, catalog.PROVIDER_CRYPTO])
-def test_every_credit_package_through_both_providers(connect, usd, provider):
+def test_every_website_credit_package_through_crypto(connect, usd):
+    # Crypto stays a Website-side USD method (refused for Telegram requests).
+    provider = catalog.PROVIDER_CRYPTO
     product = catalog.resolve_product(f"pack_{usd * 100}")
     assert catalog.provider_availability(product)[provider]["available"]
     before = balance(connect)
@@ -140,7 +231,7 @@ def test_every_credit_package_through_both_providers(connect, usd, provider):
     assert balance(connect) == before + usd * 100
     row = q(connect, "SELECT provider, credits, amount, currency, payload FROM purchases")[0]
     assert row[0] == provider and row[1] == usd * 100
-    assert row[2] == (product["stars"] if provider == catalog.PROVIDER_STARS else usd * 100)
+    assert row[2] == usd * 100
     assert row[4].startswith("sylvex_order:")
     assert q(connect, "SELECT COUNT(*) FROM subscriptions")[0][0] == 0
 
@@ -160,20 +251,27 @@ def test_custom_amount_bounds_reject(raw, code):
 
 
 def test_custom_amount_stars_ceiling_and_crypto_range():
-    limit_cents = catalog.public_catalog()["custom"]["stars_max_cents"]
-    at_limit = catalog.resolve_product(catalog.CUSTOM_PRODUCT_ID, f"{limit_cents / 100:.2f}")
-    above = catalog.resolve_product(catalog.CUSTOM_PRODUCT_ID, f"{(limit_cents + 1) / 100:.2f}")
-    assert catalog.provider_availability(at_limit)[catalog.PROVIDER_STARS]["available"]
-    assert not catalog.provider_availability(above)[catalog.PROVIDER_STARS]["available"]
+    # Telegram: whole credits, within the one-time limit (96,000 credits = 95,808 Stars).
+    assert tg.custom_max_credits() == 96000 and tg.public_catalog()["custom"]["max_credits"] == 96000
+    assert tg.resolve(tg.CUSTOM_PRODUCT_ID, "96000")["stars"] == 95808
+    assert tg.resolve(tg.CUSTOM_PRODUCT_ID, "10020")["stars"] == 10000
+    assert tg.resolve(tg.CUSTOM_PRODUCT_ID, "100")["stars"] == 100
+    for raw, code in (("96001", "stars_amount_above_limit"), ("99", "amount_out_of_range"), ("12.5", "invalid_amount"),
+                      ("", "amount_required"), ("-5", "invalid_amount"), ("100001", "amount_out_of_range")):
+        with pytest.raises(tg.CatalogError) as err:
+            tg.resolve(tg.CUSTOM_PRODUCT_ID, raw)
+        assert err.value.code == code, raw
+    # Website (USD) custom amounts are unchanged.
     for raw in ("1", "1000"):
         product = catalog.resolve_product(catalog.CUSTOM_PRODUCT_ID, raw)
         assert catalog.provider_availability(product)[catalog.PROVIDER_CRYPTO]["available"]
 
 
-@pytest.mark.parametrize("raw,provider", [("1", catalog.PROVIDER_STARS), ("217.40", catalog.PROVIDER_STARS),
+@pytest.mark.parametrize("raw,provider", [("100", catalog.PROVIDER_STARS), ("10020", catalog.PROVIDER_STARS), ("1234", catalog.PROVIDER_STARS),
                                           ("1", catalog.PROVIDER_CRYPTO), ("1000", catalog.PROVIDER_CRYPTO), ("12.34", catalog.PROVIDER_CRYPTO)])
 def test_custom_purchases_grant_the_server_computed_credits(connect, raw, provider):
-    product = catalog.resolve_product(catalog.CUSTOM_PRODUCT_ID, raw)
+    product = (stars_product(tg.CUSTOM_PRODUCT_ID, raw) if provider == catalog.PROVIDER_STARS
+               else catalog.resolve_product(catalog.CUSTOM_PRODUCT_ID, raw))
     before = balance(connect)
     _, result = pay(connect, product, provider, f"custom-{raw}-{provider}")
     assert result["status"] == "granted"
@@ -181,16 +279,18 @@ def test_custom_purchases_grant_the_server_computed_credits(connect, raw, provid
 
 
 def test_amount_currency_payer_and_provider_mismatches_grant_nothing(connect):
-    product = catalog.resolve_product("pack_1000")
+    product = stars_product("pack_1000")
     order = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, 1800)
     oid = order["order_id"]
-    assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_STARS, "XTR", 459) == (False, "amount_mismatch")
-    assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_STARS, "USD", 460) == (False, "amount_mismatch")
-    assert orders.checkout_check(connect, oid, UID + 1, catalog.PROVIDER_STARS, "XTR", 460) == (False, "payer_mismatch")
-    assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_CRYPTO, "XTR", 460) == (False, "provider_mismatch")
-    assert orders.checkout_check(connect, "0" * 32, UID, catalog.PROVIDER_STARS, "XTR", 460) == (False, "order_not_found")
+    # 460 was the old 46-Stars-per-dollar price: a stale price is refused too.
+    for stale_or_wrong in (997, 999, 460):
+        assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_STARS, "XTR", stale_or_wrong) == (False, "amount_mismatch")
+    assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_STARS, "USD", 998) == (False, "amount_mismatch")
+    assert orders.checkout_check(connect, oid, UID + 1, catalog.PROVIDER_STARS, "XTR", 998) == (False, "payer_mismatch")
+    assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_CRYPTO, "XTR", 998) == (False, "provider_mismatch")
+    assert orders.checkout_check(connect, "0" * 32, UID, catalog.PROVIDER_STARS, "XTR", 998) == (False, "order_not_found")
     for kwargs in ({"amount": 1}, {"currency": "USD"}, {"payer_id": UID + 1}, {"provider": catalog.PROVIDER_CRYPTO}):
-        args = {"provider": catalog.PROVIDER_STARS, "currency": "XTR", "amount": 460, "payer_id": UID, **kwargs}
+        args = {"provider": catalog.PROVIDER_STARS, "currency": "XTR", "amount": 998, "payer_id": UID, **kwargs}
         result = orders.finalize_order(connect, oid, args["provider"], args["currency"], args["amount"], "bad-charge", payer_id=args["payer_id"])
         assert result["status"] == "rejected"
     assert balance(connect) == 50
@@ -208,17 +308,17 @@ def test_crypto_amount_must_match_the_order(connect):
 
 
 def test_second_payment_for_a_paid_order_is_rejected_and_checkout_closes(connect):
-    product = catalog.resolve_product("pack_500")
+    product = stars_product("pack_500")
     order, first = pay(connect, product, catalog.PROVIDER_STARS, "first")
     assert first["status"] == "granted"
-    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", 230) == (False, "order_not_pending")
-    second = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", 230, "second", payer_id=UID)
+    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", 499) == (False, "order_not_pending")
+    second = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", 499, "second", payer_id=UID)
     assert second["status"] == "rejected" and second["reason"] == "order_already_paid"
     assert balance(connect) == 50 + 500
 
 
 def test_charge_id_reused_across_orders_never_double_grants(connect):
-    product = catalog.resolve_product("pack_500")
+    product = stars_product("pack_500")
     _, first = pay(connect, product, catalog.PROVIDER_STARS, "same-charge")
     _, second = pay(connect, product, catalog.PROVIDER_STARS, "same-charge")
     assert first["status"] == "granted" and second["status"] == "duplicate"
@@ -226,11 +326,11 @@ def test_charge_id_reused_across_orders_never_double_grants(connect):
 
 
 def test_expired_order_cannot_start_checkout_but_a_completed_payment_is_honored(connect):
-    product = catalog.resolve_product("pack_1000")
+    product = stars_product("pack_1000")
     order = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, -1)
-    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", 460) == (False, "order_expired")
+    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", 998) == (False, "order_expired")
     assert orders.mark_order(connect, order["order_id"], orders.STATUS_EXPIRED, "invoice_expired")
-    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", 460, "late", payer_id=UID)
+    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", 998, "late", payer_id=UID)
     assert result["status"] == "granted"
     assert balance(connect) == 50 + 1000
     assert not orders.mark_order(connect, order["order_id"], orders.STATUS_FAILED)
@@ -248,7 +348,7 @@ def test_failed_or_cancelled_attempts_leave_no_trace(connect):
 
 
 def test_a_failure_mid_grant_rolls_everything_back(connect):
-    product = dict(catalog.resolve_product("plan_pro_month"))
+    product = stars_product("plan_pro_month")
     order = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, 1800)
     conn = connect()
     with conn.cursor() as cur:
@@ -262,21 +362,29 @@ def test_a_failure_mid_grant_rolls_everything_back(connect):
     assert orders.get_order(connect, order["order_id"])["status"] == "pending"
 
 
-def test_new_plan_keeps_the_remaining_time_of_an_active_subscription(connect):
-    # An existing (e.g. legacy yearly) subscription is not migrated or
-    # shortened: a new plan bought on top extends from its expiry.
+def test_a_new_annual_plan_keeps_an_existing_plan_separate(connect):
+    # An existing (e.g. legacy yearly) subscription is not migrated, shortened
+    # or merged: a confirmed annual Telegram plan is its own 365-day
+    # entitlement, and the higher tier is the effective plan.
     conn = connect()
     with conn.cursor() as cur:
         cur.execute("""INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, expires_at, status, charge_id)
                        VALUES (%s, 'year', 'telegram_stars', CURRENT_TIMESTAMP + INTERVAL '100 days', 'active', 'legacy')""", (UID,))
     conn.commit()
     conn.close()
-    _, result = pay(connect, catalog.resolve_product("plan_starter_month"), catalog.PROVIDER_STARS, "stack")
+    product = stars_product("plan_pro_year")
+    unconfirmed = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, 1800)
+    assert orders.checkout_check(connect, unconfirmed["order_id"], UID, catalog.PROVIDER_STARS, "XTR", product["stars"]) == (
+        False, "subscription_change_confirmation_required")
+    order = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, 1800, change_confirmed=True)
+    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", product["stars"]) == (True, None)
+    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", product["stars"], "annual", payer_id=UID)
     assert result["status"] == "granted"
-    active = q(connect, "SELECT subscription_type, expires_at FROM subscriptions WHERE status = 'active'")
-    assert len(active) == 1 and active[0][0] == "starter_month"
-    assert abs((active[0][1] - datetime.now()) - timedelta(days=130)) < timedelta(minutes=5)
-    assert q(connect, "SELECT status FROM subscriptions WHERE charge_id = 'legacy'")[0][0] == "cancelled"
+    active = dict(q(connect, "SELECT subscription_type, expires_at FROM subscriptions WHERE status = 'active'"))
+    assert set(active) == {"year", "pro_year"}
+    assert abs((active["pro_year"] - datetime.now()) - timedelta(days=365)) < timedelta(minutes=5)
+    assert abs((active["year"] - datetime.now()) - timedelta(days=100)) < timedelta(minutes=5)
+    assert q(connect, "SELECT subscription FROM users WHERE telegram_id = %s", (UID,))[0][0] == "pro_year"
 
 
 def test_order_payload_parsing_is_strict():
@@ -285,3 +393,4 @@ def test_order_payload_parsing_is_strict():
     for bad in ("sylvex_order:", "sylvex_order:" + "A" * 32, "sylvex_order:" + "a" * 31, "sylvex_stars:1:500:230", None, "sylvex_order:" + "a" * 32 + ":x"):
         assert orders.parse_order_payload(bad) is None
     assert len(orders.order_payload(oid).encode()) <= 128  # Telegram invoice payload limit
+

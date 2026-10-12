@@ -23109,26 +23109,6 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Shop: buy flow ===== */
-  const PACK_META = {
-    sub_month: { title: 'SYLVEX Pro · 1 месяц',  price: '$5 · 230 ⭐' },
-    sub_year:  { title: 'SYLVEX Pro · 1 год',    price: '$59 · 2751 ⭐' },
-    pack_100:  { title: '100 ⚡️ токенов',        price: '$1 · 46 ⭐' },
-    pack_500:  { title: '500 ⚡️ токенов',        price: '$5 · 230 ⭐' },
-    pack_1000: { title: '1000 ⚡️ токенов',       price: '$10 · 460 ⭐' },
-    pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 920 ⭐' },
-    pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 1380 ⭐' },
-    pack_4000: { title: '4000 ⚡️ токенов',       price: '$40 · 1840 ⭐' },
-    pack_5000: { title: '5000 ⚡️ токенов',       price: '$50 · 2300 ⭐' },
-  };
-  const PAYPAL_PAYMENT_LINKS = {
-    pack_100: 'https://www.paypal.com/ncp/payment/BBWGSMRNBPHSS',
-    pack_500: 'https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L',
-    pack_1000: 'https://www.paypal.com/ncp/payment/YRWTDN4D585SL',
-    pack_2000: 'https://www.paypal.com/ncp/payment/YGGSLURF7ZC8N',
-    pack_3000: 'https://www.paypal.com/ncp/payment/5MV8DDWFZK5KC',
-    pack_4000: 'https://www.paypal.com/ncp/payment/Z5R9QMJKY2A2Y',
-    pack_5000: 'https://www.paypal.com/ncp/payment/LTF8NMXED9ZCW',
-  };
   const PAYPAL_PRO_MONTHLY_PLAN_ID = 'P-2JN99488MP781262CNJDGCZI';
   const PAYPAL_PRO_YEARLY_PLAN_ID = 'P-0YT1496917791881BNJDGRMY';
   const paypalSubscriptionRendered = {};
@@ -23175,19 +23155,19 @@ async function waitGeneration(jobId, options) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openBuy
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
+  // Legacy entry point. Inside Telegram everything is sold from the Telegram
+  // catalog for Stars: a package the catalog sells opens that product;
+  // anything else (e.g. the legacy month/year plans) opens the Store.
+  function openStoreFor(packId) {
+    const tab = String(packId || '').indexOf('pack_') === 0 ? 'tokens' : 'subscriptions';
+    loadStoreCatalog().then(() => {
+      if (storeProductAvailable(packId)) { openStoreProduct(packId); return; }
+      switchView('shop');
+      switchShopTab(tab);
+    });
+  }
   function openBuy(packId) {
-    // If already subscribed and clicking same-tier subscription card, open info modal instead.
-    const u = S.user || {};
-    if ((packId === 'sub_month' || packId === 'sub_year')
-        && u.subscription_status === 'active') {
-      openSubActive(packId);
-      return;
-    }
-    pendingPack = packId;
-    pendingStoreProduct = null;
-    setStorePayMethods(null);
-    const m = PACK_META[packId] || { title: packId, price: '—' };
-    showPayView(m.title, m.price);
+    openStoreFor(packId);
   }
   // Fills the existing pay screen (title, price, user, balance) and opens it.
   function showPayView(title, price) {
@@ -23232,19 +23212,25 @@ async function waitGeneration(jobId, options) {
   let storeCatalogLoading = null;
   let pendingStoreProduct = null;
   const storeOrderWatchers = {};
-  const STORE_METHODS = { stars: 'telegram_stars', crypto: 'crypto_pay' };
+  // Inside Telegram the Store sells only the Telegram catalog
+  // (services/telegram_catalog.py), for Telegram Stars only.
+  const STORE_METHODS = { stars: 'telegram_stars' };
+  const STORE_STARS_RATE = { stars: 499, usd_cents: 500 };
   const STORE_ERRORS = {
     unknown_product: 'Этот товар сейчас недоступен',
-    amount_required: 'Введите сумму',
-    invalid_amount: 'Сумма указана неверно',
-    amount_out_of_range: 'Введите сумму от $1 до $1 000',
-    stars_amount_above_limit: 'Сумма выше лимита Telegram Stars — выберите криптовалюту',
-    crypto_amount_out_of_range: 'Эта сумма недоступна для крипто-оплаты',
+    amount_required: 'Введите количество ⚡',
+    invalid_amount: 'Количество ⚡ указано неверно',
+    amount_out_of_range: 'Это количество ⚡ недоступно',
+    stars_amount_above_limit: 'Сумма выше лимита Telegram Stars',
     stars_not_configured: 'Оплата звёздами временно недоступна',
-    crypto_not_configured: 'Крипто-оплата ещё не настроена',
     stars_invoice_failed: 'Не удалось создать счёт Telegram Stars',
-    crypto_invoice_failed: 'Не удалось создать крипто-счёт',
+    telegram_stars_only: 'В Telegram покупки оплачиваются только звёздами',
+    subscription_amount_above_limit: 'Цена подписки выше лимита Telegram Stars',
+    already_subscribed: 'Этот тариф уже оформлен и продлевается автоматически',
+    subscription_change_confirmation_required: 'Подтвердите смену тарифа',
   };
+  const SUB_RENEWS_NOTE = 'Автоматически продлевается каждые 30 дней. Отменить можно в любой момент.';
+  const dot = (text) => (/\.$/.test(text) ? text : text + '.');
   function loadStoreCatalog() {
     if (storeCatalogLoading) return storeCatalogLoading;
     storeCatalogLoading = fetch('/api/public/shop/catalog', { headers: { Accept: 'application/json' } })
@@ -23263,36 +23249,32 @@ async function waitGeneration(jobId, options) {
   function storeProduct(productId) {
     return (storeCatalog && (storeCatalog.products || []).find((p) => p.product_id === productId)) || null;
   }
-  // Display-only mirror of the server's custom pricing; the server re-derives it.
-  function storeCustomProduct(usd) {
+  // Display price: the server's formula, ceil(usd_cents * 499 / 500).
+  function storeStarsFor(usdCents) {
+    const rate = (storeCatalog && storeCatalog.stars_rate) || STORE_STARS_RATE;
+    return Math.max(1, Math.ceil(Number(usdCents) * Number(rate.stars) / Number(rate.usd_cents)));
+  }
+  // Display-only mirror of the server's custom pricing (whole credits); the
+  // server re-derives price and availability.
+  function storeCustomProduct(credits) {
     if (!storeCatalog || !storeCatalog.custom) return null;
-    const cents = Math.round(Number(usd) * 100);
+    const amount = Number(credits);
     const custom = storeCatalog.custom;
-    if (!(cents >= custom.min_cents && cents <= custom.max_cents)) return null;
-    const stars = Math.max(1, Math.round(cents * Number(storeCatalog.stars_per_usd || 46) / 100));
+    if (!Number.isInteger(amount) || amount < custom.min_credits || amount > custom.max_credits) return null;
     return {
-      product_id: custom.product_id, kind: 'credits', usd_cents: cents, credits: cents, stars,
-      title: cents.toLocaleString('ru-RU') + ' ⚡ SYLVEX',
-      providers: {
-        telegram_stars: { available: cents <= custom.stars_max_cents, reason: cents <= custom.stars_max_cents ? null : 'stars_amount_above_limit' },
-        crypto_pay: { available: cents >= custom.crypto_min_cents && cents <= custom.crypto_max_cents, reason: null },
-      },
+      product_id: custom.product_id, kind: 'credits', credits: amount, stars: storeStarsFor(amount),
+      title: amount.toLocaleString('ru-RU') + ' ⚡ SYLVEX', available: true,
     };
   }
   function storeMethodState(product, method) {
-    const provider = STORE_METHODS[method];
-    const info = (product.providers || {})[provider] || {};
-    if (!info.available) {
-      return { available: false, message: method === 'stars'
-        ? 'Недоступно для этой суммы (лимит Telegram Stars)'
-        : 'Недоступно для этой суммы' };
-    }
-    if (!storeProviderOpen(provider)) return { available: false, message: 'Временно недоступно' };
+    if (!STORE_METHODS[method]) return { available: false, message: 'Недоступно в Telegram' };
+    if (!product.available) return { available: false, message: 'Недоступно в Telegram (лимит Telegram Stars)' };
+    if (!storeProviderOpen(STORE_METHODS[method])) return { available: false, message: 'Временно недоступно' };
     return { available: true, message: '' };
   }
   function storeProductAvailable(productId) {
     const product = storeProduct(productId);
-    return !!product && Object.keys(STORE_METHODS).some((method) => storeMethodState(product, method).available);
+    return !!product && storeMethodState(product, 'stars').available;
   }
   function setStorePayMethods(product) {
     document.querySelectorAll('[data-pay-method]').forEach((button) => {
@@ -23307,67 +23289,71 @@ async function waitGeneration(jobId, options) {
     let text = '';
     if (product && product.kind === 'subscription') {
       const active = (S.user || {}).subscription_status === 'active';
-      text = active
-        ? 'Срок нового тарифа добавится к текущей подписке. ⚡ начисляются сразу после оплаты. Автопродления нет.'
-        : '⚡ начисляются сразу после оплаты. Автопродления нет — продлите тариф в магазине, когда он закончится.';
+      if (product.recurring) {
+        // Monthly plans are Telegram Stars subscriptions renewing every 30 days.
+        text = SUB_RENEWS_NOTE + ' Каждые 30 дней списывается ' + Number(product.stars).toLocaleString('ru-RU')
+          + ' ⭐ и начисляется ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡.';
+      } else {
+        text = 'Одна оплата за 12 месяцев, без автопродления. ⚡ начисляются сразу после оплаты.';
+      }
+      if (active) text += ' У вас уже есть тариф — перед оплатой мы покажем, что изменится, и попросим подтвердить.';
     }
     note.textContent = text;
     note.hidden = !text;
   }
-  function openStoreProduct(productId, usd) {
+  function openStoreProduct(productId, credits) {
     const isCustom = productId === 'credits_custom';
-    const product = isCustom ? storeCustomProduct(usd) : storeProduct(productId);
+    const product = isCustom ? storeCustomProduct(credits) : storeProduct(productId);
     if (!product) { toast(STORE_ERRORS.unknown_product); return; }
-    pendingStoreProduct = { productId, usd: isCustom ? String(usd) : null, product };
+    pendingStoreProduct = { productId, credits: isCustom ? Number(credits) : null, product };
     pendingPack = null;
-    const usdLabel = '$' + (product.usd_cents / 100).toLocaleString('en-US', { minimumFractionDigits: product.usd_cents % 100 ? 2 : 0, maximumFractionDigits: 2 });
-    const starsLabel = storeMethodState(product, 'stars').available ? ' · ' + Number(product.stars).toLocaleString('ru-RU') + ' ⭐' : '';
-    const credits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
+    const planCredits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
     setStorePayMethods(product);
-    showPayView(product.title + credits, usdLabel + starsLabel);
+    // Stars only: the price shown is the exact invoice amount.
+    showPayView(product.title + planCredits, Number(product.stars).toLocaleString('ru-RU') + ' ⭐');
   }
-  async function payStoreProduct(method) {
+  async function payStoreProduct(method, confirmChange) {
     const selected = pendingStoreProduct;
     if (!selected) return;
     const tg = getTelegramId();
     if (!tg) { toast('Telegram ID не найден'); return; }
-    if (!STORE_METHODS[method]) { toast('Способ оплаты недоступен'); return; }
+    if (!STORE_METHODS[method]) { toast(STORE_ERRORS.telegram_stars_only); return; }
     const state = storeMethodState(selected.product, method);
     if (!state.available) { toast(state.message); return; }
     toast('Создаём счёт…');
     let response, data;
     try {
-      response = await fetch(method === 'stars' ? '/api/public/payments/stars/invoice' : '/api/public/payments/crypto/invoice', {
+      response = await fetch('/api/public/payments/stars/invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_id: tg, product_id: selected.productId, usd: selected.usd }),
+        body: JSON.stringify(Object.assign({ telegram_id: tg, product_id: selected.productId, credits: selected.credits },
+          confirmChange ? { confirm_change: true } : {})),
       });
       data = await response.json();
     } catch {
       toast('Сетевая ошибка');
       return;
     }
+    if (response.status === 409 && data && data.subscription) {
+      handleSubscriptionConflict(data, selected, method);
+      return;
+    }
     if (!response.ok || !data || !data.ok) {
       toast(STORE_ERRORS[data && data.error] || 'Не удалось создать счёт');
       return;
     }
-    if (method === 'stars') {
-      const tgApp = S.tg;
-      if (!tgApp || !tgApp.openInvoice || !data.invoice_url) { toast('Оплата звёздами доступна в Telegram'); return; }
-      tgApp.openInvoice(data.invoice_url, (status) => {
-        if (status === 'paid') {
-          toast('Оплата получена, начисляем…');
-          watchStoreOrder(data.order_id, 3 * 60 * 1000);
-        } else if (status === 'cancelled') {
-          toast('Оплата отменена');
-        } else if (status === 'failed') {
-          toast('Оплата не прошла');
-        }
-      });
-      return;
-    }
-    openPaymentUrl(data.url, 'crypto');
-    watchStoreOrder(data.order_id, 35 * 60 * 1000);
+    const tgApp = S.tg;
+    if (!tgApp || !tgApp.openInvoice || !data.invoice_url) { toast('Оплата звёздами доступна в Telegram'); return; }
+    tgApp.openInvoice(data.invoice_url, (status) => {
+      if (status === 'paid') {
+        toast('Оплата получена, начисляем…');
+        watchStoreOrder(data.order_id, 3 * 60 * 1000);
+      } else if (status === 'cancelled') {
+        toast('Оплата отменена');
+      } else if (status === 'failed') {
+        toast('Оплата не прошла');
+      }
+    });
   }
   // Polls the server until the provider-confirmed grant lands (the bot for
   // Stars, Crypto Pay verification for crypto), then refreshes the user.
@@ -23407,15 +23393,17 @@ async function waitGeneration(jobId, options) {
     };
     setTimeout(tick, 1500);
   }
+  const STORE_PLAN_NAMES = { starter: 'Starter', pro: 'Pro', max: 'Max', ultra: 'Ultra', creator: 'Creator' };
+  const STORE_PLAN_KEY_RE = /^(starter|pro|max|ultra|creator)_(month|year)$/;
   function subscriptionPlanLabel(plan) {
     const key = String(plan || '').toLowerCase();
     if (key === 'year') return 'SYLVEX Pro · 1 год';
-    const match = key.match(/^(starter|pro|max|ultra|creator)_(month|year)$/);
-    if (match) return 'SYLVEX ' + match[1].charAt(0).toUpperCase() + match[1].slice(1) + ' · ' + (match[2] === 'year' ? '12 месяцев' : '1 месяц');
+    const match = key.match(STORE_PLAN_KEY_RE);
+    if (match) return 'SYLVEX ' + STORE_PLAN_NAMES[match[1]] + ' · ' + (match[2] === 'year' ? '12 месяцев' : '1 месяц');
     return 'SYLVEX Pro · 1 месяц';
   }
   function isStorePlanKey(plan) {
-    return /^(starter|pro|max|ultra|creator)_(month|year)$/.test(String(plan || '').toLowerCase());
+    return STORE_PLAN_KEY_RE.test(String(plan || '').toLowerCase());
   }
   function closeBuy() { switchView('shop'); }
 
@@ -23535,6 +23523,250 @@ async function waitGeneration(jobId, options) {
     });
   }
 
+  /* ===== Telegram Stars subscription management ===== */
+  // Monthly plans renew through Telegram Stars subscriptions. Renewal is
+  // cancelled / re-enabled through the server (Telegram editUserStarSubscription);
+  // the UI shows the server's actual result, never an assumed one.
+  function subDetails() {
+    return (S.user && S.user.subscription_details) || null;
+  }
+  function subPlanName(planKey) {
+    return subscriptionPlanLabel(planKey).replace(/ · .*$/, '');
+  }
+  function setSubDetails(details) {
+    S.user = Object.assign({}, S.user || {}, { subscription_details: details || null });
+    renderSubscription();
+    const modal = document.getElementById('subActiveModal');
+    if (modal && modal.classList.contains('show')) renderSubActiveDetails();
+  }
+  // Resolves 'yes' | 'alt' | 'no'. `alt` adds a second action (e.g. a
+  // plan change at the end of the period instead of paying now).
+  function sxConfirm(opts) {
+    return new Promise((resolve) => {
+      document.getElementById('sxConfirmModal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'sxConfirmModal';
+      overlay.className = 'modal-overlay sx-confirm-overlay show';
+      overlay.innerHTML = '<div class="modal sx-confirm" role="dialog" aria-modal="true">'
+        + '<h3>' + S.escapeHtml(opts.title) + '</h3>'
+        + opts.body.filter(Boolean).map((line) => '<p>' + S.escapeHtml(line) + '</p>').join('')
+        + '<div class="modal-actions sx-confirm-actions">'
+        + '<button class="btn-primary" type="button" data-sx-confirm="yes">' + S.escapeHtml(opts.confirm) + '</button>'
+        + (opts.alt ? '<button class="btn-ghost" type="button" data-sx-confirm="alt">' + S.escapeHtml(opts.alt) + '</button>' : '')
+        + '<button class="btn-ghost" type="button" data-sx-confirm="no">' + S.escapeHtml(opts.cancel || 'Отмена') + '</button>'
+        + '</div></div>';
+      const done = (value) => { overlay.remove(); resolve(value); };
+      overlay.addEventListener('click', (e) => {
+        const choice = e.target.closest && e.target.closest('[data-sx-confirm]');
+        if (choice) done(choice.dataset.sxConfirm);
+        else if (e.target === overlay) done('no');
+      });
+      document.body.appendChild(overlay);
+    });
+  }
+  async function subscriptionRequest(action, extra) {
+    const tg = getTelegramId();
+    if (!tg) { toast('Telegram ID не найден'); return null; }
+    try {
+      const response = await fetch('/api/public/subscription/' + action, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ telegram_id: tg }, extra || {})),
+      });
+      const data = await response.json();
+      if (data && 'subscription' in data) setSubDetails(data.subscription);
+      return data;
+    } catch {
+      return { ok: false, error: 'network' };
+    }
+  }
+  const SUB_ACTION_ERRORS = {
+    telegram_refused: 'Telegram не подтвердил изменение. Автопродление не изменено.',
+    no_recurring_subscription: 'Активной подписки с автопродлением нет.',
+    another_subscription_renewing: 'Сейчас автоматически продлевается другой тариф. Двух продлений одновременно быть не может.',
+    reactivation_unavailable: 'Telegram не разрешил возобновить продление из SYLVEX. Включите его в Telegram: Настройки → Мои звёзды → Подписки — или оформите тариф заново в магазине.',
+    same_plan: 'Этот тариф уже активен.',
+    unknown_plan: 'Этот тариф недоступен.',
+    network: 'Сетевая ошибка. Изменение не применено.',
+  };
+  const SUB_STATES = {
+    active_recurring: 'Активна · продлевается автоматически',
+    renewal_canceled: 'Автопродление отменено · доступ сохраняется',
+    active_annual: 'Годовой тариф · без автопродления',
+    active_one_time: 'Активна · разовая оплата',
+    renewal_unconfirmed: 'Продление не подтверждено',
+    expired: 'Подписка закончилась',
+  };
+  const SUB_BILLING = {
+    monthly: 'Ежемесячно · автопродление через Telegram Stars',
+    annual: 'Годовой · одна оплата',
+    monthly_one_time: 'Разовая оплата',
+  };
+  function showSubResult(ok, text) {
+    const el = document.getElementById('saResult');
+    if (el) { el.hidden = false; el.textContent = text; el.classList.toggle('is-error', !ok); }
+    toast(text);
+  }
+  async function cancelSubscriptionRenewal() {
+    const d = subDetails();
+    const r = d && d.renewal;
+    if (!r || !r.auto_renew) return;
+    const until = fmtDate(r.expires_at);
+    const choice = await sxConfirm({
+      title: 'Отменить автопродление?',
+      body: ['Следующего списания ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ за ' + subPlanName(r.plan_key) + ' не будет.',
+             dot('Оплаченный доступ сохранится до ' + until + ', все начисленные ⚡ остаются на балансе')],
+      confirm: 'Отменить автопродление', cancel: 'Оставить',
+    });
+    if (choice !== 'yes') return;
+    const data = await subscriptionRequest('cancel');
+    if (data && data.ok) showSubResult(true, dot('Автопродление отменено — Telegram подтвердил. Доступ сохраняется до ' + until));
+    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось отменить автопродление. Ничего не изменено.');
+  }
+  async function reactivateSubscriptionRenewal() {
+    const d = subDetails();
+    const r = d && d.renewal;
+    if (!r || r.auto_renew) return;
+    const data = await subscriptionRequest('reactivate');
+    const next = data && data.subscription && data.subscription.next_renewal_at;
+    if (data && data.ok) showSubResult(true, dot('Автопродление возобновлено — Telegram подтвердил. Следующее списание — ' + fmtDate(next || r.expires_at)));
+    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось возобновить автопродление.');
+  }
+  async function scheduleSubscriptionChange(planKey) {
+    const d = subDetails();
+    const r = d && d.renewal;
+    const product = storeProduct('plan_' + planKey);
+    if (!r || !product) return false;
+    const until = fmtDate(r.expires_at);
+    const data = await subscriptionRequest('change', { plan_key: planKey, confirm: true });
+    if (data && data.ok) showSubResult(true, dot('Смена запланирована: автопродление ' + subPlanName(r.plan_key) + ' отменено, после ' + until + ' оформите ' + subPlanName(planKey)));
+    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось запланировать смену тарифа.');
+    return !!(data && data.ok);
+  }
+  // A plan bought next to another valid paid plan: the server describes the
+  // change; the user confirms the full price and its consequences first.
+  async function handleSubscriptionConflict(data, selected, method) {
+    if (data.subscription) setSubDetails(data.subscription);
+    if (data.error === 'already_subscribed') {
+      toast('Этот тариф уже оформлен и продлевается автоматически.');
+      return;
+    }
+    const c = data.change || {};
+    const product = selected.product || {};
+    const newName = subPlanName(c.new_plan_key || product.plan_key);
+    const price = Number(c.price_stars || product.stars || 0).toLocaleString('ru-RU') + ' ⭐';
+    const periodText = c.new_billing === 'monthly' ? 'продлевается каждые 30 дней' : '365 дней, без автопродления';
+    const current = c.current_plan_key ? subscriptionPlanLabel(c.current_plan_key) : '';
+    const lines = [];
+    let title = 'Перейти на ' + newName + '?';
+    if (c.type === 'renew_same_plan') {
+      title = 'Продлить ' + newName + '?';
+      lines.push('Полная цена ' + price + '. Новый период 365 дней начнётся ' + fmtDate(c.starts_at) + ', после окончания текущего.');
+    } else if (c.type === 'downgrade') {
+      lines.push('Полная цена ' + price + ' сейчас, без пересчёта и скидок. ' + newName + ' ' + periodText + '.');
+      lines.push(dot(current + ' выше по уровню и остаётся основным тарифом до ' + fmtDate(c.current_expires_at)) + ' Затем основным станет ' + newName + '.');
+    } else {
+      lines.push('Полная цена ' + price + ', без пересчёта и скидок. ' + newName + ' станет основным тарифом сразу после оплаты и ' + periodText + '.');
+      if (current) lines.push(dot('Оплаченный период ' + current + ' сохраняется до ' + fmtDate(c.current_expires_at)));
+    }
+    if (c.stops_renewal_of) lines.push('Автопродление ' + subPlanName(c.stops_renewal_of) + ' будет отключено — новых списаний за него не будет.');
+    lines.push('Все начисленные ⚡ остаются на балансе; ' + Number(c.credits || product.credits || 0).toLocaleString('ru-RU') + ' ⚡ нового тарифа начислятся после оплаты.');
+    const canSchedule = c.type === 'downgrade' && c.new_billing === 'monthly' && c.stops_renewal_of;
+    const choice = await sxConfirm({
+      title, body: lines,
+      confirm: 'Оплатить ' + price,
+      alt: canSchedule ? 'Перейти после ' + fmtDate(c.current_expires_at) + ' без оплаты сейчас' : '',
+      cancel: 'Отмена',
+    });
+    if (choice === 'yes') payStoreProduct(method, true);
+    else if (choice === 'alt') {
+      openSubActive();
+      scheduleSubscriptionChange(c.new_plan_key);
+    }
+  }
+  function renderSubActiveDetails() {
+    const u = S.user || {};
+    const d = subDetails() || {};
+    const p = d.primary || {};
+    const r = d.renewal || null;
+    const box = document.getElementById('saDetails');
+    const actions = document.getElementById('saActions');
+    const noteEl = document.getElementById('saNote');
+    const title = document.getElementById('saTitle');
+    const subtitle = document.getElementById('saSubtitle');
+    if (!box || !actions) return;
+    const plan = p.plan_key || d.plan_key || u.subscription_plan;
+    const exp = p.expires_at || d.expires_at || u.subscription_expires_at;
+    const state = d.state || (u.subscription_status === 'active' ? 'active_one_time' : 'expired');
+    if (title) title.textContent = state === 'expired' ? 'Подписка закончилась' : state === 'renewal_unconfirmed' && !d.active ? 'Продление не подтверждено' : 'Ваша подписка';
+    const awaitingRenewal = state === 'renewal_unconfirmed' && !d.active;
+    if (subtitle) subtitle.textContent = awaitingRenewal ? 'Доступ продолжится после подтверждённой оплаты' : (SUB_STATES[state] || '');
+    const cell = (k, v, id) => '<div><div class="k">' + k + '</div><div class="v"' + (id ? ' id="' + id + '"' : '') + '>' + S.escapeHtml(String(v)) + '</div></div>';
+    const billing = SUB_BILLING[p.billing || d.billing] || '—';
+    const monthly = (p.billing || d.billing) === 'monthly';
+    const price = p.price_stars ? Number(p.price_stars).toLocaleString('ru-RU') + ' ⭐' + (monthly ? ' / 30 дней' : '') : '—';
+    let renewalText = 'Нет · разовая оплата';
+    if (r) renewalText = r.auto_renew ? 'Включено' : (r.renewal_status === 'stop_pending' ? 'Отключается…' : 'Отключено');
+    if (awaitingRenewal) renewalText = 'Ожидается оплата от Telegram';
+    box.innerHTML = cell('Тариф', subscriptionPlanLabel(plan), 'saPlan')
+      + cell('Оплата', billing, 'saBilling')
+      + cell('Цена', price)
+      + cell('Автопродление', renewalText, 'saRenewal')
+      + cell('Начало', p.started_at ? fmtDate(p.started_at) : '—', 'saStarted')
+      + cell('Оплачено до', fmtDate(exp), 'saExpires')
+      + cell('Следующее списание', d.next_renewal_at ? fmtDate(d.next_renewal_at) : '—', 'saNextRenewal')
+      + cell('Осталось', exp && d.active !== false ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—', 'saCountdown')
+      + cell('⚡ за период', p.period_credits ? Number(p.period_credits).toLocaleString('ru-RU') + ' ⚡' : '—')
+      + cell('Доступно ⚡', Number(u.balance || 0).toLocaleString('ru-RU') + ' ⚡', 'saBalance');
+    const notes = [];
+    if (state === 'active_recurring') notes.push(SUB_RENEWS_NOTE);
+    if (r && r.plan_key !== plan && r.auto_renew) {
+      notes.push('Автопродление: ' + subPlanName(r.plan_key) + ' · ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ / 30 дней, следующее списание ' + fmtDate(r.next_renewal_at) + '.');
+    }
+    if (state === 'renewal_canceled') notes.push(dot('Автопродление отменено. Доступ и начисленные ⚡ сохраняются до ' + fmtDate(exp)));
+    if (state === 'renewal_unconfirmed') {
+      notes.push(d.active
+        ? 'Отключаем автопродление прежнего тарифа в Telegram — статус ещё не подтверждён. Мы повторим попытку автоматически.'
+        : 'Дата продления прошла, но оплата от Telegram пока не поступила. Доступ продлевается только после подтверждённой оплаты.');
+    }
+    if (d.pending_plan_key) {
+      notes.push('Запланирован переход: после ' + fmtDate(exp) + ' оформите ' + subPlanName(d.pending_plan_key) + ' за '
+        + Number(d.pending_price_stars || 0).toLocaleString('ru-RU') + ' ⭐ / 30 дней.');
+    }
+    (d.entitlements || []).forEach((e) => {
+      notes.push(dot('Также оплачено: ' + subscriptionPlanLabel(e.plan_key) + (e.auto_renew ? ' (продлевается)' : '')
+        + ' до ' + fmtDate(e.expires_at)));
+    });
+    if (r && r.auto_renew) notes.push('Если вы отмените подписку в самом Telegram (Настройки → Мои звёзды), SYLVEX узнает об этом только в дату продления.');
+    if (noteEl) {
+      noteEl.innerHTML = notes.map((n) => '<span>' + S.escapeHtml(n) + '</span>').join('<br>');
+      noteEl.hidden = !notes.length;
+    }
+    const buttons = [];
+    if (r && r.auto_renew) {
+      buttons.push('<button class="btn-ghost sa-cancel" type="button" onclick="SYLVEX.cancelSubscriptionRenewal()">Отменить автопродление</button>');
+    } else if (r && r.reactivatable) {
+      buttons.push('<button class="btn-primary sa-reactivate" type="button" onclick="SYLVEX.reactivateSubscriptionRenewal()">'
+        + (d.pending_plan_key ? 'Отменить смену тарифа и возобновить' : 'Возобновить автопродление') + '</button>');
+    }
+    if ((state === 'active_annual' || state === 'active_one_time') && !(r && r.auto_renew)) {
+      const yearlyRenewalLocked = String(plan || '').endsWith('year') && exp && new Date(exp).getTime() - Date.now() > 7 * 24 * 60 * 60 * 1000;
+      buttons.push('<button class="btn-primary" type="button" ' + (yearlyRenewalLocked ? 'disabled' : '') + ' onclick="SYLVEX.renewFromModal()">'
+        + (yearlyRenewalLocked ? 'Продление доступно за 7 дней' : 'Продлить подписку') + '</button>');
+    }
+    if (d.pending_product_id && !d.active) {
+      buttons.push('<button class="btn-primary" type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'' + S.escapeHtml(d.pending_product_id) + '\')">Оформить '
+        + S.escapeHtml(subPlanName(d.pending_plan_key)) + '</button>');
+    }
+    buttons.push('<button class="btn-ghost sa-plans" type="button" onclick="SYLVEX.openStorePlans()">' + (d.active === false ? 'Выбрать тариф' : 'Сменить тариф') + '</button>');
+    actions.innerHTML = buttons.join('');
+  }
+  function openStorePlans() {
+    closeModal(null, 'subActiveModal');
+    switchView('shop');
+    switchShopTab('subscriptions');
+  }
+
   // =====================================================
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderSubscription
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
@@ -23575,9 +23807,11 @@ async function waitGeneration(jobId, options) {
     });
     // Manage-subscription row subtitle
     const ms = document.getElementById('manageSubSub');
+    const details = subDetails();
     if (ms) ms.textContent = active
-      ? subscriptionPlanLabel(plan).replace(/^SYLVEX (Pro · )?/, '') + ' · до ' + fmtDate(expIso)
-      : 'Нет активной подписки';
+      ? subscriptionPlanLabel(plan).replace(/^SYLVEX (Pro · )?/, '')
+        + (details && details.auto_renew ? ' · продление ' + fmtDate(details.next_renewal_at) : ' · до ' + fmtDate(expIso))
+      : (details && details.pending_plan_key ? 'Оформите ' + subPlanName(details.pending_plan_key) : 'Нет активной подписки');
     // Live countdown every second while subscription is active.
     if (_cdTimer) clearInterval(_cdTimer);
     if (active && expIso) {
@@ -23619,14 +23853,14 @@ async function waitGeneration(jobId, options) {
       + '<button class="expired-subscription-close" type="button" aria-label="Закрыть" onclick="SYLVEX.closeExpiredSubscriptionModal(event)">×</button>'
       + '<div class="expired-subscription-badge">SYLVEX PRO</div>'
       + '<h2 id="expiredSubscriptionTitle">Подписка закончилась</h2>'
-      + '<p>Продлите подписку, чтобы продолжить пользоваться всеми возможностями SYLVEX.</p>'
+      + '<p id="expiredSubscriptionLead">Продлите подписку, чтобы продолжить пользоваться всеми возможностями SYLVEX.</p>'
       + '<div class="expired-subscription-user">'
       + '<span id="expiredSubscriptionAvatar"></span>'
       + '<div><b id="expiredSubscriptionName">Пользователь</b><small id="expiredSubscriptionHandle">@user</small><em id="expiredSubscriptionDate"></em></div>'
       + '</div>'
       + '<div class="expired-subscription-plans">'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_month\')"><span><b>1 месяц</b><small>SYLVEX Pro</small></span><strong>$5 · 230 ⭐</strong></button>'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_year\')"><span><b>1 год</b><small>Выгодный план</small></span><strong>$59 · 2751 ⭐</strong></button>'
+      + '<button type="button" id="expiredSubscriptionPending" hidden onclick="SYLVEX.openExpiredSubscriptionPurchase(event,this.dataset.productId)"><span><b>Оформить</b><small>Запланированная смена тарифа</small></span><strong>⭐</strong></button>'
+      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'plans\')"><span><b>Выбрать тариф</b><small>Starter, Pro, Max, Ultra, Creator</small></span><strong>⭐ Stars</strong></button>'
       + '</div>'
       + '</section>';
     document.body.appendChild(modal);
@@ -23668,6 +23902,21 @@ async function waitGeneration(jobId, options) {
     if (handleEl) handleEl.textContent = handle;
     const expiredAt = info.last_subscription_expires_at || info.subscription_expires_at;
     if (dateEl) dateEl.textContent = expiredAt ? 'Завершена: ' + fmtDate(expiredAt) : 'Подписка не активна';
+    const details = info.subscription_details || subDetails();
+    const lead = modal.querySelector('#expiredSubscriptionLead');
+    if (lead) lead.textContent = details && details.renewal_missed
+      ? 'Продление через Telegram Stars не поступило, поэтому подписка не продлена. Оформите её снова, чтобы продолжить.'
+      : 'Продлите подписку, чтобы продолжить пользоваться всеми возможностями SYLVEX.';
+    const pendingBtn = modal.querySelector('#expiredSubscriptionPending');
+    if (pendingBtn) {
+      const pendingId = details && details.pending_product_id;
+      pendingBtn.hidden = !pendingId;
+      if (pendingId) {
+        pendingBtn.dataset.productId = pendingId;
+        pendingBtn.querySelector('b').textContent = 'Оформить ' + subPlanName(details.pending_plan_key);
+        pendingBtn.querySelector('strong').textContent = Number(details.pending_price_stars || 0).toLocaleString('ru-RU') + ' ⭐ / 30 дней';
+      }
+    }
     _expiredSubscriptionModalShown = true;
     try { localStorage.setItem(noticeKey, localDay); } catch {}
     modal.classList.add('show');
@@ -23710,7 +23959,11 @@ async function waitGeneration(jobId, options) {
       e.stopPropagation();
     }
     closeExpiredSubscriptionModal();
-    openBuy(packId === 'sub_year' ? 'sub_year' : 'sub_month');
+    if (String(packId || '').indexOf('plan_') === 0) {
+      loadStoreCatalog().then(() => (storeProductAvailable(packId) ? openStoreProduct(packId) : switchView('shop')));
+      return;
+    }
+    openStoreFor(packId);
   }
 
   // =====================================================
@@ -23720,24 +23973,18 @@ async function waitGeneration(jobId, options) {
   function openSubActive(packId) {
     const u = S.user || {};
     const plan = u.subscription_plan || (packId === 'sub_year' ? 'year' : 'month');
-    const exp = u.subscription_expires_at;
-    document.getElementById('saPlan').textContent = subscriptionPlanLabel(plan);
-    document.getElementById('saExpires').textContent = fmtDate(exp);
-    document.getElementById('saCountdown').textContent = exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—';
-    const renewButton = document.querySelector('#subActiveModal .btn-primary');
-    const remainingMs = exp ? new Date(exp).getTime() - Date.now() : 0;
-    const yearlyRenewalLocked = plan === 'year' && remainingMs > 7 * 24 * 60 * 60 * 1000;
-    if (renewButton) {
-      renewButton.disabled = yearlyRenewalLocked;
-      renewButton.textContent = yearlyRenewalLocked ? 'Продление доступно за 7 дней' : 'Продлить подписку';
-    }
+    const result = document.getElementById('saResult');
+    if (result) { result.hidden = true; result.textContent = ''; }
+    renderSubActiveDetails();
     document.getElementById('subActiveModal').classList.add('show');
     pendingPack = isStorePlanKey(plan) ? 'plan_' + plan : 'sub_' + plan;
+    // Refresh from the server so renewal state is never stale.
+    subscriptionRequest('status');
   }
   function renewFromModal() {
     const user = S.user || {};
     const remainingMs = user.subscription_expires_at ? new Date(user.subscription_expires_at).getTime() - Date.now() : 0;
-    if (user.subscription_plan === 'year' && remainingMs > 7 * 24 * 60 * 60 * 1000) {
+    if (String(user.subscription_plan || '').endsWith('year') && remainingMs > 7 * 24 * 60 * 60 * 1000) {
       toast('Годовую подписку можно продлить за 7 дней до окончания');
       return;
     }
@@ -23748,11 +23995,8 @@ async function waitGeneration(jobId, options) {
       loadStoreCatalog().then(() => (storeProductAvailable(productId) ? openStoreProduct(productId) : switchView('shop')));
       return;
     }
-    // Force purchase flow (bypass "already subscribed" branch).
-    const pack = pendingPack || 'sub_month';
-    const savedUser = S.user; S.user = Object.assign({}, savedUser, { subscription_status: 'free' });
-    openBuy(pack);
-    S.user = savedUser;
+    // Legacy plans are no longer sold: choose a plan in the Store.
+    openStoreFor(pendingPack || 'sub_month');
   }
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openManageSub
@@ -23760,8 +24004,10 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function openManageSub() {
     const u = S.user || {};
-    if (u.subscription_status === 'active') openSubActive('sub_' + (u.subscription_plan || 'month'));
-    else switchView('shop');
+    const d = subDetails();
+    if (u.subscription_status === 'active' || (d && (d.state === 'renewal_unconfirmed' || d.pending_plan_key))) {
+      openSubActive('sub_' + (u.subscription_plan || 'month'));
+    } else switchView('shop');
   }
 
   /* ===== Modal helpers ===== */
@@ -23789,6 +24035,7 @@ async function waitGeneration(jobId, options) {
         + '<div><div class="k">Тариф</div><div class="v">' + S.escapeHtml(plan) + '</div></div>'
         + '<div><div class="k">Осталось</div><div class="v">' + (exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—') + '</div></div>'
         + '<div><div class="k">Окончание</div><div class="v">' + fmtDate(exp) + '</div></div>'
+        + '<div><div class="k">Автопродление</div><div class="v">' + (subDetails() && subDetails().is_recurring ? (subDetails().auto_renew ? 'Включено' : 'Отключено') : 'Нет') + '</div></div>'
         + '</div>';
     } else {
       body.innerHTML = '<h3 style="margin:6px 0 8px;font-size:17px">Нет активной подписки</h3>'
@@ -24173,103 +24420,12 @@ async function waitGeneration(jobId, options) {
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
     else window.open(url, '_blank');
   }
+  // Inside Telegram the only purchase path is a Telegram catalog product paid
+  // with Stars (payStoreProduct); the legacy PayPal/Crypto/pack_id flows that
+  // used to live here are gone and the backend refuses them anyway.
   async function payWith(method) {
     if (pendingStoreProduct) return payStoreProduct(method);
-    const packId = pendingPack;
-    if (!packId) return;
-    const tg = getTelegramId();
-    if (!tg) { toast('Telegram ID не найден'); return; }
-
-    if (method === 'paypal' && PAYPAL_PAYMENT_LINKS[packId]) {
-      window.location.href = PAYPAL_PAYMENT_LINKS[packId];
-      return;
-    }
-
-    if (method === 'paypal' && getPayPalSubscriptionConfig(packId)) {
-      if (showPayPalSubscriptionPanel(packId)) {
-        toast('Выберите PayPal ниже');
-      } else {
-        toast('PayPal подписка недоступна');
-      }
-      return;
-    }
-
-    toast('Создаём счёт…');
-    try {
-      let path = '';
-      if (method === 'stars')  path = '/api/public/payments/stars/invoice';
-      if (method === 'paypal') path = '/api/public/payments/paypal/create-order';
-      if (method === 'crypto') path = '/api/public/payments/crypto/invoice';
-      if (!path) { toast('Способ оплаты недоступен'); return; }
-      const r = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pack_id: packId,
-          telegram_id: tg,
-          user_id: tg,
-          type: packId.indexOf('sub_') === 0 ? 'subscription' : 'tokens',
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok || j.error) {
-        if (j.error === 'paypal_not_configured') { toast('PayPal ещё не настроен'); return; }
-        if (j.error === 'crypto_not_configured') { toast('Крипто-оплата ещё не настроена'); return; }
-        toast('Ошибка: ' + (j.error || r.status));
-        return;
-      }
-      const tgApp = S.tg;
-      if (method === 'stars' && j.invoice_url && tgApp && tgApp.openInvoice) {
-        tgApp.openInvoice(j.invoice_url, async (status) => {
-          if (status === 'paid') {
-            toast('Оплачено ✓');
-            try {
-              const confirmRes = await fetch('/api/public/payments/stars/confirm', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telegram_id: tg, pack_id: packId, charge_id: j.charge_id }),
-              });
-              const confirmJson = await confirmRes.json();
-              if (confirmRes.ok && confirmJson.user) {
-                S.renderUser && S.renderUser(confirmJson.user);
-                if (confirmJson.subscription_activated) {
-                  showSubscriptionCelebration(confirmJson.user, confirmJson.subscription_plan);
-                } else if (packId.indexOf('sub_') === 0 && S.syncUser) {
-                  // successful_payment can reach the polling bot a fraction
-                  // later than the Mini App receives openInvoice("paid").
-                  for (let attempt = 0; attempt < 3; attempt += 1) {
-                    await new Promise(resolve => setTimeout(resolve, 900 + attempt * 600));
-                    const syncedUser = await S.syncUser({ force: true });
-                    if (syncedUser && syncedUser.subscription_status === 'active') {
-                      showSubscriptionCelebration(syncedUser, syncedUser.subscription_plan);
-                      break;
-                    }
-                  }
-                }
-              } else if (S.syncUser) {
-                S.syncUser();
-              }
-            } catch {
-              if (S.syncUser) S.syncUser();
-            }
-          } else if (status === 'failed' || status === 'cancelled') {
-            toast('Оплата отменена');
-          }
-        });
-      } else if (method === 'paypal') {
-        const paypalUrl = j.url || j.approval_url || j.checkout_url;
-        if (!paypalUrl) { toast('Ссылка PayPal не найдена'); return; }
-        toast('Открываем PayPal…');
-        console.log('PAYPAL CHECKOUT URL:', paypalUrl);
-        openPaymentUrl(paypalUrl, method);
-      } else if (j.url) {
-        openPaymentUrl(j.url, method);
-      } else if (j.invoice_url) {
-        openPaymentUrl(j.invoice_url, method);
-      }
-    } catch (err) {
-      toast('Сетевая ошибка');
-    }
+    openStoreFor(pendingPack || '');
   }
 
   /* ===== Input mic/send toggle ===== */
@@ -24504,16 +24660,34 @@ async function waitGeneration(jobId, options) {
   function applyAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0',fab=document.getElementById('aiAssistantFab'),control=document.getElementById('aiAssistantVisibilitySwitch');if(fab)fab.hidden=!visible;if(control)control.classList.toggle('on',visible)}
   function toggleAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0';localStorage.setItem('sylvex-ai-assistant-visible',visible?'0':'1');if(visible)closeAiAssistant();applyAiAssistantVisibility()}
 
-  // Store cards (js/store-cards.js). Once the server catalog loads, plans,
-  // packs and custom amounts open the existing pay view as server-side
-  // orders (openStoreProduct); before that, existing packs use openBuy.
+  // Store cards (js/store-cards.js) in Stars mode: every price is the
+  // Telegram catalog's Stars price and purchases are Telegram Stars orders
+  // (openStoreProduct). Nothing is purchasable until the catalog loads.
+  // "Compare prices": opens the public sylvex.ai price list in the external
+  // browser. Shown only when the server provides compare_prices_url; carries
+  // no purchase, cart or session.
+  function syncComparePrices() {
+    const button = document.getElementById('payComparePrices');
+    if (button) button.hidden = !(storeCatalog && storeCatalog.compare_prices_url);
+  }
+  function openComparePrices() {
+    const url = storeCatalog && storeCatalog.compare_prices_url;
+    if (!url) return;
+    const tgApp = S.tg;
+    if (tgApp && tgApp.openLink) tgApp.openLink(url);
+    else window.open(url, '_blank', 'noopener');
+  }
   function mountStoreCards() {
+    syncComparePrices();
     const cards = window.SylvexStoreCards;
     if (!cards) return;
     const options = {
       t: window.t,
       locale: (S.getLang && S.getLang()) || 'en',
       examples: storeCatalog && storeCatalog.examples,
+      starsPrice: storeStarsFor,
+      // Monthly plans renew every 30 days (Telegram Stars subscriptions).
+      renewal: 'auto',
     };
     const plans = document.getElementById('storePlanCards');
     const credits = document.getElementById('storeCreditCards');
@@ -24522,14 +24696,17 @@ async function waitGeneration(jobId, options) {
       isPlanAvailable: (plan, period) => storeProductAvailable('plan_' + plan + '_' + period),
       onSelectPlan: (plan, period) => openStoreProduct('plan_' + plan + '_' + period),
     }, options));
+    const packs = storeCatalog
+      ? (storeCatalog.products || []).filter((p) => p.kind === 'credits').map((p) => p.credits / 100)
+      : [1, 5, 10, 20, 30, 40, 50, 100, 200];
+    const custom = storeCatalog && storeCatalog.custom;
     if (credits) cards.renderCredits(credits, Object.assign({
-      // Until the catalog loads, the existing packs keep their existing flow.
-      packIdForUsd: (usd) => (storeCatalog
-        ? (storeProductAvailable('pack_' + usd * 100) ? 'pack_' + usd * 100 : null)
-        : cards.packIdForUsd(usd)),
-      onContinue: (packId) => (storeCatalog ? openStoreProduct(packId) : openBuy(packId)),
-      customPurchase: !!(storeCatalog && (storeProviderOpen('telegram_stars') || storeProviderOpen('crypto_pay'))),
-      onContinueCustom: (usd) => openStoreProduct('credits_custom', usd),
+      packUsd: packs,
+      packIdForUsd: (usd) => (storeProductAvailable('pack_' + usd * 100) ? 'pack_' + usd * 100 : null),
+      onContinue: (packId) => openStoreProduct(packId),
+      customCredits: custom ? { min: custom.min_credits, max: custom.max_credits } : { min: 100, max: 10000 },
+      customPurchase: !!(custom && storeProviderOpen('telegram_stars')),
+      onContinueCustom: (amount) => openStoreProduct('credits_custom', amount),
     }, options));
     if (!storeCatalog) loadStoreCatalog();
     if (!mountStoreCards.bound) {
@@ -26475,6 +26652,7 @@ async function waitGeneration(jobId, options) {
 
   // Expose to global scope.
   Object.assign(S, {
+    openComparePrices,
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     setStudioLayout, cycleStudioTheme, restoreStudioTheme, syncStudioThemeVarsToDocument, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
@@ -26490,6 +26668,7 @@ async function waitGeneration(jobId, options) {
     openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
+    cancelSubscriptionRenewal, reactivateSubscriptionRenewal, openStorePlans,
     openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, selectProfileCover, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openBrandGenerator, closeBrandPresentation, launchBrandProStudio, closeBrandGenerator, moveBrandMusic, selectBrandMusic, toggleBrandMusic, seekBrandMusic, toggleBrandMusicRepeat, shuffleBrandMusic, selectBrandMusicGenre, openKnowledgeWorkspace, closeKnowledgeWorkspace,
     loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     loadCommunityFeed, toggleCommunityLike, openCommunityPublisher, publishCommunityItem, openCommunityComments, sendCommunityComment, replyCommunityComment, cancelCommunityReply, likeCommunityComment, editCommunityComment, deleteCommunityComment, deleteCommunityPost, searchCommunity, toggleCommunityMenu, communityComingSoon,

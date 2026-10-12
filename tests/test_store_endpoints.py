@@ -13,6 +13,7 @@ import pytest
 import main
 from services import shop_catalog as catalog
 from services import shop_orders as orders
+from services import telegram_catalog as tg
 
 DATABASE = os.getenv("SYLVEX_TEST_DATABASE_URL")
 UID = 990077
@@ -49,7 +50,7 @@ def shop(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS shop_orders, purchases, subscriptions, users CASCADE")
+        cur.execute("DROP TABLE IF EXISTS payment_inbox, payment_reconcile_state, subscription_events, subscription_agreements, subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
                        amount INTEGER DEFAULT 0, currency TEXT DEFAULT 'USD', payload TEXT, charge_id TEXT UNIQUE, status TEXT DEFAULT 'completed',
@@ -95,30 +96,41 @@ class FakeTelegram:
         return type("R", (), {"status_code": 200, "content": b"1", "json": lambda self: {"ok": True, "result": "https://t.me/$invoice"}})()
 
 
-@pytest.mark.parametrize("product_id,usd,stars", [("plan_starter_month", None, 230), ("plan_pro_year", None, 4416),
-                                                  ("pack_20000", None, 9200), ("credits_custom", "12.34", 568)])
-def test_stars_invoice_for_a_store_product_creates_an_order(shop, monkeypatch, product_id, usd, stars):
+@pytest.mark.parametrize("product_id,credits,stars,granted", [
+    ("plan_starter_month", "999999", 499, 100), ("plan_pro_year", "999999", 9581, 3600), ("plan_creator_month", None, 9980, 5500),
+    ("pack_100", None, 100, 100), ("pack_10000", "999999", 9980, 10000), ("credits_custom", "1234", 1232, 1234),
+    # One-time amounts verified with createInvoiceLink (10,000 / 19,960 /
+    # 23,952 / 95,808 Stars): above the 10,000 recurring cap, still sold.
+    ("credits_custom", "10020", 10000, 10020), ("pack_20000", None, 19960, 20000), ("plan_max_year", None, 23952, 12000),
+    ("plan_ultra_year", None, 47904, 30000), ("plan_creator_year", "999999", 95808, 66000),
+    ("credits_custom", "96000", 95808, 96000)])
+def test_stars_invoice_for_a_store_product_creates_an_order(shop, monkeypatch, product_id, credits, stars, granted):
     telegram = FakeTelegram()
     monkeypatch.setattr(main.requests, "post", telegram.post)
-    status, body = body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": UID, "product_id": product_id, "usd": usd,
-                                                                       "credits": 999999, "stars": 1}))))
+    status, body = body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": UID, "product_id": product_id, "credits": credits,
+                                                                       "usd": "1", "stars": 1}))))
     assert status == 200 and body["ok"] and body["invoice_url"]
     invoice = telegram.invoices[0]
     assert invoice["currency"] == "XTR" and invoice["prices"][0]["amount"] == stars
     assert invoice["payload"] == orders.order_payload(body["order_id"])
     assert len(invoice["title"]) <= 32
     order = orders.get_order(shop.connect, body["order_id"])
-    # Client-sent credits/stars are ignored; the server catalog decides.
-    expected = catalog.resolve_product(product_id, usd)
-    assert (order["credits"], order["stars"], order["usd_cents"]) == (expected["credits"], stars, expected["usd_cents"])
+    # Prices come from the Telegram catalog; client-sent stars/usd are
+    # ignored, and credits only choose a custom amount.
+    assert (order["credits"], order["stars"], order["provider"]) == (granted, stars, "telegram_stars")
+    assert body["order"]["stars"] == stars
 
 
 @pytest.mark.parametrize("body,error", [
     ({"product_id": "plan_gold_month"}, "unknown_product"),
-    ({"product_id": "plan_max_year"}, "stars_amount_above_limit"),
-    ({"product_id": "credits_custom", "usd": "0.50"}, "amount_out_of_range"),
-    ({"product_id": "credits_custom", "usd": "300"}, "stars_amount_above_limit"),
-    ({"product_id": "credits_custom", "usd": "12.345"}, "invalid_amount"),
+    ({"product_id": "plan_proplus_year"}, "unknown_product"),
+    ({"product_id": "credits_custom", "credits": "50"}, "amount_out_of_range"),
+    ({"product_id": "credits_custom", "credits": "96001"}, "stars_amount_above_limit"),
+    ({"product_id": "credits_custom", "credits": "100001"}, "amount_out_of_range"),
+    ({"product_id": "credits_custom", "credits": "12.5"}, "invalid_amount"),
+    ({"product_id": "credits_custom", "usd": "10"}, "amount_required"),
+    ({"pack_id": "sub_month"}, "unknown_product"),
+    ({"pack_id": "sub_year"}, "unknown_product"),
 ])
 def test_stars_invoice_rejects_invalid_products(shop, monkeypatch, body, error):
     monkeypatch.setattr(main.requests, "post", lambda *a, **k: pytest.fail("no invoice may be created"))
@@ -126,15 +138,26 @@ def test_stars_invoice_rejects_invalid_products(shop, monkeypatch, body, error):
     assert status == 400 and payload["error"] == error
 
 
-def test_legacy_pack_requests_keep_their_original_flow(shop, monkeypatch):
-    seen = {}
+def test_one_time_limit_setting_still_bounds_stars_invoices(shop, monkeypatch):
+    # A lowered one-time limit makes products above it unavailable again;
+    # prices are never changed or split to fit.
+    monkeypatch.setattr(tg, "STARS_MAX_PER_INVOICE", 19960)
+    monkeypatch.setattr(main.requests, "post", lambda *a, **k: pytest.fail("no invoice may be created"))
+    for body in ({"product_id": "plan_max_year"}, {"product_id": "credits_custom", "credits": "20041"}):
+        status, payload = body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": UID, **body}))))
+        assert status == 400 and payload["error"] == "stars_amount_above_limit"
+    with pytest.raises(tg.CatalogError):
+        main.create_store_stars_invoice_link({"order_id": "o", "title": "SYLVEX", "stars": 23952})
 
-    def legacy(telegram_id, pack_id, item, charge_id):
-        seen.update(pack_id=pack_id, stars=item["stars"])
-        return "https://t.me/$legacy"
-    monkeypatch.setattr(main, "create_telegram_stars_invoice_link", legacy)
-    status, body = body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": UID, "pack_id": "sub_month"}))))
-    assert status == 200 and body["invoice_url"] == "https://t.me/$legacy" and seen == {"pack_id": "sub_month", "stars": 230}
+
+def test_legacy_pack_id_requests_become_catalog_orders(shop, monkeypatch):
+    # Older Mini App builds send pack_id: they get the Telegram catalog
+    # product and price through an order, never a legacy payload.
+    telegram = FakeTelegram()
+    monkeypatch.setattr(main.requests, "post", telegram.post)
+    status, body = body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": UID, "pack_id": "pack_500"}))))
+    assert status == 200 and telegram.invoices[0]["prices"][0]["amount"] == 499
+    assert telegram.invoices[0]["payload"] == orders.order_payload(body["order_id"])
 
 
 def test_stars_unconfigured_is_reported_before_any_order(shop, monkeypatch):
@@ -214,6 +237,35 @@ def test_order_status_is_private_to_its_buyer(shop, monkeypatch):
     assert status == 400
 
 
+@pytest.mark.parametrize("product_id,credits,stars,granted", [
+    ("credits_custom", "10020", 10000, 10020), ("pack_20000", None, 19960, 20000),
+    ("plan_max_year", None, 23952, 12000), ("plan_creator_year", None, 95808, 66000)])
+def test_large_one_time_stars_orders_grant_only_after_successful_payment(shop, monkeypatch, product_id, credits, stars, granted):
+    telegram = FakeTelegram()
+    monkeypatch.setattr(main.requests, "post", telegram.post)
+    _, body = body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": UID, "product_id": product_id, "credits": credits}))))
+    payload = orders.order_payload(body["order_id"])
+    assert telegram.invoices[0]["prices"][0]["amount"] == stars and "subscription_period" not in telegram.invoices[0]
+    monkeypatch.setattr(main, "TELEGRAM_PAYMENT_WEBHOOK_SECRET", "hook")
+    answers = []
+    monkeypatch.setattr(main, "_answer_stars_pre_checkout", lambda qid, ok, msg="": answers.append(ok) or True)
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "hook"}
+    for amount in (stars, stars - 1):
+        pre = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": amount, "invoice_payload": payload}}
+        run(main.public_stars_webhook(FakeRequest(pre, headers)))
+    assert answers == [True, False]
+    assert shop.balance() == 0  # an approved pre-checkout grants nothing
+    paid = {"message": {"from": {"id": UID}, "successful_payment": {"currency": "XTR", "total_amount": stars, "invoice_payload": payload,
+                                                                   "telegram_payment_charge_id": f"tg-{product_id}"}}}
+    _, first = body_of(run(main.public_stars_webhook(FakeRequest(paid, headers))))
+    _, second = body_of(run(main.public_stars_webhook(FakeRequest(paid, headers))))
+    assert first["status"] == "granted" and second["status"] == "duplicate"
+    assert shop.balance() == granted
+    # A request without the webhook secret is refused.
+    forged = run(main.public_stars_webhook(FakeRequest(paid, {"X-Telegram-Bot-Api-Secret-Token": "wrong"})))
+    assert body_of(forged)[0] in (401, 403) and shop.balance() == granted
+
+
 def test_stars_webhook_validates_and_finalizes_orders(shop, monkeypatch):
     telegram = FakeTelegram()
     monkeypatch.setattr(main.requests, "post", telegram.post)
@@ -223,12 +275,12 @@ def test_stars_webhook_validates_and_finalizes_orders(shop, monkeypatch):
     answers = []
     monkeypatch.setattr(main, "_answer_stars_pre_checkout", lambda qid, ok, msg="": answers.append(ok) or True)
     headers = {"X-Telegram-Bot-Api-Secret-Token": "hook"}
-    pre = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": 460, "invoice_payload": payload}}
+    pre = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": 998, "invoice_payload": payload}}
     run(main.public_stars_webhook(FakeRequest(pre, headers)))
     bad = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": 1, "invoice_payload": payload}}
     run(main.public_stars_webhook(FakeRequest(bad, headers)))
     assert answers == [True, False]
-    paid = {"message": {"from": {"id": UID}, "successful_payment": {"currency": "XTR", "total_amount": 460, "invoice_payload": payload,
+    paid = {"message": {"from": {"id": UID}, "successful_payment": {"currency": "XTR", "total_amount": 998, "invoice_payload": payload,
                                                                    "telegram_payment_charge_id": "tg-1"}}}
     _, first = body_of(run(main.public_stars_webhook(FakeRequest(paid, headers))))
     _, second = body_of(run(main.public_stars_webhook(FakeRequest(paid, headers))))
@@ -303,6 +355,38 @@ def test_catalog_endpoint_is_public_and_complete(monkeypatch):
     assert "/api/public/shop/catalog" in PUBLIC_GETS
     response = run(main.public_shop_catalog())
     data = json.loads(response.body)
-    assert data["ok"] and data["renewal"] == "manual"
-    assert len(data["products"]) == 18 and data["custom"]["min_cents"] == 100 and data["custom"]["max_cents"] == 100000
+    # The Mini App catalog is the Telegram catalog: Stars only; only the
+    # monthly plans renew (30-day Telegram Stars subscriptions).
+    assert data["ok"] and data["currency"] == "XTR"
+    assert data["renewal"] == {"month": "auto_30_days", "year": "none", "credits": "none"}
+    assert {p["product_id"] for p in data["products"] if p["recurring"]} == {
+        f"plan_{plan}_month" for plan in ("starter", "pro", "max", "ultra", "creator")}
+    assert set(data["providers"]) == {"telegram_stars"}
+    assert len(data["products"]) == 19 and data["custom"] == {"product_id": "credits_custom", "min_credits": 100, "max_credits": 96000}
+    assert all("usd_cents" not in p and "providers" not in p for p in data["products"])
+    unavailable = {p["product_id"] for p in data["products"] if not p["available"]}
+    assert unavailable == set()  # every product is within the verified one-time amounts
+    assert data["stars_rate"] == {"stars": 499, "usd_cents": 500} and data["stars_max_per_invoice"] == 95808
+    assert "compare_prices_url" not in data  # off unless STORE_COMPARE_PRICES_ENABLED
     assert set(data["examples"]) == {"photo", "video", "music", "voice", "text"}
+
+
+def test_compare_prices_link_is_off_unless_enabled(monkeypatch):
+    data = json.loads(run(main.public_shop_catalog()).body)
+    assert "compare_prices_url" not in data
+    monkeypatch.setattr(main, "STORE_COMPARE_PRICES_ENABLED", True)
+    monkeypatch.setattr(main, "WEBSITE_URL", "https://sylvex.ai")
+    data = json.loads(run(main.public_shop_catalog()).body)
+    assert data["compare_prices_url"] == "https://sylvex.ai/store.html"  # no purchase, cart or session
+
+
+def test_legacy_webhook_pre_checkout_accepts_only_still_sold_packages(shop, monkeypatch):
+    monkeypatch.setattr(main, "TELEGRAM_PAYMENT_WEBHOOK_SECRET", "hook")
+    answers = []
+    monkeypatch.setattr(main, "_answer_stars_pre_checkout", lambda qid, ok, msg="": answers.append(ok) or True)
+    cases = [(f"sylvex_stars:{UID}:500:499", 499, True), (f"sylvex_stars:{UID}:500:231", 231, False),
+             (f"sylvex_sub:{UID}:month:499", 499, False), ("sylvex_limit_check:95808:abcd1234", 95808, False)]
+    for payload, amount, _ in cases:
+        update = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": amount, "invoice_payload": payload}}
+        run(main.public_stars_webhook(FakeRequest(update, {"X-Telegram-Bot-Api-Secret-Token": "hook"})))
+    assert answers == [ok for _, _, ok in cases]
