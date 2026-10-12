@@ -82,11 +82,11 @@
     store_billed_annually_auto: '{total} billed yearly · save {pct}% · cancel anytime',
     store_credits_monthly: 'Every paid month',
     store_credits_annual: 'Full annual allocation upfront',
-    store_tg_badge: 'Telegram',
-    store_tg_term: 'Annual · one Telegram Stars payment',
     store_per_year: '/ year',
-    store_tg_note: '≈ {monthly} ⭐ per month · 365 days · no auto-renewal',
-    store_tg_credits: '{monthly} ⚡ per month, all {months} months upfront',
+    store_billed_annually_stars: 'One payment for 12 months · save {pct}% · no auto-renewal',
+    store_custom_input_credits: 'Amount of ⚡',
+    store_custom_range_credits: 'From {min} to {max} ⚡',
+    store_custom_error_credits: 'Enter a whole number of ⚡ from {min} to {max}.',
     store_examples_title: 'What you can create',
     store_example_photo: 'Images',
     store_example_video: 'Video · 5 sec',
@@ -265,6 +265,9 @@
     // Only a host whose payment provider renews plans automatically (the
     // Website's Stripe Checkout) says so; otherwise plans are one-off terms.
     var autoRenew = opts.renewal === 'auto';
+    // Stars mode (Telegram Mini App): the host prices every product in
+    // Telegram Stars via starsPrice(usdCents) and nothing shows USD.
+    var starsPrice = typeof opts.starsPrice === 'function' ? opts.starsPrice : null;
     var examples = resolveExamples(opts.examples);
 
     function planCard(plan) {
@@ -272,8 +275,12 @@
       var price = planPricing(plan, period);
       var available = !!isAvailable(plan.id, period);
       var note = period === 'year'
-        ? tr(autoRenew ? 'store_billed_annually_auto' : 'store_billed_annually', { total: fmt.usd(price.totalUsd, 0), pct: price.discountPct })
+        ? (starsPrice ? tr('store_billed_annually_stars', { pct: price.discountPct })
+          : tr(autoRenew ? 'store_billed_annually_auto' : 'store_billed_annually', { total: fmt.usd(price.totalUsd, 0), pct: price.discountPct }))
         : tr(autoRenew ? 'store_billed_monthly_auto' : 'store_billed_monthly');
+      // Stars mode shows what one payment costs: a month, or the whole year.
+      var amount = starsPrice ? fmt.number(starsPrice(Math.round(price.totalUsd * 100))) + ' ⭐' : fmt.usd(price.displayUsd, price.decimals);
+      var unit = tr(starsPrice && period === 'year' ? 'store_per_year' : 'store_per_month');
       return '<article class="sxs-card sxs-plan' + (plan.popular ? ' is-popular' : '') + '" data-plan="' + plan.id + '">' +
         '<div class="sxs-plan-head"><h3 class="sxs-plan-name">' + escapeHtml(plan.name) + '</h3>' +
           (plan.popular ? '<span class="sxs-badge">' + escapeHtml(tr('store_popular')) + '</span>' : '') + '</div>' +
@@ -282,7 +289,7 @@
             return '<button type="button" data-sxs-period="' + p + '" aria-pressed="' + (p === period) + '">' + escapeHtml(tr('store_period_' + p)) + '</button>';
           }).join('') +
         '</div>' +
-        '<div class="sxs-price"><span class="sxs-price-amount">' + escapeHtml(fmt.usd(price.displayUsd, price.decimals)) + '</span><span class="sxs-price-unit">' + escapeHtml(tr('store_per_month')) + '</span></div>' +
+        '<div class="sxs-price"><span class="sxs-price-amount">' + escapeHtml(amount) + '</span><span class="sxs-price-unit">' + escapeHtml(unit) + '</span></div>' +
         '<div class="sxs-price-note">' + escapeHtml(note) + '</div>' +
         creditPanel(fmt, price.credits, tr(period === 'year' ? 'store_credits_annual' : 'store_credits_monthly'), true) +
         examplesBlock(tr, fmt, price.credits, examples) +
@@ -300,28 +307,8 @@
       '</article>';
     }
 
-    // Host-supplied plans sold only in Telegram for a fixed Stars price, paid
-    // once for the whole term (the Mini App passes them; the Website never
-    // does). Each: {productId, name, stars, credits, monthlyCredits, months,
-    // available}.
-    function telegramPlanCard(plan) {
-      var available = !!plan.available;
-      return '<article class="sxs-card sxs-plan sxs-plan--telegram" data-telegram-plan="' + escapeHtml(plan.productId) + '">' +
-        '<div class="sxs-plan-head"><h3 class="sxs-plan-name">' + escapeHtml(plan.name) + '</h3>' +
-          '<span class="sxs-badge">' + escapeHtml(tr('store_tg_badge')) + '</span></div>' +
-        '<div class="sxs-price-note">' + escapeHtml(tr('store_tg_term')) + '</div>' +
-        '<div class="sxs-price"><span class="sxs-price-amount">' + escapeHtml(fmt.number(plan.stars)) + ' ⭐</span><span class="sxs-price-unit">' + escapeHtml(tr('store_per_year')) + '</span></div>' +
-        '<div class="sxs-price-note">' + escapeHtml(tr('store_tg_note', { monthly: fmt.number(Math.round(plan.stars / plan.months)) })) + '</div>' +
-        creditPanel(fmt, plan.credits, tr('store_tg_credits', { monthly: fmt.number(plan.monthlyCredits), months: plan.months }), true) +
-        examplesBlock(tr, fmt, plan.credits, examples) +
-        '<button type="button" class="sxs-plan-cta" data-sxs-select-telegram-plan' + (available ? '' : ' disabled aria-disabled="true"') + '>' +
-          escapeHtml(tr(available ? 'store_select_plan' : 'store_plan_soon')) + '</button>' +
-      '</article>';
-    }
-
     container.classList.add('sxs-root', 'sxs-plans');
-    container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + (opts.telegramPlans || []).map(telegramPlanCard).join('') +
-      businessCard() + '</div>' + examplesNote(tr, fmt, examples);
+    container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + businessCard() + '</div>' + examplesNote(tr, fmt, examples);
 
     if (!container.__sxsPlansBound) {
       container.__sxsPlansBound = true;
@@ -333,12 +320,6 @@
           renderPlans(container, container.__sxsPlanOptions);
           var again = container.querySelector('[data-plan="' + card.dataset.plan + '"] [data-sxs-period="' + periodBtn.dataset.sxsPeriod + '"]');
           if (again) again.focus();
-          return;
-        }
-        var telegramSelect = event.target.closest('[data-sxs-select-telegram-plan]');
-        var telegramCard = event.target.closest('[data-telegram-plan]');
-        if (telegramSelect && telegramCard && !telegramSelect.disabled && typeof container.__sxsPlanOptions.onSelectTelegramPlan === 'function') {
-          container.__sxsPlanOptions.onSelectTelegramPlan(telegramCard.dataset.telegramPlan, telegramSelect);
           return;
         }
         var select = event.target.closest('[data-sxs-select-plan]');
@@ -365,15 +346,42 @@
     var fmt = makeFormat(opts.locale);
     var state = creditState.get(container) || { usd: opts.defaultUsd || DEFAULT_PACK_USD, customOpen: false, customRaw: '' };
     creditState.set(container, state);
-    var range = { min: fmt.usd(CUSTOM_MIN_USD, 0), max: fmt.usd(CUSTOM_MAX_USD, 0) };
+    var starsPrice = typeof opts.starsPrice === 'function' ? opts.starsPrice : null;
+    // Stars mode takes custom amounts in whole credits (⚡), within the
+    // host's customCredits {min, max}; otherwise in USD.
+    var customCredits = starsPrice ? (opts.customCredits || { min: CUSTOM_MIN_USD * CREDITS_PER_USD, max: CUSTOM_MAX_USD * CREDITS_PER_USD }) : null;
+    var range = customCredits
+      ? { min: fmt.number(customCredits.min), max: fmt.number(customCredits.max) }
+      : { min: fmt.usd(CUSTOM_MIN_USD, 0), max: fmt.usd(CUSTOM_MAX_USD, 0) };
+    var packList = opts.packUsd || CREDIT_PACK_USD;
     var examples = resolveExamples(opts.examples);
+
+    function priceLabel(usd, decimals) {
+      return starsPrice ? fmt.number(starsPrice(Math.round(usd * 100))) + ' ⭐' : fmt.usd(usd, decimals);
+    }
+
+    function parseCustom(raw) {
+      if (!customCredits) return parseCustomAmount(raw);
+      var text = String(raw == null ? '' : raw).replace(/[\s\u00a0\u202f]/g, '');
+      if (!text) return { ok: false, error: 'empty' };
+      if (!/^\d+$/.test(text)) return { ok: false, error: 'range' };
+      var credits = Number(text);
+      if (credits < customCredits.min || credits > customCredits.max) return { ok: false, error: 'range' };
+      return { ok: true, credits: credits, usd: credits / CREDITS_PER_USD };
+    }
+
+    function customError(parsed) {
+      if (!state.customRaw || parsed.ok) return '';
+      if (customCredits) return tr('store_custom_error_credits', range);
+      return tr(parsed.error === 'cents' ? 'store_custom_cents' : 'store_custom_error', range);
+    }
 
     function packCard(usd) {
       var selected = !state.customOpen && state.usd === usd;
       var credits = creditsForUsd(usd);
       return '<article class="sxs-card sxs-pack' + (selected ? ' is-selected' : '') + '" data-pack-usd="' + usd + '"' +
-          ' data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ⚡') + '" data-checkout-price="' + escapeHtml(fmt.usd(usd, 0)) + '">' +
-        '<div class="sxs-pack-head"><span class="sxs-pack-price">' + escapeHtml(fmt.usd(usd, 0)) + '</span>' +
+          ' data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ⚡') + '" data-checkout-price="' + escapeHtml(priceLabel(usd, 0)) + '">' +
+        '<div class="sxs-pack-head"><span class="sxs-pack-price">' + escapeHtml(priceLabel(usd, 0)) + '</span>' +
           (selected ? icon('check', 'sxs-pick sxs-pick--on') : '<span class="sxs-pick" aria-hidden="true"></span>') + '</div>' +
         creditPanel(fmt, credits, tr('store_credits_label'), false) +
         examplesBlock(tr, fmt, credits, examples) +
@@ -382,20 +390,20 @@
     }
 
     function customCard() {
-      var parsed = parseCustomAmount(state.customRaw);
+      var parsed = parseCustom(state.customRaw);
       var credits = parsed.ok ? parsed.credits : 0;
-      var error = !state.customRaw ? '' : (parsed.ok ? '' : tr(parsed.error === 'cents' ? 'store_custom_cents' : 'store_custom_error', range));
+      var error = customError(parsed);
       return '<section class="sxs-card sxs-custom' + (state.customOpen ? ' is-open' : '') + '">' +
         '<button type="button" class="sxs-custom-head" data-sxs-custom-toggle aria-expanded="' + state.customOpen + '" aria-controls="sxsCustomBody">' +
           icon('sliders', 'sxs-custom-icon') +
           '<span class="sxs-custom-text"><span class="sxs-custom-title">' + escapeHtml(tr('store_custom_title')) + '</span>' +
-          '<span class="sxs-custom-range">' + escapeHtml(tr('store_custom_range', range)) + '</span></span>' +
+          '<span class="sxs-custom-range">' + escapeHtml(tr(customCredits ? 'store_custom_range_credits' : 'store_custom_range', range)) + '</span></span>' +
           icon('chevron', 'sxs-chevron') +
         '</button>' +
         '<div class="sxs-custom-body" id="sxsCustomBody"' + (state.customOpen ? '' : ' hidden') + '>' +
-          '<label class="sxs-amount"><span class="sxs-amount-label">' + escapeHtml(tr('store_custom_input')) + '</span>' +
-            '<span class="sxs-amount-field' + (error ? ' is-invalid' : '') + '"><span aria-hidden="true">$</span>' +
-            '<input type="text" inputmode="decimal" autocomplete="off" data-sxs-custom-input value="' + escapeHtml(state.customRaw) + '" placeholder="10"' +
+          '<label class="sxs-amount"><span class="sxs-amount-label">' + escapeHtml(tr(customCredits ? 'store_custom_input_credits' : 'store_custom_input')) + '</span>' +
+            '<span class="sxs-amount-field' + (error ? ' is-invalid' : '') + '"><span aria-hidden="true">' + (customCredits ? '⚡' : '$') + '</span>' +
+            '<input type="text" inputmode="' + (customCredits ? 'numeric' : 'decimal') + '" autocomplete="off" data-sxs-custom-input value="' + escapeHtml(state.customRaw) + '" placeholder="' + (customCredits ? '1000' : '10') + '"' +
               ' aria-invalid="' + !!error + '" aria-describedby="sxsCustomError"></span></label>' +
           '<div class="sxs-field-error" id="sxsCustomError" role="alert">' + escapeHtml(error) + '</div>' +
           creditPanel(fmt, credits, tr('store_credits_label'), false) +
@@ -405,12 +413,14 @@
     }
 
     // What Continue would buy right now: a host product id for a package,
-    // a canonical USD string for a custom amount, or nothing.
+    // a canonical USD string (or, in Stars mode, a whole number of credits)
+    // for a custom amount, or nothing.
     function continueTarget() {
       if (state.customOpen) {
-        var parsed = parseCustomAmount(state.customRaw);
+        var parsed = parseCustom(state.customRaw);
         if (!opts.customPurchase) return { note: tr('store_custom_soon') };
-        return parsed.ok ? { customUsd: parsed.usd.toFixed(2) } : {};
+        if (!parsed.ok) return {};
+        return customCredits ? { customAmount: String(parsed.credits) } : { customAmount: parsed.usd.toFixed(2) };
       }
       var packId = (opts.packIdForUsd || packIdForUsd)(state.usd);
       return packId ? { packId: packId } : { note: tr('store_pack_soon') };
@@ -418,22 +428,23 @@
 
     function continueAttrs(target) {
       if (target.packId) return ' data-pack-id="' + escapeHtml(target.packId) + '"';
-      if (target.customUsd) return ' data-custom-usd="' + escapeHtml(target.customUsd) + '"';
+      if (target.customAmount) return ' data-custom-amount="' + escapeHtml(target.customAmount) + '"';
       return ' disabled aria-disabled="true"';
     }
 
     function summary() {
       var usd, credits, target = continueTarget(), note = target.note || '';
       if (state.customOpen) {
-        var parsed = parseCustomAmount(state.customRaw);
+        var parsed = parseCustom(state.customRaw);
         usd = parsed.ok ? parsed.usd : 0;
         credits = parsed.ok ? parsed.credits : 0;
       } else {
         usd = state.usd;
         credits = creditsForUsd(usd);
       }
-      return '<div class="sxs-summary" data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ⚡') + '" data-checkout-price="' + escapeHtml(fmt.usd(usd, 2)) + '">' +
-        '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_package')) + '</span><b data-sxs-summary-usd>' + escapeHtml(fmt.usd(usd, 2)) + '</b></div>' +
+      var price = credits ? priceLabel(usd, 2) : (starsPrice ? '—' : fmt.usd(0, 2));
+      return '<div class="sxs-summary" data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ⚡') + '" data-checkout-price="' + escapeHtml(price) + '">' +
+        '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_package')) + '</span><b data-sxs-summary-usd>' + escapeHtml(price) + '</b></div>' +
         '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_credits')) + '</span><b>' + icon('bolt', 'sxs-bolt') + '<span data-sxs-summary-credits>' + escapeHtml(fmt.number(credits)) + '</span><span class="sxs-emoji" aria-hidden="true">⚡</span></b></div>' +
         '<button type="button" class="sxs-continue" data-sxs-continue' + continueAttrs(target) + '>' +
           escapeHtml(tr('store_continue')) + icon('arrow', 'sxs-arrow') + '</button>' +
@@ -444,19 +455,19 @@
     function paint() {
       container.classList.add('sxs-root', 'sxs-credits');
       container.innerHTML =
-        '<div class="sxs-grid" role="group">' + CREDIT_PACK_USD.map(packCard).join('') + '</div>' +
+        '<div class="sxs-grid" role="group">' + packList.map(packCard).join('') + '</div>' +
         customCard() + summary() + examplesNote(tr, fmt, examples);
     }
 
     // Typing in the custom amount updates credits, examples and summary in
     // place so the input keeps focus and caret.
     function updateCustom() {
-      var parsed = parseCustomAmount(state.customRaw);
+      var parsed = parseCustom(state.customRaw);
       var credits = parsed.ok ? parsed.credits : 0;
       var body = container.querySelector('.sxs-custom-body');
       var field = container.querySelector('.sxs-amount-field');
       var input = container.querySelector('[data-sxs-custom-input]');
-      var error = !state.customRaw ? '' : (parsed.ok ? '' : tr(parsed.error === 'cents' ? 'store_custom_cents' : 'store_custom_error', range));
+      var error = customError(parsed);
       container.querySelector('#sxsCustomError').textContent = error;
       field.classList.toggle('is-invalid', !!error);
       input.setAttribute('aria-invalid', String(!!error));
@@ -465,16 +476,17 @@
         row.querySelector('[data-sxs-example-value]').textContent = exampleValue(tr, fmt, credits, examples[i]);
       });
       var usd = parsed.ok ? parsed.usd : 0;
+      var price = credits ? priceLabel(usd, 2) : (starsPrice ? '—' : fmt.usd(0, 2));
       var summaryEl = container.querySelector('.sxs-summary');
-      summaryEl.querySelector('[data-sxs-summary-usd]').textContent = fmt.usd(usd, 2);
+      summaryEl.querySelector('[data-sxs-summary-usd]').textContent = price;
       summaryEl.querySelector('[data-sxs-summary-credits]').textContent = fmt.number(credits);
       summaryEl.dataset.checkoutTitle = fmt.number(credits) + ' ⚡';
-      summaryEl.dataset.checkoutPrice = fmt.usd(usd, 2);
+      summaryEl.dataset.checkoutPrice = price;
       var button = summaryEl.querySelector('[data-sxs-continue]');
       var target = continueTarget();
-      button.disabled = !(target.packId || target.customUsd);
+      button.disabled = !(target.packId || target.customAmount);
       if (button.disabled) button.setAttribute('aria-disabled', 'true'); else button.removeAttribute('aria-disabled');
-      if (target.customUsd) button.setAttribute('data-custom-usd', target.customUsd); else button.removeAttribute('data-custom-usd');
+      if (target.customAmount) button.setAttribute('data-custom-amount', target.customAmount); else button.removeAttribute('data-custom-amount');
     }
 
     paint();
@@ -503,8 +515,9 @@
         if (cont.disabled) return;
         if (cont.dataset.packId && typeof hostOptions.onContinue === 'function') {
           hostOptions.onContinue(cont.dataset.packId, cont);
-        } else if (cont.dataset.customUsd && hostOptions.customPurchase && typeof hostOptions.onContinueCustom === 'function') {
-          hostOptions.onContinueCustom(cont.dataset.customUsd, cont);
+        } else if (cont.dataset.customAmount && hostOptions.customPurchase && typeof hostOptions.onContinueCustom === 'function') {
+          // A USD string, or in Stars mode a whole number of credits.
+          hostOptions.onContinueCustom(cont.dataset.customAmount, cont);
         }
         return;
       }

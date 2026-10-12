@@ -72,6 +72,20 @@ PUBLIC_POSTS = frozenset({
 })
 MULTIPART_ROUTES = frozenset({'/api/internal/telegram-media','/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook','/api/public/payments/stripe/webhook'})
+# Inside Telegram (any request carrying Telegram initData), Telegram Stars is
+# the only purchase method: these non-Stars purchase routes are refused for
+# Telegram requests, including from older Mini App builds. The Website (no
+# initData, session cookie) keeps using them. Webhooks, order status and
+# history are unaffected.
+TELEGRAM_BLOCKED_PURCHASE_ROUTES = frozenset({
+ '/api/public/payments/crypto/invoice',
+ '/api/public/payments/paypal/create-order',
+ '/api/public/payments/paypal/subscription-binding',
+ '/api/public/payments/paypal/subscription-created',
+ '/api/public/payments/lemonsqueezy/checkout',
+ '/api/public/payments/stripe/checkout',
+ '/api/public/payments/stripe/portal',
+})
 # Routes whose own handler resolves the real authenticated user id itself
 # (after subscription state is known, for /assistant/message) and calls
 # check_request_quota exactly once with it. The generic per-request
@@ -796,6 +810,7 @@ class SecurityMiddleware:
      # Legacy handlers now see the same verified credentials as middleware.
      json_body['initData']=init_data;json_body['init_data']=init_data
      body=json.dumps(json_body,separators=(',',':')).encode()
+    if init_data and path in TELEGRAM_BLOCKED_PURCHASE_ROUTES:raise SecurityError('telegram_stars_only',403)
     scope.setdefault('state',{}).update(telegram_id=uid,telegram_user=user,telegram_init_data=init_data)
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)

@@ -40,7 +40,7 @@ from services import edit_sessions as edit_sessions_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
 from services import video_probe
-from services import shop_catalog, shop_orders, stripe_billing
+from services import shop_catalog, shop_orders, stripe_billing, telegram_catalog
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -1108,11 +1108,12 @@ SHOP_ITEMS = {
     "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0},
     "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0},
 }
-# Telegram Stars prices follow the one Store formula (shop_catalog:
-# ceil(usd * 499 / 5)); the polling bot validates these invoices with the
-# same numbers.
+# Telegram Stars prices follow the Telegram catalog's formula
+# (services/telegram_catalog.py: ceil(usd * 499 / 5)). These legacy items
+# are only used to finish invoices created before the Telegram catalog; new
+# Telegram purchases are catalog orders.
 for _shop_item in SHOP_ITEMS.values():
-    _shop_item["stars"] = shop_catalog.stars_for_cents(round(_shop_item["usd"] * 100))
+    _shop_item["stars"] = telegram_catalog.stars_for_cents(round(_shop_item["usd"] * 100))
 
 
 def design(title: str, body: str) -> str:
@@ -1304,60 +1305,6 @@ def _restore_active_subscription(telegram_id: int) -> bool:
             },
         )
     return inserted
-
-
-# =====================================================
-# СИНХРОНИЗАЦИЯ С TELEGRAM: create_telegram_stars_invoice_link
-# Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
-# =====================================================
-def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dict, charge_id: str) -> str:
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN is not configured")
-
-    invoice_payload = {
-            "title": item["title"],
-            "description": f"Оплата {item['title']} в SYLVEX.",
-            # The polling Telegram bot currently consumes the canonical
-            # four-part payload. Keep the internal invoice id outside the
-            # Bot API payload so both deployments parse the same contract.
-            "payload": bot_stars_payload(telegram_id, item),
-            "currency": "XTR",
-            "prices": [
-                {
-                    "label": item["title"],
-                    "amount": int(item["stars"]),
-                }
-            ],
-        }
-    response = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
-        # Bot API requires provider_token to be omitted for Telegram Stars.
-        json=invoice_payload,
-        timeout=30,
-    )
-
-    data = response.json()
-    if response.status_code >= 400 or not data.get("ok"):
-        prostudio_debug(
-            "STARS_INVOICE_CREATE_FAILED",
-            telegram_id=telegram_id,
-            pack_id=pack_id,
-            charge_id=charge_id,
-            status=response.status_code,
-            telegram_error=data.get("description") or data.get("error_code") or "unknown",
-        )
-        raise RuntimeError(str(data))
-
-    prostudio_debug(
-        "STARS_INVOICE_CREATED",
-        telegram_id=telegram_id,
-        pack_id=pack_id,
-        charge_id=charge_id,
-        stars=int(item.get("stars") or 0),
-        payload_parts=4,
-    )
-
-    return data["result"]
 
 
 def crypto_pay_request(method: str, payload=None):
@@ -12033,8 +11980,19 @@ def _store_product_from_request(data: dict, provider: str):
     return product, None
 
 
+def _telegram_product_from_request(data: dict):
+    """The Telegram catalog product for a Stars purchase, or an error."""
+    try:
+        product = telegram_catalog.resolve(data.get("product_id"), data.get("credits"))
+    except telegram_catalog.CatalogError as exc:
+        return None, JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    if not shop_provider_configured(shop_catalog.PROVIDER_STARS):
+        return None, JSONResponse({"ok": False, "error": "stars_not_configured"}, status_code=503)
+    return product, None
+
+
 async def store_stars_invoice(data: dict, telegram_id: int):
-    product, error = _store_product_from_request(data, shop_catalog.PROVIDER_STARS)
+    product, error = _telegram_product_from_request(data)
     if error:
         return error
     await asyncio.to_thread(ensure_shop_orders)
@@ -12083,12 +12041,12 @@ async def store_crypto_invoice(data: dict, telegram_id: int):
 
 @app.get("/api/public/shop/catalog")
 async def public_shop_catalog():
-    data = shop_catalog.public_catalog()
+    # The Mini App sells only the Telegram catalog, for Telegram Stars only.
+    data = telegram_catalog.public_catalog()
     data["ok"] = True
     data["examples"] = await asyncio.to_thread(store_generation_examples)
     data["providers"] = {
         shop_catalog.PROVIDER_STARS: shop_provider_configured(shop_catalog.PROVIDER_STARS),
-        shop_catalog.PROVIDER_CRYPTO: shop_provider_configured(shop_catalog.PROVIDER_CRYPTO),
     }
     if STORE_COMPARE_PRICES_ENABLED:
         # Mini App "Compare prices": the public Website price list, with no
@@ -12334,9 +12292,6 @@ async def public_stripe_checkout(request: Request):
         product = shop_catalog.resolve_product(data.get("product_id"), data.get("usd"))
     except shop_catalog.CatalogError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=400)
-    if product.get("telegram_only"):
-        # Telegram-only plans are sold for Stars in Telegram, never by card.
-        return JSONResponse({"ok": False, "error": "unknown_product"}, status_code=400)
     try:
         result = await asyncio.to_thread(create_stripe_checkout, telegram_id, product)
     except StripeCheckoutRefused as exc:
@@ -12406,46 +12361,16 @@ async def public_stripe_webhook(request: Request):
 @app.post("/api/public/payments/stars/invoice")
 async def public_stars_invoice(request: Request):
     data = await request.json()
-    pack_id = data.get("pack_id") or ""
     telegram_id = int(data.get("telegram_id") or 0)
-    if data.get("product_id"):
-        if not telegram_id:
-            return telegram_id_required_response()
-        return await store_stars_invoice(data, telegram_id)
-    item = shop_item(pack_id)
-
-    if not item:
-        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
     if not telegram_id:
         return telegram_id_required_response()
-
-    charge_id = f"stars_{uuid4().hex}"
-    try:
-        invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item, charge_id)
-    except Exception as exc:
-        # Do not return str(exc) here: on a network-level failure it can embed
-        # the full Telegram Bot API URL, which contains BOT_TOKEN.
-        prostudio_error("STARS_INVOICE_ERROR", exc, telegram_id=telegram_id, pack_id=pack_id, charge_id=charge_id)
-        return JSONResponse({"ok": False, "error": "stars_invoice_failed"}, status_code=502)
-
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="payment_invoice_created",
-        event_name="stars_invoice_created",
-        payload={
-            "pack_id": pack_id,
-            "charge_id": charge_id,
-            "invoice_url": invoice_url,
-        },
-    )
-
-    return {
-        "ok": True,
-        "invoice_url": invoice_url,
-        "pack_id": pack_id,
-        "charge_id": charge_id,
-    }
+    product_id = data.get("product_id")
+    if not product_id and data.get("pack_id"):
+        # Older Mini App builds send a legacy pack_id: the same Telegram
+        # catalog product is sold through an order at the catalog price.
+        # Legacy subscriptions (sub_month/sub_year) are no longer sold.
+        product_id = data.get("pack_id")
+    return await store_stars_invoice(dict(data, product_id=product_id), telegram_id)
 
 
 def _stars_item_from_payment_payload(payload: str):
@@ -12502,8 +12427,12 @@ async def public_stars_webhook(request: Request):
         telegram_id = int(parsed.get("telegram_id") or 0)
         payer_id = int((pre_checkout.get("from") or {}).get("id") or 0)
         expected_amount = int(item.get("stars") or 0) if item else 0
+        # Legacy payloads are only honored for packages the Telegram catalog
+        # still sells, at its price; legacy subscriptions are refused.
+        still_sold = bool(item and item.get("kind") == "credits"
+                          and telegram_catalog.pack_stars(item.get("credits") or 0) == expected_amount)
         valid = bool(
-            item and telegram_id and telegram_id == payer_id
+            item and still_sold and telegram_id and telegram_id == payer_id
             and pre_checkout.get("currency") == "XTR"
             and int(pre_checkout.get("total_amount") or 0) == expected_amount
         )
