@@ -660,3 +660,49 @@ def test_account_merge_moves_stripe_links_without_conflicts(db):
     assert sb.get_subscription(db.connect, "sub_m")["telegram_id"] == OTHER
     assert sb.get_customer(db.connect, OTHER, False) in {"cus_web", "cus_tg"}
     assert sb.get_customer(db.connect, UID, False) is None
+
+
+def test_test_mode_only_refuses_a_live_key(app, monkeypatch):
+    monkeypatch.setattr(main, "STRIPE_TEST_MODE_ONLY", True)
+    assert main.stripe_enabled()  # the fixture's key is a test key
+    monkeypatch.setattr(main, "STRIPE_SECRET_KEY", "sk_live_fake")
+    assert not main.stripe_enabled() and not main.stripe_key_allowed()
+    assert checkout({"product_id": "pack_500"})[1]["error"] == "stripe_not_configured"
+    assert run(main.public_config())["stripe_enabled"] is False
+    raw = json.dumps(event("invoice.paid", {"id": "in_1"})).encode()
+    status, body = body_of(run(main.public_stripe_webhook(FakeRequest(raw=raw, headers={"stripe-signature": sign(raw, SECRET)}))))
+    assert status == 503
+    status, body = body_of(run(main.public_stripe_status()))
+    assert body["key_refused"] is True and body["mode"] == "live" and body["enabled"] is False and body["catalog"] is None
+    monkeypatch.setattr(main, "STRIPE_TEST_MODE_ONLY", False)
+    assert main.stripe_key_allowed()
+
+
+def test_status_endpoint_reports_sync_without_secrets(app):
+    status, body = body_of(run(main.public_stripe_status()))
+    assert body["enabled"] and body["mode"] == "test" and body["webhook_secret_configured"]
+    assert body["catalog"] == {"complete": False, "products": 0, "prices": 0, "unavailable": 0}
+    main.ensure_stripe_catalog()
+    body = body_of(run(main.public_stripe_status()))[1]
+    assert body["catalog"] == {"complete": True, "products": 14, "prices": 18, "unavailable": 0}
+    assert KEY not in json.dumps(body) and SECRET not in json.dumps(body)
+    from services.security import PUBLIC_GETS
+    assert "/api/public/payments/stripe/status" in PUBLIC_GETS
+
+
+def test_test_clocks_attach_new_customers_in_test_mode_only(app, db, monkeypatch):
+    monkeypatch.setattr(main, "STRIPE_TEST_CLOCKS", True)
+    assert checkout({"product_id": "plan_starter_month"})[0] == 200
+    customer = sb.get_customer(db.connect, UID, False)
+    assert app.fake.customers[customer]["test_clock"] in app.fake.test_clocks
+    assert list(app.fake.sessions.values())[-1]["params"]["customer"] == customer
+    # Reused afterwards: no second clock for the same user.
+    assert checkout({"product_id": "pack_500"})[0] == 200
+    assert len(app.fake.test_clocks) == 1
+    assert body_of(run(main.public_stripe_status()))[1]["test_clocks"] is True
+    # Never with a live key.
+    live = FakeStripe(livemode=True)
+    monkeypatch.setattr(main, "_STRIPE_STATE", {"client": sb.StripeClient("sk_live_fake", session=live), "tables": True, "catalog": None})
+    monkeypatch.setattr(main, "STRIPE_SECRET_KEY", "sk_live_fake")
+    status, body = body_of(run(main.public_stripe_checkout(FakeRequest({"telegram_id": OTHER, "product_id": "pack_500"}))))
+    assert status == 200 and not getattr(live, "test_clocks", None)
