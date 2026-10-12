@@ -40,7 +40,7 @@ from services import edit_sessions as edit_sessions_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
 from services import video_probe
-from services import shop_catalog, shop_orders, stripe_billing, telegram_catalog
+from services import payment_inbox, shop_catalog, shop_orders, stripe_billing, telegram_catalog
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -11773,6 +11773,7 @@ def ensure_shop_orders():
             return
         ensure_payment_tables()
         shop_orders.ensure_order_tables(shop_db)
+        payment_inbox.ensure_inbox_tables(shop_db)
         _SHOP_ORDERS_READY = True
 
 
@@ -12686,48 +12687,91 @@ async def public_stars_webhook(request: Request):
     payment = message.get("successful_payment") or {}
     if not payment:
         return {"ok": True, "ignored": True}
+    payer_id = int((message.get("from") or {}).get("id") or 0)
+    record = payment_inbox.payment_record(payer_id, payment, paid_at=message.get("date"), raw=message)
+    if record is None:
+        return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
+    # Durable before acknowledged: a confirmed payment is stored (database
+    # inbox, or the on-disk spool if the database is down) before Telegram
+    # gets a 2xx. If neither works, 503 makes Telegram deliver it again.
+    stored = await asyncio.to_thread(payment_inbox.record_durably, shop_db, record, "webhook", PAYMENT_SPOOL)
+    if not stored:
+        prostudio_debug("STARS_PAYMENT_NOT_RECORDED", charge_id=record["charge_id"], telegram_id=payer_id)
+        return JSONResponse({"ok": False, "error": "payment_not_recorded"}, status_code=503)
+    if stored == "spool":
+        prostudio_debug("STARS_PAYMENT_SPOOLED", charge_id=record["charge_id"], telegram_id=payer_id)
+        return {"ok": True, "status": "spooled", "charge_id": record["charge_id"]}
+    result = await asyncio.to_thread(payment_inbox.process, shop_db, record, process_star_payment_record)
+    status = result.get("status")
+    if status == "rejected" and not record["order_id"]:
+        return JSONResponse({"ok": False, "error": result.get("reason") or "invalid_successful_payment"}, status_code=400)
+    # "error": the payment is in the inbox and is replayed automatically.
+    return {"ok": status != "rejected", "status": "queued" if status == "error" else status,
+            "reason": result.get("reason"), "charge_id": record["charge_id"]}
 
-    order_id = shop_orders.parse_order_payload(payment.get("invoice_payload"))
-    if order_id:
-        result = await asyncio.to_thread(
-            finalize_store_order, order_id, shop_catalog.PROVIDER_STARS, payment.get("currency"),
-            payment.get("total_amount"), str(payment.get("telegram_payment_charge_id") or ""),
-            int((message.get("from") or {}).get("id") or 0), True,
-            dict({key: payment.get(key) for key in ("is_recurring", "is_first_recurring", "subscription_expiration_date")},
-                 paid_at=message.get("date")),
-        )
-        return {"ok": result["status"] != "rejected", "status": result["status"], "reason": result.get("reason")}
 
-    payload = str(payment.get("invoice_payload") or "")
+PAYMENT_SPOOL = payment_inbox.Spool(os.getenv("PAYMENT_SPOOL_DIR", ""))
+PAYMENT_REPLAY_INTERVAL_SECONDS = int(os.getenv("PAYMENT_REPLAY_INTERVAL_SECONDS", "30") or 30)
+PAYMENT_RECONCILE_INTERVAL_SECONDS = int(os.getenv("PAYMENT_RECONCILE_INTERVAL_SECONDS", "600") or 600)
+
+
+def process_star_payment_record(record: dict) -> dict:
+    """Process one stored Telegram Stars payment (live webhook delivery or
+    replay). Idempotent by charge id."""
+    if record.get("order_id"):
+        ensure_shop_orders()
+        return finalize_store_order(record["order_id"], shop_catalog.PROVIDER_STARS, record["currency"], record["amount"],
+                                    record["charge_id"], record.get("telegram_id"), True,
+                                    payment_inbox.recurring_fields(record))
+    return process_legacy_star_payment(record)
+
+
+def process_legacy_star_payment(record: dict) -> dict:
+    """Legacy sylvex_stars:/sylvex_sub: invoices (still payable from old chat
+    messages): granted only for packages the Telegram catalog still sells."""
+    payload = str(record.get("invoice_payload") or "")
     parsed = parse_shop_payload(payload)
     item = _stars_item_from_payment_payload(payload)
     telegram_id = int(parsed.get("telegram_id") or 0)
-    payer_id = int((message.get("from") or {}).get("id") or 0)
     expected_amount = int(item.get("stars") or 0) if item else 0
-    if not item or not telegram_id or telegram_id != payer_id or payment.get("currency") != "XTR" or int(payment.get("total_amount") or 0) != expected_amount:
-        return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
-
-    charge_id = str(payment.get("telegram_payment_charge_id") or parsed.get("charge_id") or "")
-    prostudio_debug(
-        "STARS_SUCCESSFUL_PAYMENT_RECEIVED",
-        telegram_id=telegram_id,
-        kind=parsed.get("kind") or "",
-        plan_key=parsed.get("plan_key") or "",
-        amount=expected_amount,
-        charge_id=charge_id,
-        payload_parts=len(payload.split(":")),
-    )
-    created = finalize_shop_payment(
-        telegram_id=telegram_id,
-        provider="telegram_stars",
-        item=item,
-        amount=expected_amount,
-        currency="XTR",
-        payload=payload,
-        charge_id=charge_id,
-    )
+    if (not item or not telegram_id or telegram_id != int(record.get("telegram_id") or 0)
+            or record.get("currency") != "XTR" or int(record.get("amount") or 0) != expected_amount):
+        shop_orders.record_event_now(shop_db, f"paymentrejected:{record['charge_id']}", "payment_error",
+                                     record.get("telegram_id"), currency=record.get("currency"),
+                                     status="invalid_successful_payment", reference=record["charge_id"],
+                                     details=f"legacy payload amount={record.get('amount')}")
+        return {"status": "rejected", "reason": "invalid_successful_payment"}
+    charge_id = record["charge_id"]
+    prostudio_debug("STARS_SUCCESSFUL_PAYMENT_RECEIVED", telegram_id=telegram_id, kind=parsed.get("kind") or "",
+                    plan_key=parsed.get("plan_key") or "", amount=expected_amount, charge_id=charge_id,
+                    payload_parts=len(payload.split(":")))
+    created = finalize_shop_payment(telegram_id=telegram_id, provider="telegram_stars", item=item, amount=expected_amount,
+                                    currency="XTR", payload=payload, charge_id=charge_id)
     prostudio_debug("STARS_SUCCESSFUL_PAYMENT_FINALIZED", telegram_id=telegram_id, charge_id=charge_id, created=created)
-    return {"ok": True, "created": created, "charge_id": charge_id}
+    return {"status": "granted" if created else "duplicate", "created": created}
+
+
+def fetch_star_transactions(offset: int, limit: int) -> list:
+    """Telegram's own Star transaction history (getStarTransactions)."""
+    response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/getStarTransactions",
+                             json={"offset": int(offset), "limit": int(limit)}, timeout=30)
+    data = response.json() if response.content else {}
+    if response.status_code >= 400 or not data.get("ok"):
+        raise RuntimeError(f"getStarTransactions failed: {data.get('description') or response.status_code}")
+    return list((data.get("result") or {}).get("transactions") or [])
+
+
+def replay_star_payments() -> dict:
+    """Recover confirmed payments stored but not yet processed (spool first).
+    Order payments from any source; legacy payloads this service received."""
+    return payment_inbox.replay(shop_db, process_star_payment_record, PAYMENT_SPOOL,
+                                legacy_sources=("webhook", "webhook+spool", "reconcile"))
+
+
+def reconcile_star_payments() -> dict:
+    ensure_shop_orders()
+    return payment_inbox.reconcile_star_transactions(shop_db, fetch_star_transactions)
+
 
 # =====================================================
 # API ENDPOINT: public_stars_confirm
@@ -23390,6 +23434,27 @@ async def subscription_events_worker_loop():
         await asyncio.sleep(max(5, SUBSCRIPTION_EVENTS_INTERVAL_SECONDS))
 
 
+async def payment_recovery_worker_loop():
+    """Always on (independent of notifications): replay confirmed Telegram
+    Stars payments that are stored but unprocessed - after an outage, crash or
+    restart - and reconcile with Telegram's Star transaction history."""
+    print("PAYMENT RECOVERY WORKER STARTED")
+    last_reconcile = 0.0
+    while True:
+        try:
+            replayed = await asyncio.to_thread(replay_star_payments)
+            if replayed.get("spooled") or replayed.get("processed") or replayed.get("rejected") or replayed.get("error"):
+                prostudio_debug("STARS_PAYMENTS_REPLAYED", **replayed)
+            if time.monotonic() - last_reconcile >= PAYMENT_RECONCILE_INTERVAL_SECONDS:
+                reconciled = await asyncio.to_thread(reconcile_star_payments)
+                last_reconcile = time.monotonic()
+                if reconciled.get("ingested"):
+                    prostudio_debug("STARS_PAYMENTS_RECONCILED", **reconciled)
+        except Exception as exc:
+            prostudio_error("STARS_PAYMENT_RECOVERY_FAILED", exc)
+        await asyncio.sleep(max(5, PAYMENT_REPLAY_INTERVAL_SECONDS))
+
+
 async def subscription_reminder_worker_loop():
     if not SUBSCRIPTION_REMINDER_WORKER_ENABLED:
         print("SUBSCRIPTION REMINDER WORKER DISABLED")
@@ -23432,6 +23497,11 @@ async def start_prostudio_generation_worker():
         await asyncio.to_thread(ensure_user_events_table)
         await asyncio.to_thread(ensure_generations_index)
         await asyncio.to_thread(account_identity_service.ensure_account_tables, DATABASE_URL)
+        try:
+            # Payment inbox and order tables before the first payment arrives.
+            await asyncio.to_thread(ensure_shop_orders)
+        except Exception as exc:
+            prostudio_error("SHOP_ORDER_TABLES_STARTUP_FAILED", exc)
         db_pool_status()
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
@@ -23439,6 +23509,8 @@ async def start_prostudio_generation_worker():
         app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
     if SUBSCRIPTION_EVENTS_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(subscription_events_worker_loop()))
+    if (DATABASE_URL or PAYMENT_SPOOL.enabled) and BOT_TOKEN:
+        app.state.background_tasks.append(asyncio.create_task(payment_recovery_worker_loop()))
     if STRIPE_SECRET_KEY and not stripe_key_allowed():
         print("STRIPE DISABLED: a live key is configured but STRIPE_TEST_MODE_ONLY=1")
     if stripe_enabled():

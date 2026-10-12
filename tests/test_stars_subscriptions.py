@@ -86,7 +86,7 @@ def shop(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS subscription_events, subscription_payments, subscription_agreements, shop_orders, "
+        cur.execute("DROP TABLE IF EXISTS payment_inbox, payment_reconcile_state, subscription_events, subscription_payments, subscription_agreements, shop_orders, "
                     "purchases, subscriptions, users CASCADE")
         # Production shape (main.py ensure_payment_tables), before migration.
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
@@ -594,20 +594,23 @@ def test_notification_failure_never_affects_payment_processing(shop, monkeypatch
 # 16 ------------------------------------------------ database and Telegram failures
 
 
-def test_a_failure_inside_the_payment_transaction_grants_nothing_and_is_retried(shop, monkeypatch):
+def test_a_failure_inside_the_payment_transaction_grants_nothing_and_is_replayed(shop, monkeypatch):
     code, body = invoice("plan_pro_month")
     payload = orders.order_payload(body["order_id"])
     original = orders._add_credits
     monkeypatch.setattr(orders, "_add_credits", lambda *a: (_ for _ in ()).throw(RuntimeError("db write failed")))
-    with pytest.raises(RuntimeError):
-        paid(payload, 998, "c-1", first=True)  # webhook fails -> Telegram retries the delivery
+    _, result = paid(payload, 998, "c-1", first=True)
+    assert result["status"] == "queued"  # durably in the inbox; acknowledged to Telegram
     assert shop.balance() == START and shop.q("SELECT COUNT(*) FROM purchases")[0][0] == 0
     assert shop.q("SELECT COUNT(*) FROM subscription_agreements")[0][0] == 0
+    assert shop.q("SELECT status FROM payment_inbox WHERE charge_id = 'c-1'") == [("pending",)]
     assert shop.events("payment_error")[0][2] == "finalize_failed"
     monkeypatch.setattr(orders, "_add_credits", original)
-    assert paid(payload, 998, "c-1", first=True)[1]["status"] == "granted"  # the retry
-    assert paid(payload, 998, "c-1", first=True)[1]["status"] == "duplicate"
+    shop.q("UPDATE payment_inbox SET next_attempt_at = CURRENT_TIMESTAMP")
+    assert main.replay_star_payments()["processed"] == 1  # automatic recovery
+    assert paid(payload, 998, "c-1", first=True)[1]["status"] == "duplicate"  # Telegram redelivery
     assert shop.balance() == START + 300
+    assert shop.q("SELECT status FROM payment_inbox WHERE charge_id = 'c-1'") == [("processed",)]
 
 
 def test_rejected_star_payments_are_reported(shop):
@@ -623,7 +626,7 @@ def test_forged_notifications_grant_nothing(shop):
     assert paid(payload, 998, "f1", headers={})[0] == 401
     assert paid(payload, 998, "f2", headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"})[0] == 401
     assert paid(orders.order_payload("f" * 32), 998, "f3")[1]["status"] == "rejected"
-    assert paid(payload, 998, "")[1]["status"] == "rejected"
+    assert paid(payload, 998, "")[0] == 400  # no charge id: not a confirmed payment
     assert shop.balance() == START + 300
     assert manage("cancel", uid=OTHER)[1]["error"] == "no_recurring_subscription"
 
