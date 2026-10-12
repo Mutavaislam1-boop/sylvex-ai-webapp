@@ -8,8 +8,12 @@ points. Neither forces the other:
   independent `sylvex_accounts.account_id` (the user-facing "SYLVEX ID"),
   generated automatically the moment registration succeeds - never a fake
   or negative Telegram id, and never something the user manages by hand.
-- A Telegram user needs no account at all and never sees an id - they use
-  the bot/Mini App via their real `telegram_id`, exactly as today.
+- A Telegram user is never asked to register, but still gets a canonical
+  SYLVEX ID: a `sylvex_accounts` row with origin 'telegram' and CC=99 in
+  the ID (see allocate_telegram_sylvex_user_id below), created by a
+  database trigger the moment their `users` row is inserted (by the bot or
+  the webapp) and backfilled once for older users. It is an identity only:
+  it has no login of its own and does not count as "linked".
 
 The two are only ever joined by an explicit, verified, ONE-TIME merge
 (`_do_merge` below), never silently. Until that happens they are two
@@ -24,6 +28,13 @@ always consolidates the final business data onto the TELEGRAM side's real
 (untouched) Telegram initData auth can ever reach - but the website
 account's `account_id`/`account_emails` identity survives forever
 unchanged; only its `active_telegram_id` pointer is updated, once.
+
+When that Telegram user already has a Telegram-origin SYLVEX ID, the merge
+keeps the website account's ID as the canonical one and retires the
+Telegram-origin row into a permanent alias (`merged_into_account_id`), so
+the retired ID still resolves to the same person and is never reissued. If
+the website identity is later deleted, the alias is reactivated - the
+Telegram user gets their original SYLVEX ID back, never a new one.
 """
 from __future__ import annotations
 import hashlib
@@ -78,6 +89,27 @@ _SECONDARY_ID_COLUMNS = (
 
 _ACCOUNT_TABLES_LOCK = threading.Lock()
 _ACCOUNT_TABLES_READY = False
+
+# Every users.telegram_id at or above this value is a website account's
+# hidden storage key (sylvex_web_storage_seq), never a real Telegram id and
+# never a user-facing identity. One constant, shared by every caller.
+STORAGE_ID_FLOOR = 900_000_000_000
+
+
+def is_storage_id(value):
+    try:
+        return int(value) >= STORAGE_ID_FLOOR
+    except (TypeError, ValueError):
+        return False
+
+
+def real_telegram_id(value):
+    """value if it is a real Telegram id, else None (storage keys, 0, junk)."""
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return value if 0 < value < STORAGE_ID_FLOOR else None
 
 
 def _violates_constraint(exc, name_substring):
@@ -231,11 +263,129 @@ def ensure_account_tables(database_url):
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            _ensure_canonical_identity_schema(cur)
             conn.commit()
         finally:
             cur.close()
             conn.close()
+        _ensure_telegram_account_trigger(database_url)
         _ACCOUNT_TABLES_READY = True
+
+
+def _ensure_canonical_identity_schema(cur):
+    """Additive only: every existing row and SYLVEX ID stays as it is.
+
+    - origin: 'website' (email/Google/Apple registration - every row that
+      exists today) or 'telegram' (identity-only row for a Telegram user).
+    - merged_into_account_id: set on a retired Telegram-origin row when its
+      Telegram id merged into a website account; the row stays as an alias.
+    - storage_telegram_id: the website account's hidden storage key, kept
+      after a merge so admin tooling can still map it (NULL for accounts
+      merged before this column existed - that key was never recorded).
+    - active_telegram_id becomes nullable: a retired alias points nowhere.
+      The unique index on it still holds for every non-NULL value."""
+    cur.execute("ALTER TABLE sylvex_accounts ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'website'")
+    cur.execute("ALTER TABLE sylvex_accounts ADD COLUMN IF NOT EXISTS merged_into_account_id BIGINT")
+    cur.execute("ALTER TABLE sylvex_accounts ADD COLUMN IF NOT EXISTS storage_telegram_id BIGINT")
+    cur.execute(
+        "SELECT is_nullable FROM information_schema.columns "
+        "WHERE table_name = 'sylvex_accounts' AND column_name = 'active_telegram_id'"
+    )
+    nullable_row = cur.fetchone()
+    if nullable_row and nullable_row[0] == "NO":
+        cur.execute("ALTER TABLE sylvex_accounts ALTER COLUMN active_telegram_id DROP NOT NULL")
+    cur.execute(
+        "UPDATE sylvex_accounts SET storage_telegram_id = active_telegram_id "
+        "WHERE storage_telegram_id IS NULL AND origin = 'website' AND active_telegram_id >= %s",
+        (STORAGE_ID_FLOOR,),
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sylvex_accounts_merged_telegram_id ON sylvex_accounts (merged_telegram_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sylvex_accounts_storage_telegram_id ON sylvex_accounts (storage_telegram_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sylvex_accounts_merged_into ON sylvex_accounts (merged_into_account_id)")
+    # Telegram-origin IDs: same SS 0626 CC NNNN shape as website IDs, with
+    # the reserved CC=99, numbered by their own sequence. CC=99 can never
+    # come out of _email_id_code (00-26 only), so the two ranges can never
+    # collide even though both start at NNNN=0001.
+    cur.execute("CREATE SEQUENCE IF NOT EXISTS sylvex_telegram_id_seq START 1")
+    cur.execute(f"""
+        CREATE OR REPLACE FUNCTION sylvex_allocate_telegram_account_id() RETURNS BIGINT AS $fn$
+        DECLARE
+            seq BIGINT := nextval('sylvex_telegram_id_seq');
+            series BIGINT := {SYLVEX_ID_INITIAL_SERIES} + (seq - 1) / {SYLVEX_ID_SERIES_CAPACITY};
+            num BIGINT := (seq - 1) % {SYLVEX_ID_SERIES_CAPACITY} + 1;
+        BEGIN
+            IF series > 99 THEN
+                RAISE EXCEPTION 'sylvex_id_series_exhausted';
+            END IF;
+            RETURN (lpad(series::text, 2, '0') || '{SYLVEX_ID_PROJECT_COMPONENT}'
+                    || '{SYLVEX_ID_TELEGRAM_CC:02d}' || lpad(num::text, 4, '0'))::BIGINT;
+        END
+        $fn$ LANGUAGE plpgsql
+    """)
+    # Shared by the users trigger below and ensure_telegram_account(): one
+    # place decides whether a Telegram id still needs an identity row.
+    cur.execute(f"""
+        CREATE OR REPLACE FUNCTION sylvex_ensure_telegram_account(tid BIGINT) RETURNS BIGINT AS $fn$
+        DECLARE
+            existing BIGINT;
+        BEGIN
+            IF tid IS NULL OR tid <= 0 OR tid >= {STORAGE_ID_FLOOR} THEN
+                RETURN NULL;
+            END IF;
+            SELECT account_id INTO existing FROM sylvex_accounts WHERE active_telegram_id = tid;
+            IF existing IS NOT NULL THEN
+                RETURN existing;
+            END IF;
+            INSERT INTO sylvex_accounts (account_id, active_telegram_id, origin)
+            VALUES (sylvex_allocate_telegram_account_id(), tid, 'telegram')
+            RETURNING account_id INTO existing;
+            RETURN existing;
+        END
+        $fn$ LANGUAGE plpgsql
+    """)
+    # Never let identity bookkeeping block a user from being created: a
+    # failure here is logged as a WARNING and repaired by the backfill.
+    cur.execute("""
+        CREATE OR REPLACE FUNCTION sylvex_users_ensure_account_trg() RETURNS trigger AS $fn$
+        BEGIN
+            BEGIN
+                PERFORM sylvex_ensure_telegram_account(NEW.telegram_id);
+            EXCEPTION WHEN OTHERS THEN
+                RAISE WARNING 'sylvex_ensure_telegram_account(%) failed: %', NEW.telegram_id, SQLERRM;
+            END;
+            RETURN NEW;
+        END
+        $fn$ LANGUAGE plpgsql
+    """)
+
+
+def _ensure_telegram_account_trigger(database_url):
+    """AFTER INSERT trigger on `users` (shared with the Telegram bot, which
+    writes it directly) so every new Telegram user gets a SYLVEX ID no
+    matter which service created them. Created once; the existence check
+    avoids taking a lock on `users` on every start, and a short
+    lock_timeout means a busy table only postpones it to the next start."""
+    conn = db_connect(database_url)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT to_regclass('users')")
+        if cur.fetchone()[0] is None:
+            return
+        cur.execute("SELECT 1 FROM pg_trigger WHERE tgname = 'sylvex_users_ensure_account' AND NOT tgisinternal")
+        if cur.fetchone():
+            return
+        cur.execute("SET LOCAL lock_timeout = '3s'")
+        cur.execute(
+            "CREATE TRIGGER sylvex_users_ensure_account AFTER INSERT ON users "
+            "FOR EACH ROW EXECUTE FUNCTION sylvex_users_ensure_account_trg()"
+        )
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        print(f"SYLVEX_ID_TRIGGER_DEFERRED: {type(exc).__name__}: {exc}")
+    finally:
+        cur.close()
+        conn.close()
 
 
 def _telegram_id_columns(cur):
@@ -263,6 +413,8 @@ def _telegram_id_columns(cur):
 SYLVEX_ID_PROJECT_COMPONENT = "0626"
 SYLVEX_ID_INITIAL_SERIES = 11
 SYLVEX_ID_SERIES_CAPACITY = 9999
+# Reserved CC for Telegram-origin accounts (no email to derive CC from).
+SYLVEX_ID_TELEGRAM_CC = 99
 
 
 def _email_id_code(email):
@@ -301,6 +453,65 @@ def allocate_sylvex_user_id(cur, email):
     return int(f"{series:02d}{SYLVEX_ID_PROJECT_COMPONENT}{cc:02d}{number:04d}")
 
 
+def allocate_telegram_sylvex_user_id(cur):
+    """The one canonical allocator for a Telegram-origin SYLVEX ID
+    (SS 0626 99 NNNN). Lives in SQL (sylvex_allocate_telegram_account_id)
+    because the users trigger allocates too; Python only calls it."""
+    cur.execute("SELECT sylvex_allocate_telegram_account_id()")
+    return int(cur.fetchone()[0])
+
+
+def ensure_telegram_account(cur, telegram_id):
+    """SYLVEX ID for a real Telegram id, creating its Telegram-origin row
+    if it has none. Idempotent. None for storage keys and invalid ids."""
+    if real_telegram_id(telegram_id) is None:
+        return None
+    cur.execute("SELECT sylvex_ensure_telegram_account(%s)", (int(telegram_id),))
+    row = cur.fetchone()
+    return int(row[0]) if row and row[0] is not None else None
+
+
+def backfill_telegram_accounts(cur, batch_size=500):
+    """Gives one batch of Telegram-only users (a real users.telegram_id with
+    no sylvex_accounts row) their SYLVEX ID. Returns how many were created;
+    0 means done. Ordered by telegram_id so reruns are deterministic. The
+    candidate ids are picked first (CTE), so the sequence is only advanced
+    for rows actually inserted."""
+    cur.execute(
+        """
+        WITH todo AS (
+            SELECT u.telegram_id FROM users u
+            WHERE u.telegram_id > 0 AND u.telegram_id < %s
+              AND NOT EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.active_telegram_id = u.telegram_id)
+              AND NOT EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.merged_telegram_id = u.telegram_id
+                              AND a.origin = 'telegram')
+            ORDER BY u.telegram_id
+            LIMIT %s
+        )
+        INSERT INTO sylvex_accounts (account_id, active_telegram_id, origin)
+        SELECT sylvex_allocate_telegram_account_id(), todo.telegram_id, 'telegram' FROM todo
+        ON CONFLICT (active_telegram_id) DO NOTHING
+        RETURNING account_id
+        """,
+        (STORAGE_ID_FLOOR, int(batch_size)),
+    )
+    return len(cur.fetchall())
+
+
+def count_telegram_accounts_missing(cur):
+    cur.execute(
+        """
+        SELECT COUNT(*) FROM users u
+        WHERE u.telegram_id > 0 AND u.telegram_id < %s
+          AND NOT EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.active_telegram_id = u.telegram_id)
+          AND NOT EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.merged_telegram_id = u.telegram_id
+                          AND a.origin = 'telegram')
+        """,
+        (STORAGE_ID_FLOOR,),
+    )
+    return int(cur.fetchone()[0])
+
+
 # ---------------------------------------------------------------------------
 # Registration / login (email+password)
 # ---------------------------------------------------------------------------
@@ -313,7 +524,10 @@ def _new_web_account(cur, display_name, email_hint=None):
     cur.execute("SELECT nextval('sylvex_web_storage_seq')")
     storage_id = int(cur.fetchone()[0])
     first_name = (display_name or (email_hint or "").split("@")[0] or "SYLVEX User").strip()[:64] or "SYLVEX User"
-    cur.execute("INSERT INTO sylvex_accounts (account_id, active_telegram_id) VALUES (%s, %s)", (account_id, storage_id))
+    cur.execute(
+        "INSERT INTO sylvex_accounts (account_id, active_telegram_id, origin, storage_telegram_id) VALUES (%s, %s, 'website', %s)",
+        (account_id, storage_id, storage_id),
+    )
     cur.execute(
         "INSERT INTO users (telegram_id, first_name, balance, subscription, created_at) VALUES (%s, %s, 0, NULL, NOW()::text)",
         (storage_id, first_name),
@@ -450,7 +664,8 @@ def login_via_telegram_widget(database_url, real_telegram_id):
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s AND merged_at IS NOT NULL",
+            "SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s AND merged_at IS NOT NULL "
+            "AND origin = 'website'",
             (real_telegram_id,),
         )
         row = cur.fetchone()
@@ -511,7 +726,7 @@ def get_account_summary(database_url, account_id):
         conn.close()
         print("SESSION_ME_TIMING:", {"stage": "get_account_summary.release", "ms": round((time.monotonic() - release_start) * 1000), "account_id": account_id})
     return {
-        "active_telegram_id": int(acc[0]),
+        "active_telegram_id": int(acc[0]) if acc[0] is not None else None,
         "telegram_connected": acc[2] is not None,
         "telegram_username": None,
         "merged_at": acc[2].isoformat() if acc[2] else None,
@@ -729,10 +944,24 @@ def delete_account(database_url, account_id, password=None):
         row = cur.fetchone()
         if row and row[0] and not verify_password(password or "", row[0]):
             raise AccountError("incorrect_current_password", 401)
+        cur.execute("SELECT active_telegram_id FROM sylvex_accounts WHERE account_id = %s", (account_id,))
+        active_row = cur.fetchone()
+        linked_telegram_id = real_telegram_id(active_row[0]) if active_row else None
         cur.execute("DELETE FROM account_link_codes WHERE account_id = %s", (account_id,))
         cur.execute("DELETE FROM account_oauth WHERE account_id = %s", (account_id,))
         cur.execute("DELETE FROM account_emails WHERE account_id = %s", (account_id,))
         cur.execute("DELETE FROM sylvex_accounts WHERE account_id = %s", (account_id,))
+        if linked_telegram_id is not None:
+            # The Telegram user keeps using the bot/Mini App; they keep (or
+            # get back) a SYLVEX ID of their own. Their old Telegram-origin
+            # ID is reactivated if this account had absorbed one.
+            cur.execute(
+                "UPDATE sylvex_accounts SET active_telegram_id = %s, merged_into_account_id = NULL, merged_at = NULL "
+                "WHERE account_id = (SELECT account_id FROM sylvex_accounts WHERE merged_into_account_id = %s "
+                "AND origin = 'telegram' AND merged_telegram_id = %s ORDER BY account_id LIMIT 1)",
+                (linked_telegram_id, account_id, linked_telegram_id),
+            )
+            ensure_telegram_account(cur, linked_telegram_id)
         conn.commit()
     except AccountError:
         conn.rollback()
@@ -852,7 +1081,12 @@ def preview_merge(database_url, account_id, real_telegram_id):
             return {"status": "already_linked"}
         if merged_at is not None:
             return {"status": "conflict"}
-        cur.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s", (real_telegram_id,))
+        # A Telegram-origin identity row is not a conflict: it is retired
+        # into an alias by the merge itself (see _do_merge).
+        cur.execute(
+            "SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s AND origin <> 'telegram'",
+            (real_telegram_id,),
+        )
         if cur.fetchone():
             return {"status": "conflict"}
         cur.execute("SELECT COALESCE(balance, 0) FROM users WHERE telegram_id = %s", (storage_id,))
@@ -919,7 +1153,10 @@ def _do_merge(database_url, account_id, real_telegram_id, username, first_name, 
             return {"status": "already_linked", "telegram_id": real_telegram_id}
         if merged_at is not None:
             raise AccountError("account_already_merged", 409)
-        cur.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s", (real_telegram_id,))
+        cur.execute(
+            "SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s AND origin <> 'telegram'",
+            (real_telegram_id,),
+        )
         if cur.fetchone():
             raise AccountError("telegram_already_linked", 409)
 
@@ -953,9 +1190,20 @@ def _do_merge(database_url, account_id, real_telegram_id, username, first_name, 
             "UPDATE users SET username = COALESCE(%s, username), first_name = COALESCE(%s, first_name) WHERE telegram_id = %s",
             (username, first_name, real_telegram_id),
         )
+        # The Telegram user's own SYLVEX ID (if any - the users INSERT above
+        # may just have created it) becomes a permanent alias of this
+        # account. It must release active_telegram_id first: that column is
+        # unique and the website account takes it over just below.
         cur.execute(
-            "UPDATE sylvex_accounts SET active_telegram_id = %s, merged_telegram_id = %s, merged_at = NOW() WHERE account_id = %s",
-            (real_telegram_id, real_telegram_id, account_id),
+            "UPDATE sylvex_accounts SET active_telegram_id = NULL, merged_telegram_id = %s, "
+            "merged_into_account_id = %s, merged_at = NOW() "
+            "WHERE active_telegram_id = %s AND origin = 'telegram'",
+            (real_telegram_id, account_id, real_telegram_id),
+        )
+        cur.execute(
+            "UPDATE sylvex_accounts SET active_telegram_id = %s, merged_telegram_id = %s, merged_at = NOW(), "
+            "storage_telegram_id = COALESCE(storage_telegram_id, %s) WHERE account_id = %s",
+            (real_telegram_id, real_telegram_id, storage_id, account_id),
         )
         conn.commit()
     except pg_errors.UniqueViolation:
@@ -1084,13 +1332,17 @@ def get_link_status_for_telegram(database_url, real_telegram_id):
     conn = db_connect(database_url)
     cur = conn.cursor()
     try:
-        cur.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s", (real_telegram_id,))
+        cur.execute("SELECT account_id, origin FROM sylvex_accounts WHERE active_telegram_id = %s", (real_telegram_id,))
         row = cur.fetchone()
     finally:
         cur.close()
         conn.close()
     if not row:
-        return {"connected": False}
+        return {"connected": False, "sylvex_user_id": None}
+    if row[1] == "telegram":
+        # Identity only - no website login is linked yet.
+        return {"connected": False, "sylvex_user_id": str(row[0])}
     account_id = int(row[0])
     summary = get_account_summary(database_url, account_id) or {}
-    return {"connected": True, "account_id": account_id, "email": summary.get("email"), "email_verified": summary.get("email_verified", False)}
+    return {"connected": True, "account_id": account_id, "sylvex_user_id": str(account_id),
+            "email": summary.get("email"), "email_verified": summary.get("email_verified", False)}
