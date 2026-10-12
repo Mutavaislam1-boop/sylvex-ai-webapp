@@ -1,6 +1,6 @@
 """Store purchase orders: the server-side record of what a Mini App payment
-buys, shared by the webapp (creates orders, finalizes Crypto Pay) and the
-polling Telegram bot (validates and finalizes Telegram Stars payments).
+buys, shared by the webapp (creates orders, finalizes Crypto Pay and Stripe) and
+the polling Telegram bot (validates and finalizes Telegram Stars payments).
 
 Keep this file byte-identical in sylvex-ai-webapp/services/shop_orders.py
 and sylvex-ai-bot/app/database/shop_orders.py. It depends only on a DB-API
@@ -155,6 +155,9 @@ def _amount_matches(order, currency, amount):
         except (TypeError, ValueError):
             return False
         return currency == "USDT" and cents == int(order["usd_cents"])
+    if order["provider"] == "stripe":
+        # Stripe reports amounts as integer minor units (cents).
+        return str(currency).upper() == "USD" and str(amount).isdigit() and int(amount) == int(order["usd_cents"])
     return False
 
 
