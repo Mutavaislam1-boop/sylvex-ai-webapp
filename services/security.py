@@ -19,6 +19,8 @@ actor_id = contextvars.ContextVar('sylvex_actor_id', default=0)
 actor_init_data = contextvars.ContextVar('sylvex_init_data', default='')
 PUBLIC_GETS = frozenset({
  '/health/live', '/health/ready', '/api/public/config', '/api/payment-links',
+ # Stripe deployment check (mode, webhook readiness, catalog sync counts; no secrets).
+ '/api/public/payments/stripe/status',
  '/api/public/prostudio/preset-catalog', '/api/public/prostudio/voice-avatars',
  '/api/public/prostudio/image-capabilities', '/api/public/prostudio/model-capabilities', '/api/public/prostudio/video-templates',
  '/api/public/prostudio/photo-catalog', '/api/public/prostudio/photo-tool-demos',
@@ -69,7 +71,7 @@ PUBLIC_POSTS = frozenset({
  '/api/internal/telegram-media',
 })
 MULTIPART_ROUTES = frozenset({'/api/internal/telegram-media','/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
-WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook'})
+WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook','/api/public/payments/stripe/webhook'})
 # Routes whose own handler resolves the real authenticated user id itself
 # (after subscription state is known, for /assistant/message) and calls
 # check_request_quota exactly once with it. The generic per-request
