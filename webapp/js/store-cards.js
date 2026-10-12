@@ -78,6 +78,8 @@
     store_per_month: '/ mo',
     store_billed_monthly: 'One month · no auto-renewal',
     store_billed_annually: '{total} for 12 months · save {pct}%',
+    store_billed_monthly_auto: 'Billed monthly · cancel anytime',
+    store_billed_annually_auto: '{total} billed yearly · save {pct}% · cancel anytime',
     store_credits_monthly: 'Every paid month',
     store_credits_annual: 'Full annual allocation upfront',
     store_examples_title: 'What you can create',
@@ -255,6 +257,9 @@
     var state = planState.get(container) || { periods: {} };
     planState.set(container, state);
     var isAvailable = opts.isPlanAvailable || function () { return false; };
+    // Only a host whose payment provider renews plans automatically (the
+    // Website's Stripe Checkout) says so; otherwise plans are one-off terms.
+    var autoRenew = opts.renewal === 'auto';
     var examples = resolveExamples(opts.examples);
 
     function planCard(plan) {
@@ -262,8 +267,8 @@
       var price = planPricing(plan, period);
       var available = !!isAvailable(plan.id, period);
       var note = period === 'year'
-        ? tr('store_billed_annually', { total: fmt.usd(price.totalUsd, 0), pct: price.discountPct })
-        : tr('store_billed_monthly');
+        ? tr(autoRenew ? 'store_billed_annually_auto' : 'store_billed_annually', { total: fmt.usd(price.totalUsd, 0), pct: price.discountPct })
+        : tr(autoRenew ? 'store_billed_monthly_auto' : 'store_billed_monthly');
       return '<article class="sxs-card sxs-plan' + (plan.popular ? ' is-popular' : '') + '" data-plan="' + plan.id + '">' +
         '<div class="sxs-plan-head"><h3 class="sxs-plan-name">' + escapeHtml(plan.name) + '</h3>' +
           (plan.popular ? '<span class="sxs-badge">' + escapeHtml(tr('store_popular')) + '</span>' : '') + '</div>' +

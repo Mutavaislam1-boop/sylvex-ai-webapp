@@ -36,6 +36,9 @@ CRYPTO_MAX_CENTS = int(round(float(os.getenv("CRYPTO_MAX_USD", "1000")) * 100))
 PROVIDER_STARS = "telegram_stars"
 PROVIDER_CRYPTO = "crypto_pay"
 PROVIDERS = (PROVIDER_STARS, PROVIDER_CRYPTO)
+# Website-only card payments (services/stripe_billing.py). Not offered in
+# the Telegram Mini App: Telegram requires Stars for digital goods there.
+PROVIDER_STRIPE = "stripe"
 
 # id, display name, monthly USD, annual USD, monthly credits. Annual plans
 # grant 12 x the monthly credits once, on the confirmed payment.
