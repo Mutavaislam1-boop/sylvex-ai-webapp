@@ -488,20 +488,23 @@ def upsert_subscription(connect, subscription_id, telegram_id, plan_key, order_i
     return get_subscription(connect, subscription_id)
 
 
-def has_live_subscription(connect, telegram_id: int) -> bool:
-    """A Stripe plan that will bill again. One already set to cancel at the
-    period end does not count, so a user can switch plans after cancelling."""
+def has_live_subscription(connect, telegram_id: int, livemode: bool) -> bool:
+    """A Stripe plan in this mode (test or live) that will bill again. One
+    already set to cancel at the period end does not count, so a user can
+    switch plans after cancelling. Test-mode records never affect live mode."""
     row = _run(connect, """
         SELECT 1 FROM stripe_subscriptions
-         WHERE telegram_id = %s AND status = ANY(%s) AND NOT cancel_at_period_end LIMIT 1
-    """, (int(telegram_id), list(LIVE_SUBSCRIPTION_STATUSES)), fetch="one")
+         WHERE telegram_id = %s AND livemode = %s AND status = ANY(%s) AND NOT cancel_at_period_end LIMIT 1
+    """, (int(telegram_id), bool(livemode), list(LIVE_SUBSCRIPTION_STATUSES)), fetch="one")
     return bool(row)
 
 
-def renews_automatically_sql(alias: str = "s") -> str:
+def renews_automatically_sql(alias: str = "s", livemode: bool = True) -> str:
     """SQL condition: this subscriptions row is kept alive by a Stripe
-    subscription that will renew (used to skip "renew manually" reminders)."""
+    subscription in this mode that will renew (used to skip "renew
+    manually" reminders)."""
     return (f"EXISTS (SELECT 1 FROM stripe_subscriptions ss WHERE ss.telegram_id = {alias}.telegram_id "
+            f"AND ss.livemode = {'TRUE' if livemode else 'FALSE'} "
             f"AND ss.status IN ('active', 'trialing') AND NOT ss.cancel_at_period_end)")
 
 

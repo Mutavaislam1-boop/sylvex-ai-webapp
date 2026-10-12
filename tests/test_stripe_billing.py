@@ -319,7 +319,7 @@ def subscription_invoice(sub_id, invoice_id, amount, reason, start, end, shape="
 
 
 def stripe_subscription(fake, sub_id, order, status="active", period_end=None):
-    fake.subscriptions[sub_id] = {"id": sub_id, "object": "subscription", "status": status, "customer": "cus_9",
+    fake.subscriptions[sub_id] = {"id": sub_id, "object": "subscription", "status": status, "customer": "cus_9", "livemode": False,
                                   "cancel_at_period_end": False, "current_period_end": period_end,
                                   "metadata": {"sylvex_order_id": order["order_id"], "sylvex_plan_key": order["plan_key"]}}
     return fake.subscriptions[sub_id]
@@ -422,7 +422,7 @@ def test_failed_payment_and_cancellation_keep_paid_access(db):
     assert out["outcome"] == "subscription_canceled"
     assert db.query("SELECT status FROM stripe_subscriptions WHERE subscription_id = 'sub_5'") == [("canceled",)]
     assert len(active_rows(db)) == 1 and balance(db) == 50 + 1000
-    assert not sb.has_live_subscription(db.connect, UID)
+    assert not sb.has_live_subscription(db.connect, UID, False)
 
 
 def test_cancel_at_period_end_and_reminder_exclusion(db):
@@ -431,13 +431,13 @@ def test_cancel_at_period_end_and_reminder_exclusion(db):
     stripe_subscription(fake, "sub_6", order)
     now = int(time.time())
     sb.handle_event(db.connect, client_for(fake), event("invoice.paid", subscription_invoice("sub_6", "in_h", 1000, "subscription_create", now, now + 30 * 86400)), finalizer(db))
-    assert sb.has_live_subscription(db.connect, UID)
-    sql = "SELECT COUNT(*) FROM subscriptions s WHERE " + sb.renews_automatically_sql("s")
+    assert sb.has_live_subscription(db.connect, UID, False)
+    sql = "SELECT COUNT(*) FROM subscriptions s WHERE " + sb.renews_automatically_sql("s", False)
     assert db.query(sql) == [(1,)]
     updated = dict(fake.subscriptions["sub_6"], cancel_at_period_end=True)
     sb.handle_event(db.connect, client_for(fake), event("customer.subscription.updated", updated), finalizer(db))
     assert db.query(sql) == [(0,)]  # a cancelled-at-period-end plan gets reminders again
-    assert not sb.has_live_subscription(db.connect, UID)  # so a new plan may be bought
+    assert not sb.has_live_subscription(db.connect, UID, False)  # so a new plan may be bought
 
 
 def test_events_for_other_subscriptions_are_ignored(db):
@@ -539,7 +539,10 @@ def test_checkout_endpoint_refusals(app, db, monkeypatch):
     assert checkout({"product_id": "pack_999"})[1]["error"] == "unknown_product"
     assert checkout({"product_id": "credits_custom", "usd": "1000.01"})[1]["error"] == "amount_out_of_range"
     assert checkout({"product_id": "credits_custom", "usd": "0.5"})[0] == 400
-    sb.upsert_subscription(db.connect, "sub_live", UID, "pro_month", None, "cus_1", "active")
+    # A live-mode subscription never blocks test mode (and vice versa).
+    sb.upsert_subscription(db.connect, "sub_livemode", UID, "pro_month", None, "cus_live", "active", livemode=True)
+    assert checkout({"product_id": "plan_max_month"})[0] == 200
+    sb.upsert_subscription(db.connect, "sub_live", UID, "pro_month", None, "cus_1", "active", livemode=False)
     status, body = checkout({"product_id": "plan_max_month"})
     assert status == 409 and body["error"] == "stripe_subscription_active"
     assert checkout({"product_id": "pack_500"})[0] == 200  # credits are still allowed
@@ -706,3 +709,24 @@ def test_test_clocks_attach_new_customers_in_test_mode_only(app, db, monkeypatch
     monkeypatch.setattr(main, "STRIPE_SECRET_KEY", "sk_live_fake")
     status, body = body_of(run(main.public_stripe_checkout(FakeRequest({"telegram_id": OTHER, "product_id": "pack_500"}))))
     assert status == 200 and not getattr(live, "test_clocks", None)
+
+
+def test_test_mode_records_never_affect_live_mode(db):
+    # Simulates the temporary Test Mode verification on production data:
+    # a test subscription, customer and catalog stay invisible to live mode.
+    sb.upsert_subscription(db.connect, "sub_test_1", UID, "pro_month", None, "cus_test", "active", livemode=False)
+    sb.save_customer(db.connect, UID, "cus_test", False)
+    sb.save_catalog(db.connect, sb.sync_catalog(client_for(FakeStripe())), False)
+    assert sb.has_live_subscription(db.connect, UID, False)
+    assert not sb.has_live_subscription(db.connect, UID, True)
+    assert sb.get_customer(db.connect, UID, True) is None
+    assert sb.load_catalog(db.connect, True) == {}
+    conn = db.connect()
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, expires_at, status, charge_id) "
+                    "VALUES (%s, 'pro_month', 'stripe', NOW() + INTERVAL '5 days', 'active', 'in_test_1')", (UID,))
+    conn.commit()
+    conn.close()
+    count = "SELECT COUNT(*) FROM subscriptions s WHERE " 
+    assert db.query(count + sb.renews_automatically_sql("s", False)) == [(1,)]
+    assert db.query(count + sb.renews_automatically_sql("s", True)) == [(0,)]  # live reminders unaffected

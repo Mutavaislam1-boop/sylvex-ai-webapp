@@ -12187,7 +12187,7 @@ def ensure_stripe_catalog(force: bool = False) -> dict:
 
 def create_stripe_checkout(telegram_id: int, product: dict) -> dict:
     ensure_stripe_tables()
-    if product["kind"] == "subscription" and stripe_billing.has_live_subscription(shop_db, telegram_id):
+    if product["kind"] == "subscription" and stripe_billing.has_live_subscription(shop_db, telegram_id, stripe_client().livemode):
         raise StripeCheckoutRefused("stripe_subscription_active")
     mapping = ensure_stripe_catalog()
     order = shop_orders.create_order(shop_db, telegram_id, product, shop_catalog.PROVIDER_STRIPE,
@@ -22995,7 +22995,8 @@ def process_subscription_reminders() -> dict:
               AND s.expires_at::timestamp > NOW()
               AND s.expires_at::timestamp <= NOW() + INTERVAL '8 days'
               -- A Stripe plan that renews automatically needs no reminder.
-              AND NOT """ + stripe_billing.renews_automatically_sql("s") + """
+              AND NOT """ + stripe_billing.renews_automatically_sql(
+                  "s", stripe_billing.key_livemode(STRIPE_SECRET_KEY) if STRIPE_SECRET_KEY else True) + """
               AND NOT EXISTS (
                   SELECT 1
                   FROM subscriptions newer
