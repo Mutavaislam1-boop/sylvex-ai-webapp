@@ -3,21 +3,62 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const source=readFileSync(new URL('../webapp/js/cabinet.js',import.meta.url),'utf8');
+const sketchSource=readFileSync(new URL('../webapp/js/edit-sketch.js',import.meta.url),'utf8');
 const block=source.slice(source.indexOf('function createEditWorkspaceState'),source.indexOf('\nasync function generateQuickImageDetail',source.indexOf('function createEditWorkspaceState')));
 function harness(){
   const requests=[],messages=[],revoked=[];let rejectUpload=false;
-  const context=vm.createContext({console,setTimeout,clearTimeout,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
+  const context=vm.createContext({console,setTimeout,clearTimeout,File,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
     Image:class{naturalWidth=1200;naturalHeight=800;set src(value){queueMicrotask(()=>this.onload());}},
     document:{querySelector:()=>null,getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
     toast:m=>messages.push(m),updateComposerMode(){},callGenerate:async (...args)=>{requests.push(args);return {images:['https://cdn.example/result.png']};},
     uploadProStudioMediaFile:async ()=>{if(rejectUpload)throw new Error('upload failed');return 'https://cdn.example/new.png';},
     activeGenerationPlaceholderIndex:()=>-1,generatedUrlsFromResponse:r=>r.images,generatedThumbsFromResponse:()=>[],addGeneratedImages(){},imageGenerationMetadata:()=>({}),loadConversations(){},chatMessages:[],resolveFailureMessage:e=>({error:e.message}),translateGenerationError:e=>e.message,clearActiveProStudioJob(){},renderChat(){},rememberCurrentChatSpace(){},
   });
+  vm.runInContext(sketchSource,context);
   vm.runInContext(block+'\nconst editWorkspaceState=createEditWorkspaceState();renderEditWorkspace=()=>{};drawEditWorkspaceMask=()=>{};updateEditWorkspaceReady=()=>{};this.state=editWorkspaceState;',context);
   Object.assign(context.state,{sourceUrl:'https://cdn.example/source.png',sourcePreview:'https://cdn.example/source.png',width:1200,height:800,prompt:'Turn blue'});
   return {context,state:context.state,requests,messages,revoked,failUpload:()=>{rejectUpload=true;}};
 }
 test('mode-specific prompts persist independently',()=>{const h=harness();h.context.setEditWorkspaceMode(null,'translate');assert.equal(h.state.prompt,'');h.context.setEditWorkspaceMode(null,'edit');assert.equal(h.state.prompt,'Turn blue');});
+function sketchHarness(){
+ const h=harness();Object.assign(h.state,{sourceUrl:'',sourcePreview:'',width:0,height:0});h.context.setEditWorkspaceMode(null,'sketch');
+ h.state.sketch.items=[{type:'pen',x:30,y:40,size:6,color:'#112233',fill:'#ffffff',opacity:1,sx:1,sy:1,rotation:0,points:[[0,0,.5],[20,30,.8]]}];
+ h.context.SYLVEXSketch.exportPNG=async()=>new Blob(['test PNG'],{type:'image/png'});
+ return h;
+}
+test('Sketch works without a photo, uploads its PNG as the isolated source and retains the editable drawing',async()=>{
+ const h=sketchHarness(),draft=JSON.stringify(h.state.sketch.items),uploads=[];
+ h.context.uploadProStudioMediaFile=async(file,type)=>{uploads.push({file,type});return 'https://cdn.example/sketch.png';};
+ h.context.updateEditWorkspacePrompt({currentTarget:{value:'A realistic mountain landscape'}});
+ assert.equal(h.context.editWorkspaceValidation(),'');await h.context.generateEditWorkspace();
+ assert.equal(uploads.length,1);assert.equal(uploads[0].file.type,'image/png');assert.equal(uploads[0].type,'image');
+ assert.equal(h.requests[0][2][0],'https://cdn.example/sketch.png');assert.equal(h.requests[0][4].imageOptions.editWorkspaceMode,'sketch');
+ assert.equal(h.requests[0][4].imageOptions.editWorkspacePrompt,'A realistic mountain landscape');
+ assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[0].mode,'sketch-source');assert.equal(h.state.chain[1].parentId,h.state.chain[0].id);
+ assert.equal(JSON.stringify(h.state.sketch.items),draft);assert.equal(h.state.sketch.editing,false);
+ h.context.setEditWorkspaceMode(null,'lighting');h.context.setEditWorkspaceDimensions(1024,1024);await h.context.generateEditWorkspace();
+ assert.equal(h.requests[1][2][0],'https://cdn.example/result.png');assert.equal(h.state.chain.length,3);
+});
+test('Sketch upload and generation failures keep the draft, retries reuse a single immutable source and result slot',async()=>{
+ const h=sketchHarness();h.failUpload();await h.context.generateEditWorkspace();
+ assert.equal(h.requests.length,0);assert.equal(h.state.chain.length,0);assert.equal(h.state.uploading,false);assert.equal(h.state.sketch.editing,true);
+ let uploads=0;h.context.uploadProStudioMediaFile=async()=>{uploads++;return 'https://cdn.example/sketch.png';};h.context.callGenerate=async()=>{throw new Error('provider failed');};
+ await h.context.generateEditWorkspace();assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1].status,'failed');
+ h.context.callGenerate=async(...args)=>{h.requests.push(args);return {images:['https://cdn.example/photo.png']};};
+ await h.context.generateEditWorkspace();assert.equal(uploads,1);assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1].status,'ready');
+ const source=h.state.chain[0];h.state.sketch.items[0].color='#ff0000';h.state.sketch.revision++;
+ await h.context.generateEditWorkspace();assert.equal(uploads,2);assert.equal(h.state.chain.length,4);assert.equal(h.state.chain[2].parentId,source.id);assert.equal(source.url,'https://cdn.example/sketch.png');
+ assert.equal(h.state.chain[3].parentId,h.state.chain[2].id);
+});
+test('Sketch locks duplicate Generate during PNG preparation and restores drawing-only sessions',async()=>{
+ const h=sketchHarness();let finish;h.context.SYLVEXSketch.exportPNG=()=>new Promise(resolve=>{finish=resolve;});
+ const pending=h.context.generateEditWorkspace();assert.equal(h.state.uploading,true);await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);
+ finish(new Blob(['PNG'],{type:'image/png'}));await pending;assert.equal(h.requests.length,1);
+ const fresh=sketchHarness(),saved=fresh.context.editSessionSnapshot();assert.equal(saved.chain.length,0);assert.equal(fresh.context.editWorkspaceHasContent(saved),true);
+ fresh.context.restoreEditSessionState(saved);assert.equal(fresh.state.sketch.items.length,1);assert.equal(fresh.state.mode,'sketch');
+ fresh.state.sketch.items=[];assert.match(fresh.context.editWorkspaceValidation(),/Draw something/);
+ assert.equal(fresh.context.editWorkspaceHasContent(fresh.state),true,'clearing a saved draft must persist the empty drawing');
+});
 test('Background modes isolate drafts and custom backdrop from other image tools',async()=>{
  for(const mode of ['transparent','replace','color','image']){
   const h=harness();h.state.mode='background';h.state.prompt='A beach at sunset';

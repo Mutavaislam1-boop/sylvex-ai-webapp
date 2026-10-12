@@ -6743,7 +6743,7 @@ function createEditWorkspaceState() {
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:0,right:0,top:0,bottom:0},
     backgroundMode:'transparent',background:{color:'#ffffff',url:'',name:''},translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
-    upscaleEstimate:null,
+    upscaleEstimate:null,sketch:null,
     upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
 }
 let editSessionsOwner='',editSessions=[],editSessionsHasMore=false,editSessionsOffset=0,editSessionSaveTimer=0,editSessionSaveQueue=Promise.resolve(),editSessionSyncStatus='',editSessionOpenVersion=0,editSessionPagehideBound=false,editSessionRevision=0,editSessionLocalAvailable=true;
@@ -6778,12 +6778,12 @@ function renderEditSessionList(){
   const newButton=document.getElementById('editSidebarNew');if(newButton)newButton.disabled=editWorkspaceLocked();
 }
 function scheduleEditWorkspaceSave(){
-  if(!editSessionOwner()||!editWorkspaceState.chain.length)return;
+  if(!editSessionOwner()||!editWorkspaceHasContent(editWorkspaceState))return;
   clearTimeout(editSessionSaveTimer);editSessionSaveTimer=setTimeout(()=>{void saveEditWorkspaceSession();},650);
 }
 function saveEditWorkspaceSession(){
   clearTimeout(editSessionSaveTimer);
-  const owner=editSessionOwner();if(!owner||!editWorkspaceState.chain.length)return Promise.resolve();
+  const owner=editSessionOwner();if(!owner||!editWorkspaceHasContent(editWorkspaceState))return Promise.resolve();
   if(editSessionsOwner!==owner)return Promise.resolve();
   editWorkspaceState.updatedAt=new Date().toISOString();editWorkspaceState.saveRevision=++editSessionRevision;
   const state=editSessionSnapshot();editSessionLocalStates.set(state.sessionId,{...state,localUnsynced:true});
@@ -6814,9 +6814,9 @@ async function loadEditSessionHistory(more=false){
     editSessionsOwner=owner;editSessions=[];editSessionLocalStates.clear();editSessionsOffset=0;
     try{
       const saved=JSON.parse(localStorage.getItem('sylvex-edit-sessions-v1:'+owner)||'null');
-      (saved?.states||[]).forEach(state=>{if(state?.sessionId&&Array.isArray(state.chain)&&state.chain.length)editSessionLocalStates.set(state.sessionId,state);});
+      (saved?.states||[]).forEach(state=>{if(state?.sessionId&&Array.isArray(state.chain)&&editWorkspaceHasContent(state))editSessionLocalStates.set(state.sessionId,state);});
       editSessions=[...editSessionLocalStates.values()].map(editSessionSummary).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
-      if(!editWorkspaceState.chain.length&&editSessionLocalStates.has(saved?.active)){restoreEditSessionState(editSessionLocalStates.get(saved.active));restoredId=saved.active;}
+      if(!editWorkspaceHasContent(editWorkspaceState)&&editSessionLocalStates.has(saved?.active)){restoreEditSessionState(editSessionLocalStates.get(saved.active));restoredId=saved.active;}
     }catch(_){}
   }
   if(restoredId){renderEditWorkspace();void openEditSession(restoredId,true);}
@@ -6837,6 +6837,7 @@ function restoreEditSessionState(saved){
   Object.assign(editWorkspaceState,fresh,JSON.parse(JSON.stringify(saved)),{busy:false,uploading:false,upscaleEstimate:null,viewNeedsFit:false});
   delete editWorkspaceState.localUnsynced;
   editWorkspaceState.background={...fresh.background,...saved.background};
+  editWorkspaceState.sketch=saved.sketch&&typeof SYLVEXSketch!=='undefined'?SYLVEXSketch.restore(saved.sketch):null;
   // Blob previews never survive a WebView restart; durable URLs do.
   editWorkspaceState.chain.forEach(node=>{node.preview=node.url||'';});
   editWorkspaceState.sourcePreview=editWorkspaceState.sourceUrl;
@@ -6854,11 +6855,12 @@ async function openEditSession(id,refresh=false){
     if(!state?.localUnsynced){const response=await fetch('/api/public/prostudio/edit-sessions/'+encodeURIComponent(id),{cache:'no-store'});if(!response.ok)throw new Error();state=(await response.json()).state;}
   }catch(_){if(!state){editWorkspaceToast('Could not open the workspace. Please try again.');return;}}
   if(owner!==editSessionsOwner||owner!==editSessionOwner()||version!==editSessionOpenVersion||editWorkspaceLocked())return;
-  if(!state?.chain?.length||state.sessionId!==id)return;
+  if(!editWorkspaceHasContent(state)||state.sessionId!==id)return;
   resetEditWorkspaceSurface();restoreEditSessionState(state);editSessionLocalStates.set(id,state);writeEditSessionLocal();renderEditWorkspace();void recoverEditSessionJob();
 }
 function resetEditWorkspaceSurface(){
   const root=document.getElementById('editWorkspace');if(!root)return;
+  root._editSketch?.destroy();root._editSketch=null;
   root._editObserver?.disconnect();root._editExpandCleanup?.();root._editNavigationCleanup?.();root._editStopChainMotion?.();root._cameraOrbit?.destroy();root._lightOrbit?.destroy();
   clearTimeout(root._editRefreshTimer);clearTimeout(root._editAdvanceTimer);root._editAdvance=false;root.innerHTML='';
 }
@@ -6981,6 +6983,7 @@ function stopEditWorkspaceChainMotion(root) {
   root._editChainMotion=null;
 }
 function editWorkspaceChainLabel(node,index) {
+  if(node.mode==='sketch-source')return 'Sketch reference';
   return index===0?'Source reference':index+' · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===node.mode)?.[1]||'Result');
 }
 function syncEditWorkspaceChain(root) {
@@ -7552,6 +7555,12 @@ function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspace
 function editWorkspaceValidation() {
   const s=editWorkspaceState, prompt=s.prompt.trim();
   if(s.uploading)return 'Uploading image…';
+  if(s.mode==='sketch'){
+    if(typeof SYLVEXSketch==='undefined')return 'Drawing tools could not load. Refresh the page to try again.';
+    if(!SYLVEXSketch.hasContent(s.sketch))return 'Draw something before generating.';
+    if(!SYLVEXSketch.validSize(s.sketch.width,s.sketch.height))return 'Use canvas dimensions from 256 to 4096 px.';
+    return '';
+  }
   if(!s.sourceUrl)return 'Upload a source image.';
   if(!s.width||!s.height)return 'Wait for the image to load.';
   if(s.showBefore)return 'Return to the result to continue editing.';
@@ -7663,6 +7672,7 @@ function initEditWorkspaceStage() {
   root.ondrop=e=>{e.preventDefault();root.classList.remove('is-dragging');if(!editWorkspaceLocked())onEditWorkspaceFile({target:{files:e.dataTransfer.files,value:''}});};
   root.onkeydown=e=>{
     if(e.key==='Escape'&&!editWorkspaceLocked()){
+      if(root.dataset.drawing==='true')return;
       if(document.querySelector('.sx-search-overlay:not([hidden]),.sx-account-menu:not([hidden])'))return;
       closeEditWorkspace(e);return;
     }
@@ -7759,6 +7769,7 @@ async function loadEditWorkspaceImage(file) {
     // Archive the complete previous workspace only after a successful upload.
     ++editSessionOpenVersion;void saveEditWorkspaceSession();
     s.sessionId=createEditWorkspaceState().sessionId;
+    s.sketch=null;if(s.mode==='sketch')s.mode='edit';
     const previews=new Set([s.sourcePreview,s.beforeUrl,...s.history.flatMap(item=>[item.sourcePreview,item.beforeUrl]),...s.chain.map(node=>node.preview)]);
     previews.forEach(url=>{if(url.startsWith('blob:'))URL.revokeObjectURL(url);});
     s.history=[];s.chain=[];s.activeNodeId='';s.expand={left:0,right:0,top:0,bottom:0};Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
@@ -7769,7 +7780,7 @@ async function loadEditWorkspaceImage(file) {
 }
 
 const EDIT_WORKSPACE_MODES = [
-  ['edit','Edit'],['retouch','Retouch'],['resize','Resize'],['background','Background'],['expand','Expand'],['upscale','Upscale'],['lighting','Change Lighting'],['camera','Change Camera'],['translate','Translate'],
+  ['edit','Edit'],['sketch','Sketch to Image'],['retouch','Retouch'],['resize','Resize'],['background','Background'],['expand','Expand'],['upscale','Upscale'],['lighting','Change Lighting'],['camera','Change Camera'],['translate','Translate'],
 ];
 function editWorkspaceToast(message) { if (typeof toast === 'function') toast(message); }
 function openEditWorkspace(e) {
@@ -7787,6 +7798,7 @@ function openEditWorkspace(e) {
 }
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  document.getElementById('editWorkspace')?._editSketch?.destroy();
   ++editSessionOpenVersion;void saveEditWorkspaceSession();
   const root=document.getElementById('editWorkspace');if(root){clearTimeout(root._editRefreshTimer);root._editObserver?.disconnect();root._editExpandCleanup?.();root._editNavigationCleanup?.();root._editStopChainMotion?.();clearTimeout(root._editAdvanceTimer);root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root._editSidebarCleanup?.();root.remove();}
   document.body.classList.remove('edit-workspace-open');
@@ -7794,6 +7806,7 @@ function closeEditWorkspace(e) {
 }
 function renderEditWorkspace() {
   const root=document.getElementById('editWorkspace'); if(!root)return;
+  root._editSketch?.destroy();root._editSketch=null;
   mountEditWorkspaceSidebar(root);
   clearTimeout(root._editRefreshTimer);
   if(root._editObserver)root._editObserver.disconnect();
@@ -7802,8 +7815,9 @@ function renderEditWorkspace() {
   root._cameraOrbit?.destroy();
   root._lightOrbit?.destroy();
   const state=editWorkspaceState, mode=state.mode, safe=(v)=>S.escapeHtml(String(v??''));
-  const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
+  const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',sketch:'✎',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
   root.dataset.mode=mode;root.dataset.sidebar=String(state.sidebarOpen);root.dataset.busy=String(editWorkspaceLocked());
+  root.dataset.drawing=String(mode==='sketch'&&!!state.sketch?.editing);
   root.setAttribute('aria-label','Edit image');root.setAttribute('aria-busy',String(editWorkspaceLocked()));
   const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Processing…':state.uploading?'Uploading…':mode==='resize'?'Apply · Free':mode==='upscale'?'Upscale':'Generate')+'</button>';
   const range=(label,key,min,max,step,value,group='camera',unit='°')=>'<label class="edit-workspace-range"><span>'+label+'</span><input '+(group==='camera'?'data-camera-input="'+key+'" ':'')+'aria-label="'+label+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'" oninput="SYLVEX.updateEditWorkspaceRange(event,\''+group+'\',\''+key+'\')"><output data-range-output="'+group+'-'+key+'">'+value+unit+'</output></label>';
@@ -7821,6 +7835,7 @@ function renderEditWorkspace() {
   if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button title="Attach image" onclick="document.getElementById(\'editWorkspaceFile\').click()">⌁</button><span class="edit-workspace-model-label">GPT Image 2.5</span>'+generate+'</div>';
   if(mode==='retouch')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Draw a selection and describe what you want to change" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.brushMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'replace\')">Replace</button><button class="'+(state.brushMode==='erase'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'erase\')">Erase</button><span>✎</span><input type="range" min="4" max="80" value="'+state.brushSize+'" oninput="SYLVEX.updateEditBrushSize(event)"><output id="editBrushSizeOutput">'+state.brushSize+'</output><button data-mask-action="undo" title="Undo stroke" aria-label="Undo stroke" onclick="SYLVEX.clearEditWorkspaceMask(event,true)">↶</button><button data-mask-action="redo" title="Redo stroke" aria-label="Redo stroke" onclick="SYLVEX.redoEditWorkspaceMask(event)">↷</button><button data-mask-action="clear" onclick="SYLVEX.clearEditWorkspaceMask(event)">Clear selection</button>'+generate+'</div>';
   if(mode==='background')action=editBackgroundPanel(generate);
+  if(mode==='sketch')action='<textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Sketch description" placeholder="Describe the scene, materials or lighting (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button type="button" onclick="SYLVEX.toggleEditSketch(event)">'+(state.sketch?.editing?'View results':'Edit drawing')+'</button><span class="edit-workspace-model-label">Sketch → realistic photo</span>'+generate+'</div>';
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action=editExpandPanel(generate);
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
@@ -7832,6 +7847,12 @@ function renderEditWorkspace() {
     Array.from(main.children).filter(el=>!el.classList.contains('edit-workspace-stage')).forEach(el=>el.remove());
     const template=document.createElement('template');template.innerHTML=controls;main.appendChild(template.content);
   }else root.innerHTML='<main class="edit-workspace-main">'+surface+controls+'</main>';
+  if(mode==='sketch'&&state.sketch?.editing){
+    const host=document.createElement('section');host.className='edit-sketch-workbench';root.querySelector('.edit-workspace-main').appendChild(host);
+    if(typeof SYLVEXSketch!=='undefined')root._editSketch=new SYLVEXSketch.Editor(host,state.sketch,updateEditWorkspaceReady,editWorkspaceToast);
+    else host.textContent='Drawing tools could not load. Refresh the page to try again.';
+    host.inert=editWorkspaceLocked();
+  }
   syncEditWorkspaceChain(root);
   root.querySelectorAll('.edit-workspace-stage button').forEach(el=>el.disabled=editWorkspaceLocked());
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
@@ -7839,7 +7860,25 @@ function renderEditWorkspace() {
   if(mode==='upscale')void refreshEditUpscaleEstimate();
 
 }
-function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;renderEditWorkspace()}
+function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;if(mode==='sketch'&&typeof SYLVEXSketch!=='undefined'){s.sketch??=SYLVEXSketch.create();s.sketch.editing=true;if(!s.sourceName)s.sourceName='Sketch drawing';}renderEditWorkspace()}
+function editWorkspaceHasContent(state){return !!(state?.chain?.length||state?.sketch?.version===1);}
+function toggleEditSketch(e){e?.preventDefault();if(editWorkspaceLocked()||!editWorkspaceState.sketch)return;editWorkspaceState.sketch.editing=!editWorkspaceState.sketch.editing;renderEditWorkspace();}
+async function prepareEditSketchReference(){
+  const s=editWorkspaceState,d=s.sketch,session=s.sessionId;
+  let node=s.chain.find(n=>n.id===d.sourceNodeId&&n.mode==='sketch-source'&&n.url);
+  if(!node||d.sourceRevision!==d.revision){
+    s.uploading=true;renderEditWorkspace();
+    try{
+      const blob=await SYLVEXSketch.exportPNG(d),url=await uploadProStudioMediaFile(new File([blob],'sketch.png',{type:'image/png'}),'image');
+      if(s.sessionId!==session)throw new Error('The workspace changed. Please try again.');
+      const size=editWorkspacePreviewSize(d.width,d.height,s.zoom),parentId=node?.id||'',right=s.chain.length?Math.max(...s.chain.map(n=>n.x+n.slotWidth/2)):null;
+      node={id:'edit-node-'+(++s.nodeSequence),parentId,status:'ready',mode:'sketch-source',url,preview:url,jobId:'',width:d.width,height:d.height,x:right===null?0:right+72/(s.zoom/100)+size.slotWidth/2,y:node?.y||0,...size};
+      s.chain.push(node);d.sourceNodeId=node.id;d.sourceRevision=d.revision;
+    }finally{s.uploading=false;}
+  }
+  Object.assign(s,{sourceUrl:node.url,sourcePreview:node.url,activeNodeId:node.id,showBefore:false,maskStrokes:[],maskRedo:[],beforeUrl:'',viewNeedsFit:true});
+  setEditWorkspaceDimensions(d.width,d.height);d.editing=false;
+}
 function setEditCameraPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation()}updateEditCamera({horizontal:h,vertical:v},true);}
 function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}if(group==='light'){updateEditLight({[key]:Number(input.value)});return;}let value=Number(input.value);if(!Number.isFinite(value))return;if(group==='upscale'){if(!['sharpness','denoise','strength','creativity','modelStrength','fixCompression'].includes(key))return;if(['strength','creativity'].includes(key)&&!editWorkspaceState.upscale.faceEnhancement)return;value=Math.round(Math.max(key==='modelStrength'?1:0,Math.min(100,value)));}editWorkspaceState[group][key]=value;updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=value;}
 function updateEditLightColor(e){if(e?.currentTarget)updateEditLight({color:e.currentTarget.value});}
@@ -8028,6 +8067,9 @@ async function generateEditWorkspace(e){
   const state=editWorkspaceState;if(editWorkspaceLocked())return;
   if(state.chain.some(node=>node.status==='pending'&&node.jobId)){void recoverEditSessionJob();return;}
   const reason=editWorkspaceValidation();if(reason)return editWorkspaceToast(reason);
+  if(state.mode==='sketch'){
+    try{await prepareEditSketchReference();}catch(error){editWorkspaceToast(error.message||'Could not prepare the drawing.');renderEditWorkspace();return;}
+  }
   ensureEditWorkspaceChain();
   const before=editWorkspaceSnapshot();state.showBefore=false;const maskCanvas=document.getElementById('editWorkspaceMask'),maskUrl=state.mode==='retouch'&&maskCanvas?maskCanvas.toDataURL('image/png'):'';
   state.busy=true;const chainResult=beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
@@ -26373,6 +26415,7 @@ async function waitGeneration(jobId, options) {
   S.updateEditWorkspacePrompt=updateEditWorkspacePrompt; S.addEditWorkspaceLight=addEditWorkspaceLight; S.onEditWorkspaceFile=onEditWorkspaceFile;
   S.clearEditWorkspaceMask=clearEditWorkspaceMask;S.redoEditWorkspaceMask=redoEditWorkspaceMask;S.undoEditWorkspace=undoEditWorkspace;S.compareEditWorkspace=compareEditWorkspace;
   S.generateEditWorkspace=generateEditWorkspace; S.useEditWorkspaceResult=useEditWorkspaceResult;
+  S.toggleEditSketch=toggleEditSketch;
   S.openReplaceObjectMaskEditor = openReplaceObjectMaskEditor;
   S.closeReplaceObjectMaskEditor = closeReplaceObjectMaskEditor;
   S.undoReplaceObjectMask = undoReplaceObjectMask;
