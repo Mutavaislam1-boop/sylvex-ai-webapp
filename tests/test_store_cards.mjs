@@ -190,3 +190,23 @@ test('host text is escaped', () => {
   assert.doesNotMatch(container.innerHTML, /<img/);
   assert.match(container.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
+
+test('telegram-only plans render only when the host passes them', () => {
+  const web = fakeContainer();
+  S.renderPlans(web, {locale: 'en'});
+  assert.doesNotMatch(web.innerHTML, /data-telegram-plan/);
+
+  const mini = fakeContainer();
+  S.renderPlans(mini, {locale: 'en', telegramPlans: [
+    {productId: 'plan_proplus_year', name: 'Pro Plus', stars: 10000, credits: 3780, monthlyCredits: 315, months: 12, available: true},
+  ]});
+  const html = mini.innerHTML;
+  assert.equal((html.match(/class="sxs-card sxs-plan/g) || []).length, 7);
+  assert.match(html, /data-telegram-plan="plan_proplus_year"/);
+  assert.match(html, /10,000 ⭐/);
+  assert.match(html, /≈ 833 ⭐ per month · 365 days · no auto-renewal/);
+  assert.match(html, /3,780/);
+  assert.match(html, /315 ⚡ per month, all 12 months upfront/);
+  assert.match(html, /data-sxs-select-telegram-plan>Select plan/);
+  assert.doesNotMatch(html, /save|cheaper|discount/i);
+});

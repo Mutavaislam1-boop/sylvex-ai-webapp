@@ -95,8 +95,9 @@ class FakeTelegram:
         return type("R", (), {"status_code": 200, "content": b"1", "json": lambda self: {"ok": True, "result": "https://t.me/$invoice"}})()
 
 
-@pytest.mark.parametrize("product_id,usd,stars", [("plan_starter_month", None, 230), ("plan_pro_year", None, 4416),
-                                                  ("pack_20000", None, 9200), ("credits_custom", "12.34", 568)])
+@pytest.mark.parametrize("product_id,usd,stars", [("plan_starter_month", None, 499), ("plan_pro_year", None, 9581),
+                                                  ("pack_10000", None, 9980), ("credits_custom", "12.34", 1232),
+                                                  ("plan_proplus_year", None, 10000)])
 def test_stars_invoice_for_a_store_product_creates_an_order(shop, monkeypatch, product_id, usd, stars):
     telegram = FakeTelegram()
     monkeypatch.setattr(main.requests, "post", telegram.post)
@@ -134,7 +135,7 @@ def test_legacy_pack_requests_keep_their_original_flow(shop, monkeypatch):
         return "https://t.me/$legacy"
     monkeypatch.setattr(main, "create_telegram_stars_invoice_link", legacy)
     status, body = body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": UID, "pack_id": "sub_month"}))))
-    assert status == 200 and body["invoice_url"] == "https://t.me/$legacy" and seen == {"pack_id": "sub_month", "stars": 230}
+    assert status == 200 and body["invoice_url"] == "https://t.me/$legacy" and seen == {"pack_id": "sub_month", "stars": 499}
 
 
 def test_stars_unconfigured_is_reported_before_any_order(shop, monkeypatch):
@@ -223,12 +224,12 @@ def test_stars_webhook_validates_and_finalizes_orders(shop, monkeypatch):
     answers = []
     monkeypatch.setattr(main, "_answer_stars_pre_checkout", lambda qid, ok, msg="": answers.append(ok) or True)
     headers = {"X-Telegram-Bot-Api-Secret-Token": "hook"}
-    pre = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": 460, "invoice_payload": payload}}
+    pre = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": 998, "invoice_payload": payload}}
     run(main.public_stars_webhook(FakeRequest(pre, headers)))
     bad = {"pre_checkout_query": {"id": "q", "from": {"id": UID}, "currency": "XTR", "total_amount": 1, "invoice_payload": payload}}
     run(main.public_stars_webhook(FakeRequest(bad, headers)))
     assert answers == [True, False]
-    paid = {"message": {"from": {"id": UID}, "successful_payment": {"currency": "XTR", "total_amount": 460, "invoice_payload": payload,
+    paid = {"message": {"from": {"id": UID}, "successful_payment": {"currency": "XTR", "total_amount": 998, "invoice_payload": payload,
                                                                    "telegram_payment_charge_id": "tg-1"}}}
     _, first = body_of(run(main.public_stars_webhook(FakeRequest(paid, headers))))
     _, second = body_of(run(main.public_stars_webhook(FakeRequest(paid, headers))))
@@ -304,5 +305,32 @@ def test_catalog_endpoint_is_public_and_complete(monkeypatch):
     response = run(main.public_shop_catalog())
     data = json.loads(response.body)
     assert data["ok"] and data["renewal"] == "manual"
-    assert len(data["products"]) == 18 and data["custom"]["min_cents"] == 100 and data["custom"]["max_cents"] == 100000
+    assert len(data["products"]) == 19 and data["custom"]["min_cents"] == 100 and data["custom"]["max_cents"] == 100000
+    assert [p["product_id"] for p in data["products"] if p.get("telegram_only")] == ["plan_proplus_year"]
+    assert data["stars_rate"] == {"stars": 499, "usd_cents": 500}
+    assert "compare_prices_url" not in data  # off unless STORE_COMPARE_PRICES_ENABLED
     assert set(data["examples"]) == {"photo", "video", "music", "voice", "text"}
+
+
+def test_pro_plus_is_sold_only_for_telegram_stars(shop, monkeypatch):
+    monkeypatch.setattr(main.requests, "post", FakeTelegram().post)
+    status, body = body_of(run(main.public_crypto_invoice(FakeRequest({"telegram_id": UID, "product_id": "plan_proplus_year"}))))
+    assert status == 400 and body["error"] == "telegram_stars_only"
+    monkeypatch.setattr(main, "STRIPE_SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr(main, "STRIPE_WEBHOOK_SECRET", "whsec_x")
+    monkeypatch.setattr(main, "DATABASE_URL", DATABASE)
+    website_request = FakeRequest({"telegram_id": UID, "product_id": "plan_proplus_year"})
+    website_request.state = type("State", (), {"telegram_init_data": ""})()
+    status, body = body_of(run(main.public_stripe_checkout(website_request)))
+    assert status == 400 and body["error"] == "unknown_product"
+    from services import stripe_billing
+    assert all("proplus" not in item["lookup_key"] for item in stripe_billing.catalog_items())
+
+
+def test_compare_prices_link_is_off_unless_enabled(monkeypatch):
+    data = json.loads(run(main.public_shop_catalog()).body)
+    assert "compare_prices_url" not in data
+    monkeypatch.setattr(main, "STORE_COMPARE_PRICES_ENABLED", True)
+    monkeypatch.setattr(main, "WEBSITE_URL", "https://sylvex.ai")
+    data = json.loads(run(main.public_shop_catalog()).body)
+    assert data["compare_prices_url"] == "https://sylvex.ai/store.html"  # no purchase, cart or session
