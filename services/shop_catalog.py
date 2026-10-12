@@ -14,21 +14,28 @@ from __future__ import annotations
 
 import os
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 
 CREDITS_PER_USD = 100
 CUSTOM_MIN_CENTS = 100
 CUSTOM_MAX_CENTS = 100_000
 
-# Stars price policy: the same rate the existing products use (SHOP_ITEMS
-# prices $1 = 46 Stars; sylvex-ai-bot reads TELEGRAM_STARS_PER_USD, default
-# 46). Rounded half up to whole Stars, minimum 1.
-STARS_PER_USD = Decimal(os.getenv("TELEGRAM_STARS_PER_USD", "46"))
+# Stars price policy: $5 = 499 Stars, rounded UP to whole Stars:
+# stars = ceil(usd_cents * 499 / 500), minimum 1. Fixed here (not an env
+# var) so every Telegram price - Store products, legacy SHOP_ITEMS and the
+# polling bot's own packages (sylvex-ai-bot app/bot/main.py) - matches the
+# published price table exactly.
+STARS_RATE_STARS = 499
+STARS_RATE_CENTS = 500
+STARS_PER_USD = Decimal(STARS_RATE_STARS * 100) / STARS_RATE_CENTS  # 99.8, display only
 
-# Provider limits. Telegram does not publish a per-invoice Stars maximum in
-# the Bot API reference, so the default is conservative; raise it with
-# STARS_MAX_PER_INVOICE once a createInvoiceLink for the larger amount is
-# confirmed. Crypto Pay limits are configurable for the same reason.
+# Provider limits. Telegram does not publish a per-invoice maximum for
+# one-time Stars invoices in the Bot API reference (10,000 Stars is the
+# documented cap for 30-day Stars *subscriptions*), so the default is
+# conservative; raise STARS_MAX_PER_INVOICE once a createInvoiceLink for the
+# larger amount is confirmed. Products above it stay purchasable with the
+# other methods at the same price - prices are never changed to fit.
+# Crypto Pay limits are configurable for the same reason.
 STARS_MAX_PER_INVOICE = int(os.getenv("STARS_MAX_PER_INVOICE", "10000"))
 CRYPTO_MIN_CENTS = int(round(float(os.getenv("CRYPTO_MIN_USD", "1")) * 100))
 CRYPTO_MAX_CENTS = int(round(float(os.getenv("CRYPTO_MAX_USD", "1000")) * 100))
@@ -53,6 +60,16 @@ PLAN_DAYS = {"month": 30, "year": 365}
 
 CREDIT_PACK_USD = (5, 10, 20, 30, 40, 50, 100, 200)
 CUSTOM_PRODUCT_ID = "credits_custom"
+
+# Telegram-only plans: sold for a fixed Stars amount as ONE payment for the
+# whole term (never a recurring Telegram subscription), only through the
+# Mini App/bot Stars flow. Not part of PLANS, so the Website and Stripe never
+# list them. id, display name, period, days, Stars, credits granted once,
+# credits per month (display).
+TELEGRAM_PLANS = (
+    ("proplus", "Pro Plus", "year", 365, 10_000, 3_780, 315),
+)
+PLAN_NAMES = {plan[0]: plan[1] for plan in PLANS + TELEGRAM_PLANS}
 
 
 # ---------------------------------------------------------------------------
@@ -205,18 +222,13 @@ EXAMPLE_TEXT_MODELS = (
 
 
 def stars_for_cents(usd_cents: int) -> int:
-    stars = (Decimal(int(usd_cents)) * STARS_PER_USD / 100).quantize(Decimal(1), rounding=ROUND_HALF_UP)
-    return max(1, int(stars))
+    """ceil(usd * 499 / 5) in exact integer arithmetic, minimum 1."""
+    return max(1, -(-int(usd_cents) * STARS_RATE_STARS // STARS_RATE_CENTS))
 
 
 def max_cents_for_stars(limit: int) -> int:
     """Largest USD amount (cents) whose Stars price stays within limit."""
-    cents = int((Decimal(int(limit)) + Decimal("0.5")) * 100 / STARS_PER_USD)
-    while cents > 0 and stars_for_cents(cents) > limit:
-        cents -= 1
-    while stars_for_cents(cents + 1) <= limit:
-        cents += 1
-    return cents
+    return int(limit) * STARS_RATE_CENTS // STARS_RATE_STARS
 
 
 def pack_id_for_usd(usd: int) -> str:
@@ -253,6 +265,29 @@ def _pack_product(usd_cents: int, product_id: str) -> dict:
         "usd_cents": usd_cents,
         "credits": credits,
     }
+
+
+def _telegram_plan_product(plan) -> dict:
+    plan_id, name, period, days, stars, credits, _monthly_credits = plan
+    return {
+        "product_id": f"plan_{plan_id}_{period}",
+        "kind": "subscription",
+        "title": f"SYLVEX {name} · Telegram · {'12 месяцев' if period == 'year' else '1 месяц'}",
+        "plan_id": plan_id,
+        "plan_name": name,
+        "period": period,
+        "plan_key": f"{plan_id}_{period}",
+        "days": days,
+        # Reference USD value of the fixed Stars price (orders need one); the
+        # product is never sold for USD.
+        "usd_cents": max_cents_for_stars(stars),
+        "credits": credits,
+        "fixed_stars": stars,
+        "telegram_only": True,
+    }
+
+
+TELEGRAM_PRODUCTS = {product["product_id"]: product for product in map(_telegram_plan_product, TELEGRAM_PLANS)}
 
 
 def _fixed_products() -> dict:
@@ -299,15 +334,23 @@ def resolve_product(product_id: str, usd=None) -> dict:
         product = _pack_product(parse_usd_cents(usd), CUSTOM_PRODUCT_ID)
     elif product_id in FIXED_PRODUCTS:
         product = dict(FIXED_PRODUCTS[product_id])
+    elif product_id in TELEGRAM_PRODUCTS:
+        product = dict(TELEGRAM_PRODUCTS[product_id])
     else:
         raise CatalogError("unknown_product")
-    product["stars"] = stars_for_cents(product["usd_cents"])
+    product["stars"] = product.get("fixed_stars") or stars_for_cents(product["usd_cents"])
     return product
 
 
 def provider_availability(product: dict) -> dict:
     """Which payment methods may sell this product, and why not."""
     stars_ok = product["stars"] <= STARS_MAX_PER_INVOICE
+    if product.get("telegram_only"):
+        # Sold for its fixed Stars price only.
+        return {
+            PROVIDER_STARS: {"available": stars_ok, "reason": None if stars_ok else "stars_amount_above_limit"},
+            PROVIDER_CRYPTO: {"available": False, "reason": "telegram_stars_only"},
+        }
     crypto_ok = CRYPTO_MIN_CENTS <= product["usd_cents"] <= CRYPTO_MAX_CENTS
     return {
         PROVIDER_STARS: {"available": stars_ok, "reason": None if stars_ok else "stars_amount_above_limit"},
@@ -323,7 +366,7 @@ def plan_label(plan_key: str) -> str:
     if key in {"month", ""}:
         return "1 месяц"
     plan_id, _, period = key.rpartition("_")
-    names = {plan[0]: plan[1] for plan in PLANS}
+    names = PLAN_NAMES
     if plan_id in names and period in PLAN_DAYS:
         return f"{names[plan_id]} · {'1 месяц' if period == 'month' else '12 месяцев'}"
     return key
@@ -332,23 +375,27 @@ def plan_label(plan_key: str) -> str:
 def plan_product_name(plan_key: str) -> str:
     """"SYLVEX Pro" for the legacy month/year plans, else "SYLVEX <Plan>"."""
     key = str(plan_key or "").strip().lower()
-    names = {plan[0]: plan[1] for plan in PLANS}
+    names = PLAN_NAMES
     plan_id = key.rpartition("_")[0]
     return f"SYLVEX {names[plan_id]}" if plan_id in names else "SYLVEX Pro"
 
 
 def public_catalog() -> dict:
     products = []
-    for product_id in FIXED_PRODUCTS:
+    for product_id in list(FIXED_PRODUCTS) + list(TELEGRAM_PRODUCTS):
         product = resolve_product(product_id)
         products.append({
             **{key: product[key] for key in ("product_id", "kind", "title", "usd_cents", "credits", "stars", "plan_key", "days")},
             **({"plan_id": product["plan_id"], "period": product["period"]} if product["kind"] == "subscription" else {}),
+            **({"telegram_only": True} if product.get("telegram_only") else {}),
             "providers": provider_availability(product),
         })
     return {
         "credits_per_usd": CREDITS_PER_USD,
         "stars_per_usd": str(STARS_PER_USD),
+        # Exact Stars formula for client-side display of custom amounts:
+        # stars = ceil(usd_cents * stars / usd_cents_unit).
+        "stars_rate": {"stars": STARS_RATE_STARS, "usd_cents": STARS_RATE_CENTS},
         "products": products,
         "custom": {
             "product_id": CUSTOM_PRODUCT_ID,

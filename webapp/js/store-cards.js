@@ -82,6 +82,11 @@
     store_billed_annually_auto: '{total} billed yearly · save {pct}% · cancel anytime',
     store_credits_monthly: 'Every paid month',
     store_credits_annual: 'Full annual allocation upfront',
+    store_tg_badge: 'Telegram',
+    store_tg_term: 'Annual · one Telegram Stars payment',
+    store_per_year: '/ year',
+    store_tg_note: '≈ {monthly} ⭐ per month · 365 days · no auto-renewal',
+    store_tg_credits: '{monthly} ⚡ per month, all {months} months upfront',
     store_examples_title: 'What you can create',
     store_example_photo: 'Images',
     store_example_video: 'Video · 5 sec',
@@ -295,8 +300,28 @@
       '</article>';
     }
 
+    // Host-supplied plans sold only in Telegram for a fixed Stars price, paid
+    // once for the whole term (the Mini App passes them; the Website never
+    // does). Each: {productId, name, stars, credits, monthlyCredits, months,
+    // available}.
+    function telegramPlanCard(plan) {
+      var available = !!plan.available;
+      return '<article class="sxs-card sxs-plan sxs-plan--telegram" data-telegram-plan="' + escapeHtml(plan.productId) + '">' +
+        '<div class="sxs-plan-head"><h3 class="sxs-plan-name">' + escapeHtml(plan.name) + '</h3>' +
+          '<span class="sxs-badge">' + escapeHtml(tr('store_tg_badge')) + '</span></div>' +
+        '<div class="sxs-price-note">' + escapeHtml(tr('store_tg_term')) + '</div>' +
+        '<div class="sxs-price"><span class="sxs-price-amount">' + escapeHtml(fmt.number(plan.stars)) + ' ⭐</span><span class="sxs-price-unit">' + escapeHtml(tr('store_per_year')) + '</span></div>' +
+        '<div class="sxs-price-note">' + escapeHtml(tr('store_tg_note', { monthly: fmt.number(Math.round(plan.stars / plan.months)) })) + '</div>' +
+        creditPanel(fmt, plan.credits, tr('store_tg_credits', { monthly: fmt.number(plan.monthlyCredits), months: plan.months }), true) +
+        examplesBlock(tr, fmt, plan.credits, examples) +
+        '<button type="button" class="sxs-plan-cta" data-sxs-select-telegram-plan' + (available ? '' : ' disabled aria-disabled="true"') + '>' +
+          escapeHtml(tr(available ? 'store_select_plan' : 'store_plan_soon')) + '</button>' +
+      '</article>';
+    }
+
     container.classList.add('sxs-root', 'sxs-plans');
-    container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + businessCard() + '</div>' + examplesNote(tr, fmt, examples);
+    container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + (opts.telegramPlans || []).map(telegramPlanCard).join('') +
+      businessCard() + '</div>' + examplesNote(tr, fmt, examples);
 
     if (!container.__sxsPlansBound) {
       container.__sxsPlansBound = true;
@@ -308,6 +333,12 @@
           renderPlans(container, container.__sxsPlanOptions);
           var again = container.querySelector('[data-plan="' + card.dataset.plan + '"] [data-sxs-period="' + periodBtn.dataset.sxsPeriod + '"]');
           if (again) again.focus();
+          return;
+        }
+        var telegramSelect = event.target.closest('[data-sxs-select-telegram-plan]');
+        var telegramCard = event.target.closest('[data-telegram-plan]');
+        if (telegramSelect && telegramCard && !telegramSelect.disabled && typeof container.__sxsPlanOptions.onSelectTelegramPlan === 'function') {
+          container.__sxsPlanOptions.onSelectTelegramPlan(telegramCard.dataset.telegramPlan, telegramSelect);
           return;
         }
         var select = event.target.closest('[data-sxs-select-plan]');

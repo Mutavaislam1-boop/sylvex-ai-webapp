@@ -23068,15 +23068,15 @@ async function waitGeneration(jobId, options) {
 
   /* ===== Shop: buy flow ===== */
   const PACK_META = {
-    sub_month: { title: 'SYLVEX Pro · 1 месяц',  price: '$5 · 230 ⭐' },
-    sub_year:  { title: 'SYLVEX Pro · 1 год',    price: '$59 · 2751 ⭐' },
-    pack_100:  { title: '100 ⚡️ токенов',        price: '$1 · 46 ⭐' },
-    pack_500:  { title: '500 ⚡️ токенов',        price: '$5 · 230 ⭐' },
-    pack_1000: { title: '1000 ⚡️ токенов',       price: '$10 · 460 ⭐' },
-    pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 920 ⭐' },
-    pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 1380 ⭐' },
-    pack_4000: { title: '4000 ⚡️ токенов',       price: '$40 · 1840 ⭐' },
-    pack_5000: { title: '5000 ⚡️ токенов',       price: '$50 · 2300 ⭐' },
+    sub_month: { title: 'SYLVEX Pro · 1 месяц',  price: '$5 · 499 ⭐' },
+    sub_year:  { title: 'SYLVEX Pro · 1 год',    price: '$59 · 5889 ⭐' },
+    pack_100:  { title: '100 ⚡️ токенов',        price: '$1 · 100 ⭐' },
+    pack_500:  { title: '500 ⚡️ токенов',        price: '$5 · 499 ⭐' },
+    pack_1000: { title: '1000 ⚡️ токенов',       price: '$10 · 998 ⭐' },
+    pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 1996 ⭐' },
+    pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 2994 ⭐' },
+    pack_4000: { title: '4000 ⚡️ токенов',       price: '$40 · 3992 ⭐' },
+    pack_5000: { title: '5000 ⚡️ токенов',       price: '$50 · 4990 ⭐' },
   };
   const PAYPAL_PAYMENT_LINKS = {
     pack_100: 'https://www.paypal.com/ncp/payment/BBWGSMRNBPHSS',
@@ -23227,7 +23227,9 @@ async function waitGeneration(jobId, options) {
     const cents = Math.round(Number(usd) * 100);
     const custom = storeCatalog.custom;
     if (!(cents >= custom.min_cents && cents <= custom.max_cents)) return null;
-    const stars = Math.max(1, Math.round(cents * Number(storeCatalog.stars_per_usd || 46) / 100));
+    // Same formula as the server: ceil(usd_cents * 499 / 500), minimum 1.
+    const rate = storeCatalog.stars_rate || { stars: 499, usd_cents: 500 };
+    const stars = Math.max(1, Math.ceil(cents * Number(rate.stars) / Number(rate.usd_cents)));
     return {
       product_id: custom.product_id, kind: 'credits', usd_cents: cents, credits: cents, stars,
       title: cents.toLocaleString('ru-RU') + ' ⚡ SYLVEX',
@@ -23240,6 +23242,9 @@ async function waitGeneration(jobId, options) {
   function storeMethodState(product, method) {
     const provider = STORE_METHODS[method];
     const info = (product.providers || {})[provider] || {};
+    if (!info.available && info.reason === 'telegram_stars_only') {
+      return { available: false, message: 'Этот тариф оплачивается только звёздами Telegram' };
+    }
     if (!info.available) {
       return { available: false, message: method === 'stars'
         ? 'Недоступно для этой суммы (лимит Telegram Stars)'
@@ -23279,10 +23284,12 @@ async function waitGeneration(jobId, options) {
     pendingStoreProduct = { productId, usd: isCustom ? String(usd) : null, product };
     pendingPack = null;
     const usdLabel = '$' + (product.usd_cents / 100).toLocaleString('en-US', { minimumFractionDigits: product.usd_cents % 100 ? 2 : 0, maximumFractionDigits: 2 });
-    const starsLabel = storeMethodState(product, 'stars').available ? ' · ' + Number(product.stars).toLocaleString('ru-RU') + ' ⭐' : '';
+    const starsText = Number(product.stars).toLocaleString('ru-RU') + ' ⭐';
+    const starsLabel = storeMethodState(product, 'stars').available ? ' · ' + starsText : '';
     const credits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
     setStorePayMethods(product);
-    showPayView(product.title + credits, usdLabel + starsLabel);
+    // Telegram-only plans have a fixed Stars price and no USD price.
+    showPayView(product.title + credits, product.telegram_only ? starsText : usdLabel + starsLabel);
   }
   async function payStoreProduct(method) {
     const selected = pendingStoreProduct;
@@ -23365,15 +23372,18 @@ async function waitGeneration(jobId, options) {
     };
     setTimeout(tick, 1500);
   }
+  // proplus = Pro Plus, the Telegram-only annual plan paid once in Stars.
+  const STORE_PLAN_NAMES = { starter: 'Starter', pro: 'Pro', max: 'Max', ultra: 'Ultra', creator: 'Creator', proplus: 'Pro Plus' };
+  const STORE_PLAN_KEY_RE = /^(starter|pro|max|ultra|creator|proplus)_(month|year)$/;
   function subscriptionPlanLabel(plan) {
     const key = String(plan || '').toLowerCase();
     if (key === 'year') return 'SYLVEX Pro · 1 год';
-    const match = key.match(/^(starter|pro|max|ultra|creator)_(month|year)$/);
-    if (match) return 'SYLVEX ' + match[1].charAt(0).toUpperCase() + match[1].slice(1) + ' · ' + (match[2] === 'year' ? '12 месяцев' : '1 месяц');
+    const match = key.match(STORE_PLAN_KEY_RE);
+    if (match) return 'SYLVEX ' + STORE_PLAN_NAMES[match[1]] + ' · ' + (match[2] === 'year' ? '12 месяцев' : '1 месяц');
     return 'SYLVEX Pro · 1 месяц';
   }
   function isStorePlanKey(plan) {
-    return /^(starter|pro|max|ultra|creator)_(month|year)$/.test(String(plan || '').toLowerCase());
+    return STORE_PLAN_KEY_RE.test(String(plan || '').toLowerCase());
   }
   function closeBuy() { switchView('shop'); }
 
@@ -23583,8 +23593,8 @@ async function waitGeneration(jobId, options) {
       + '<div><b id="expiredSubscriptionName">Пользователь</b><small id="expiredSubscriptionHandle">@user</small><em id="expiredSubscriptionDate"></em></div>'
       + '</div>'
       + '<div class="expired-subscription-plans">'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_month\')"><span><b>1 месяц</b><small>SYLVEX Pro</small></span><strong>$5 · 230 ⭐</strong></button>'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_year\')"><span><b>1 год</b><small>Выгодный план</small></span><strong>$59 · 2751 ⭐</strong></button>'
+      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_month\')"><span><b>1 месяц</b><small>SYLVEX Pro</small></span><strong>$5 · 499 ⭐</strong></button>'
+      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_year\')"><span><b>1 год</b><small>Выгодный план</small></span><strong>$59 · 5889 ⭐</strong></button>'
       + '</div>'
       + '</section>';
     document.body.appendChild(modal);
@@ -24465,7 +24475,36 @@ async function waitGeneration(jobId, options) {
   // Store cards (js/store-cards.js). Once the server catalog loads, plans,
   // packs and custom amounts open the existing pay view as server-side
   // orders (openStoreProduct); before that, existing packs use openBuy.
+  // Telegram-only plans from the server catalog (e.g. Pro Plus: one Stars
+  // payment for 365 days), shown as extra plan cards in the Mini App only.
+  function telegramStorePlans() {
+    if (!storeCatalog) return [];
+    return (storeCatalog.products || []).filter((p) => p.telegram_only).map((p) => ({
+      productId: p.product_id,
+      name: STORE_PLAN_NAMES[p.plan_id] || p.plan_id,
+      stars: p.stars,
+      credits: p.credits,
+      months: Math.round(p.days / 30.4) || 12,
+      monthlyCredits: Math.round(p.credits / (Math.round(p.days / 30.4) || 12)),
+      available: storeProductAvailable(p.product_id),
+    }));
+  }
+  // "Compare prices": opens the public sylvex.ai price list in the external
+  // browser. Shown only when the server provides compare_prices_url; carries
+  // no purchase, cart or session.
+  function syncComparePrices() {
+    const button = document.getElementById('payComparePrices');
+    if (button) button.hidden = !(storeCatalog && storeCatalog.compare_prices_url);
+  }
+  function openComparePrices() {
+    const url = storeCatalog && storeCatalog.compare_prices_url;
+    if (!url) return;
+    const tgApp = S.tg;
+    if (tgApp && tgApp.openLink) tgApp.openLink(url);
+    else window.open(url, '_blank', 'noopener');
+  }
   function mountStoreCards() {
+    syncComparePrices();
     const cards = window.SylvexStoreCards;
     if (!cards) return;
     const options = {
@@ -24479,6 +24518,8 @@ async function waitGeneration(jobId, options) {
       onContactSales: contactAdmin,
       isPlanAvailable: (plan, period) => storeProductAvailable('plan_' + plan + '_' + period),
       onSelectPlan: (plan, period) => openStoreProduct('plan_' + plan + '_' + period),
+      telegramPlans: telegramStorePlans(),
+      onSelectTelegramPlan: (productId) => openStoreProduct(productId),
     }, options));
     if (credits) cards.renderCredits(credits, Object.assign({
       // Until the catalog loads, the existing packs keep their existing flow.
@@ -26433,6 +26474,7 @@ async function waitGeneration(jobId, options) {
 
   // Expose to global scope.
   Object.assign(S, {
+    openComparePrices,
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     setStudioLayout, cycleStudioTheme, restoreStudioTheme, syncStudioThemeVarsToDocument, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,

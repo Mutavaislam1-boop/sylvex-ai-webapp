@@ -1070,6 +1070,9 @@ STRIPE_WEBHOOK_SECRET = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
 # clock, so renewals can be triggered by advancing the clock in the Dashboard.
 STRIPE_TEST_MODE_ONLY = os.getenv("STRIPE_TEST_MODE_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 STRIPE_TEST_CLOCKS = os.getenv("STRIPE_TEST_CLOCKS", "0").lower() in {"1", "true", "yes", "on"}
+# Mini App "Compare prices" link to the Website price list (see the
+# /api/public/shop/catalog route). Off unless explicitly enabled.
+STORE_COMPARE_PRICES_ENABLED = os.getenv("STORE_COMPARE_PRICES_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
@@ -1087,7 +1090,6 @@ SHOP_ITEMS = {
         "credits": 0,
         "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 5.0,
-        "stars": 230,
     },
     "sub_year": {
         "kind": "subscription",
@@ -1097,16 +1099,20 @@ SHOP_ITEMS = {
         "credits": 0,
         "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 59.0,
-        "stars": 2751,
     },
-    "pack_100": {"kind": "credits", "title": "100 ⚡", "credits": 100, "usd": 1.0, "stars": 46},
-    "pack_500": {"kind": "credits", "title": "500 ⚡", "credits": 500, "usd": 5.0, "stars": 230},
-    "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0, "stars": 460},
-    "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0, "stars": 920},
-    "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0, "stars": 1380},
-    "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0, "stars": 1840},
-    "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0, "stars": 2300},
+    "pack_100": {"kind": "credits", "title": "100 ⚡", "credits": 100, "usd": 1.0},
+    "pack_500": {"kind": "credits", "title": "500 ⚡", "credits": 500, "usd": 5.0},
+    "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0},
+    "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0},
+    "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0},
+    "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0},
+    "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0},
 }
+# Telegram Stars prices follow the one Store formula (shop_catalog:
+# ceil(usd * 499 / 5)); the polling bot validates these invoices with the
+# same numbers.
+for _shop_item in SHOP_ITEMS.values():
+    _shop_item["stars"] = shop_catalog.stars_for_cents(round(_shop_item["usd"] * 100))
 
 
 def design(title: str, body: str) -> str:
@@ -10538,7 +10544,7 @@ async def admin_user_detail(request: Request):
                 SELECT id, subscription_type, payment_method, amount, currency, starts_at, expires_at, status, created_at
                 FROM subscriptions WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
             """, (target_id,))
-            subscription_history = [{"id": r[0], "type": r[1] or "", "payment_method": r[2] or "",
+            subscription_history = [{"id": r[0], "type": r[1] or "", "plan_label": shop_catalog.plan_label(r[1]) if r[1] else "", "payment_method": r[2] or "",
                     "amount": int(r[3] or 0), "currency": r[4], "starts_at": _to_iso(r[5]), "expires_at": _to_iso(r[6]),
                     "status": r[7], "created_at": _to_iso(r[8])} for r in cursor.fetchall()]
             cursor.execute("""
@@ -10683,7 +10689,7 @@ async def admin_subscribers(request: Request):
                 LEFT JOIN user_profiles p ON p.telegram_id=s.telegram_id
                 ORDER BY s.created_at DESC LIMIT %s OFFSET %s
             """, (limit, offset))
-            items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4],
+            items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4], "plan_label": shop_catalog.plan_label(r[4]) if r[4] else "",
                     "amount": int(r[5] or 0), "currency": r[6], "starts_at": _to_iso(r[7]), "expires_at": _to_iso(r[8]),
                     "status": r[9], "created_at": _to_iso(r[10]), "total_subscription_purchases": int(r[11] or 0)}
                     for r in cursor.fetchall()]
@@ -12084,6 +12090,12 @@ async def public_shop_catalog():
         shop_catalog.PROVIDER_STARS: shop_provider_configured(shop_catalog.PROVIDER_STARS),
         shop_catalog.PROVIDER_CRYPTO: shop_provider_configured(shop_catalog.PROVIDER_CRYPTO),
     }
+    if STORE_COMPARE_PRICES_ENABLED:
+        # Mini App "Compare prices": the public Website price list, with no
+        # purchase, cart or session attached. Off by default - Telegram
+        # requires digital goods in Mini Apps to be sold for Stars and does
+        # not except links to outside checkouts; enable only after review.
+        data["compare_prices_url"] = f"{WEBSITE_URL.rstrip('/')}/store.html"
     return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
 
 
@@ -12322,6 +12334,9 @@ async def public_stripe_checkout(request: Request):
         product = shop_catalog.resolve_product(data.get("product_id"), data.get("usd"))
     except shop_catalog.CatalogError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    if product.get("telegram_only"):
+        # Telegram-only plans are sold for Stars in Telegram, never by card.
+        return JSONResponse({"ok": False, "error": "unknown_product"}, status_code=400)
     try:
         result = await asyncio.to_thread(create_stripe_checkout, telegram_id, product)
     except StripeCheckoutRefused as exc:

@@ -86,13 +86,33 @@ def test_catalog_matches_the_approved_price_table():
         assert (pack["usd_cents"], pack["credits"], pack["kind"]) == (usd * 100, usd * 100, "credits")
 
 
-def test_stars_prices_reuse_the_existing_policy():
+STARS_TABLE = {
+    # $5 = 499 Stars: stars = ceil(usd * 499 / 5)
+    "pack_500": 499, "pack_1000": 998, "pack_2000": 1996, "pack_3000": 2994, "pack_4000": 3992,
+    "pack_5000": 4990, "pack_10000": 9980, "pack_20000": 19960,
+    "plan_starter_month": 499, "plan_starter_year": 4791, "plan_pro_month": 998, "plan_pro_year": 9581,
+    "plan_max_month": 2495, "plan_max_year": 23952, "plan_ultra_month": 4990, "plan_ultra_year": 47904,
+    "plan_creator_month": 9980, "plan_creator_year": 95808,
+}
+
+
+def test_stars_prices_follow_the_499_per_5_usd_table():
     import main
-    # Packs that already exist keep exactly the Stars price SHOP_ITEMS charges.
+    for product_id, stars in STARS_TABLE.items():
+        assert catalog.resolve_product(product_id)["stars"] == stars, product_id
+    # Legacy products use the same formula, so the two flows never disagree.
     for pack_id in ("pack_500", "pack_1000", "pack_2000", "pack_3000", "pack_4000", "pack_5000"):
-        assert catalog.resolve_product(pack_id)["stars"] == main.SHOP_ITEMS[pack_id]["stars"]
+        assert main.SHOP_ITEMS[pack_id]["stars"] == STARS_TABLE[pack_id]
         assert catalog.resolve_product(pack_id)["credits"] == main.SHOP_ITEMS[pack_id]["credits"]
-    assert catalog.stars_for_cents(1234) == 568  # 12.34 * 46 = 567.64 -> 568
+    assert {k: main.SHOP_ITEMS[k]["stars"] for k in ("sub_month", "sub_year", "pack_100")} == {"sub_month": 499, "sub_year": 5889, "pack_100": 100}
+    # Custom amounts round up: 12.34 * 99.8 = 1231.53 -> 1232.
+    assert catalog.stars_for_cents(1234) == 1232 and catalog.stars_for_cents(100) == 100 and catalog.stars_for_cents(1) == 1
+    assert catalog.stars_for_cents(100000) == 99800
+    for cents in range(1, 100001, 7):
+        assert catalog.stars_for_cents(cents) == -(-cents * 499 // 500)
+    # The largest custom amount payable within the Stars cap.
+    limit = catalog.max_cents_for_stars(10000)
+    assert catalog.stars_for_cents(limit) <= 10000 < catalog.stars_for_cents(limit + 1)
 
 
 @pytest.mark.parametrize("plan_id", list(PLAN_TABLE))
@@ -133,6 +153,10 @@ def test_annual_plans_above_the_stars_limit_are_crypto_only():
 @pytest.mark.parametrize("provider", [catalog.PROVIDER_STARS, catalog.PROVIDER_CRYPTO])
 def test_every_credit_package_through_both_providers(connect, usd, provider):
     product = catalog.resolve_product(f"pack_{usd * 100}")
+    if provider == catalog.PROVIDER_STARS and product["stars"] > catalog.STARS_MAX_PER_INVOICE:
+        # $200 = 19,960 Stars, above the per-invoice cap: Crypto only, same price.
+        assert catalog.provider_availability(product)[provider] == {"available": False, "reason": "stars_amount_above_limit"}
+        return
     assert catalog.provider_availability(product)[provider]["available"]
     before = balance(connect)
     _, result = pay(connect, product, provider, f"pack-{usd}-{provider}")
@@ -228,9 +252,9 @@ def test_charge_id_reused_across_orders_never_double_grants(connect):
 def test_expired_order_cannot_start_checkout_but_a_completed_payment_is_honored(connect):
     product = catalog.resolve_product("pack_1000")
     order = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, -1)
-    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", 460) == (False, "order_expired")
+    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", 998) == (False, "order_expired")
     assert orders.mark_order(connect, order["order_id"], orders.STATUS_EXPIRED, "invoice_expired")
-    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", 460, "late", payer_id=UID)
+    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", 998, "late", payer_id=UID)
     assert result["status"] == "granted"
     assert balance(connect) == 50 + 1000
     assert not orders.mark_order(connect, order["order_id"], orders.STATUS_FAILED)
@@ -285,3 +309,27 @@ def test_order_payload_parsing_is_strict():
     for bad in ("sylvex_order:", "sylvex_order:" + "A" * 32, "sylvex_order:" + "a" * 31, "sylvex_stars:1:500:230", None, "sylvex_order:" + "a" * 32 + ":x"):
         assert orders.parse_order_payload(bad) is None
     assert len(orders.order_payload(oid).encode()) <= 128  # Telegram invoice payload limit
+
+
+def test_pro_plus_is_one_10000_stars_payment_for_365_days(connect):
+    product = catalog.resolve_product("plan_proplus_year")
+    assert (product["stars"], product["credits"], product["days"], product["plan_key"]) == (10000, 3780, 365, "proplus_year")
+    assert product["telegram_only"] and "proplus" not in {plan[0] for plan in catalog.PLANS}
+    providers = catalog.provider_availability(product)
+    assert providers[catalog.PROVIDER_STARS]["available"]  # exactly at the 10,000 cap
+    assert providers[catalog.PROVIDER_CRYPTO] == {"available": False, "reason": "telegram_stars_only"}
+    before = balance(connect)
+    order, result = pay(connect, product, catalog.PROVIDER_STARS, "proplus-1")
+    assert result["status"] == "granted" and balance(connect) == before + 3780
+    again = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", 10000, "proplus-1", payer_id=UID)
+    assert again["status"] == "duplicate" and balance(connect) == before + 3780
+    # Anything but exactly 10,000 Stars is refused.
+    other = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, 1800)
+    assert orders.checkout_check(connect, other["order_id"], UID, catalog.PROVIDER_STARS, "XTR", 9999) == (False, "amount_mismatch")
+    rows = q(connect, "SELECT subscription_type, status, expires_at - CURRENT_TIMESTAMP FROM subscriptions WHERE telegram_id = %s", (UID,))
+    assert len(rows) == 1 and rows[0][:2] == ("proplus_year", "active")
+    assert 364 < rows[0][2].total_seconds() / 86400 <= 365  # expires after 365 days
+    # One payment, no renewal: nothing else (Stripe or otherwise) bills it again.
+    assert q(connect, "SELECT COUNT(*) FROM purchases WHERE telegram_id = %s", (UID,)) == [(1,)]
+    assert catalog.plan_label("proplus_year") == "Pro Plus · 12 месяцев"
+    assert catalog.plan_product_name("proplus_year") == "SYLVEX Pro Plus"
