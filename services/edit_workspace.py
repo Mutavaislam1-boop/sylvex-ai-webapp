@@ -5,7 +5,7 @@ import re
 
 from PIL import Image, ImageChops, ImageOps
 
-MODES = {'edit', 'retouch', 'resize', 'background', 'expand', 'upscale', 'lighting', 'camera', 'translate'}
+MODES = {'edit', 'sketch', 'retouch', 'resize', 'background', 'expand', 'upscale', 'lighting', 'camera', 'translate'}
 MAX_CANVAS_PIXELS = 16_777_216
 UPSCALE_MAX_EDGE = 24000
 UPSCALE_MAX_PIXELS = 100_000_000
@@ -333,6 +333,15 @@ def instruction(opts):
         user = ''
     tasks = {
         'edit': 'Apply the requested edit. Preserve all unrequested details and subject identity.',
+        'sketch': ('Transform the supplied drawing into a convincing photorealistic photograph of the depicted scene. '
+                   'Use the drawing as the composition and spatial reference: preserve its framing, aspect ratio, '
+                   'object count, positions, silhouettes, proportions, perspective and intended colors. '
+                   'Interpret drawn lines, shapes and sticker symbols as the real subjects or objects they depict, '
+                   'not as paint marks, flat icons or emoji. Reconstruct plausible three-dimensional geometry, '
+                   'natural materials, fine textures, consistent lighting, depth and realistic shadows. '
+                   'Keep the intended scene recognizable. Do not add unrelated subjects, duplicate objects, '
+                   'invent text or watermarks, or render a photograph of a drawing on paper. '
+                   'Use any user description to clarify the depicted scene and its materials or lighting.'),
         'retouch': ('Remove the content inside the masked area and reconstruct the background naturally.'
                     if (opts.get('editWorkspaceBrush') or {}).get('mode') == 'erase' else
                     'Replace only the masked area according to the instruction. Preserve everything outside it.'),
