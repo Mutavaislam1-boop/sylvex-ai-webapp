@@ -82,12 +82,17 @@ test('examples are counts of one example each, with live server costs overriding
   assert.doesNotMatch(html, /By tokens/);
 });
 
-test('copy never promises automatic renewal', () => {
+test('copy promises automatic renewal only when the host says plans renew', () => {
   const container = fakeContainer();
   S.renderPlans(container, {locale: 'en'});
   assert.match(container.innerHTML, /One month · no auto-renewal/);
   assert.equal(S.EN.store_billed_annually, '{total} for 12 months · save {pct}%');
-  assert.doesNotMatch(container.innerHTML, /[Bb]illed monthly|auto-renews/);
+  assert.doesNotMatch(container.innerHTML, /[Bb]illed monthly|auto-renews|cancel anytime/);
+
+  const auto = fakeContainer();
+  S.renderPlans(auto, {locale: 'en', renewal: 'auto'});
+  assert.match(auto.innerHTML, /Billed monthly · cancel anytime/);
+  assert.doesNotMatch(auto.innerHTML, /no auto-renewal/);
 });
 
 test('the host decides purchasability: all packs and custom amounts when enabled', () => {
