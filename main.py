@@ -1064,6 +1064,12 @@ CRYPTO_PAY_API_URL = os.getenv("CRYPTO_PAY_API_URL", "https://pay.crypt.bot/api"
 # a payment could never be verified and granted.
 STRIPE_SECRET_KEY = (os.getenv("STRIPE_SECRET_KEY") or "").strip()
 STRIPE_WEBHOOK_SECRET = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
+# A test environment sets STRIPE_TEST_MODE_ONLY=1 so a live key can never be
+# used there (Stripe stays disabled instead). STRIPE_TEST_CLOCKS=1 (honored
+# only with a test key) attaches each new Stripe customer to its own test
+# clock, so renewals can be triggered by advancing the clock in the Dashboard.
+STRIPE_TEST_MODE_ONLY = os.getenv("STRIPE_TEST_MODE_ONLY", "0").lower() in {"1", "true", "yes", "on"}
+STRIPE_TEST_CLOCKS = os.getenv("STRIPE_TEST_CLOCKS", "0").lower() in {"1", "true", "yes", "on"}
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
@@ -12123,8 +12129,27 @@ class StripeCheckoutRefused(Exception):
         self.status = status
 
 
+def stripe_key_allowed() -> bool:
+    return bool(STRIPE_SECRET_KEY) and not (STRIPE_TEST_MODE_ONLY and stripe_billing.key_livemode(STRIPE_SECRET_KEY))
+
+
 def stripe_enabled() -> bool:
-    return bool(STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET and DATABASE_URL)
+    return bool(stripe_key_allowed() and STRIPE_WEBHOOK_SECRET and DATABASE_URL)
+
+
+def create_test_clock_customer(client, telegram_id: int):
+    """Test mode only: a customer on its own test clock, so a renewal can be
+    produced by advancing that clock (Dashboard > Billing > Test clocks)."""
+    clock = client.request("POST", "/test_helpers/test_clocks",
+                           {"frozen_time": int(time.time()), "name": f"SYLVEX user {int(telegram_id)}"})
+    customer = client.request("POST", "/customers", {
+        "test_clock": clock["id"],
+        "description": f"SYLVEX user {int(telegram_id)} (test clock)",
+        "metadata": {"sylvex_uid": str(int(telegram_id))},
+    })
+    stripe_billing.save_customer(shop_db, telegram_id, customer["id"], False)
+    prostudio_debug("STRIPE_TEST_CLOCK_CUSTOMER", telegram_id=telegram_id, customer_id=customer["id"], test_clock=clock["id"])
+    return customer["id"]
 
 
 def stripe_client() -> "stripe_billing.StripeClient":
@@ -12172,6 +12197,8 @@ def create_stripe_checkout(telegram_id: int, product: dict) -> dict:
     cancel_url = f"{store_url}?payment=cancelled&provider=stripe&order_id={order['order_id']}"
     client = stripe_client()
     customer_id = stripe_billing.get_customer(shop_db, telegram_id, client.livemode)
+    if not customer_id and STRIPE_TEST_CLOCKS and not client.livemode:
+        customer_id = create_test_clock_customer(client, telegram_id)
 
     def session_params(catalog: dict, customer):
         custom = catalog.get(stripe_billing.lookup_key(shop_catalog.CUSTOM_PRODUCT_ID)) or {}
@@ -12246,6 +12273,40 @@ def sync_stripe_catalog_in_background():
         prostudio_error("STRIPE_CATALOG_SYNC_FAILED", exc)
 
 
+@app.get("/api/public/payments/stripe/status")
+async def public_stripe_status():
+    """Deployment check without secrets: mode, webhook readiness and the
+    product/price sync state for the configured key's mode."""
+    status = {
+        "ok": True,
+        "enabled": stripe_enabled(),
+        "key_configured": bool(STRIPE_SECRET_KEY),
+        "key_refused": bool(STRIPE_SECRET_KEY) and not stripe_key_allowed(),
+        "mode": ("live" if stripe_billing.key_livemode(STRIPE_SECRET_KEY) else "test") if STRIPE_SECRET_KEY else None,
+        "webhook_secret_configured": bool(STRIPE_WEBHOOK_SECRET),
+        "test_clocks": bool(STRIPE_TEST_CLOCKS and STRIPE_SECRET_KEY and not stripe_billing.key_livemode(STRIPE_SECRET_KEY)),
+        "webhook_path": "/api/public/payments/stripe/webhook",
+        "catalog": None,
+    }
+    if stripe_key_allowed() and DATABASE_URL:
+        def catalog_state():
+            ensure_stripe_tables()
+            mapping = stripe_billing.load_catalog(shop_db, stripe_billing.key_livemode(STRIPE_SECRET_KEY))
+            statuses = [entry.get("price_status") for entry in mapping.values()]
+            return {
+                "complete": stripe_billing.catalog_complete(mapping),
+                "products": len({entry.get("stripe_product_id") for entry in mapping.values() if entry.get("stripe_product_id")}),
+                "prices": sum(1 for entry in mapping.values() if entry.get("stripe_price_id")),
+                "unavailable": statuses.count("product_inactive"),
+            }
+        try:
+            status["catalog"] = await asyncio.to_thread(catalog_state)
+        except Exception as exc:
+            prostudio_error("STRIPE_STATUS_FAILED", exc)
+            status["catalog"] = {"error": "unavailable"}
+    return JSONResponse(status, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/public/payments/stripe/checkout")
 async def public_stripe_checkout(request: Request):
     data = await request.json()
@@ -12304,7 +12365,7 @@ async def public_stripe_portal(request: Request):
 
 @app.post("/api/public/payments/stripe/webhook")
 async def public_stripe_webhook(request: Request):
-    if not (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET):
+    if not (stripe_key_allowed() and STRIPE_WEBHOOK_SECRET):
         return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
     payload = await request.body()
     try:
@@ -23085,6 +23146,8 @@ async def start_prostudio_generation_worker():
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
+    if STRIPE_SECRET_KEY and not stripe_key_allowed():
+        print("STRIPE DISABLED: a live key is configured but STRIPE_TEST_MODE_ONLY=1")
     if stripe_enabled():
         # Create or reuse the Stripe products/prices without blocking startup.
         app.state.background_tasks.append(asyncio.create_task(asyncio.to_thread(sync_stripe_catalog_in_background)))

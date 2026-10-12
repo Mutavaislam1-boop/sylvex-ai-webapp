@@ -138,6 +138,20 @@ class FakeStripe:
             return Response(200, self.subscriptions[sub_id])
         return self._error(404, "No such subscription", "resource_missing")
 
+    def _post_test_helpers(self, path, body):
+        clock = {"id": self._new_id("clock"), "object": "test_helpers.test_clock", "frozen_time": int(body["frozen_time"]),
+                 "name": body.get("name"), "livemode": False}
+        self.test_clocks = getattr(self, "test_clocks", {})
+        self.test_clocks[clock["id"]] = clock
+        return Response(200, clock)
+
+    def _post_customers(self, path, body):
+        customer = {"id": self._new_id("cus"), "object": "customer", "test_clock": body.get("test_clock"),
+                    "metadata": body.get("metadata") or {}, "livemode": self.livemode}
+        self.customers = getattr(self, "customers", {})
+        self.customers[customer["id"]] = customer
+        return Response(200, customer)
+
     def _post_billing_portal(self, path, body):
         return Response(200, {"id": self._new_id("bps"), "url": "https://billing.stripe.com/p/session/x", "customer": body["customer"],
                               "return_url": body.get("return_url")})
