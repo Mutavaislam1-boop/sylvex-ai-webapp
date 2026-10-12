@@ -69,7 +69,7 @@ PUBLIC_POSTS = frozenset({
  '/api/internal/telegram-media',
 })
 MULTIPART_ROUTES = frozenset({'/api/internal/telegram-media','/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
-WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook'})
+WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook','/api/public/payments/stripe/webhook'})
 # Routes whose own handler resolves the real authenticated user id itself
 # (after subscription state is known, for /assistant/message) and calls
 # check_request_quota exactly once with it. The generic per-request

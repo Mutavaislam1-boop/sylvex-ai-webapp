@@ -40,7 +40,7 @@ from services import edit_sessions as edit_sessions_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
 from services import video_probe
-from services import shop_catalog, shop_orders
+from services import shop_catalog, shop_orders, stripe_billing
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -1059,6 +1059,11 @@ CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
 # Point at https://testnet-pay.crypt.bot/api with a testnet token to test
 # invoices without real funds.
 CRYPTO_PAY_API_URL = os.getenv("CRYPTO_PAY_API_URL", "https://pay.crypt.bot/api").rstrip("/")
+# Stripe Checkout for Website purchases (services/stripe_billing.py). Both
+# are required before the Website offers Stripe: without the webhook secret
+# a payment could never be verified and granted.
+STRIPE_SECRET_KEY = (os.getenv("STRIPE_SECRET_KEY") or "").strip()
+STRIPE_WEBHOOK_SECRET = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
@@ -4272,6 +4277,9 @@ async def public_config():
         "paypal_subscriptions_enabled": paypal_subscriptions_configured(),
         "paypal_pro_monthly_plan_id": PAYPAL_PRO_MONTHLY_PLAN_ID,
         "paypal_pro_yearly_plan_id": PAYPAL_PRO_YEARLY_PLAN_ID,
+        # Website Stripe Checkout (plans, packs, custom amounts). No key or
+        # id is exposed; the Website only needs to know whether to offer it.
+        "stripe_enabled": stripe_enabled(),
     }
 
 # =====================================================
@@ -12095,6 +12103,223 @@ async def public_store_order_status(request: Request):
     if order and order["status"] == shop_orders.STATUS_PAID:
         user = await asyncio.to_thread(get_user_state, telegram_id)
     return {"ok": True, "order": store_order_public(order), "user": user}
+
+# ---------------------------------------------------------------------------
+# Stripe: Website card payments for the same Store products and orders.
+#
+# Website-only: inside Telegram, digital goods must be sold for Telegram
+# Stars, so requests carrying Telegram initData are refused. Orders,
+# grants and duplicate protection are the shared shop_orders ones; Stripe
+# products/prices are created or reused automatically (stripe_billing).
+# ---------------------------------------------------------------------------
+_STRIPE_LOCK = threading.Lock()
+_STRIPE_STATE = {"client": None, "tables": False, "catalog": None}
+
+
+class StripeCheckoutRefused(Exception):
+    def __init__(self, code: str, status: int = 409):
+        super().__init__(code)
+        self.code = code
+        self.status = status
+
+
+def stripe_enabled() -> bool:
+    return bool(STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET and DATABASE_URL)
+
+
+def stripe_client() -> "stripe_billing.StripeClient":
+    if _STRIPE_STATE["client"] is None:
+        _STRIPE_STATE["client"] = stripe_billing.StripeClient(STRIPE_SECRET_KEY)
+    return _STRIPE_STATE["client"]
+
+
+def ensure_stripe_tables():
+    if _STRIPE_STATE["tables"]:
+        return
+    ensure_shop_orders()
+    stripe_billing.ensure_tables(shop_db)
+    _STRIPE_STATE["tables"] = True
+
+
+def ensure_stripe_catalog(force: bool = False) -> dict:
+    """Stripe product/price ids for every Store product, synced on demand."""
+    with _STRIPE_LOCK:
+        ensure_stripe_tables()
+        client = stripe_client()
+        mapping = None if force else _STRIPE_STATE["catalog"]
+        if mapping is None and not force:
+            mapping = stripe_billing.load_catalog(shop_db, client.livemode)
+        if force or not stripe_billing.catalog_complete(mapping or {}):
+            mapping = stripe_billing.sync_catalog(client)
+            stripe_billing.save_catalog(shop_db, mapping, client.livemode)
+            statuses = [entry.get("price_status") for entry in mapping.values()]
+            prostudio_debug("STRIPE_CATALOG_SYNCED", livemode=client.livemode,
+                            created=statuses.count("created"), replaced=statuses.count("replaced"),
+                            reused=statuses.count("reused"), unavailable=statuses.count("product_inactive"))
+        _STRIPE_STATE["catalog"] = mapping
+        return mapping
+
+
+def create_stripe_checkout(telegram_id: int, product: dict) -> dict:
+    ensure_stripe_tables()
+    if product["kind"] == "subscription" and stripe_billing.has_live_subscription(shop_db, telegram_id):
+        raise StripeCheckoutRefused("stripe_subscription_active")
+    mapping = ensure_stripe_catalog()
+    order = shop_orders.create_order(shop_db, telegram_id, product, shop_catalog.PROVIDER_STRIPE,
+                                     stripe_billing.CHECKOUT_TTL_SECONDS + 300)
+    store_url = f"{WEBSITE_URL.rstrip('/')}/store.html"
+    success_url = f"{store_url}?payment=success&provider=stripe&order_id={order['order_id']}"
+    cancel_url = f"{store_url}?payment=cancelled&provider=stripe&order_id={order['order_id']}"
+    client = stripe_client()
+    customer_id = stripe_billing.get_customer(shop_db, telegram_id, client.livemode)
+
+    def session_params(catalog: dict, customer):
+        custom = catalog.get(stripe_billing.lookup_key(shop_catalog.CUSTOM_PRODUCT_ID)) or {}
+        price_id = None
+        if product["product_id"] != shop_catalog.CUSTOM_PRODUCT_ID:
+            price_id = (catalog.get(stripe_billing.lookup_key(product["product_id"])) or {}).get("stripe_price_id")
+            if not price_id:
+                raise StripeCheckoutRefused("stripe_product_unavailable", 503)
+        return stripe_billing.checkout_session_params(order, price_id, custom.get("stripe_product_id"),
+                                                      success_url, cancel_url, customer)
+
+    try:
+        session = client.request("POST", "/checkout/sessions", session_params(mapping, customer_id),
+                                 idempotency_key=f"sylvex-checkout-{order['order_id']}")
+    except stripe_billing.StripeError as exc:
+        if exc.status not in {400, 404}:
+            raise
+        # A price archived or a customer deleted in the Dashboard: resync the
+        # catalog and retry once without the stored customer.
+        prostudio_debug("STRIPE_CHECKOUT_RETRY", order_id=order["order_id"], code=exc.code or "", status=exc.status)
+        session = client.request("POST", "/checkout/sessions", session_params(ensure_stripe_catalog(force=True), None),
+                                 idempotency_key=f"sylvex-checkout-{order['order_id']}-retry")
+    if not session.get("id") or not session.get("url"):
+        raise RuntimeError("stripe_checkout_url_missing")
+    shop_orders.set_provider_invoice(shop_db, order["order_id"], session["id"])
+    log_user_event(
+        telegram_id=telegram_id, source="website", event_type="payment_invoice_created",
+        event_name="stripe_checkout_created",
+        payload={"product_id": product["product_id"], "order_id": order["order_id"], "usd_cents": product["usd_cents"]},
+    )
+    return {"url": session["url"], "order_id": order["order_id"]}
+
+
+def process_stripe_event(event: dict) -> dict:
+    ensure_stripe_tables()
+    if stripe_billing.event_processed(shop_db, event["id"]):
+        return {"outcome": "duplicate_event"}
+    client = stripe_client()
+    if "livemode" in event and bool(event["livemode"]) != client.livemode:
+        # A test-mode event reaching a live deployment (or the reverse).
+        stripe_billing.record_event(shop_db, event, "ignored_mode_mismatch")
+        return {"outcome": "ignored", "reason": "mode_mismatch"}
+
+    def finalize(order_id, currency, amount, charge_id):
+        return finalize_store_order(order_id, shop_catalog.PROVIDER_STRIPE, currency, amount, charge_id)
+
+    result = stripe_billing.handle_event(shop_db, client, event, finalize)
+    prostudio_debug("STRIPE_EVENT", event_id=event["id"], type=event["type"], outcome=result.get("outcome"),
+                    reason=result.get("reason") or "")
+    try:
+        uid = int(result.get("telegram_id") or 0)
+        if result.get("renewal") and result.get("outcome") == "granted" and uid:
+            log_user_event(telegram_id=uid, source="payment", event_type="payment_success", event_name="payment_success",
+                           payload={"provider": "stripe", "plan_key": result.get("plan_key"), "renewal": True})
+            log_user_event(telegram_id=uid, source="payment", event_type="credits_added", event_name="plan_credits",
+                           payload={"credits": result.get("credits"), "plan_key": result.get("plan_key"), "renewal": True})
+        elif result.get("outcome") == "payment_failed" and uid:
+            log_user_event(telegram_id=uid, source="payment", event_type="payment_failed", event_name="stripe_invoice_failed",
+                           payload={"plan_key": result.get("plan_key"), "billing_reason": result.get("billing_reason")})
+    except Exception as exc:
+        print("STRIPE EVENT LOGGING FAILED:", type(exc).__name__)
+    stripe_billing.record_event(shop_db, event, str(result.get("outcome")))
+    return result
+
+
+def sync_stripe_catalog_in_background():
+    if not stripe_enabled():
+        return
+    try:
+        ensure_stripe_catalog()
+    except Exception as exc:
+        prostudio_error("STRIPE_CATALOG_SYNC_FAILED", exc)
+
+
+@app.post("/api/public/payments/stripe/checkout")
+async def public_stripe_checkout(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if not telegram_id:
+        return telegram_id_required_response()
+    if getattr(request.state, "telegram_init_data", ""):
+        # Telegram requires Stars for digital goods inside its apps.
+        return JSONResponse({"ok": False, "error": "stripe_not_available_in_telegram"}, status_code=403)
+    if not stripe_enabled():
+        return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
+    try:
+        product = shop_catalog.resolve_product(data.get("product_id"), data.get("usd"))
+    except shop_catalog.CatalogError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    try:
+        result = await asyncio.to_thread(create_stripe_checkout, telegram_id, product)
+    except StripeCheckoutRefused as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    except Exception as exc:
+        prostudio_error("STRIPE_CHECKOUT_FAILED", exc, product_id=product["product_id"])
+        return JSONResponse({"ok": False, "error": "stripe_checkout_failed"}, status_code=502)
+    return {"ok": True, **result}
+
+
+@app.post("/api/public/payments/stripe/portal")
+async def public_stripe_portal(request: Request):
+    """Stripe Customer Portal: update the card or cancel auto-renewal."""
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if not telegram_id:
+        return telegram_id_required_response()
+    if getattr(request.state, "telegram_init_data", ""):
+        return JSONResponse({"ok": False, "error": "stripe_not_available_in_telegram"}, status_code=403)
+    if not stripe_enabled():
+        return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
+
+    def portal():
+        ensure_stripe_tables()
+        client = stripe_client()
+        customer_id = stripe_billing.get_customer(shop_db, telegram_id, client.livemode)
+        if not customer_id:
+            return None
+        return client.request("POST", "/billing_portal/sessions",
+                              {"customer": customer_id, "return_url": f"{WEBSITE_URL.rstrip('/')}/store.html"})
+
+    try:
+        session = await asyncio.to_thread(portal)
+    except Exception as exc:
+        prostudio_error("STRIPE_PORTAL_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "stripe_portal_failed"}, status_code=502)
+    if not session:
+        return JSONResponse({"ok": False, "error": "no_stripe_customer"}, status_code=404)
+    return {"ok": True, "url": session.get("url")}
+
+
+@app.post("/api/public/payments/stripe/webhook")
+async def public_stripe_webhook(request: Request):
+    if not (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET):
+        return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
+    payload = await request.body()
+    try:
+        event = stripe_billing.verify_webhook(payload, request.headers.get("stripe-signature", ""), STRIPE_WEBHOOK_SECRET)
+    except stripe_billing.SignatureError as exc:
+        prostudio_debug("STRIPE_WEBHOOK_REJECTED", reason=str(exc))
+        return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=400)
+    try:
+        result = await asyncio.to_thread(process_stripe_event, event)
+    except Exception as exc:
+        # Non-2xx makes Stripe retry; every grant is idempotent.
+        prostudio_error("STRIPE_WEBHOOK_FAILED", exc, event_id=event.get("id"), type=event.get("type"))
+        return JSONResponse({"ok": False, "error": "processing_failed"}, status_code=500)
+    return {"ok": True, "outcome": result.get("outcome")}
+
 
 # =====================================================
 # API ENDPOINT: public_stars_invoice
@@ -22690,6 +22915,7 @@ def process_subscription_reminders() -> dict:
     if not DATABASE_URL or not BOT_TOKEN:
         return {"checked": 0, "sent": 0}
     ensure_payment_tables()
+    ensure_stripe_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -22707,6 +22933,8 @@ def process_subscription_reminders() -> dict:
             WHERE s.status = 'active'
               AND s.expires_at::timestamp > NOW()
               AND s.expires_at::timestamp <= NOW() + INTERVAL '8 days'
+              -- A Stripe plan that renews automatically needs no reminder.
+              AND NOT """ + stripe_billing.renews_automatically_sql("s") + """
               AND NOT EXISTS (
                   SELECT 1
                   FROM subscriptions newer
@@ -22857,6 +23085,9 @@ async def start_prostudio_generation_worker():
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
+    if stripe_enabled():
+        # Create or reuse the Stripe products/prices without blocking startup.
+        app.state.background_tasks.append(asyncio.create_task(asyncio.to_thread(sync_stripe_catalog_in_background)))
 
 
 @app.on_event("shutdown")
