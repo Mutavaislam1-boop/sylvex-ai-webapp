@@ -209,7 +209,7 @@ def db(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS subscription_events, subscription_agreements, subscription_payments, shop_orders, purchases, subscriptions, users, stripe_catalog, stripe_customers, "
+        cur.execute("DROP TABLE IF EXISTS payment_inbox, payment_reconcile_state, subscription_events, subscription_agreements, subscription_payments, shop_orders, purchases, subscriptions, users, stripe_catalog, stripe_customers, "
                     "stripe_subscriptions, stripe_events CASCADE")
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
