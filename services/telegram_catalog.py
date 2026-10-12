@@ -12,10 +12,12 @@ which keeps its own USD prices.
 
 Pricing: stars = ceil(usd * 499 / 5), with USD as the reference only
 (never shown or charged in Telegram). Credits: $1 = 100 credits.
-Every purchase is ONE Stars payment for a fixed term: a monthly plan buys
-30 days, an annual plan 365 days. Nothing renews automatically (Telegram's
-recurring Stars subscriptions only support a 30-day period, and SYLVEX
-does not use them).
+Monthly plans are Telegram Stars subscriptions: createInvoiceLink with
+subscription_period=2592000, so Telegram itself charges the same price every
+30 days until the subscription is cancelled (each charge arrives as a
+successful_payment with is_recurring). Annual plans and credit packs are ONE
+Stars payment each (an annual plan buys 365 days) and never renew - Telegram
+only supports a 30-day subscription period.
 
 Telegram limits, checked with createInvoiceLink on the SYLVEX bot
 (scripts/verify_stars_invoice_limits.py; invoice CREATION only - no payment
@@ -24,10 +26,10 @@ has been completed at these amounts):
     Telegram documents no one-time maximum;
   - recurring 30-day subscriptions: 10,000 Stars accepted, 10,001 rejected
     (SUBSCRIPTION_AMOUNT_INVALID), the documented subscription cap.
-The 10,000 cap applies to recurring subscriptions only. A one-time product
-is offered if its Stars price is within STARS_MAX_PER_INVOICE. Prices are
-never changed or split to fit a limit; anything above it is simply
-unavailable in Telegram.
+The 10,000 cap applies to recurring subscriptions only: a monthly plan is
+offered if its price is within STARS_MAX_PER_SUBSCRIPTION, a one-time product
+if its price is within STARS_MAX_PER_INVOICE. Prices are never changed or
+split to fit a limit; anything above it is simply unavailable in Telegram.
 """
 import os
 import re
@@ -43,8 +45,8 @@ CREDITS_PER_USD = 100
 STARS_MAX_PER_INVOICE = int(os.getenv("STARS_MAX_PER_INVOICE", "95808"))
 
 # Recurring Stars subscriptions (Telegram's documented and verified cap and
-# its only billing period). SYLVEX sells no recurring products today; any
-# recurring invoice must pass check_invoice_amount(..., subscription_period).
+# its only billing period): the monthly plans. Every recurring invoice must
+# pass check_invoice_amount(..., subscription_period).
 SUBSCRIPTION_PERIOD_SECONDS = 2592000
 STARS_MAX_PER_SUBSCRIPTION = 10000
 
@@ -100,15 +102,21 @@ def check_invoice_amount(stars, subscription_period=None) -> int:
 
 
 def _with_availability(product: dict) -> dict:
-    available = product["stars"] <= STARS_MAX_PER_INVOICE
+    if product.get("recurring"):
+        available = product["stars"] <= STARS_MAX_PER_SUBSCRIPTION
+        reason = "subscription_amount_above_limit"
+    else:
+        available = product["stars"] <= STARS_MAX_PER_INVOICE
+        reason = "stars_amount_above_limit"
     product["available"] = available
-    product["unavailable_reason"] = None if available else "stars_amount_above_limit"
+    product["unavailable_reason"] = None if available else reason
     return product
 
 
 def _plan_product(plan, period: str) -> dict:
     plan_id, name, monthly_usd, annual_usd, monthly_credits = plan
     usd = monthly_usd if period == "month" else annual_usd
+    recurring = period == "month"
     return {
         "product_id": f"plan_{plan_id}_{period}",
         "kind": "subscription",
@@ -121,6 +129,10 @@ def _plan_product(plan, period: str) -> dict:
         "usd_cents": usd * 100,
         "credits": monthly_credits if period == "month" else monthly_credits * 12,
         "stars": stars_for_cents(usd * 100),
+        # Monthly: a Telegram Stars subscription renewing every 30 days, each
+        # payment granting the monthly credits. Annual: one payment.
+        "recurring": recurring,
+        "subscription_period": SUBSCRIPTION_PERIOD_SECONDS if recurring else None,
     }
 
 
@@ -135,6 +147,8 @@ def _credits_product(credits: int, product_id: str) -> dict:
         "usd_cents": cents,
         "credits": int(credits),
         "stars": stars_for_cents(cents),
+        "recurring": False,
+        "subscription_period": None,
     }
 
 
@@ -201,18 +215,27 @@ def public_catalog() -> dict:
         product = _with_availability(dict(PRODUCTS[product_id]))
         products.append({key: product.get(key) for key in (
             "product_id", "kind", "title", "credits", "stars", "plan_id", "period", "plan_key", "days",
-            "available", "unavailable_reason")})
+            "recurring", "subscription_period", "available", "unavailable_reason")})
     return {
         "currency": "XTR",
         "provider": PROVIDER,
         "credits_per_usd": CREDITS_PER_USD,
         "stars_rate": {"stars": STARS_RATE_STARS, "usd_cents": STARS_RATE_CENTS},
         "stars_max_per_invoice": STARS_MAX_PER_INVOICE,
+        "stars_max_per_subscription": STARS_MAX_PER_SUBSCRIPTION,
         "products": products,
         "custom": {
             "product_id": CUSTOM_PRODUCT_ID,
             "min_credits": CUSTOM_MIN_CREDITS,
             "max_credits": custom_max_credits(),
         },
-        "renewal": "none",
+        # Monthly plans renew every 30 days (Telegram Stars subscription);
+        # annual plans and credit packs never renew.
+        "renewal": {"month": "auto_30_days", "year": "none", "credits": "none"},
     }
+
+
+def monthly_plan_product(plan_key):
+    """The recurring monthly product for a plan key like "pro_month", or None."""
+    product = PRODUCTS.get(f"plan_{plan_key}")
+    return dict(product) if product and product.get("recurring") else None

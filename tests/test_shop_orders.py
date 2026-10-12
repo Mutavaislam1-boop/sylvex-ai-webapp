@@ -6,6 +6,7 @@ duplicate callbacks, amount/payer/provider mismatches, expired orders and
 rollback on failure. Runs only against a disposable database given by
 SYLVEX_TEST_DATABASE_URL (skipped otherwise)."""
 import os
+import time
 from datetime import datetime, timedelta
 
 import pytest
@@ -29,7 +30,7 @@ def connect():
 
     conn = factory()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS shop_orders, purchases, subscriptions, users CASCADE")
+        cur.execute("DROP TABLE IF EXISTS subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
         # Same shape as production (main.py ensure_payment_tables + users).
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
@@ -72,7 +73,13 @@ def pay(connect, product, provider, charge_id, ttl=1800):
     if provider == catalog.PROVIDER_STARS:
         ok, reason = orders.checkout_check(connect, order["order_id"], UID, provider, "XTR", product["stars"])
         assert ok, reason
-        result = orders.finalize_order(connect, order["order_id"], provider, "XTR", product["stars"], charge_id, payer_id=UID)
+        # Monthly plans are Telegram Stars subscriptions: their first payment
+        # carries Telegram's subscription fields.
+        recurring = ({"is_recurring": True, "is_first_recurring": True,
+                      "subscription_expiration_date": int(time.time()) + 30 * 86400}
+                     if product.get("recurring") else None)
+        result = orders.finalize_order(connect, order["order_id"], provider, "XTR", product["stars"], charge_id, payer_id=UID,
+                                       recurring=recurring)
     else:
         result = orders.finalize_order(connect, order["order_id"], provider, "USDT", f"{product['usd_cents'] / 100:.2f}", charge_id)
     return order, result
@@ -181,8 +188,12 @@ def test_every_telegram_product_is_sold_within_the_verified_one_time_amounts():
     for product_id, stars in STARS_TABLE.items():
         assert tg.resolve(product_id)["stars"] == stars
         assert tg.check_invoice_amount(stars) == stars
-    assert not any(p["kind"] == "subscription" and p.get("subscription_period") for p in tg.PRODUCTS.values())
-    assert tg.public_catalog()["renewal"] == "none"
+    # Only the monthly plans renew (30-day Telegram Stars subscriptions).
+    recurring = {pid for pid, p in tg.PRODUCTS.items() if p["recurring"]}
+    assert recurring == {f"plan_{plan}_month" for plan in PLAN_TABLE}
+    assert all(tg.PRODUCTS[pid]["subscription_period"] == 2592000 for pid in recurring)
+    assert all(p["subscription_period"] is None for pid, p in tg.PRODUCTS.items() if pid not in recurring)
+    assert tg.public_catalog()["renewal"] == {"month": "auto_30_days", "year": "none", "credits": "none"}
 
 
 def test_a_lower_one_time_limit_makes_products_unavailable_never_cheaper(monkeypatch):
@@ -351,20 +362,20 @@ def test_a_failure_mid_grant_rolls_everything_back(connect):
     assert orders.get_order(connect, order["order_id"])["status"] == "pending"
 
 
-def test_new_plan_keeps_the_remaining_time_of_an_active_subscription(connect):
+def test_new_one_time_plan_keeps_the_remaining_time_of_an_active_subscription(connect):
     # An existing (e.g. legacy yearly) subscription is not migrated or
-    # shortened: a new plan bought on top extends from its expiry.
+    # shortened: a one-time (annual) plan bought on top extends from its expiry.
     conn = connect()
     with conn.cursor() as cur:
         cur.execute("""INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, expires_at, status, charge_id)
                        VALUES (%s, 'year', 'telegram_stars', CURRENT_TIMESTAMP + INTERVAL '100 days', 'active', 'legacy')""", (UID,))
     conn.commit()
     conn.close()
-    _, result = pay(connect, stars_product("plan_starter_month"), catalog.PROVIDER_STARS, "stack")
+    _, result = pay(connect, stars_product("plan_starter_year"), catalog.PROVIDER_STARS, "stack")
     assert result["status"] == "granted"
     active = q(connect, "SELECT subscription_type, expires_at FROM subscriptions WHERE status = 'active'")
-    assert len(active) == 1 and active[0][0] == "starter_month"
-    assert abs((active[0][1] - datetime.now()) - timedelta(days=130)) < timedelta(minutes=5)
+    assert len(active) == 1 and active[0][0] == "starter_year"
+    assert abs((active[0][1] - datetime.now()) - timedelta(days=465)) < timedelta(minutes=5)
     assert q(connect, "SELECT status FROM subscriptions WHERE charge_id = 'legacy'")[0][0] == "cancelled"
 
 

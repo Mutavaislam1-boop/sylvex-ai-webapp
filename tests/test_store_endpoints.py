@@ -50,7 +50,7 @@ def shop(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS shop_orders, purchases, subscriptions, users CASCADE")
+        cur.execute("DROP TABLE IF EXISTS subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
                        amount INTEGER DEFAULT 0, currency TEXT DEFAULT 'USD', payload TEXT, charge_id TEXT UNIQUE, status TEXT DEFAULT 'completed',
@@ -355,8 +355,12 @@ def test_catalog_endpoint_is_public_and_complete(monkeypatch):
     assert "/api/public/shop/catalog" in PUBLIC_GETS
     response = run(main.public_shop_catalog())
     data = json.loads(response.body)
-    # The Mini App catalog is the Telegram catalog: Stars only, no renewal.
-    assert data["ok"] and data["renewal"] == "none" and data["currency"] == "XTR"
+    # The Mini App catalog is the Telegram catalog: Stars only; only the
+    # monthly plans renew (30-day Telegram Stars subscriptions).
+    assert data["ok"] and data["currency"] == "XTR"
+    assert data["renewal"] == {"month": "auto_30_days", "year": "none", "credits": "none"}
+    assert {p["product_id"] for p in data["products"] if p["recurring"]} == {
+        f"plan_{plan}_month" for plan in ("starter", "pro", "max", "ultra", "creator")}
     assert set(data["providers"]) == {"telegram_stars"}
     assert len(data["products"]) == 19 and data["custom"] == {"product_id": "credits_custom", "min_credits": 100, "max_credits": 96000}
     assert all("usd_cents" not in p and "providers" not in p for p in data["products"])

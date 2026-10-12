@@ -84,6 +84,7 @@
     store_credits_annual: 'Full annual allocation upfront',
     store_per_year: '/ year',
     store_billed_annually_stars: 'One payment for 12 months · save {pct}% · no auto-renewal',
+    store_renews_every_30_days: 'Automatically renews every 30 days. Cancel anytime.',
     store_custom_input_credits: 'Amount of ⚡',
     store_custom_range_credits: 'From {min} to {max} ⚡',
     store_custom_error_credits: 'Enter a whole number of ⚡ from {min} to {max}.',
@@ -277,7 +278,8 @@
       var note = period === 'year'
         ? (starsPrice ? tr('store_billed_annually_stars', { pct: price.discountPct })
           : tr(autoRenew ? 'store_billed_annually_auto' : 'store_billed_annually', { total: fmt.usd(price.totalUsd, 0), pct: price.discountPct }))
-        : tr(autoRenew ? 'store_billed_monthly_auto' : 'store_billed_monthly');
+        : tr(starsPrice && autoRenew ? 'store_renews_every_30_days'
+          : autoRenew ? 'store_billed_monthly_auto' : 'store_billed_monthly');
       // Stars mode shows what one payment costs: a month, or the whole year.
       var amount = starsPrice ? fmt.number(starsPrice(Math.round(price.totalUsd * 100))) + ' ⭐' : fmt.usd(price.displayUsd, price.decimals);
       var unit = tr(starsPrice && period === 'year' ? 'store_per_year' : 'store_per_month');
