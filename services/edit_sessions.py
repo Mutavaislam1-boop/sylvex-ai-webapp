@@ -4,6 +4,7 @@ import math
 import re
 
 from services.media_access import sign_media_url
+from services.edit_sketch import validate_sketch
 
 
 def validate_session(session_id, state):
@@ -18,7 +19,10 @@ def validate_session(session_id, state):
     if len(encoded.encode()) > 4 * 1024 * 1024:
         raise ValueError("edit_session_too_large")
     nodes = state.get("chain")
-    if not isinstance(nodes, list) or not 1 <= len(nodes) <= 500:
+    sketch = state.get('sketch')
+    if sketch is not None:
+        validate_sketch(sketch)
+    if not isinstance(nodes, list) or len(nodes) > 500 or (not nodes and sketch is None):
         raise ValueError("invalid_edit_chain")
     seen = set()
     for node in nodes:
@@ -35,7 +39,7 @@ def validate_session(session_id, state):
                 raise ValueError("invalid_edit_geometry")
         if min(node["slotWidth"], node["slotHeight"]) <= 0:
             raise ValueError("invalid_edit_geometry")
-    if state.get("activeNodeId") not in seen:
+    if (nodes and state.get("activeNodeId") not in seen) or (not nodes and state.get("activeNodeId")):
         raise ValueError("invalid_edit_active_node")
     def check(value, field=""):
         if isinstance(value, dict):
@@ -63,7 +67,7 @@ def refresh_media(value, field=""):
 
 def save(connect, owner, session_id, state):
     encoded = validate_session(session_id, state)
-    title = str(state.get("sourceName") or "Рабочая область Edit")[:160]
+    title = str(state.get("sourceName") or ("Sketch drawing" if state.get('sketch') else "Edit workspace"))[:160]
     preview = next((node.get("url", "") for node in reversed(state["chain"]) if node.get("status") == "ready"), "")
     count = sum(node.get("status") == "ready" and bool(node.get("parentId")) for node in state["chain"])
     with connect() as conn:

@@ -56,6 +56,7 @@ def provider(monkeypatch):
 
 @pytest.mark.parametrize(('mode', 'settings', 'fragment'), [
     ('edit', {}, 'Make it blue'),
+    ('sketch', {}, 'photorealistic photograph'),
     ('background', {'editWorkspaceBackgroundMode': 'transparent'}, 'true transparency'),
     ('background', {'editWorkspaceBackgroundMode': 'replace'}, 'only the background'),
     ('translate', {'editWorkspaceTranslateLanguage': 'Turkish'}, 'Turkish'),
@@ -69,6 +70,20 @@ def test_openai_contract_and_isolation(provider, mode, settings, fragment):
     assert 'UNRELATED' not in str(call)
     assert call['data']['output_format'] == 'png'
     assert call['data'].get('background') == ('transparent' if settings.get('editWorkspaceBackgroundMode') == 'transparent' else None)
+
+
+def test_sketch_uses_only_the_flattened_drawing_and_allows_an_optional_description(provider):
+    request = payload('sketch', editWorkspacePrompt='')
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok'] and result['edit_mode'] == 'sketch'
+    call = provider[0][0][1]
+    assert 'composition and spatial reference' in call['data']['prompt']
+    assert 'sticker symbols as the real subjects' in call['data']['prompt']
+    assert 'User instruction:' not in call['data']['prompt']
+    assert call['data']['model'] == 'gpt-image-2.5-sunburst'
+    assert len(call['files']) == 1 and call['files'][0][0] == 'image'
+    assert Image.open(io.BytesIO(call['files'][0][1][1])).getpixel((0, 0)) == (20, 40, 60, 255)
+    assert result['reference_images'] == [request['image_options']['editWorkspaceSourceUrl']]
 
 
 def test_retouch_transmits_alpha_mask_and_preserves_unselected_pixels(provider):

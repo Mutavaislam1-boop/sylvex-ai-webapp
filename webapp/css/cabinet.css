@@ -9985,3 +9985,43 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
    cannot use (e.g. above the Telegram Stars invoice limit). */
 .view[data-view="pay"] .pay-store-note{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:var(--surface);color:var(--text);color:color-mix(in srgb,var(--text) 78%,transparent);font-size:12.5px;line-height:1.45}
 .view[data-view="pay"] .pm-card.is-unavailable{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* Sketch is an editable document; generation consumes a separate PNG snapshot. */
+.edit-sketch-workbench{position:absolute;z-index:2;left:20px;right:20px;top:65px;bottom:242px;display:grid;grid-template-columns:222px minmax(0,1fr);gap:16px;color:var(--edit-text)}
+.edit-workspace[data-sidebar="true"] .edit-sketch-workbench{left:260px}
+.edit-workspace[data-shared-sidebar="true"] .edit-sketch-workbench{left:calc(var(--sx-sidebar-w,256px) + 20px)}
+.edit-workspace[data-drawing="true"] .edit-workspace-stage{visibility:hidden;pointer-events:none}
+.edit-workspace[data-drawing="true"] .edit-workspace-canvas-actions{display:none}
+.edit-workspace[data-drawing="true"] .edit-workspace-status{visibility:hidden}
+.edit-sketch-tools{min-height:0;overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid var(--edit-border);border-radius:16px;background:var(--edit-surface)}
+.edit-sketch-tools>*{flex-shrink:0}.edit-sketch-tools h3{font-size:15px;margin:0}.edit-sketch-tools p{font-size:11px;line-height:1.5;margin:0;color:var(--edit-muted)}
+.edit-sketch-workbench button{font:inherit;font-size:11px;color:var(--edit-text);background:var(--edit-surface-raised);border:1px solid var(--edit-border);border-radius:8px;cursor:pointer;min-height:30px;padding:6px 8px}
+.edit-sketch-workbench button:hover{border-color:var(--edit-border-strong);background:var(--edit-selected)}
+.edit-sketch-workbench button[aria-pressed="true"]{border-color:var(--edit-primary);background:var(--edit-selected);color:var(--edit-text)}
+.edit-sketch-workbench button:disabled{opacity:.4;cursor:default}.edit-sketch-workbench :is(button,input):focus-visible{outline:2px solid var(--edit-primary);outline-offset:2px}
+.edit-sketch-tool-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+.edit-sketch-tool-grid button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:49px;padding:5px 2px;font-size:9px}
+.edit-sketch-tool-grid b{font-size:20px;line-height:20px;font-weight:500}.edit-sketch-tool-grid span{white-space:nowrap}
+.edit-sketch-color-row{display:flex;flex-wrap:wrap;gap:9px;align-items:center;font-size:11px}
+.edit-sketch-workbench label{display:flex;align-items:center;gap:6px;font-size:11px;min-width:0}
+.edit-sketch-workbench input{font:inherit;color:var(--edit-text);accent-color:var(--edit-primary)}
+.edit-sketch-workbench input[type=color]{width:27px;height:27px;border:1px solid var(--edit-border);border-radius:7px;padding:2px;background:var(--edit-surface-raised);cursor:pointer}
+.edit-sketch-workbench input[type=number],.edit-sketch-workbench input[type=text]{box-sizing:border-box;width:100%;min-width:0;padding:7px;border:1px solid var(--edit-border);border-radius:7px;background:var(--edit-surface-raised)}
+.edit-sketch-palette{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+.edit-sketch-palette button{min-height:23px;padding:0;border-radius:50%;background:var(--swatch);border-color:var(--edit-border-strong)}.edit-sketch-palette button:hover{background:var(--swatch);outline:2px solid var(--edit-primary)}
+.edit-sketch-workbench .edit-sketch-range{display:grid;grid-template-columns:42px minmax(0,1fr) 30px;font-size:11px}.edit-sketch-range input{width:100%;min-width:0}.edit-sketch-range output{text-align:right;font-variant-numeric:tabular-nums}
+.edit-sketch-stickers{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}.edit-sketch-stickers button{font-size:22px;padding:3px}
+.edit-sketch-object{display:grid;gap:8px;font-size:11px}.edit-sketch-object>div{display:flex;flex-wrap:wrap;gap:5px}.edit-sketch-object small{color:var(--edit-muted);line-height:1.5}
+.edit-sketch-document{font-size:11px;border-top:1px solid var(--edit-border);padding-top:10px}.edit-sketch-document summary{cursor:pointer;padding:4px 0}.edit-sketch-document>div{display:flex;gap:7px;margin:10px 0}.edit-sketch-document>label{margin-top:9px}
+.edit-sketch-history{display:flex;flex-wrap:wrap;gap:5px;padding-top:4px}
+.edit-sketch-paper-area{position:relative;min-width:0;overflow:hidden;touch-action:none;border:1px solid var(--edit-border);border-radius:16px;background-color:var(--edit-bg);background-image:radial-gradient(var(--edit-border-strong) 1px,transparent 1px);background-size:20px 20px}
+.edit-sketch-paper{position:absolute;top:50%;left:50%;transform-origin:center;box-shadow:0 8px 32px var(--st-shadow,rgba(0,0,0,.15))}
+.edit-sketch-canvas,.edit-sketch-selection{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.edit-sketch-canvas{cursor:crosshair;outline:none}.edit-sketch-selection{pointer-events:none}
+.edit-sketch-paper-area[data-tool=select] .edit-sketch-canvas{cursor:default}.edit-sketch-paper-area[data-tool=hand],.edit-sketch-paper-area[data-tool=hand] .edit-sketch-canvas{cursor:grab}.edit-sketch-paper-area.is-panning,.edit-sketch-paper-area.is-panning .edit-sketch-canvas{cursor:grabbing}
+.edit-sketch-view-controls{position:absolute;top:10px;right:10px;z-index:2;display:flex;align-items:center;gap:4px;font-size:11px}.edit-sketch-view-controls output{padding:0 6px;font-variant-numeric:tabular-nums;color:var(--edit-muted)}
+.edit-sketch-hint{position:absolute;bottom:8px;left:12px;right:12px;text-align:center;pointer-events:none;font-size:10px;color:var(--edit-muted)}
+.edit-sketch-workbench [hidden]{display:none!important}.edit-sketch-workbench[inert]{opacity:.6;pointer-events:none}
+.edit-workspace-action-sketch textarea{height:54px;min-height:54px;width:100%;box-sizing:border-box}
+.edit-workspace-dock{overflow-x:auto;scrollbar-width:thin}.edit-workspace-tab{flex-shrink:0}
+@media(min-width:1000px) and (max-height:760px){.edit-sketch-workbench{top:55px;bottom:220px}.edit-sketch-tools{padding:10px;gap:9px}}
