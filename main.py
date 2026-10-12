@@ -10001,6 +10001,11 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
     return actor
 
 
+# Where an admin balance change came from, recorded in its audit row. Any
+# other value a caller sends is stored as plain "admin_api".
+ADMIN_BALANCE_SOURCES = frozenset({"admin_api", "support_bot", "telegram_bot_addbalance", "admin_console"})
+
+
 def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=None, after=None, reason: str = ""):
     cursor.execute("""
         INSERT INTO admin_audit_log
@@ -10172,17 +10177,29 @@ async def admin_user_balance(request: Request):
         ensure_admin_tables()
         target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
         reason = str(payload.get("reason") or "Ручная корректировка")[:500]
+        source = str(payload.get("source") or "admin_api")
+        if source not in ADMIN_BALANCE_SOURCES:
+            source = "admin_api"
         if not target_id or not delta or abs(delta) > 1000000:
             raise HTTPException(status_code=400, detail="invalid_balance_change")
-        ensure_user_exists(target_id)
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            # A mistyped id must not silently create a fresh user row, and a
+            # debit larger than the balance must not be clamped to 0 - both
+            # would be balance edits nobody asked for and the audit row would
+            # not describe. Refuse instead.
             cursor.execute("SELECT COALESCE(balance,0) FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
-            before = int(cursor.fetchone()[0] or 0)
-            after = max(0, before + delta)
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            before = int(row[0] or 0)
+            after = before + delta
+            if after < 0:
+                raise HTTPException(status_code=409, detail="balance_would_go_negative")
             cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
-            _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before}, {"balance": after}, reason)
+            _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before},
+                         {"balance": after, "delta": delta, "source": source}, reason)
             conn.commit()
             return after
         except Exception:
