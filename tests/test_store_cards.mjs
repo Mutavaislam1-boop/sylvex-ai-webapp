@@ -205,6 +205,19 @@ test('stars mode shows only Telegram Stars prices on plans', () => {
   assert.match(html, /One month · no auto-renewal/);
 });
 
+test('stars mode with renewing monthly plans says so, annual stays one payment', () => {
+  const container = fakeContainer();
+  const plans = new Map();
+  container.addEventListener = (type, fn) => plans.set(type, fn);
+  container.querySelector = () => null;
+  S.renderPlans(container, {locale: 'en', starsPrice, renewal: 'auto'});
+  assert.match(container.innerHTML, /Automatically renews every 30 days\. Cancel anytime\./);
+  assert.doesNotMatch(container.innerHTML, /no auto-renewal|Billed monthly/);
+  const card = {dataset: {plan: 'pro'}};
+  plans.get('click')({target: {closest: (sel) => (sel === '[data-sxs-period]' ? {dataset: {sxsPeriod: 'year'}} : sel === '[data-plan]' ? card : null)}});
+  assert.match(container.innerHTML, /One payment for 12 months · save 20% · no auto-renewal/);
+});
+
 test('stars mode annual plans show the one-time yearly payment', () => {
   const container = fakeContainer();
   const plans = new Map();
