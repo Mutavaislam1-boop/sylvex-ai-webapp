@@ -306,12 +306,12 @@ const PHOTO_TOOL_CONFIG = {
     demo: '/webapp/assets/photo-tools/replace-character/demo.mp4',
   },
   enhance: {
-    title: 'Улучшение фото',
-    shortTitle: 'Улучшение фото',
-    description: 'Загрузите одно фото для улучшения качества и детализации.',
+    title: 'Enhance Photo',
+    shortTitle: 'Enhance Photo',
+    description: 'Enhance image quality automatically with Topaz.',
     min: 1,
     max: 1,
-    labels: ['Фото для улучшения'],
+    labels: ['Source image'],
     demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
   },
   animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
@@ -6737,6 +6737,11 @@ function scrollPresetCarousel(e, btn, dir) {
   track.scrollBy({ left: dir * Math.round((track.clientWidth || 240) * 0.8), behavior: 'smooth' });
 }
 
+function createEditSylvexRestoreState() {
+  return {analyzing:false,analysisId:'',analysisStatus:'',sourceUrl:'',resultUrl:'',imageWidth:0,imageHeight:0,
+    regions:[],selectedRegionId:'',addingRegion:false,failedRegionIds:[],retryRegionIds:[],finalOnly:false,
+    finalEnhance:{apply_global_enhance:true,upscale_factor:2,denoise_strength:.2,sharpen_strength:.2}};
+}
 function createEditWorkspaceState() {
   return {sessionId:'edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10),sidebarOpen:true,mode:'edit',sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
     width:0,height:0,showBefore:false,history:[],chain:[],activeNodeId:'',nodeSequence:0,maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
@@ -6744,17 +6749,19 @@ function createEditWorkspaceState() {
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:0,right:0,top:0,bottom:0},
     backgroundMode:'transparent',background:{color:'#ffffff',url:'',name:''},translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
     upscaleEstimate:null,sketch:null,
-    upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
+    upscale:{model:'topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0,sylvex:createEditSylvexRestoreState()}};
 }
 let editSessionsOwner='',editSessions=[],editSessionsHasMore=false,editSessionsOffset=0,editSessionSaveTimer=0,editSessionSaveQueue=Promise.resolve(),editSessionSyncStatus='',editSessionOpenVersion=0,editSessionPagehideBound=false,editSessionRevision=0,editSessionLocalAvailable=true;
 const editSessionLocalStates=new Map();
 function editSessionOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):'';}
 function editSessionSnapshot(){
   const s=editWorkspaceState,urls=new Map(s.chain.map(node=>[node.preview,node.url]));
-  return JSON.parse(JSON.stringify({...s,busy:false,uploading:false,showBefore:false,upscaleEstimate:null},(key,value)=>{
+  const snapshot=JSON.parse(JSON.stringify({...s,busy:false,uploading:false,showBefore:false,upscaleEstimate:null},(key,value)=>{
     if(typeof value==='string'&&value.startsWith('blob:'))return urls.get(value)||'';
     return value;
   }));
+  if(snapshot.upscale?.sylvex){snapshot.upscale.sylvex.analyzing=false;snapshot.upscale.sylvex.retryRegionIds=[];snapshot.upscale.sylvex.finalOnly=false;}
+  return snapshot;
 }
 function editSessionSummary(state){
   return {id:state.sessionId,title:state.sourceName||'Edit workspace',preview_url:[...state.chain].reverse().find(node=>node.status==='ready')?.url||'',count:state.chain.filter(node=>node.parentId&&node.status==='ready').length,updatedAt:state.updatedAt||new Date().toISOString()};
@@ -6837,6 +6844,7 @@ function restoreEditSessionState(saved){
   Object.assign(editWorkspaceState,fresh,JSON.parse(JSON.stringify(saved)),{busy:false,uploading:false,upscaleEstimate:null,viewNeedsFit:false});
   delete editWorkspaceState.localUnsynced;
   editWorkspaceState.background={...fresh.background,...saved.background};
+  editWorkspaceState.upscale={...fresh.upscale,...saved.upscale,sylvex:{...fresh.upscale.sylvex,...saved.upscale?.sylvex,analyzing:false,retryRegionIds:[],finalOnly:false}};
   editWorkspaceState.sketch=saved.sketch&&typeof SYLVEXSketch!=='undefined'?SYLVEXSketch.restore(saved.sketch):null;
   // Blob previews never survive a WebView restart; durable URLs do.
   editWorkspaceState.chain.forEach(node=>{node.preview=node.url||'';});
@@ -6984,6 +6992,7 @@ function stopEditWorkspaceChainMotion(root) {
 }
 function editWorkspaceChainLabel(node,index) {
   if(node.mode==='sketch-source')return 'Sketch reference';
+  if(node.restoreModel==='sylvex_sr')return index+' · Sylvex Restore';
   return index===0?'Source reference':index+' · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===node.mode)?.[1]||'Result');
 }
 function syncEditWorkspaceChain(root) {
@@ -7023,6 +7032,17 @@ function syncEditWorkspaceChain(root) {
     if(node.status==='ready'&&!img){
       img=document.createElement('img');img.className='edit-workspace-image';img.alt=label;img.draggable=false;card.dataset.media='loading';frame.appendChild(img);img.src=node.preview||node.url;
     }
+    const restore=s.upscale?.sylvex||{},showRestoreRegions=node.id===s.activeNodeId&&node.status==='ready'&&s.mode==='upscale'&&s.upscale.model==='sylvex_sr'&&restore.analysisStatus==='completed'&&!s.showBefore;
+    let restoreOverlay=frame.querySelector('.edit-sr-overlay');
+    if(showRestoreRegions){
+      if(!restoreOverlay){restoreOverlay=document.createElement('div');restoreOverlay.className='edit-sr-overlay';frame.appendChild(restoreOverlay);}
+      restoreOverlay.classList.toggle('drawing',!!restore.addingRegion);
+      restoreOverlay.innerHTML=(restore.regions||[]).map(region=>{
+        const box=region.bbox||{},width=Math.max(1,restore.imageWidth||s.width),height=Math.max(1,restore.imageHeight||s.height),color=sylvexRestoreColor(region);
+        const style='left:'+(Number(box.x)||0)/width*100+'%;top:'+(Number(box.y)||0)/height*100+'%;width:'+(Number(box.width)||0)/width*100+'%;height:'+(Number(box.height)||0)/height*100+'%';
+        return '<button type="button" class="edit-sr-region '+color+(region.region_id===restore.selectedRegionId?' selected':'')+(restore.failedRegionIds?.includes(region.region_id)?' failed':'')+'" style="'+style+'" onclick="SYLVEX.selectEditSylvexRegion(event,\''+S.escapeHtml(region.region_id)+'\')"><span>'+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</span></button>';
+      }).join('')+'<div class="edit-sr-draft" hidden></div>';
+    }else restoreOverlay?.remove();
     let failure=frame.querySelector('.edit-chain-failure');
     if(node.status==='failed'&&!failure){failure=document.createElement('div');failure.className='edit-chain-failure';failure.innerHTML='<b>Could not generate the image</b><span>Try again from the tool panel.</span>';frame.appendChild(failure);}
     if(node.status!=='failed')failure?.remove();
@@ -7551,7 +7571,7 @@ function initEditWorkspaceNavigation(stage) {
   return ()=>{if(drag)end({pointerId:drag.id});stage.classList.remove('can-pan');listeners.forEach(([type,fn,capture])=>stage.removeEventListener?.(type,fn,capture));stage.removeEventListener?.('wheel',wheel);document.removeEventListener('keydown',spaceDown);document.removeEventListener('keyup',spaceUp);window.removeEventListener('blur',stage.onblur);};
 }
 
-function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspaceState.uploading; }
+function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspaceState.uploading || !!editWorkspaceState.upscale?.sylvex?.analyzing; }
 function editWorkspaceValidation() {
   const s=editWorkspaceState, prompt=s.prompt.trim();
   if(s.uploading)return 'Uploading image…';
@@ -7580,6 +7600,13 @@ function editWorkspaceValidation() {
     const u=s.upscale;
     if(![u.width,u.height].every(v=>Number.isInteger(v)&&v>0&&v<=24000)||u.width*u.height>100000000)return 'Upscale: максимум 24 000 px по стороне и 100 мегапикселей.';
     if(u.width!==Math.max(1,Math.round(s.width*u.height/s.height)))return 'Upscale сохраняет пропорции. Задайте размер заново.';
+    if(u.model==='sylvex_sr'){
+      const restore=u.sylvex||{};
+      if(restore.analysisStatus!=='completed')return 'Analyze the current image before restoring.';
+      const retrying=!!(restore.retryRegionIds?.length||restore.finalOnly);
+      if(restore.sourceUrl!==s.sourceUrl&&!retrying)return 'Analyze the current result before starting another restoration.';
+      const planError=validateSylvexRestorePlan(restore);if(planError)return planError;
+    }
   }
   if(s.mode==='expand'){
     const x=s.expand,w=s.width+x.left+x.right,h=s.height+x.top+x.bottom;
@@ -7772,7 +7799,7 @@ async function loadEditWorkspaceImage(file) {
     s.sketch=null;if(s.mode==='sketch')s.mode='edit';
     const previews=new Set([s.sourcePreview,s.beforeUrl,...s.history.flatMap(item=>[item.sourcePreview,item.beforeUrl]),...s.chain.map(node=>node.preview)]);
     previews.forEach(url=>{if(url.startsWith('blob:'))URL.revokeObjectURL(url);});
-    s.history=[];s.chain=[];s.activeNodeId='';s.expand={left:0,right:0,top:0,bottom:0};Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
+    s.history=[];s.chain=[];s.activeNodeId='';s.expand={left:0,right:0,top:0,bottom:0};s.upscale.sylvex=createEditSylvexRestoreState();Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
     setEditWorkspaceDimensions(probe.naturalWidth,probe.naturalHeight);
     ensureEditWorkspaceChain();
   } catch(error){URL.revokeObjectURL(preview);editWorkspaceToast(error.message||'Could not upload the image.');}
@@ -7819,7 +7846,7 @@ function renderEditWorkspace() {
   root.dataset.mode=mode;root.dataset.sidebar=String(state.sidebarOpen);root.dataset.busy=String(editWorkspaceLocked());
   root.dataset.drawing=String(mode==='sketch'&&!!state.sketch?.editing);
   root.setAttribute('aria-label','Edit image');root.setAttribute('aria-busy',String(editWorkspaceLocked()));
-  const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Processing…':state.uploading?'Uploading…':mode==='resize'?'Apply · Free':mode==='upscale'?'Upscale':'Generate')+'</button>';
+  const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Processing…':state.uploading?'Uploading…':mode==='resize'?'Apply · Free':mode==='upscale'?(state.upscale.model==='sylvex_sr'?'Restore':'Upscale'):'Generate')+'</button>';
   const range=(label,key,min,max,step,value,group='camera',unit='°')=>'<label class="edit-workspace-range"><span>'+label+'</span><input '+(group==='camera'?'data-camera-input="'+key+'" ':'')+'aria-label="'+label+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'" oninput="SYLVEX.updateEditWorkspaceRange(event,\''+group+'\',\''+key+'\')"><output data-range-output="'+group+'-'+key+'">'+value+unit+'</output></label>';
   let panel='';let action='';
   if(mode==='camera'){
@@ -7856,7 +7883,7 @@ function renderEditWorkspace() {
   syncEditWorkspaceChain(root);
   root.querySelectorAll('.edit-workspace-stage button').forEach(el=>el.disabled=editWorkspaceLocked());
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
-  initEditWorkspaceStage();initEditExpandHandles(root);initEditCameraOrbit();initEditLightOrbit();updateEditWorkspaceReady();renderEditSessionList();
+  initEditWorkspaceStage();initEditExpandHandles(root);initEditCameraOrbit();initEditLightOrbit();initEditSylvexRestoreOverlay();updateEditWorkspaceReady();renderEditSessionList();
   if(mode==='upscale')void refreshEditUpscaleEstimate();
 
 }
@@ -7909,33 +7936,104 @@ function clampEditUpscaleDimensions(width,height,sourceWidth=width,sourceHeight=
   while(height>1&&(width>24000||width*height>100000000)){height--;width=Math.max(1,Math.round(sourceWidth*height/sourceHeight));}
   return{width,height};
 }
+function editSylvexRestoreState(){
+  const u=editWorkspaceState.upscale;u.sylvex??=createEditSylvexRestoreState();return u.sylvex;
+}
+function editSylvexRegion(){const r=editSylvexRestoreState();return r.regions.find(region=>region.region_id===r.selectedRegionId)||null;}
+function setEditUpscaleModel(e,model){
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  editWorkspaceState.upscale.model=model==='sylvex_sr'?'sylvex_sr':'topaz';renderEditWorkspace();
+}
+function editUpscaleModelSelector(){
+  const model=editWorkspaceState.upscale.model;
+  return '<div class="edit-sr-model-selector" role="group" aria-label="Enhancement model"><button type="button" class="'+(model==='topaz'?'active':'')+'" onclick="SYLVEX.setEditUpscaleModel(event,\'topaz\')"><b>Topaz</b><small>Fast automatic upscale</small></button><button type="button" class="'+(model==='sylvex_sr'?'active':'')+'" onclick="SYLVEX.setEditUpscaleModel(event,\'sylvex_sr\')"><b>Sylvex Restore</b><small>Guided region restoration</small></button></div>';
+}
+function editSylvexRegionCard(){
+  const r=editSylvexRestoreState(),region=editSylvexRegion();
+  if(!region)return '<div class="edit-sr-empty-card"><b>Region guidance</b><span>Select a numbered region on the image or add your own.</span></div>';
+  const confidence=region.confidence==null?'Manual region':Math.round(Number(region.confidence||0)*100)+'% source confidence';
+  return '<section class="edit-sr-region-card"><header><span class="'+sylvexRestoreColor(region)+'">'+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</span><div><b>'+S.escapeHtml(region.region_id)+'</b><small>'+S.escapeHtml(confidence)+'</small></div>'+(region.source==='user_added'?'<button type="button" aria-label="Delete region" onclick="SYLVEX.deleteEditSylvexRegion(event)">×</button>':'')+'</header><p>'+S.escapeHtml(region.issue_summary||'User-defined restoration region.')+'</p>'+
+    '<label>Region type<select onchange="SYLVEX.updateEditSylvexRegion(event,\'region_type\')">'+['face','text','object','other'].map(type=>'<option value="'+type+'" '+(region.region_type===type?'selected':'')+'>'+type[0].toUpperCase()+type.slice(1)+'</option>').join('')+'</select></label>'+
+    '<label>Action<select onchange="SYLVEX.updateEditSylvexRegion(event,\'user_action\')">'+[['auto_restore','Auto Restore'],['upload_reference','Upload Reference'],['enter_text','Enter Text'],['protect_region','Protect Region'],['skip_region','Skip']].map(item=>'<option value="'+item[0]+'" '+(region.user_action===item[0]?'selected':'')+'>'+item[1]+'</option>').join('')+'</select></label>'+
+    (region.user_action==='upload_reference'?'<div class="edit-sr-reference"><button type="button" onclick="SYLVEX.openEditSylvexReference(event)">'+(region.reference_asset_id?'<img src="'+S.escapeHtml(region.reference_asset_id)+'" alt="Region reference"><span>Replace reference</span>':'<span>＋ Upload region reference</span>')+'</button>'+(region.reference_asset_id?'<button type="button" aria-label="Remove reference" onclick="SYLVEX.removeEditSylvexReference(event)">×</button>':'')+'</div>':'')+
+    (region.user_action==='enter_text'||region.user_action==='upload_reference'||region.region_type==='object'?'<label>Region instruction<textarea maxlength="500" rows="3" placeholder="Describe the exact detail to preserve or restore" oninput="SYLVEX.updateEditSylvexRegion(event,\'text_instruction\')">'+S.escapeHtml(region.text_instruction||'')+'</textarea><small>'+String(region.text_instruction||'').length+'/500</small></label>':'')+
+    (region.user_action==='protect_region'?'<fieldset><legend>Protection mode</legend><label><input type="radio" name="editSrProtection" value="hard" '+(region.protection_mode==='hard'?'checked':'')+' onchange="SYLVEX.updateEditSylvexRegion(event,\'protection_mode\')"> Hard Protect</label><small>Keep original pixels unchanged.</small><label><input type="radio" name="editSrProtection" value="soft" '+(region.protection_mode==='soft'?'checked':'')+' onchange="SYLVEX.updateEditSylvexRegion(event,\'protection_mode\')"> Soft Protect</label><small>Enhance only; preserve identity and meaning.</small></fieldset>':'')+
+    (r.failedRegionIds.includes(region.region_id)?'<button type="button" class="edit-sr-retry" onclick="SYLVEX.retryEditSylvexRegion(event,\''+S.escapeHtml(region.region_id)+'\')">Retry this region</button>':'')+'</section>';
+}
+function editSylvexPanel(generate){
+  const s=editWorkspaceState,r=editSylvexRestoreState(),ready=!!s.sourceUrl,analyzed=r.analysisStatus==='completed',current=r.sourceUrl===s.sourceUrl;
+  const toolbar=ready?'<div class="edit-sr-toolbar"><button type="button" '+(r.analyzing?'disabled ':'')+'onclick="SYLVEX.analyzeEditSylvexRestore(event)">'+(r.analyzing?'<span class="photo-tool-spinner"></span>Analyzing…':analyzed&&!current?'Analyze current image':'Analyze')+'</button><button type="button" class="'+(r.addingRegion?'active':'')+'" '+(!analyzed||r.analyzing?'disabled ':'')+'onclick="SYLVEX.startEditSylvexRegion(event)">Add Region</button><button type="button" '+(!analyzed||r.analyzing?'disabled ':'')+'onclick="SYLVEX.applyEditSylvexAuto(event)">Apply Auto</button><button type="button" '+(r.analyzing?'disabled ':'')+'onclick="SYLVEX.resetEditSylvexRestore(event)">Reset</button></div>':'';
+  const tabs=analyzed?'<div class="edit-sr-region-tabs">'+r.regions.map(region=>'<button type="button" class="'+(region.region_id===r.selectedRegionId?'active ':'')+sylvexRestoreColor(region)+'" onclick="SYLVEX.selectEditSylvexRegion(event,\''+S.escapeHtml(region.region_id)+'\')">'+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</button>').join('')+'</div>':'';
+  const settings=analyzed?'<details class="edit-sr-final"><summary>Final enhancement</summary><label><input type="checkbox" '+(r.finalEnhance.apply_global_enhance?'checked':'')+' onchange="SYLVEX.updateEditSylvexFinal(event,\'apply_global_enhance\')"> Apply mild global enhancement</label><label>Upscale<select onchange="SYLVEX.updateEditSylvexFinal(event,\'upscale_factor\')">'+[1,2,4].map(n=>'<option value="'+n+'" '+(r.finalEnhance.upscale_factor===n?'selected':'')+'>'+n+'×</option>').join('')+'</select></label><label>Denoise <output>'+Math.round(r.finalEnhance.denoise_strength*100)+'%</output><input type="range" min="0" max="1" step=".05" value="'+r.finalEnhance.denoise_strength+'" oninput="SYLVEX.updateEditSylvexFinal(event,\'denoise_strength\')"></label><label>Sharpen <output>'+Math.round(r.finalEnhance.sharpen_strength*100)+'%</output><input type="range" min="0" max="1" step=".05" value="'+r.finalEnhance.sharpen_strength+'" oninput="SYLVEX.updateEditSylvexFinal(event,\'sharpen_strength\')"></label></details>':'';
+  const stale=analyzed&&!current?'<p class="edit-sr-notice">This plan belongs to the previous chain image. Analyze the current image for a new restoration.'+(r.failedRegionIds.length?' Failed regions can still be retried below.':'')+'</p>':'';
+  return '<div class="edit-camera-panel-title"><h3>Sylvex Restore</h3><span>Guided restoration</span></div><div class="edit-upscale-options"><p class="edit-upscale-help">Analyze the image, review only important uncertain regions, then restore them in a controlled sequence.</p>'+toolbar+(r.analyzing?'<div class="edit-sr-wait"><i></i><b>Analyzing important uncertain regions…</b></div>':'')+stale+tabs+(analyzed?editSylvexRegionCard()+settings:'<div class="edit-sr-empty-card"><b>Start with analysis</b><span>Faces, important text and key foreground objects are prioritized.</span></div>')+'</div><div class="edit-upscale-summary"><span>Cost</span><b data-upscale-cost aria-live="polite">'+(ready&&analyzed?'Calculating…':'—')+'</b></div>'+(r.failedRegionIds.length?'<button type="button" class="edit-sr-final-retry" onclick="SYLVEX.retryEditSylvexFinal(event)">Retry final enhancement</button>':'')+generate+'<input id="editSrReferenceInput" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditSylvexReference(event)">';
+}
 function editUpscalePanel(generate,range){
   const s=editWorkspaceState,u=s.upscale,ready=!!(s.width&&s.height),disabled=ready?'':' disabled';
+  const selector=editUpscaleModelSelector();if(u.model==='sylvex_sr')return selector+editSylvexPanel(generate);
   const scale=ready?Number((u.height/s.height).toFixed(2)):0;
-  return '<div class="edit-camera-panel-title"><h3>Улучшение качества</h3><span>Topaz · High Fidelity V2</span></div>'+
-    '<div class="edit-upscale-options">'+
-    '<p class="edit-upscale-help">Увеличьте фото и настройте детализацию. 1× улучшает качество без увеличения.</p>'+
-    '<div class="edit-workspace-segment" aria-label="Масштаб результата">'+[1,2,4].map(v=>'<button type="button" aria-pressed="'+(ready&&u.height===s.height*v)+'" class="'+(ready&&u.height===s.height*v?'active':'')+'"'+disabled+' onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'×</button>').join('')+'</div>'+
-    '<div class="edit-upscale-summary"><span>Исходник</span><b>'+(ready?s.width+' × '+s.height+' px':'Загрузите фото')+'</b><span>Результат</span><b>'+(ready?u.width+' × '+u.height+' px · '+scale+'×':'—')+'</b></div>'+
-    '<div class="edit-workspace-dimensions"><label>W <input aria-label="Ширина результата" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'width\')"> px</label><span>×</span><label>H <input aria-label="Высота результата" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'height\')"> px</label></div>'+
-    '<p class="edit-upscale-help">Пропорции сохраняются · до 100 Мп и 24 000 px по стороне. При достижении лимита масштаб уменьшается.</p>'+
-    '<details class="edit-workspace-settings" open><summary>Настройки улучшения</summary><div class="edit-upscale-controls">'+
-    range('Резкость','sharpness',0,100,1,u.sharpness,'upscale','')+range('Убрать шум','denoise',0,100,1,u.denoise,'upscale','')+
-    range('Сила улучшения','modelStrength',1,100,1,u.modelStrength,'upscale','')+range('Убрать сжатие','fixCompression',0,100,1,u.fixCompression,'upscale','')+
-    '<label class="edit-workspace-select-row">Область улучшения<select aria-label="Область улучшения" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'subject\')">'+[['All','Всё фото'],['Foreground','Передний план'],['Background','Фон']].map(([value,label])=>'<option value="'+value+'" '+(u.subject===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label>'+
-    '<label class="edit-workspace-switch-row">Улучшение лиц<input aria-label="Улучшение лиц" type="checkbox" '+(u.faceEnhancement?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'faceEnhancement\')"></label>'+
-    '<fieldset class="edit-upscale-faces" '+(u.faceEnhancement?'':'disabled')+'><legend class="sr-only">Настройки лиц</legend>'+range('Детализация лиц','strength',0,100,1,u.strength,'upscale','')+range('Креативность лиц','creativity',0,100,1,u.creativity,'upscale','')+'<p class="edit-upscale-help">Низкая креативность помогает сохранить исходные черты лица.</p></fieldset></div></details>'+
-    '</div><div class="edit-upscale-summary"><span>Стоимость</span><b data-upscale-cost aria-live="polite">'+(ready?'Расчёт…':'—')+'</b></div>'+generate;
+  return selector+'<div class="edit-camera-panel-title"><h3>Enhance quality</h3><span>Topaz · High Fidelity V2</span></div><div class="edit-upscale-options"><p class="edit-upscale-help">Upscale the photo and adjust detail. 1× improves quality without enlarging it.</p><div class="edit-workspace-segment" aria-label="Output scale">'+[1,2,4].map(v=>'<button type="button" aria-pressed="'+(ready&&u.height===s.height*v)+'" class="'+(ready&&u.height===s.height*v?'active':'')+'"'+disabled+' onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'×</button>').join('')+'</div><div class="edit-upscale-summary"><span>Source</span><b>'+(ready?s.width+' × '+s.height+' px':'Upload an image')+'</b><span>Result</span><b>'+(ready?u.width+' × '+u.height+' px · '+scale+'×':'—')+'</b></div><div class="edit-workspace-dimensions"><label>W <input aria-label="Result width" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'width\')"> px</label><span>×</span><label>H <input aria-label="Result height" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'height\')"> px</label></div><p class="edit-upscale-help">Aspect ratio is preserved · up to 100 MP and 24,000 px per side.</p><details class="edit-workspace-settings" open><summary>Enhancement settings</summary><div class="edit-upscale-controls">'+range('Sharpness','sharpness',0,100,1,u.sharpness,'upscale','')+range('Denoise','denoise',0,100,1,u.denoise,'upscale','')+range('Enhance strength','modelStrength',1,100,1,u.modelStrength,'upscale','')+range('Fix compression','fixCompression',0,100,1,u.fixCompression,'upscale','')+'<label class="edit-workspace-select-row">Enhance area<select aria-label="Enhance area" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'subject\')">'+[['All','Whole image'],['Foreground','Foreground'],['Background','Background']].map(([value,label])=>'<option value="'+value+'" '+(u.subject===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label><label class="edit-workspace-switch-row">Face enhancement<input aria-label="Face enhancement" type="checkbox" '+(u.faceEnhancement?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'faceEnhancement\')"></label><fieldset class="edit-upscale-faces" '+(u.faceEnhancement?'':'disabled')+'><legend class="sr-only">Face settings</legend>'+range('Face detail','strength',0,100,1,u.strength,'upscale','')+range('Face creativity','creativity',0,100,1,u.creativity,'upscale','')+'<p class="edit-upscale-help">Low creativity helps preserve the original facial features.</p></fieldset></div></details></div><div class="edit-upscale-summary"><span>Cost</span><b data-upscale-cost aria-live="polite">'+(ready?'Calculating…':'—')+'</b></div>'+generate;
 }
+async function analyzeEditSylvexRestore(e){
+  if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState,r=editSylvexRestoreState();if(editWorkspaceLocked()||!s.sourceUrl)return;
+  Object.assign(r,createEditSylvexRestoreState(),{analyzing:true,analysisStatus:'queued',sourceUrl:s.sourceUrl,imageWidth:s.width,imageHeight:s.height,finalEnhance:{...r.finalEnhance}});renderEditWorkspace();
+  try{
+    const response=await fetch('/api/public/enhance/sylvex-sr/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),source_image_asset_id:r.sourceUrl})});
+    const data=await response.json().catch(()=>({}));if(!response.ok||!data.ok)throw new Error(data.error||'Image analysis failed.');
+    r.analysisId=data.analysis_id;r.analysisStatus=data.status||'queued';const started=Date.now();
+    while(Date.now()-started<120000){
+      await new Promise(resolve=>setTimeout(resolve,900));
+      const statusResponse=await fetch('/api/public/enhance/sylvex-sr/analyze/'+encodeURIComponent(r.analysisId)+'?telegram_id='+encodeURIComponent(getTelegramId()),{cache:'no-store'}),status=await statusResponse.json().catch(()=>({}));
+      if(!statusResponse.ok||!status.ok)throw new Error(status.error||'Image analysis failed.');r.analysisStatus=status.status||'running';
+      if(r.analysisStatus==='completed'){
+        r.imageWidth=Number(status.image_width)||s.width;r.imageHeight=Number(status.image_height)||s.height;
+        r.regions=(Array.isArray(status.regions)?status.regions:[]).map(region=>Object.assign({},region,{user_action:region.user_action||region.suggested_action||'auto_restore',user_action_explicit:false}));r.selectedRegionId=r.regions[0]?.region_id||'';r.analyzing=false;renderEditWorkspace();scheduleEditWorkspaceSave();editWorkspaceToast(r.regions.length?'Review the detected regions on the image.':'No high-priority uncertain regions were found.');return;
+      }
+      if(r.analysisStatus==='failed')throw new Error(status.error||'Image analysis failed.');
+    }
+    throw new Error('Image analysis timed out. Please try again.');
+  }catch(error){r.analyzing=false;r.analysisStatus='failed';renderEditWorkspace();editWorkspaceToast(error?.message||'Image analysis failed.')}
+}
+function resetEditSylvexRestore(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const current=editWorkspaceState.upscale.sylvex?.finalEnhance||createEditSylvexRestoreState().finalEnhance;editWorkspaceState.upscale.sylvex={...createEditSylvexRestoreState(),finalEnhance:{...current}};renderEditWorkspace();scheduleEditWorkspaceSave();}
+function selectEditSylvexRegion(e,id){if(e){e.preventDefault();e.stopPropagation()}const r=editSylvexRestoreState();r.selectedRegionId=id;r.addingRegion=false;renderEditWorkspace();}
+function startEditSylvexRegion(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const r=editSylvexRestoreState();if(r.regions.length>=12)return editWorkspaceToast('You can use up to 12 regions.');r.addingRegion=!r.addingRegion;renderEditWorkspace();if(r.addingRegion)editWorkspaceToast('Drag a rectangle over the image.');}
+function applyEditSylvexAuto(e){if(e){e.preventDefault();e.stopPropagation()}const r=editSylvexRestoreState();r.regions.forEach(region=>{if(region.source==='auto'&&!region.user_action_explicit)region.user_action='auto_restore'});renderEditWorkspace();scheduleEditWorkspaceSave();}
+function updateEditSylvexRegion(e,key){
+  const region=editSylvexRegion();if(!region||!e?.currentTarget)return;let value=e.currentTarget.value;if(key==='text_instruction')value=String(value||'').slice(0,500);region[key]=value;
+  if(key==='user_action'){region.user_action_explicit=true;if(value!=='protect_region')region.protection_mode=null;if(value==='protect_region'&&!region.protection_mode)region.protection_mode='soft';if(value!=='upload_reference')region.reference_asset_id=null;renderEditWorkspace();}
+  else if(key==='region_type'||key==='protection_mode')renderEditWorkspace();
+  else {const counter=e.currentTarget.parentElement?.querySelector('small');if(counter)counter.textContent=value.length+'/500';updateEditWorkspaceReady();}
+  scheduleEditWorkspaceSave();
+}
+function deleteEditSylvexRegion(e){if(e){e.preventDefault();e.stopPropagation()}const r=editSylvexRestoreState(),region=editSylvexRegion();if(!region||region.source!=='user_added')return;r.regions=r.regions.filter(item=>item.region_id!==region.region_id);r.selectedRegionId=r.regions[0]?.region_id||'';renderEditWorkspace();scheduleEditWorkspaceSave();}
+function openEditSylvexReference(e){if(e){e.preventDefault();e.stopPropagation()}const input=document.getElementById('editSrReferenceInput');if(input){input.value='';input.click();}}
+async function onEditSylvexReference(e){const file=e?.target?.files?.[0],region=editSylvexRegion();if(!file||!region)return;if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>50*1024*1024)return editWorkspaceToast('Choose a JPEG, PNG or WebP image under 50 MB.');try{region.reference_asset_id=await uploadProStudioMediaFile(file,'image');renderEditWorkspace();scheduleEditWorkspaceSave();}catch(error){editWorkspaceToast(error?.message||'Could not upload the reference.')}}
+function removeEditSylvexReference(e){if(e){e.preventDefault();e.stopPropagation()}const region=editSylvexRegion();if(region){region.reference_asset_id=null;renderEditWorkspace();scheduleEditWorkspaceSave();}}
+function updateEditSylvexFinal(e,key){
+  const r=editSylvexRestoreState(),input=e?.currentTarget;if(!input)return;r.finalEnhance[key]=key==='apply_global_enhance'?!!input.checked:Number(input.value);
+  if(key==='upscale_factor'&&editWorkspaceState.width&&editWorkspaceState.height){const factor=r.finalEnhance.upscale_factor;Object.assign(editWorkspaceState.upscale,clampEditUpscaleDimensions(editWorkspaceState.width*factor,editWorkspaceState.height*factor,editWorkspaceState.width,editWorkspaceState.height));editWorkspaceState.upscale.scale=editWorkspaceState.upscale.height/editWorkspaceState.height;}
+  if(input.type==='range'){const output=input.parentElement?.querySelector('output');if(output)output.textContent=Math.round(Number(input.value)*100)+'%';updateEditWorkspaceReady();}else renderEditWorkspace();scheduleEditWorkspaceSave();
+}
+function initEditSylvexRestoreOverlay(){
+  const overlay=document.querySelector('#editWorkspace .edit-sr-overlay');if(!overlay)return;let start=null,pointerId=null;
+  const point=e=>{const rect=overlay.getBoundingClientRect();return{x:Math.max(0,Math.min(rect.width,e.clientX-rect.left)),y:Math.max(0,Math.min(rect.height,e.clientY-rect.top)),w:rect.width,h:rect.height};};
+  overlay.onpointerdown=e=>{const r=editSylvexRestoreState();if(!r.addingRegion||e.target!==overlay)return;e.preventDefault();e.stopPropagation();start=point(e);pointerId=e.pointerId;overlay.setPointerCapture(pointerId);};
+  overlay.onpointermove=e=>{if(!start||e.pointerId!==pointerId)return;e.preventDefault();e.stopPropagation();const p=point(e),draft=overlay.querySelector('.edit-sr-draft'),x=Math.min(start.x,p.x),y=Math.min(start.y,p.y);if(!draft)return;draft.hidden=false;Object.assign(draft.style,{left:x/start.w*100+'%',top:y/start.h*100+'%',width:Math.abs(p.x-start.x)/start.w*100+'%',height:Math.abs(p.y-start.y)/start.h*100+'%'});};
+  overlay.onpointerup=e=>{if(!start||e.pointerId!==pointerId)return;e.preventDefault();e.stopPropagation();const p=point(e),r=editSylvexRestoreState(),x=Math.min(start.x,p.x),y=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);start=null;pointerId=null;if(w<12||h<12)return editWorkspaceToast('Draw a larger region.');const maxId=r.regions.reduce((max,row)=>Math.max(max,Number(String(row.region_id).replace(/\D/g,''))||0),0),region={region_id:'region_'+(maxId+1),source:'user_added',region_type:'other',bbox:{x:Math.round(x/p.w*r.imageWidth),y:Math.round(y/p.h*r.imageHeight),width:Math.round(w/p.w*r.imageWidth),height:Math.round(h/p.h*r.imageHeight)},confidence:null,importance_score:1,issue_type:'user_defined',issue_summary:'User manually marked this region.',suggested_action:null,user_action:'auto_restore',user_action_explicit:true,reference_asset_id:null,text_instruction:null,protection_mode:null};r.regions.push(region);r.selectedRegionId=region.region_id;r.addingRegion=false;renderEditWorkspace();scheduleEditWorkspaceSave();};
+}
+function retryEditSylvexRegion(e,id){if(e){e.preventDefault();e.stopPropagation()}const r=editSylvexRestoreState();r.retryRegionIds=[id];r.finalOnly=false;generateEditWorkspace();}
+function retryEditSylvexFinal(e){if(e){e.preventDefault();e.stopPropagation()}const r=editSylvexRestoreState();r.retryRegionIds=[];r.finalOnly=true;generateEditWorkspace();}
 async function refreshEditUpscaleEstimate(){
   const s=editWorkspaceState;
   if(s.mode!=='upscale'||editWorkspaceValidation())return;
-  const {width,height}=s.upscale,key=width+'x'+height;
-  const paint=()=>{if(s.mode!=='upscale')return;const node=document.querySelector('[data-upscale-cost]');if(node)node.textContent=s.upscaleEstimate?.credits!=null?s.upscaleEstimate.credits+' ⚡':s.upscaleEstimate?.loading?'Расчёт…':'Уточняется при запуске';};
+  const {width,height}=s.upscale,isSylvex=s.upscale.model==='sylvex_sr',restore=editSylvexRestoreState();
+  const restoreOptions=isSylvex?{enhancePhotoModel:'sylvex_sr',sylvexRestoreAnalysisId:restore.analysisId,sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance},sylvexRestoreRetryRegionIds:[...(restore.retryRegionIds||[])],sylvexRestoreFinalOnly:!!restore.finalOnly}:{};
+  const key=isSylvex?JSON.stringify(['sylvex_sr',restoreOptions.sylvexRestoreRegions.map(row=>[row.region_id,row.user_action,row.reference_asset_id,row.text_instruction,row.protection_mode]),restoreOptions.sylvexRestoreRetryRegionIds,restoreOptions.sylvexRestoreFinalOnly,restoreOptions.sylvexRestoreFinalEnhance]):width+'x'+height;
+  const paint=()=>{if(s.mode!=='upscale')return;const node=document.querySelector('[data-upscale-cost]');if(node)node.textContent=s.upscaleEstimate?.credits!=null?s.upscaleEstimate.credits+' ⚡':s.upscaleEstimate?.loading?'Calculating…':'Confirmed at generation';};
   if(s.upscaleEstimate?.key===key){paint();return;}
   const estimate={key,credits:null,loading:true};s.upscaleEstimate=estimate;paint();
   try{
-    const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'image',provider:'topaz',model:'topaz_enhance_photo',image_options:{tool:'edit_workspace',editWorkspaceMode:'upscale',editWorkspaceUpscale:{width,height},referenceImageUrls:[s.sourceUrl],referenceImages:[s.sourceUrl]}})});
+    const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'image',provider:isSylvex?'openai':'topaz',model:isSylvex?'sylvex_sr':'topaz_enhance_photo',image_options:{tool:'edit_workspace',editWorkspaceMode:'upscale',editWorkspaceUpscale:{...s.upscale,sylvex:undefined},editWorkspaceSourceUrl:isSylvex?restore.sourceUrl:s.sourceUrl,referenceImageUrls:[s.sourceUrl],referenceImages:[s.sourceUrl],...restoreOptions}})});
     const data=await response.json();if(response.ok&&data.ok&&Number.isFinite(data.credits)&&data.credits>0)estimate.credits=data.credits;
   }catch(_){}finally{estimate.loading=false;if(s.upscaleEstimate===estimate)paint();}
 }
@@ -8035,7 +8133,7 @@ async function downloadEditWorkspaceResult(e){
   catch(error){editWorkspaceToast('Could not download the image. Please try again.');}
 }
 async function onEditWorkspaceFile(e){const input=e&&e.target,file=input&&input.files&&input.files[0];if(!file)return;input.value='';await loadEditWorkspaceImage(file)}
-function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);const prompt=editBackgroundPrompt(state).trim();if(state.mode==='background')return 'Edit · Background · '+({transparent:'Remove background',replace:prompt,color:'Color '+state.background.color,image:'Custom photo'}[state.backgroundMode]);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(prompt?': '+prompt:'')}
+function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);if(state.mode==='upscale'&&state.upscale.model==='sylvex_sr')return 'Sylvex Restore';const prompt=editBackgroundPrompt(state).trim();if(state.mode==='background')return 'Edit · Background · '+({transparent:'Remove background',replace:prompt,color:'Color '+state.background.color,image:'Custom photo'}[state.backgroundMode]);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(prompt?': '+prompt:'')}
 function completeEditChainResult(node,response,before){
   const s=editWorkspaceState,result=response.result||response,urls=generatedUrlsFromResponse(result,'image');
   const url=urls?.[0]||result.image_url||result.result_url||'';
@@ -8075,13 +8173,17 @@ async function generateEditWorkspace(e){
   state.busy=true;const chainResult=beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
   const mode=state.mode,refs=[state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
-  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  const isSylvex=mode==='upscale'&&state.upscale.model==='sylvex_sr',restore=isSylvex?editSylvexRestoreState():null;
+  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:isSylvex?restore.sourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  if(isSylvex)Object.assign(imageOptions,{enhancePhotoModel:'sylvex_sr',sylvexRestoreAnalysisId:restore.analysisId,sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance},sylvexRestoreRetryRegionIds:[...(restore.retryRegionIds||[])],sylvexRestoreFinalOnly:!!restore.finalOnly,sylvexRestoreWorkingImageUrl:(restore.retryRegionIds?.length||restore.finalOnly)&&state.sourceUrl!==restore.sourceUrl?state.sourceUrl:''});
+  if(isSylvex)chainResult.restoreModel='sylvex_sr';
   try{
     prompt=editWorkspaceInstruction(state);
-    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:mode==='upscale'?'topaz':'openai',model:mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
+    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:isSylvex?'openai':mode==='upscale'?'topaz':'openai',model:isSylvex?'sylvex_sr':mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
     historyIndex=activeGenerationPlaceholderIndex();
     const response=await pending,providerResult=response.result||response;
     completeEditChainResult(chainResult,response,before);
+    if(isSylvex){restore.resultUrl=state.resultUrl;restore.failedRegionIds=Array.isArray(providerResult.failed_region_ids)?providerResult.failed_region_ids:[];restore.retryRegionIds=[];restore.finalOnly=false;}
     const thumbs=generatedThumbsFromResponse(providerResult);
     addGeneratedImages([state.resultUrl],thumbs);
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
@@ -8094,6 +8196,7 @@ async function generateEditWorkspace(e){
     if(historyIndex>=0)chatMessages[historyIndex]=resolveFailureMessage(error,{mode:'image',prompt});
     editWorkspaceToast(translateGenerationError(error,'Could not edit the image.'));
   }finally{
+    if(isSylvex){restore.retryRegionIds=[];restore.finalOnly=false;}
     state.busy=false;document.body.classList.remove('ai-generating');clearActiveProStudioJob();renderEditWorkspace();renderChat();rememberCurrentChatSpace();
   }
 }
@@ -9156,17 +9259,42 @@ function updatePhotoToolUploadSlot(index, file) {
     + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>');
 }
 
+function renderTopazEnhanceBody(state) {
+  const file=state.files[0];
+  return '<div class="photo-tool-layout"><div class="photo-tool-demo-column">'+photoToolDemoHtml(PHOTO_TOOL_CONFIG.enhance)+'<p>Automatic detail enhancement with the existing Topaz flow.</p></div>'
+    +'<div class="photo-tool-work-column"><div class="photo-tool-upload-grid count-1"><button class="photo-tool-upload-slot '+(file?'has-file':'')+'" type="button" data-slot-index="0" onclick="SYLVEX.openPhotoToolFilePicker(event,\'enhance\',0)">'
+    +(file?'<img src="'+S.escapeHtml(file.url)+'" alt=""><b>Source image</b><small>'+S.escapeHtml(file.name||'Image selected')+'</small><i role="button" aria-label="Remove" onclick="SYLVEX.removePhotoToolFile(event,\'enhance\',0)">×</i>':'<span class="photo-tool-upload-plus">＋</span><b>Source image</b><small>Click to upload</small>')
+    +'</button></div><input id="photoToolFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onPhotoToolFiles(event)">'
+    +'<button class="photo-tool-generate" type="button" '+(!file||state.generating?'disabled ':'')+'onclick="SYLVEX.generatePhotoTool(event)">'
+    +(state.generating?'<span class="photo-tool-spinner"></span>Enhancing…':'Enhance')+'</button></div></div>';
+}
+function sylvexRestoreColor(region) {
+  return region.source==='user_added'?'purple':region.region_type==='face'?'green':region.region_type==='text'?'blue':region.region_type==='object'?'orange':'purple';
+}
+function renderEnhancePhotoModal(body) {
+  const state=photoToolState.enhance;
+  body.innerHTML='<header class="photo-tool-head"><div><small>Photo tool</small><h3>Enhance Photo</h3></div><button type="button" aria-label="Close" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
+    +renderTopazEnhanceBody(state);
+}
+function validateSylvexRestorePlan(state){if(state.regions.length>12)return 'You can use up to 12 regions.';for(const region of state.regions){const action=region.user_action||region.suggested_action||'auto_restore';region.user_action=action;if(action==='upload_reference'&&!region.reference_asset_id)return region.region_id+' needs a reference image.';if(action==='enter_text'&&!String(region.text_instruction||'').trim())return region.region_id+' needs a text instruction.';if(action==='protect_region'&&!['hard','soft'].includes(region.protection_mode))return region.region_id+' needs a protection mode.'}return ''}
+function serializeSylvexRestoreRegions(regions){return regions.map(region=>({region_id:region.region_id,source:region.source,region_type:region.region_type,bbox:Object.assign({},region.bbox),confidence:region.confidence,importance_score:region.importance_score,issue_type:region.issue_type,issue_summary:region.issue_summary,suggested_action:region.suggested_action,user_action:region.user_action,reference_asset_id:region.reference_asset_id||null,text_instruction:String(region.text_instruction||'').slice(0,500)||null,protection_mode:region.protection_mode||null}))}
 function renderPhotoToolModal() {
   const body = document.getElementById('photoToolModalBody');
   if (!body) return;
   const photoToolModal = document.getElementById('photoToolModal');
-  if (photoToolModal) photoToolModal.classList.toggle('logo-tool-modal', activePhotoTool === 'logo');
+  if (photoToolModal) {
+    photoToolModal.classList.toggle('logo-tool-modal', activePhotoTool === 'logo');
+  }
   if (activePhotoTool === 'try_on') {
     renderTryOnModal(body);
     return;
   }
   if (activePhotoTool === 'replace_character') {
     renderCharacterReplaceModal(body);
+    return;
+  }
+  if (activePhotoTool === 'enhance') {
+    renderEnhancePhotoModal(body);
     return;
   }
   const config = PHOTO_TOOL_CONFIG[activePhotoTool];
@@ -9576,7 +9704,7 @@ function closePhotoToolModal(e) {
   // blocked by an active generation" case (see studioGridHasActiveRun()
   // callers above).
   if (modal && photoToolGenerationActive) {
-    toast('Сначала дождитесь завершения текущей генерации');
+    toast(activePhotoTool === 'enhance' ? 'Wait for the current analysis or restoration to finish.' : 'Сначала дождитесь завершения текущей генерации');
     return;
   }
   if (modal) {
@@ -9696,7 +9824,7 @@ async function onPhotoToolFiles(e) {
   try {
     const loaded = await Promise.all(files.map(readPhotoToolFile));
     loaded.forEach((file, offset) => {
-      if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo') && file && files[offset]) file.originalFile = files[offset];
+      if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo' || activePhotoTool === 'enhance') && file && files[offset]) file.originalFile = files[offset];
       if (activePhotoTool === 'replace_object') {
         replaceObjectState.comparison = null;
         if (start + offset === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
@@ -9730,6 +9858,7 @@ function removePhotoToolFile(e, kind, index) {
     if (index === 1) replaceObjectState.selectedObjectId = null;
   }
   if (kind === 'watermark_removal') state.maskUrl = '';
+  if (kind === 'enhance') resetSylvexRestoreReview(false);
   activePhotoTool = kind;
   renderPhotoToolModal();
 }
@@ -10333,6 +10462,7 @@ async function generateRemoveBgTool(state) {
 const ENHANCE_PHOTO_TOOL_KEY = 'enhance_photo';
 
 async function generateEnhancePhotoTool(state) {
+  if (state.model === 'sylvex_sr') return runSylvexRestore({});
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
     toast('Загрузите фото');
@@ -26693,6 +26823,7 @@ async function waitGeneration(jobId, options) {
   S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode;
   S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.updateEditBackgroundColor=updateEditBackgroundColor; S.onEditBackgroundFile=onEditBackgroundFile; S.clearEditBackgroundImage=clearEditBackgroundImage; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
   S.updateEditExpandField=updateEditExpandField; S.resetEditExpand=resetEditExpand;
+  S.setEditUpscaleModel=setEditUpscaleModel;S.analyzeEditSylvexRestore=analyzeEditSylvexRestore;S.resetEditSylvexRestore=resetEditSylvexRestore;S.selectEditSylvexRegion=selectEditSylvexRegion;S.startEditSylvexRegion=startEditSylvexRegion;S.applyEditSylvexAuto=applyEditSylvexAuto;S.updateEditSylvexRegion=updateEditSylvexRegion;S.deleteEditSylvexRegion=deleteEditSylvexRegion;S.openEditSylvexReference=openEditSylvexReference;S.onEditSylvexReference=onEditSylvexReference;S.removeEditSylvexReference=removeEditSylvexReference;S.updateEditSylvexFinal=updateEditSylvexFinal;S.retryEditSylvexRegion=retryEditSylvexRegion;S.retryEditSylvexFinal=retryEditSylvexFinal;
   S.updateEditWorkspacePrompt=updateEditWorkspacePrompt; S.addEditWorkspaceLight=addEditWorkspaceLight; S.onEditWorkspaceFile=onEditWorkspaceFile;
   S.clearEditWorkspaceMask=clearEditWorkspaceMask;S.redoEditWorkspaceMask=redoEditWorkspaceMask;S.undoEditWorkspace=undoEditWorkspace;S.compareEditWorkspace=compareEditWorkspace;
   S.generateEditWorkspace=generateEditWorkspace; S.useEditWorkspaceResult=useEditWorkspaceResult;
