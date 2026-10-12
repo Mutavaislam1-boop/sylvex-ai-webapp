@@ -619,3 +619,44 @@ def test_public_config_reports_stripe_without_secrets(app):
 def test_webhook_is_registered_as_an_unauthenticated_raw_body_route():
     from services.security import WEBHOOKS
     assert "/api/public/payments/stripe/webhook" in WEBHOOKS
+
+
+def test_sync_script_is_idempotent_and_saves_the_mapping(db, monkeypatch, capsys, tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("stripe_sync_products", os.path.join(os.path.dirname(__file__), "..", "scripts", "stripe_sync_products.py"))
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    fake = FakeStripe()
+    real_client = sb.StripeClient
+    monkeypatch.setattr(script.stripe_billing, "StripeClient", lambda key: real_client(key, session=fake))
+    monkeypatch.setenv("STRIPE_SECRET_KEY", KEY)
+    monkeypatch.setenv("DATABASE_URL", DATABASE)
+    monkeypatch.delenv("DATABASE_PUBLIC_URL", raising=False)
+    output = tmp_path / "ids.json"
+    assert script.main(["--output", str(output)]) == 0
+    first = capsys.readouterr().out
+    assert "created 18, replaced 0, reused 0" in first and "saved to stripe_catalog" in first
+    assert script.main([]) == 0
+    assert "created 0, replaced 0, reused 18" in capsys.readouterr().out
+    assert len(fake.products) == 14 and len(fake.prices) == 18
+    saved = json.loads(output.read_text())
+    assert saved["livemode"] is False and saved["products"]["sylvex_plan_creator_year"]["unit_amount"] == 96000
+    assert sb.catalog_complete(sb.load_catalog(db.connect, False))
+    monkeypatch.delenv("STRIPE_SECRET_KEY")
+    assert script.main([]) == 2
+
+
+def test_account_merge_moves_stripe_links_without_conflicts(db):
+    # account_identity's merge runs this UPDATE for every telegram_id column.
+    sb.save_customer(db.connect, UID, "cus_web", False)
+    sb.save_customer(db.connect, OTHER, "cus_tg", False)
+    sb.upsert_subscription(db.connect, "sub_m", UID, "pro_month", None, "cus_web", "active")
+    conn = db.connect()
+    with conn.cursor() as cur:
+        for table in ("stripe_customers", "stripe_subscriptions"):
+            cur.execute(f"UPDATE {table} SET telegram_id = %s WHERE telegram_id = %s", (OTHER, UID))
+    conn.commit()
+    conn.close()
+    assert sb.get_subscription(db.connect, "sub_m")["telegram_id"] == OTHER
+    assert sb.get_customer(db.connect, OTHER, False) in {"cus_web", "cus_tg"}
+    assert sb.get_customer(db.connect, UID, False) is None
