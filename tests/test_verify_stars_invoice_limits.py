@@ -46,6 +46,20 @@ def test_reports_acceptance_per_amount_and_never_the_links(capsys, monkeypatch):
     assert "no payment was attempted" in out and "t.me" not in out
 
 
+def test_reports_the_verified_production_results(capsys, monkeypatch):
+    # The results Telegram returned for the SYLVEX bot: every one-time amount
+    # accepted, the 30-day subscription capped at 10,000 Stars.
+    api = FakeBotApi(one_time_max=10**9)
+    results = script.run("123:TOKEN", script.DEFAULT_AMOUNTS, True, session=api)
+    assert [(r["type"], r["amount"], r["invoice_creation"]) for r in results] == [
+        ("one_time", 10000, "accepted"), ("one_time", 19960, "accepted"), ("one_time", 23952, "accepted"),
+        ("one_time", 95808, "accepted"), ("subscription_30_days", 10000, "accepted"), ("subscription_30_days", 10001, "rejected")]
+    monkeypatch.setenv("BOT_TOKEN", "123:TOKEN")
+    monkeypatch.setattr(script.requests, "Session", lambda: api)
+    assert script.main([]) == 0
+    assert "Highest one-time amount accepted for invoice creation: 95808" in capsys.readouterr().out
+
+
 def test_requires_a_bot_token(monkeypatch, capsys):
     monkeypatch.delenv("BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)

@@ -13,9 +13,10 @@ Safe by construction:
 
 Run where BOT_TOKEN is set, e.g. `railway run python3 scripts/verify_stars_invoice_limits.py`.
 Defaults check one-time amounts 10000 19960 23952 95808 and the 30-day
-subscription cap (10000 accepted, 10001 refused). Then set
-STARS_MAX_PER_INVOICE to the highest accepted one-time amount you want to
-offer.
+subscription cap (10000 accepted, 10001 refused). STARS_MAX_PER_INVOICE
+(one-time invoices only; default 95808, the highest amount verified so far)
+may be raised to a higher one-time amount this script reports as accepted.
+The recurring 10,000-Star cap is fixed in telegram_catalog.py.
 """
 import argparse
 import json

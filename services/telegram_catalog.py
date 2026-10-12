@@ -17,9 +17,17 @@ Every purchase is ONE Stars payment for a fixed term: a monthly plan buys
 recurring Stars subscriptions only support a 30-day period, and SYLVEX
 does not use them).
 
-A product is offered only if its Stars price is within
-STARS_MAX_PER_INVOICE (set from scripts/verify_stars_invoice_limits.py). Prices are never changed or split
-to fit the limit; anything above it is simply unavailable in Telegram.
+Telegram limits, checked with createInvoiceLink on the SYLVEX bot
+(scripts/verify_stars_invoice_limits.py; invoice CREATION only - no payment
+has been completed at these amounts):
+  - one-time invoices: 10,000, 19,960, 23,952 and 95,808 Stars accepted;
+    Telegram documents no one-time maximum;
+  - recurring 30-day subscriptions: 10,000 Stars accepted, 10,001 rejected
+    (SUBSCRIPTION_AMOUNT_INVALID), the documented subscription cap.
+The 10,000 cap applies to recurring subscriptions only. A one-time product
+is offered if its Stars price is within STARS_MAX_PER_INVOICE. Prices are
+never changed or split to fit a limit; anything above it is simply
+unavailable in Telegram.
 """
 import os
 import re
@@ -28,11 +36,17 @@ STARS_RATE_STARS = 499
 STARS_RATE_CENTS = 500
 CREDITS_PER_USD = 100
 
-# Highest one-time Stars invoice amount to offer. The default is a
-# conservative 10,000 (the documented cap for recurring Stars subscriptions;
-# Telegram documents no cap for one-time invoices). Set it to the highest
-# amount scripts/verify_stars_invoice_limits.py reports as accepted.
-STARS_MAX_PER_INVOICE = int(os.getenv("STARS_MAX_PER_INVOICE", "10000"))
+# Highest ONE-TIME Stars invoice amount SYLVEX offers. The default is the
+# highest amount verified with createInvoiceLink (95,808 Stars, the Creator
+# annual plan); it is not Telegram's maximum. To offer more, verify a larger
+# amount with scripts/verify_stars_invoice_limits.py and raise this setting.
+STARS_MAX_PER_INVOICE = int(os.getenv("STARS_MAX_PER_INVOICE", "95808"))
+
+# Recurring Stars subscriptions (Telegram's documented and verified cap and
+# its only billing period). SYLVEX sells no recurring products today; any
+# recurring invoice must pass check_invoice_amount(..., subscription_period).
+SUBSCRIPTION_PERIOD_SECONDS = 2592000
+STARS_MAX_PER_SUBSCRIPTION = 10000
 
 PROVIDER = "telegram_stars"
 PLAN_DAYS = {"month": 30, "year": 365}
@@ -66,6 +80,23 @@ def stars_for_cents(usd_cents: int) -> int:
 def max_cents_for_stars(limit: int) -> int:
     """Largest USD amount (cents) whose Stars price stays within limit."""
     return int(limit) * STARS_RATE_CENTS // STARS_RATE_STARS
+
+
+def check_invoice_amount(stars, subscription_period=None) -> int:
+    """The Stars amount of one invoice, or CatalogError if Telegram limits
+    forbid it. One-time invoices are bounded by STARS_MAX_PER_INVOICE;
+    recurring ones need the 30-day period and at most 10,000 Stars."""
+    if isinstance(stars, bool) or not isinstance(stars, int) or stars < 1:
+        raise CatalogError("invalid_amount")
+    if subscription_period is None:
+        if stars > STARS_MAX_PER_INVOICE:
+            raise CatalogError("stars_amount_above_limit")
+        return stars
+    if subscription_period != SUBSCRIPTION_PERIOD_SECONDS:
+        raise CatalogError("unsupported_subscription_period")
+    if stars > STARS_MAX_PER_SUBSCRIPTION:
+        raise CatalogError("subscription_amount_above_limit")
+    return stars
 
 
 def _with_availability(product: dict) -> dict:
