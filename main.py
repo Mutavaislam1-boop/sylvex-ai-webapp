@@ -11879,6 +11879,9 @@ def store_order_public(order: dict) -> dict:
 def create_store_stars_invoice_link(order: dict) -> str:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not configured")
+    # One-time invoice (no subscription_period): bounded by the one-time
+    # limit, never by the 10,000-Star recurring-subscription cap.
+    stars = telegram_catalog.check_invoice_amount(int(order["stars"]))
     response = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
         json={
@@ -11886,7 +11889,7 @@ def create_store_stars_invoice_link(order: dict) -> str:
             "description": f"Оплата {order['title']} в SYLVEX.",
             "payload": shop_orders.order_payload(order["order_id"]),
             "currency": "XTR",
-            "prices": [{"label": order["title"][:32], "amount": int(order["stars"])}],
+            "prices": [{"label": order["title"][:32], "amount": stars}],
         },
         timeout=30,
     )

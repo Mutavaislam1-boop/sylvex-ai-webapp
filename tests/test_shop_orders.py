@@ -149,14 +149,49 @@ def test_every_subscription_variant_grants_its_credits_once(connect, plan_id, pe
     assert q(connect, "SELECT COUNT(*) FROM purchases")[0][0] == 1
 
 
-def test_products_above_the_invoice_limit_are_not_sold_in_telegram():
-    assert tg.STARS_MAX_PER_INVOICE == 10000
+# Verified with createInvoiceLink on the SYLVEX bot (invoice creation only,
+# no payment completed): one-time 10,000 / 19,960 / 23,952 / 95,808 Stars
+# accepted; recurring 30-day 10,000 accepted, 10,001 rejected.
+@pytest.mark.parametrize("stars", [10000, 19960, 23952, 95808])
+def test_verified_one_time_amounts_are_allowed(stars):
+    assert tg.STARS_MAX_PER_INVOICE == 95808
+    assert tg.check_invoice_amount(stars) == stars
+    # The recurring-subscription cap is not applied to one-time invoices.
+    if stars > tg.STARS_MAX_PER_SUBSCRIPTION:
+        with pytest.raises(tg.CatalogError) as err:
+            tg.check_invoice_amount(stars, tg.SUBSCRIPTION_PERIOD_SECONDS)
+        assert err.value.code == "subscription_amount_above_limit"
+
+
+def test_recurring_subscription_amounts_keep_the_10000_cap():
+    assert (tg.STARS_MAX_PER_SUBSCRIPTION, tg.SUBSCRIPTION_PERIOD_SECONDS) == (10000, 2592000)
+    assert tg.check_invoice_amount(10000, 2592000) == 10000
+    for stars, period, code in ((10001, 2592000, "subscription_amount_above_limit"),
+                                (499, 31536000, "unsupported_subscription_period"),
+                                (0, 2592000, "invalid_amount")):
+        with pytest.raises(tg.CatalogError) as err:
+            tg.check_invoice_amount(stars, period)
+        assert err.value.code == code
+    for bad in (0, -1, 1.5, "100", True):
+        with pytest.raises(tg.CatalogError):
+            tg.check_invoice_amount(bad)
+
+
+def test_every_telegram_product_is_sold_within_the_verified_one_time_amounts():
+    for product_id, stars in STARS_TABLE.items():
+        assert tg.resolve(product_id)["stars"] == stars
+        assert tg.check_invoice_amount(stars) == stars
+    assert not any(p["kind"] == "subscription" and p.get("subscription_period") for p in tg.PRODUCTS.values())
+    assert tg.public_catalog()["renewal"] == "none"
+
+
+def test_a_lower_one_time_limit_makes_products_unavailable_never_cheaper(monkeypatch):
+    monkeypatch.setattr(tg, "STARS_MAX_PER_INVOICE", 10000)
     for product_id in ("plan_max_year", "plan_ultra_year", "plan_creator_year", "pack_20000"):
         with pytest.raises(tg.CatalogError) as err:
             tg.resolve(product_id)
         assert err.value.code == "stars_amount_above_limit"
-    for product_id in ("plan_starter_year", "plan_pro_year", "plan_creator_month", "pack_10000"):
-        assert tg.resolve(product_id)["stars"] <= 10000
+    assert tg.pack_stars(20000) is None and tg.custom_max_credits() == 10020
     # Prices are never changed to fit the limit.
     assert tg.PRODUCTS["plan_creator_year"]["stars"] == 95808
 
@@ -205,11 +240,12 @@ def test_custom_amount_bounds_reject(raw, code):
 
 
 def test_custom_amount_stars_ceiling_and_crypto_range():
-    # Telegram: whole credits, within the invoice limit (10,020 credits = 10,000 Stars).
-    assert tg.custom_max_credits() == 10020 and tg.public_catalog()["custom"]["max_credits"] == 10020
+    # Telegram: whole credits, within the one-time limit (96,000 credits = 95,808 Stars).
+    assert tg.custom_max_credits() == 96000 and tg.public_catalog()["custom"]["max_credits"] == 96000
+    assert tg.resolve(tg.CUSTOM_PRODUCT_ID, "96000")["stars"] == 95808
     assert tg.resolve(tg.CUSTOM_PRODUCT_ID, "10020")["stars"] == 10000
     assert tg.resolve(tg.CUSTOM_PRODUCT_ID, "100")["stars"] == 100
-    for raw, code in (("10021", "stars_amount_above_limit"), ("99", "amount_out_of_range"), ("12.5", "invalid_amount"),
+    for raw, code in (("96001", "stars_amount_above_limit"), ("99", "amount_out_of_range"), ("12.5", "invalid_amount"),
                       ("", "amount_required"), ("-5", "invalid_amount"), ("100001", "amount_out_of_range")):
         with pytest.raises(tg.CatalogError) as err:
             tg.resolve(tg.CUSTOM_PRODUCT_ID, raw)
