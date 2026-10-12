@@ -235,6 +235,13 @@ def public_catalog() -> dict:
     }
 
 
+# Plan-specific quantitative benefits (saved characters, parallel generations,
+# ...). Intentionally empty: none are defined or enforced yet. When added,
+# valid overlapping entitlements combine additively via
+# shop_orders.combined_allowance(shop_orders.valid_entitlement_plans(...), PLAN_ALLOWANCES, benefit).
+PLAN_ALLOWANCES = {}
+
+
 def monthly_plan_product(plan_key):
     """The recurring monthly product for a plan key like "pro_month", or None."""
     product = PRODUCTS.get(f"plan_{plan_key}")

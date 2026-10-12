@@ -23226,8 +23226,8 @@ async function waitGeneration(jobId, options) {
     stars_invoice_failed: 'Не удалось создать счёт Telegram Stars',
     telegram_stars_only: 'В Telegram покупки оплачиваются только звёздами',
     subscription_amount_above_limit: 'Цена подписки выше лимита Telegram Stars',
-    subscription_renewing: 'У вас уже есть подписка с автопродлением',
-    subscription_replace_confirmation_required: 'Подтвердите замену текущего тарифа',
+    already_subscribed: 'Этот тариф уже оформлен и продлевается автоматически',
+    subscription_change_confirmation_required: 'Подтвердите смену тарифа',
   };
   const SUB_RENEWS_NOTE = 'Автоматически продлевается каждые 30 дней. Отменить можно в любой момент.';
   const dot = (text) => (/\.$/.test(text) ? text : text + '.');
@@ -23293,12 +23293,10 @@ async function waitGeneration(jobId, options) {
         // Monthly plans are Telegram Stars subscriptions renewing every 30 days.
         text = SUB_RENEWS_NOTE + ' Каждые 30 дней списывается ' + Number(product.stars).toLocaleString('ru-RU')
           + ' ⭐ и начисляется ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡.';
-        if (active) text += ' Новый тариф начнётся сразу после оплаты и заменит текущий; оставшиеся дни текущего тарифа не переносятся.';
       } else {
-        text = active
-          ? 'Одна оплата за 12 месяцев, без автопродления. Срок добавится к текущей подписке. ⚡ начисляются сразу после оплаты.'
-          : 'Одна оплата за 12 месяцев, без автопродления. ⚡ начисляются сразу после оплаты.';
+        text = 'Одна оплата за 12 месяцев, без автопродления. ⚡ начисляются сразу после оплаты.';
       }
+      if (active) text += ' У вас уже есть тариф — перед оплатой мы покажем, что изменится, и попросим подтвердить.';
     }
     note.textContent = text;
     note.hidden = !text;
@@ -23314,7 +23312,7 @@ async function waitGeneration(jobId, options) {
     // Stars only: the price shown is the exact invoice amount.
     showPayView(product.title + planCredits, Number(product.stars).toLocaleString('ru-RU') + ' ⭐');
   }
-  async function payStoreProduct(method, confirmReplace) {
+  async function payStoreProduct(method, confirmChange) {
     const selected = pendingStoreProduct;
     if (!selected) return;
     const tg = getTelegramId();
@@ -23329,7 +23327,7 @@ async function waitGeneration(jobId, options) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(Object.assign({ telegram_id: tg, product_id: selected.productId, credits: selected.credits },
-          confirmReplace ? { confirm_replace: true } : {})),
+          confirmChange ? { confirm_change: true } : {})),
       });
       data = await response.json();
     } catch {
@@ -23541,6 +23539,8 @@ async function waitGeneration(jobId, options) {
     const modal = document.getElementById('subActiveModal');
     if (modal && modal.classList.contains('show')) renderSubActiveDetails();
   }
+  // Resolves 'yes' | 'alt' | 'no'. `alt` adds a second action (e.g. a
+  // plan change at the end of the period instead of paying now).
   function sxConfirm(opts) {
     return new Promise((resolve) => {
       document.getElementById('sxConfirmModal')?.remove();
@@ -23549,16 +23549,17 @@ async function waitGeneration(jobId, options) {
       overlay.className = 'modal-overlay sx-confirm-overlay show';
       overlay.innerHTML = '<div class="modal sx-confirm" role="dialog" aria-modal="true">'
         + '<h3>' + S.escapeHtml(opts.title) + '</h3>'
-        + opts.body.map((line) => '<p>' + S.escapeHtml(line) + '</p>').join('')
+        + opts.body.filter(Boolean).map((line) => '<p>' + S.escapeHtml(line) + '</p>').join('')
         + '<div class="modal-actions sx-confirm-actions">'
         + '<button class="btn-primary" type="button" data-sx-confirm="yes">' + S.escapeHtml(opts.confirm) + '</button>'
+        + (opts.alt ? '<button class="btn-ghost" type="button" data-sx-confirm="alt">' + S.escapeHtml(opts.alt) + '</button>' : '')
         + '<button class="btn-ghost" type="button" data-sx-confirm="no">' + S.escapeHtml(opts.cancel || 'Отмена') + '</button>'
         + '</div></div>';
       const done = (value) => { overlay.remove(); resolve(value); };
       overlay.addEventListener('click', (e) => {
         const choice = e.target.closest && e.target.closest('[data-sx-confirm]');
-        if (choice) done(choice.dataset.sxConfirm === 'yes');
-        else if (e.target === overlay) done(false);
+        if (choice) done(choice.dataset.sxConfirm);
+        else if (e.target === overlay) done('no');
       });
       document.body.appendChild(overlay);
     });
@@ -23573,7 +23574,7 @@ async function waitGeneration(jobId, options) {
         body: JSON.stringify(Object.assign({ telegram_id: tg }, extra || {})),
       });
       const data = await response.json();
-      if (data && 'subscription' in data && (data.ok || data.subscription)) setSubDetails(data.subscription);
+      if (data && 'subscription' in data) setSubDetails(data.subscription);
       return data;
     } catch {
       return { ok: false, error: 'network' };
@@ -23582,9 +23583,24 @@ async function waitGeneration(jobId, options) {
   const SUB_ACTION_ERRORS = {
     telegram_refused: 'Telegram не подтвердил изменение. Автопродление не изменено.',
     no_recurring_subscription: 'Активной подписки с автопродлением нет.',
+    another_subscription_renewing: 'Сейчас автоматически продлевается другой тариф. Двух продлений одновременно быть не может.',
+    reactivation_unavailable: 'Telegram не разрешил возобновить продление из SYLVEX. Включите его в Telegram: Настройки → Мои звёзды → Подписки — или оформите тариф заново в магазине.',
     same_plan: 'Этот тариф уже активен.',
     unknown_plan: 'Этот тариф недоступен.',
     network: 'Сетевая ошибка. Изменение не применено.',
+  };
+  const SUB_STATES = {
+    active_recurring: 'Активна · продлевается автоматически',
+    renewal_canceled: 'Автопродление отменено · доступ сохраняется',
+    active_annual: 'Годовой тариф · без автопродления',
+    active_one_time: 'Активна · разовая оплата',
+    renewal_unconfirmed: 'Продление не подтверждено',
+    expired: 'Подписка закончилась',
+  };
+  const SUB_BILLING = {
+    monthly: 'Ежемесячно · автопродление через Telegram Stars',
+    annual: 'Годовой · одна оплата',
+    monthly_one_time: 'Разовая оплата',
   };
   function showSubResult(ok, text) {
     const el = document.getElementById('saResult');
@@ -23593,121 +23609,156 @@ async function waitGeneration(jobId, options) {
   }
   async function cancelSubscriptionRenewal() {
     const d = subDetails();
-    if (!d || !d.auto_renew) return;
-    const until = fmtDate(d.expires_at);
-    const yes = await sxConfirm({
+    const r = d && d.renewal;
+    if (!r || !r.auto_renew) return;
+    const until = fmtDate(r.expires_at);
+    const choice = await sxConfirm({
       title: 'Отменить автопродление?',
-      body: ['Следующего списания ' + Number(d.price_stars).toLocaleString('ru-RU') + ' ⭐ не будет.',
-             dot('Доступ к ' + subPlanName(d.plan_key) + ' и начисленные ⚡ сохранятся до ' + until)],
+      body: ['Следующего списания ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ за ' + subPlanName(r.plan_key) + ' не будет.',
+             dot('Оплаченный доступ сохранится до ' + until + ', все начисленные ⚡ остаются на балансе')],
       confirm: 'Отменить автопродление', cancel: 'Оставить',
     });
-    if (!yes) return;
+    if (choice !== 'yes') return;
     const data = await subscriptionRequest('cancel');
-    if (data && data.ok) showSubResult(true, dot('Автопродление отменено. Подписка действует до ' + until));
-    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось отменить автопродление.');
+    if (data && data.ok) showSubResult(true, dot('Автопродление отменено — Telegram подтвердил. Доступ сохраняется до ' + until));
+    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось отменить автопродление. Ничего не изменено.');
   }
   async function reactivateSubscriptionRenewal() {
     const d = subDetails();
-    if (!d || d.auto_renew || !d.active) return;
+    const r = d && d.renewal;
+    if (!r || r.auto_renew) return;
     const data = await subscriptionRequest('reactivate');
-    if (data && data.ok) showSubResult(true, dot('Автопродление снова разрешено. Следующее списание — ' + fmtDate(d.expires_at)));
+    const next = data && data.subscription && data.subscription.next_renewal_at;
+    if (data && data.ok) showSubResult(true, dot('Автопродление возобновлено — Telegram подтвердил. Следующее списание — ' + fmtDate(next || r.expires_at)));
     else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось возобновить автопродление.');
   }
   async function scheduleSubscriptionChange(planKey) {
     const d = subDetails();
+    const r = d && d.renewal;
     const product = storeProduct('plan_' + planKey);
-    if (!d || !product) return false;
-    const until = fmtDate(d.expires_at);
-    const yes = await sxConfirm({
-      title: 'Сменить тариф на ' + subPlanName(planKey) + '?',
-      body: [dot('Сейчас ничего не списывается. Автопродление ' + subPlanName(d.plan_key) + ' будет отменено, тариф действует до ' + until),
-             'После ' + until + ' оформите ' + subPlanName(planKey) + ' за ' + Number(product.stars).toLocaleString('ru-RU')
-             + ' ⭐ каждые 30 дней — мы напомним в профиле. Двух оплат одновременно не будет.'],
-      confirm: 'Сменить с ' + until, cancel: 'Не менять',
-    });
-    if (!yes) return false;
+    if (!r || !product) return false;
+    const until = fmtDate(r.expires_at);
     const data = await subscriptionRequest('change', { plan_key: planKey, confirm: true });
-    if (data && data.ok) showSubResult(true, dot('Смена тарифа запланирована: ' + subPlanName(planKey) + ' после ' + until));
+    if (data && data.ok) showSubResult(true, dot('Смена запланирована: автопродление ' + subPlanName(r.plan_key) + ' отменено, после ' + until + ' оформите ' + subPlanName(planKey)));
     else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось запланировать смену тарифа.');
     return !!(data && data.ok);
   }
+  // A plan bought next to another valid paid plan: the server describes the
+  // change; the user confirms the full price and its consequences first.
   async function handleSubscriptionConflict(data, selected, method) {
-    const current = data.subscription || {};
-    setSubDetails(current);
-    const product = selected.product || {};
-    if (data.error === 'subscription_renewing') {
-      if (product.recurring && product.plan_key && product.plan_key !== current.plan_key) {
-        await scheduleSubscriptionChange(product.plan_key);
-        return;
-      }
-      if (product.plan_key === current.plan_key) {
-        toast('Этот тариф уже активен и продлевается автоматически.');
-        return;
-      }
-      const yes = await sxConfirm({
-        title: 'Сначала отмените автопродление',
-        body: ['Сейчас активна подписка ' + subPlanName(current.plan_key) + ' с автопродлением.',
-               'Чтобы не платить за два тарифа, отмените автопродление; годовой тариф можно будет оформить, его срок добавится к текущему.'],
-        confirm: 'Управлять подпиской', cancel: 'Закрыть',
-      });
-      if (yes) openManageSub();
+    if (data.subscription) setSubDetails(data.subscription);
+    if (data.error === 'already_subscribed') {
+      toast('Этот тариф уже оформлен и продлевается автоматически.');
       return;
     }
-    if (data.error === 'subscription_replace_confirmation_required') {
-      const yes = await sxConfirm({
-        title: 'Заменить текущий тариф?',
-        body: [dot('Сейчас активен ' + subscriptionPlanLabel(current.plan_key) + ' до ' + fmtDate(current.expires_at)),
-               subPlanName(product.plan_key) + ' начнётся сразу после оплаты (' + Number(product.stars).toLocaleString('ru-RU')
-               + ' ⭐) и будет продлеваться каждые 30 дней. Оставшиеся дни текущего тарифа не переносятся; уже начисленные ⚡ сохранятся.'],
-        confirm: 'Оплатить и заменить', cancel: 'Отмена',
-      });
-      if (yes) payStoreProduct(method, true);
+    const c = data.change || {};
+    const product = selected.product || {};
+    const newName = subPlanName(c.new_plan_key || product.plan_key);
+    const price = Number(c.price_stars || product.stars || 0).toLocaleString('ru-RU') + ' ⭐';
+    const periodText = c.new_billing === 'monthly' ? 'продлевается каждые 30 дней' : '365 дней, без автопродления';
+    const current = c.current_plan_key ? subscriptionPlanLabel(c.current_plan_key) : '';
+    const lines = [];
+    let title = 'Перейти на ' + newName + '?';
+    if (c.type === 'renew_same_plan') {
+      title = 'Продлить ' + newName + '?';
+      lines.push('Полная цена ' + price + '. Новый период 365 дней начнётся ' + fmtDate(c.starts_at) + ', после окончания текущего.');
+    } else if (c.type === 'downgrade') {
+      lines.push('Полная цена ' + price + ' сейчас, без пересчёта и скидок. ' + newName + ' ' + periodText + '.');
+      lines.push(dot(current + ' выше по уровню и остаётся основным тарифом до ' + fmtDate(c.current_expires_at)) + ' Затем основным станет ' + newName + '.');
+    } else {
+      lines.push('Полная цена ' + price + ', без пересчёта и скидок. ' + newName + ' станет основным тарифом сразу после оплаты и ' + periodText + '.');
+      if (current) lines.push(dot('Оплаченный период ' + current + ' сохраняется до ' + fmtDate(c.current_expires_at)));
+    }
+    if (c.stops_renewal_of) lines.push('Автопродление ' + subPlanName(c.stops_renewal_of) + ' будет отключено — новых списаний за него не будет.');
+    lines.push('Все начисленные ⚡ остаются на балансе; ' + Number(c.credits || product.credits || 0).toLocaleString('ru-RU') + ' ⚡ нового тарифа начислятся после оплаты.');
+    const canSchedule = c.type === 'downgrade' && c.new_billing === 'monthly' && c.stops_renewal_of;
+    const choice = await sxConfirm({
+      title, body: lines,
+      confirm: 'Оплатить ' + price,
+      alt: canSchedule ? 'Перейти после ' + fmtDate(c.current_expires_at) + ' без оплаты сейчас' : '',
+      cancel: 'Отмена',
+    });
+    if (choice === 'yes') payStoreProduct(method, true);
+    else if (choice === 'alt') {
+      openSubActive();
+      scheduleSubscriptionChange(c.new_plan_key);
     }
   }
   function renderSubActiveDetails() {
     const u = S.user || {};
-    const d = subDetails();
+    const d = subDetails() || {};
+    const p = d.primary || {};
+    const r = d.renewal || null;
     const box = document.getElementById('saDetails');
     const actions = document.getElementById('saActions');
     const noteEl = document.getElementById('saNote');
+    const title = document.getElementById('saTitle');
+    const subtitle = document.getElementById('saSubtitle');
     if (!box || !actions) return;
-    const plan = (d && d.plan_key) || u.subscription_plan;
-    const exp = (d && d.expires_at) || u.subscription_expires_at;
-    const recurring = !!(d && d.is_recurring);
+    const plan = p.plan_key || d.plan_key || u.subscription_plan;
+    const exp = p.expires_at || d.expires_at || u.subscription_expires_at;
+    const state = d.state || (u.subscription_status === 'active' ? 'active_one_time' : 'expired');
+    if (title) title.textContent = state === 'expired' ? 'Подписка закончилась' : state === 'renewal_unconfirmed' && !d.active ? 'Продление не подтверждено' : 'Ваша подписка';
+    const awaitingRenewal = state === 'renewal_unconfirmed' && !d.active;
+    if (subtitle) subtitle.textContent = awaitingRenewal ? 'Доступ продолжится после подтверждённой оплаты' : (SUB_STATES[state] || '');
     const cell = (k, v, id) => '<div><div class="k">' + k + '</div><div class="v"' + (id ? ' id="' + id + '"' : '') + '>' + S.escapeHtml(String(v)) + '</div></div>';
-    let renewal = 'Нет · разовая оплата';
-    if (recurring) renewal = d.auto_renew ? 'Включено' : 'Отключено';
-    const price = d && d.price_stars ? Number(d.price_stars).toLocaleString('ru-RU') + ' ⭐' + (recurring ? ' / 30 дней' : '') : '—';
+    const billing = SUB_BILLING[p.billing || d.billing] || '—';
+    const monthly = (p.billing || d.billing) === 'monthly';
+    const price = p.price_stars ? Number(p.price_stars).toLocaleString('ru-RU') + ' ⭐' + (monthly ? ' / 30 дней' : '') : '—';
+    let renewalText = 'Нет · разовая оплата';
+    if (r) renewalText = r.auto_renew ? 'Включено' : (r.renewal_status === 'stop_pending' ? 'Отключается…' : 'Отключено');
+    if (awaitingRenewal) renewalText = 'Ожидается оплата от Telegram';
     box.innerHTML = cell('Тариф', subscriptionPlanLabel(plan), 'saPlan')
+      + cell('Оплата', billing, 'saBilling')
       + cell('Цена', price)
-      + cell('Автопродление', renewal, 'saRenewal')
-      + cell('Следующее списание', d && d.next_renewal_at ? fmtDate(d.next_renewal_at) : '—', 'saNextRenewal')
-      + cell('Действует до', fmtDate(exp), 'saExpires')
-      + cell('Осталось', exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—', 'saCountdown')
-      + cell('⚡ за период', d && d.period_credits ? Number(d.period_credits).toLocaleString('ru-RU') + ' ⚡' : '—')
+      + cell('Автопродление', renewalText, 'saRenewal')
+      + cell('Начало', p.started_at ? fmtDate(p.started_at) : '—', 'saStarted')
+      + cell('Оплачено до', fmtDate(exp), 'saExpires')
+      + cell('Следующее списание', d.next_renewal_at ? fmtDate(d.next_renewal_at) : '—', 'saNextRenewal')
+      + cell('Осталось', exp && d.active !== false ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—', 'saCountdown')
+      + cell('⚡ за период', p.period_credits ? Number(p.period_credits).toLocaleString('ru-RU') + ' ⚡' : '—')
       + cell('Доступно ⚡', Number(u.balance || 0).toLocaleString('ru-RU') + ' ⚡', 'saBalance');
-    let note = '';
-    if (recurring && d.auto_renew) {
-      note = SUB_RENEWS_NOTE + ' Если вы отмените подписку в самом Telegram (Настройки → Мои звёзды), SYLVEX узнает об этом только в дату продления.';
-    } else if (recurring && d.pending_plan_key) {
-      note = 'Автопродление отключено. После ' + fmtDate(exp) + ' оформите ' + subPlanName(d.pending_plan_key) + ' за '
-        + Number(d.pending_price_stars || 0).toLocaleString('ru-RU') + ' ⭐ / 30 дней.';
-    } else if (recurring) {
-      note = dot('Автопродление отключено. Доступ и начисленные ⚡ сохраняются до ' + fmtDate(exp));
+    const notes = [];
+    if (state === 'active_recurring') notes.push(SUB_RENEWS_NOTE);
+    if (r && r.plan_key !== plan && r.auto_renew) {
+      notes.push('Автопродление: ' + subPlanName(r.plan_key) + ' · ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ / 30 дней, следующее списание ' + fmtDate(r.next_renewal_at) + '.');
     }
-    if (noteEl) { noteEl.textContent = note; noteEl.hidden = !note; }
+    if (state === 'renewal_canceled') notes.push(dot('Автопродление отменено. Доступ и начисленные ⚡ сохраняются до ' + fmtDate(exp)));
+    if (state === 'renewal_unconfirmed') {
+      notes.push(d.active
+        ? 'Отключаем автопродление прежнего тарифа в Telegram — статус ещё не подтверждён. Мы повторим попытку автоматически.'
+        : 'Дата продления прошла, но оплата от Telegram пока не поступила. Доступ продлевается только после подтверждённой оплаты.');
+    }
+    if (d.pending_plan_key) {
+      notes.push('Запланирован переход: после ' + fmtDate(exp) + ' оформите ' + subPlanName(d.pending_plan_key) + ' за '
+        + Number(d.pending_price_stars || 0).toLocaleString('ru-RU') + ' ⭐ / 30 дней.');
+    }
+    (d.entitlements || []).forEach((e) => {
+      notes.push(dot('Также оплачено: ' + subscriptionPlanLabel(e.plan_key) + (e.auto_renew ? ' (продлевается)' : '')
+        + ' до ' + fmtDate(e.expires_at)));
+    });
+    if (r && r.auto_renew) notes.push('Если вы отмените подписку в самом Telegram (Настройки → Мои звёзды), SYLVEX узнает об этом только в дату продления.');
+    if (noteEl) {
+      noteEl.innerHTML = notes.map((n) => '<span>' + S.escapeHtml(n) + '</span>').join('<br>');
+      noteEl.hidden = !notes.length;
+    }
     const buttons = [];
-    if (recurring && d.auto_renew) {
-      buttons.push('<button class="btn-primary" type="button" onclick="SYLVEX.openStorePlans()">Сменить тариф</button>');
+    if (r && r.auto_renew) {
       buttons.push('<button class="btn-ghost sa-cancel" type="button" onclick="SYLVEX.cancelSubscriptionRenewal()">Отменить автопродление</button>');
-    } else if (recurring) {
-      buttons.push('<button class="btn-primary" type="button" onclick="SYLVEX.reactivateSubscriptionRenewal()">'
+    } else if (r && r.reactivatable) {
+      buttons.push('<button class="btn-primary sa-reactivate" type="button" onclick="SYLVEX.reactivateSubscriptionRenewal()">'
         + (d.pending_plan_key ? 'Отменить смену тарифа и возобновить' : 'Возобновить автопродление') + '</button>');
-    } else {
+    }
+    if ((state === 'active_annual' || state === 'active_one_time') && !(r && r.auto_renew)) {
       const yearlyRenewalLocked = String(plan || '').endsWith('year') && exp && new Date(exp).getTime() - Date.now() > 7 * 24 * 60 * 60 * 1000;
       buttons.push('<button class="btn-primary" type="button" ' + (yearlyRenewalLocked ? 'disabled' : '') + ' onclick="SYLVEX.renewFromModal()">'
         + (yearlyRenewalLocked ? 'Продление доступно за 7 дней' : 'Продлить подписку') + '</button>');
     }
+    if (d.pending_product_id && !d.active) {
+      buttons.push('<button class="btn-primary" type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'' + S.escapeHtml(d.pending_product_id) + '\')">Оформить '
+        + S.escapeHtml(subPlanName(d.pending_plan_key)) + '</button>');
+    }
+    buttons.push('<button class="btn-ghost sa-plans" type="button" onclick="SYLVEX.openStorePlans()">' + (d.active === false ? 'Выбрать тариф' : 'Сменить тариф') + '</button>');
     actions.innerHTML = buttons.join('');
   }
   function openStorePlans() {
@@ -23953,8 +24004,10 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function openManageSub() {
     const u = S.user || {};
-    if (u.subscription_status === 'active') openSubActive('sub_' + (u.subscription_plan || 'month'));
-    else switchView('shop');
+    const d = subDetails();
+    if (u.subscription_status === 'active' || (d && (d.state === 'renewal_unconfirmed' || d.pending_plan_key))) {
+      openSubActive('sub_' + (u.subscription_plan || 'month'));
+    } else switchView('shop');
   }
 
   /* ===== Modal helpers ===== */

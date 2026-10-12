@@ -30,7 +30,7 @@ def connect():
 
     conn = factory()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
+        cur.execute("DROP TABLE IF EXISTS subscription_events, subscription_agreements, subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
         # Same shape as production (main.py ensure_payment_tables + users).
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
@@ -362,21 +362,29 @@ def test_a_failure_mid_grant_rolls_everything_back(connect):
     assert orders.get_order(connect, order["order_id"])["status"] == "pending"
 
 
-def test_new_one_time_plan_keeps_the_remaining_time_of_an_active_subscription(connect):
-    # An existing (e.g. legacy yearly) subscription is not migrated or
-    # shortened: a one-time (annual) plan bought on top extends from its expiry.
+def test_a_new_annual_plan_keeps_an_existing_plan_separate(connect):
+    # An existing (e.g. legacy yearly) subscription is not migrated, shortened
+    # or merged: a confirmed annual Telegram plan is its own 365-day
+    # entitlement, and the higher tier is the effective plan.
     conn = connect()
     with conn.cursor() as cur:
         cur.execute("""INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, expires_at, status, charge_id)
                        VALUES (%s, 'year', 'telegram_stars', CURRENT_TIMESTAMP + INTERVAL '100 days', 'active', 'legacy')""", (UID,))
     conn.commit()
     conn.close()
-    _, result = pay(connect, stars_product("plan_starter_year"), catalog.PROVIDER_STARS, "stack")
+    product = stars_product("plan_pro_year")
+    unconfirmed = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, 1800)
+    assert orders.checkout_check(connect, unconfirmed["order_id"], UID, catalog.PROVIDER_STARS, "XTR", product["stars"]) == (
+        False, "subscription_change_confirmation_required")
+    order = orders.create_order(connect, UID, product, catalog.PROVIDER_STARS, 1800, change_confirmed=True)
+    assert orders.checkout_check(connect, order["order_id"], UID, catalog.PROVIDER_STARS, "XTR", product["stars"]) == (True, None)
+    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STARS, "XTR", product["stars"], "annual", payer_id=UID)
     assert result["status"] == "granted"
-    active = q(connect, "SELECT subscription_type, expires_at FROM subscriptions WHERE status = 'active'")
-    assert len(active) == 1 and active[0][0] == "starter_year"
-    assert abs((active[0][1] - datetime.now()) - timedelta(days=465)) < timedelta(minutes=5)
-    assert q(connect, "SELECT status FROM subscriptions WHERE charge_id = 'legacy'")[0][0] == "cancelled"
+    active = dict(q(connect, "SELECT subscription_type, expires_at FROM subscriptions WHERE status = 'active'"))
+    assert set(active) == {"year", "pro_year"}
+    assert abs((active["pro_year"] - datetime.now()) - timedelta(days=365)) < timedelta(minutes=5)
+    assert abs((active["year"] - datetime.now()) - timedelta(days=100)) < timedelta(minutes=5)
+    assert q(connect, "SELECT subscription FROM users WHERE telegram_id = %s", (UID,))[0][0] == "pro_year"
 
 
 def test_order_payload_parsing_is_strict():

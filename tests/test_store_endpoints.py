@@ -50,7 +50,7 @@ def shop(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
+        cur.execute("DROP TABLE IF EXISTS subscription_events, subscription_agreements, subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
                        amount INTEGER DEFAULT 0, currency TEXT DEFAULT 'USD', payload TEXT, charge_id TEXT UNIQUE, status TEXT DEFAULT 'completed',
