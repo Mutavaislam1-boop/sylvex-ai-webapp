@@ -55,3 +55,10 @@ test('drawing renderer applies erasing only to its layer and restores compositin
  assert.ok(events.some(([k,v])=>k==='globalCompositeOperation'&&v==='destination-out'));
  assert.equal(events.filter(([k])=>k==='save').length,2);assert.equal(events.filter(([k])=>k==='restore').length,2);
 });
+test('expanded shape library remains editable and renders every added shape',()=>{
+ const events=[],ctx=new Proxy({},{get:(target,key)=>target[key]??((...args)=>events.push([key,...args])),set:(target,key,v)=>{target[key]=v;return true;}}),types=['diamond','pentagon','hexagon','cross','speech'];
+ const d=sketch.create();d.items=types.map((type,index)=>({type,x:index*120,y:40,w:96,h:72,sx:1,sy:1,rotation:0,size:4,color:'#202534',fill:'#a7c7f2',filled:true,opacity:1}));
+ types.forEach((type,index)=>sketch.drawItem(ctx,d.items[index]));
+ assert.equal(sketch.restore(JSON.parse(JSON.stringify(d))).items.length,types.length);
+ assert.equal(events.filter(([key])=>key==='stroke').length,types.length);
+});

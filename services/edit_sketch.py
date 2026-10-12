@@ -4,7 +4,7 @@ import math
 import re
 
 STROKES = {'pen', 'pencil', 'brush', 'marker', 'eraser'}
-SHAPES = {'line', 'arrow', 'rectangle', 'ellipse', 'triangle', 'star', 'text', 'sticker'}
+SHAPES = {'line', 'arrow', 'rectangle', 'ellipse', 'triangle', 'star', 'diamond', 'pentagon', 'hexagon', 'cross', 'speech', 'text', 'sticker'}
 
 
 def validate_sketch(value):
