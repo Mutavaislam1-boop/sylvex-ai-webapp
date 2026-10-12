@@ -1,17 +1,13 @@
-"""Telegram Stars recurring subscriptions (monthly plans) end to end.
+"""Telegram Stars subscriptions end to end: monthly Telegram subscriptions,
+annual one-time plans, switching, fallback, cancellation, expiry and the
+administration notification outbox.
 
-Drives the real endpoints and the Stars webhook against a disposable
-PostgreSQL (SYLVEX_TEST_DATABASE_URL, skipped otherwise). Telegram is a fake:
-createInvoiceLink, editUserStarSubscription, answerPreCheckoutQuery and
-sendMessage are recorded, never sent. No real payments are made; the
-"payments" below are the successful_payment updates Telegram would send.
-
-Telegram behavior relied on (Bot API: createInvoiceLink.subscription_period,
-SuccessfulPayment.is_recurring / is_first_recurring /
-subscription_expiration_date, editUserStarSubscription): every renewal of a
-subscription is a new successful_payment for the same invoice payload with a
-new telegram_payment_charge_id. Whether Telegram sends a pre_checkout_query
-before a renewal is not documented; both cases are handled.
+SIMULATED: the real endpoints, webhook, payment module and workers run
+against a disposable PostgreSQL (SYLVEX_TEST_DATABASE_URL, skipped
+otherwise), but Telegram is a fake - createInvoiceLink,
+editUserStarSubscription, answerPreCheckoutQuery and sendMessage are
+recorded, never sent, and "payments" are the successful_payment updates
+Telegram would deliver. No real payment or renewal is involved.
 """
 import asyncio
 import json
@@ -30,6 +26,8 @@ UID = 990088
 OTHER = 990099
 DAY = 86400
 MONTHLY = {"starter": (499, 100), "pro": (998, 300), "max": (2495, 1000), "ultra": (4990, 2500), "creator": (9980, 5500)}
+ANNUAL = {"starter": (4791, 1200), "pro": (9581, 3600), "max": (23952, 12000), "ultra": (47904, 30000), "creator": (95808, 66000)}
+START = 40
 
 
 class FakeRequest:
@@ -52,17 +50,21 @@ def body_of(response):
 
 
 class FakeTelegram:
-    """Records Bot API calls; editUserStarSubscription answers per `edit_ok`."""
+    """Records Bot API calls. editUserStarSubscription / sendMessage answer per
+    edit_ok / send_ok."""
 
     def __init__(self):
         self.calls = []
         self.edit_ok = True
+        self.send_ok = True
 
     def post(self, url, json=None, timeout=None, **kwargs):
         method = url.rsplit("/", 1)[-1]
         self.calls.append((method, json))
         if method == "editUserStarSubscription" and not self.edit_ok:
             body, status = {"ok": False, "error_code": 400, "description": "Bad Request: SUBSCRIPTION_NOT_FOUND"}, 400
+        elif method == "sendMessage" and not self.send_ok:
+            body, status = {"ok": False, "error_code": 429, "description": "Too Many Requests"}, 429
         elif method == "createInvoiceLink":
             body, status = {"ok": True, "result": "https://t.me/$invoice"}, 200
         else:
@@ -84,7 +86,8 @@ def shop(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS subscription_payments, shop_orders, purchases, subscriptions, users CASCADE")
+        cur.execute("DROP TABLE IF EXISTS subscription_events, subscription_payments, subscription_agreements, shop_orders, "
+                    "purchases, subscriptions, users CASCADE")
         # Production shape (main.py ensure_payment_tables), before migration.
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
         cur.execute("""CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, provider TEXT NOT NULL, credits INTEGER DEFAULT 0,
@@ -94,7 +97,7 @@ def shop(monkeypatch):
                        amount INTEGER DEFAULT 0, currency TEXT DEFAULT 'USD', starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, expires_at TIMESTAMP,
                        status TEXT DEFAULT 'active', charge_id TEXT UNIQUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         for uid in (UID, OTHER):
-            cur.execute("INSERT INTO users (telegram_id, first_name, balance) VALUES (%s, 'Buyer', 40)", (uid,))
+            cur.execute("INSERT INTO users (telegram_id, first_name, balance) VALUES (%s, 'Buyer', %s)", (uid, START))
     conn.commit()
     conn.close()
 
@@ -107,6 +110,8 @@ def shop(monkeypatch):
     monkeypatch.setattr(main, "send_subscription_congratulations", lambda *args, **kwargs: True)
     monkeypatch.setattr(main, "BOT_TOKEN", "123:TEST")
     monkeypatch.setattr(main, "TELEGRAM_PAYMENT_WEBHOOK_SECRET", "hook")
+    monkeypatch.setattr(main, "SUBSCRIPTION_ADMIN_CHAT_ID", 4242)
+    monkeypatch.setattr(main, "sylvex_account_id_for", lambda telegram_id: 110626010001 if telegram_id == UID else None)
 
     def q(sql, params=()):
         c = connect()
@@ -121,8 +126,12 @@ def shop(monkeypatch):
     def balance(uid=UID):
         return q("SELECT balance FROM users WHERE telegram_id = %s", (uid,))[0][0]
 
+    def events(event_type=None):
+        rows = q("SELECT event_type, plan_key, status, amount, reference FROM subscription_events ORDER BY id")
+        return [r for r in rows if event_type is None or r[0] == event_type]
+
     return type("Shop", (), {"connect": staticmethod(connect), "q": staticmethod(q), "balance": staticmethod(balance),
-                             "telegram": telegram})
+                             "events": staticmethod(events), "telegram": telegram})
 
 
 HOOK = {"X-Telegram-Bot-Api-Secret-Token": "hook"}
@@ -132,7 +141,7 @@ def invoice(product_id, uid=UID, **extra):
     return body_of(run(main.public_stars_invoice(FakeRequest({"telegram_id": uid, "product_id": product_id, **extra}))))
 
 
-def pre_checkout(shop, payload, amount, uid=UID):
+def pre_checkout(payload, amount, uid=UID):
     answers = []
     original = main._answer_stars_pre_checkout
     main._answer_stars_pre_checkout = lambda qid, ok, msg="": answers.append(ok) or True
@@ -145,23 +154,30 @@ def pre_checkout(shop, payload, amount, uid=UID):
     return answers[0]
 
 
-def paid(payload, amount, charge, expires_in_days=30, uid=UID, first=None, recurring=True, currency="XTR", headers=HOOK):
+def paid(payload, amount, charge, expires_in_days=30, uid=UID, first=None, recurring=True, currency="XTR", headers=HOOK,
+         paid_at=None):
     payment = {"currency": currency, "total_amount": amount, "invoice_payload": payload, "telegram_payment_charge_id": charge}
     if recurring:
         payment["is_recurring"] = True
         payment["subscription_expiration_date"] = int(time.time()) + int(expires_in_days * DAY)
         if first:
             payment["is_first_recurring"] = True
-    return body_of(run(main.public_stars_webhook(FakeRequest({"message": {"from": {"id": uid}, "successful_payment": payment}}, headers))))
+    message = {"from": {"id": uid}, "date": int(paid_at or time.time()), "successful_payment": payment}
+    return body_of(run(main.public_stars_webhook(FakeRequest({"message": message}, headers))))
 
 
-def subscribe(shop, plan="pro", uid=UID, charge="first-1"):
-    status, body = invoice(f"plan_{plan}_month", uid)
-    assert status == 200, body
+def buy(plan, period="month", charge=None, uid=UID, confirm=None):
+    """Full purchase: invoice (confirming a change if needed), pre-checkout,
+    successful_payment. Returns the invoice payload."""
+    product_id = f"plan_{plan}_{period}"
+    extra = {"confirm_change": True} if confirm else {}
+    code, body = invoice(product_id, uid, **extra)
+    assert code == 200, body
     payload = orders.order_payload(body["order_id"])
-    stars = MONTHLY[plan][0]
-    assert pre_checkout(shop, payload, stars, uid)
-    _, result = paid(payload, stars, charge, uid=uid, first=True)
+    stars = (MONTHLY if period == "month" else ANNUAL)[plan][0]
+    assert pre_checkout(payload, stars, uid)
+    _, result = paid(payload, stars, charge or f"{plan}-{period}-1", uid=uid, first=True, recurring=period == "month",
+                     expires_in_days=30)
     assert result["status"] == "granted", result
     return payload
 
@@ -176,322 +192,440 @@ def manage(action, uid=UID, **extra):
     return body_of(run(handler(FakeRequest({"telegram_id": uid, **extra}))))
 
 
-def age(shop, days):
-    """Move the user's subscriptions `days` into the past (time passing)."""
+def age(shop, days, plan_key=None):
+    """Move subscriptions `days` into the past (time passing)."""
+    where = " WHERE subscription_type = %s" if plan_key else ""
     shop.q("UPDATE subscriptions SET expires_at = expires_at - (%s || ' days')::interval, "
-           "starts_at = starts_at - (%s || ' days')::interval", (days, days))
+           "starts_at = starts_at - (%s || ' days')::interval" + where,
+           (days, days, plan_key) if plan_key else (days, days))
 
 
-def iso_to_dt(value):
+def dt(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
 
 
-# 1, 9 ------------------------------------------------ initial purchase, amount and period
+def near(value, days):
+    return abs(dt(value) - (datetime.now() + timedelta(days=days))) < timedelta(minutes=10)
+
+
+def edits(shop):
+    return shop.telegram.of("editUserStarSubscription")
+
+
+def users_plan(shop):
+    return shop.q("SELECT subscription FROM users WHERE telegram_id = %s", (UID,))[0][0]
+
+
+# 1 ------------------------------------------------ every monthly plan
 
 
 @pytest.mark.parametrize("plan", list(MONTHLY))
-def test_monthly_invoice_is_a_30_day_stars_subscription_at_the_plan_price(shop, plan):
+def test_every_monthly_plan_is_a_30_day_telegram_subscription(shop, plan):
     stars, credits = MONTHLY[plan]
-    status_code, body = invoice(f"plan_{plan}_month", stars=1, usd="0.01")
-    assert status_code == 200
+    code, body = invoice(f"plan_{plan}_month", stars=1, usd="0.01")
+    assert code == 200
     link = shop.telegram.of("createInvoiceLink")[-1]
-    assert link["currency"] == "XTR" and link["subscription_period"] == 2592000
-    assert link["prices"] == [{"label": link["prices"][0]["label"], "amount": stars}]
-    assert "provider_token" not in link
-    assert "Автоматически продлевается каждые 30 дней" in link["description"]
-    assert body["order"]["stars"] == stars and body["order"]["credits"] == credits
-
-
-def test_initial_payment_grants_once_and_records_the_telegram_subscription(shop):
-    payload = subscribe(shop, "pro")
-    assert shop.balance() == 40 + 300
-    row = shop.q("SELECT is_recurring, renewal_status, subscription_charge_id, last_charge_id, status, renewals_count "
-                 "FROM subscriptions WHERE telegram_id = %s", (UID,))
-    assert row == [(True, "auto", "first-1", "first-1", "active", 0)]
-    assert shop.q("SELECT payment_kind, charge_id, amount, credits FROM subscription_payments") == [("initial", "first-1", 998, 300)]
+    assert link["currency"] == "XTR" and link["subscription_period"] == 2592000 and "provider_token" not in link
+    assert link["prices"][0]["amount"] == stars and body["order"]["stars"] == stars
+    payload = orders.order_payload(body["order_id"])
+    assert pre_checkout(payload, stars)
+    assert paid(payload, stars, "c1", first=True)[1]["status"] == "granted"
+    assert shop.balance() == START + credits
     sub = status()
-    assert sub["active"] and sub["auto_renew"] and sub["is_recurring"] and sub["plan_key"] == "pro_month"
-    assert sub["price_stars"] == 998 and sub["period_credits"] == 300 and sub["period_days"] == 30
-    assert sub["next_renewal_at"] == sub["expires_at"]
-    assert abs(iso_to_dt(sub["expires_at"]) - (datetime.now() + timedelta(days=30))) < timedelta(minutes=5)
-    # The same notification again grants nothing.
-    _, again = paid(payload, 998, "first-1", first=True)
-    assert again["status"] == "duplicate" and shop.balance() == 340
+    assert sub["state"] == "active_recurring" and sub["auto_renew"] and sub["billing"] == "monthly"
+    assert sub["price_stars"] == stars and sub["period_credits"] == credits and near(sub["expires_at"], 30)
+    assert sub["next_renewal_at"] == sub["expires_at"] and sub["started_at"]
+    assert shop.q("SELECT plan_key, renewal_status, subscription_charge_id FROM subscription_agreements") == [(f"{plan}_month", "auto", "c1")]
+    assert users_plan(shop) == f"{plan}_month"
+    assert shop.events("subscription_purchased")[0][1:4] == (f"{plan}_month", "active_recurring", stars)
 
 
-# 2, 3 ------------------------------------------------ renewals, duplicates, reordering
+# 2 ------------------------------------------------ every annual plan
 
 
-def test_each_renewal_grants_the_next_periods_credits_once(shop):
-    payload = subscribe(shop, "max")
-    for n, charge in enumerate(("renew-1", "renew-2"), start=1):
-        _, result = paid(payload, 2495, charge, expires_in_days=30 * (n + 1))
-        assert result["status"] == "granted"
-        assert shop.balance() == 40 + 1000 * (n + 1)
+@pytest.mark.parametrize("plan", list(ANNUAL))
+def test_every_annual_plan_is_one_payment_for_365_days(shop, plan):
+    stars, credits = ANNUAL[plan]
+    buy(plan, "year")
+    assert "subscription_period" not in shop.telegram.of("createInvoiceLink")[-1]
+    assert shop.balance() == START + credits
     sub = status()
-    assert sub["renewals_count"] == 2 and sub["auto_renew"]
-    assert abs(iso_to_dt(sub["expires_at"]) - (datetime.now() + timedelta(days=90))) < timedelta(minutes=5)
+    assert sub["state"] == "active_annual" and sub["billing"] == "annual" and not sub["auto_renew"]
+    assert near(sub["expires_at"], 365) and sub["next_renewal_at"] is None and sub["price_stars"] == stars
+    assert shop.q("SELECT COUNT(*) FROM subscription_agreements")[0][0] == 0
+    # A "recurring" charge on an annual order is never accepted: no extra charges.
+    payload = shop.q("SELECT payload FROM purchases")[0][0]
+    assert paid(payload, stars, "extra")[1]["status"] == "rejected"
+    assert shop.balance() == START + credits
+
+
+# 3, 4 ------------------------------------------------ renewals and duplicates
+
+
+def test_each_renewal_extends_and_grants_the_monthly_credits_once(shop):
+    payload = buy("max")
+    for n in (1, 2):
+        assert paid(payload, 2495, f"renew-{n}", expires_in_days=30 * (n + 1))[1]["status"] == "granted"
+        assert shop.balance() == START + 1000 * (n + 1)
+    sub = status()
+    assert sub["renewals_count"] == 2 and sub["auto_renew"] and near(sub["expires_at"], 90)
     kinds = shop.q("SELECT payment_kind, charge_id FROM subscription_payments ORDER BY id")
-    assert kinds == [("initial", "first-1"), ("renewal", "renew-1"), ("renewal", "renew-2")]
-    assert shop.q("SELECT COUNT(*) FROM purchases WHERE telegram_id = %s", (UID,))[0][0] == 3
-    # The renewal message goes to the user through the bot.
+    assert kinds == [("initial", "max-month-1"), ("renewal", "renew-1"), ("renewal", "renew-2")]
+    assert [e[2] for e in shop.events("subscription_renewed")] == ["auto", "auto"]
     assert any("продлена" in m["text"] for m in shop.telegram.of("sendMessage"))
 
 
-def test_duplicate_and_reordered_renewal_notifications(shop):
-    payload = subscribe(shop, "starter")
+def test_duplicate_delayed_and_reordered_renewals_grant_once(shop):
+    payload = buy("starter")
     assert paid(payload, 499, "renew-a", expires_in_days=60)[1]["status"] == "granted"
     for _ in range(3):
         assert paid(payload, 499, "renew-a", expires_in_days=60)[1]["status"] == "duplicate"
-    assert shop.balance() == 40 + 200
-    # A delayed notification for a different (older) charge still pays its
-    # period once, but never moves the expiration date backwards.
+    assert shop.balance() == START + 200
     before = status()["expires_at"]
     assert paid(payload, 499, "renew-older", expires_in_days=30)[1]["status"] == "granted"
-    assert shop.balance() == 40 + 300 and status()["expires_at"] == before
+    assert shop.balance() == START + 300 and status()["expires_at"] == before  # never moves backwards
+    assert len(shop.events("subscription_renewed")) == 2
 
 
-def test_late_renewal_after_expiry_restores_access(shop):
-    payload = subscribe(shop, "pro")
-    age(shop, 31)  # the renewal date passed, no payment yet
-    assert status()["active"] is False and status()["renewal_missed"] is True
-    _, result = paid(payload, 998, "renew-late", expires_in_days=29)
-    assert result["status"] == "granted"
-    sub = status()
-    assert sub["active"] and sub["auto_renew"] and shop.balance() == 40 + 600
+def test_a_late_renewal_after_expiry_restores_access(shop):
+    payload = buy("pro")
+    age(shop, 31)
+    assert status()["state"] == "expired"
+    assert paid(payload, 998, "renew-late", expires_in_days=29)[1]["status"] == "granted"
+    assert status()["state"] == "active_recurring" and shop.balance() == START + 600
 
 
-# 4, 6 ------------------------------------------------ failed renewal and expiry
+# 5 ------------------------------------------------ cancellation and reactivation
 
 
-def test_missing_renewal_never_extends_access_or_grants_credits(shop):
-    subscribe(shop, "ultra")
-    age(shop, 31)  # the renewal date passed and Telegram sent no payment
-    sub = status()
-    assert sub["active"] is False and sub["renewal_missed"] is True and sub["next_renewal_at"] is None
-    assert shop.balance() == 40 + 2500
-    assert shop.q("SELECT COUNT(*) FROM subscription_payments")[0][0] == 1
-    active = shop.q("SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND expires_at > CURRENT_TIMESTAMP")[0][0]
-    assert active == 0
-
-
-def test_failed_renewal_payment_is_rejected_and_grants_nothing(shop):
-    payload = subscribe(shop, "pro")
-    for amount, currency, uid in ((1, "XTR", UID), (998, "USD", UID), (998, "XTR", OTHER)):
-        _, result = paid(payload, amount, "renew-bad", currency=currency, uid=uid)
-        assert result["status"] == "rejected"
-    assert shop.balance() == 40 + 300 and shop.balance(OTHER) == 40
-    assert status()["renewals_count"] == 0
-
-
-# 5 ------------------------------------------------ cancellation
-
-
-def test_cancel_stops_renewal_through_telegram_and_keeps_paid_access(shop):
-    subscribe(shop, "pro")
+def test_cancel_through_telegram_keeps_access_and_credits(shop):
+    buy("pro")
     expires = status()["expires_at"]
     code, body = manage("cancel")
     assert code == 200 and body["ok"] and body["status"] == "canceled"
-    edit = shop.telegram.of("editUserStarSubscription")
-    assert edit == [{"user_id": UID, "telegram_payment_charge_id": "first-1", "is_canceled": True}]
+    assert edits(shop) == [{"user_id": UID, "telegram_payment_charge_id": "pro-month-1", "is_canceled": True}]
     sub = body["subscription"]
-    assert sub["active"] and not sub["auto_renew"] and sub["renewal_status"] == "canceled"
-    assert sub["expires_at"] == expires and sub["next_renewal_at"] is None
-    # Repeating the cancel is harmless and does not call Telegram again.
-    code, body = manage("cancel")
-    assert body["status"] == "already_canceled" and len(shop.telegram.of("editUserStarSubscription")) == 1
+    assert sub["state"] == "renewal_canceled" and sub["active"] and not sub["auto_renew"]
+    assert sub["expires_at"] == expires and sub["next_renewal_at"] is None and shop.balance() == START + 300
+    assert shop.events("renewal_canceled")[0][2] == "canceled_by_user"
+    assert manage("cancel")[1]["status"] == "already_canceled" and len(edits(shop)) == 1
 
 
-def test_cancel_refused_by_telegram_changes_nothing_and_says_so(shop):
-    subscribe(shop, "pro")
+def test_a_cancel_telegram_refuses_is_reported_and_changes_nothing(shop):
+    buy("pro")
     shop.telegram.edit_ok = False
     code, body = manage("cancel")
-    assert code == 502 and body["ok"] is False and body["error"] == "telegram_refused"
-    assert "SUBSCRIPTION_NOT_FOUND" in body["telegram_error"]
+    assert code == 502 and body["error"] == "telegram_refused" and "SUBSCRIPTION_NOT_FOUND" in body["telegram_error"]
     assert status()["auto_renew"] is True
+    assert shop.events("management_error")[0][2] == "cancel_refused" and not shop.events("renewal_canceled")
 
 
-def test_cancelled_subscription_expires_at_the_end_of_the_paid_period(shop):
-    subscribe(shop, "pro")
+def test_reactivation_through_telegram_and_its_failure(shop):
+    buy("pro")
+    manage("cancel")
+    code, body = manage("reactivate")
+    assert code == 200 and body["status"] == "reactivated" and body["subscription"]["state"] == "active_recurring"
+    assert edits(shop)[-1]["is_canceled"] is False and shop.events("renewal_reactivated")
+    manage("cancel")
+    shop.telegram.edit_ok = False  # e.g. the user cancelled it inside Telegram
+    code, body = manage("reactivate")
+    assert code == 502 and body["error"] == "reactivation_unavailable"
+    assert status()["state"] == "renewal_canceled"
+
+
+def test_a_renewal_charged_after_a_confirmed_cancel_is_honored_and_flagged(shop):
+    payload = buy("pro")
+    manage("cancel")
+    # A charge from before the cancellation, reported late: stays cancelled.
+    assert paid(payload, 998, "renew-before", expires_in_days=60, paid_at=time.time() - 3600)[1]["status"] == "granted"
+    assert status()["state"] == "renewal_canceled"
+    # A charge after it (renewal re-enabled inside Telegram): renewing again.
+    assert paid(payload, 998, "renew-after", expires_in_days=90, paid_at=time.time() + 60)[1]["status"] == "granted"
+    assert status()["state"] == "active_recurring" and shop.balance() == START + 900
+    assert ("payment_attention", "pro_month", "renewed_after_cancellation") == shop.events("payment_attention")[0][:3]
+
+
+# 6 ------------------------------------------------ expiration
+
+
+def test_missing_renewal_is_unconfirmed_then_expired_never_extended(shop):
+    buy("ultra")
+    age(shop, 30.1)  # 2.4 h past the renewal date, nothing received
+    sub = status()
+    assert sub["state"] == "renewal_unconfirmed" and not sub["active"] and sub["next_renewal_at"] is None
+    assert main.run_subscription_sweep()["expired"] == 0  # still within the renewal grace
+    age(shop, 0.5)
+    assert main.run_subscription_sweep()["expired"] == 1
+    assert status()["state"] == "expired" and status()["renewal_missed"]
+    assert shop.q("SELECT renewal_status FROM subscription_agreements") == [("ended",)]
+    assert shop.events("subscription_expired")[0][2] == "no_renewal"
+    assert main.run_subscription_sweep()["expired"] == 0  # reported once
+    assert shop.balance() == START + 2500 and users_plan(shop) is None
+
+
+def test_cancelled_subscription_ends_at_its_paid_expiration(shop):
+    buy("pro")
     manage("cancel")
     age(shop, 29)
-    assert status()["active"] is True
+    assert status()["state"] == "renewal_canceled"
     age(shop, 2)
+    main.run_subscription_sweep()
+    assert status()["state"] == "expired" and shop.events("subscription_expired")[0][2] == "renewal_canceled"
+    assert shop.balance() == START + 300
+
+
+# 7-11 ------------------------------------------------ switching rules
+
+
+def test_monthly_to_monthly_upgrade_needs_confirmation_then_replaces_renewal(shop):
+    buy("starter")
+    code, body = invoice("plan_pro_month")
+    assert code == 409 and body["error"] == "subscription_change_confirmation_required"
+    change = body["change"]
+    assert change["type"] == "upgrade" and change["price_stars"] == 998 and change["stops_renewal_of"] == "starter_month"
+    assert change["becomes_primary_now"] is True
+    buy("pro", confirm=True)
     sub = status()
-    assert sub["active"] is False and sub["renewal_missed"] is False and sub["renewal_status"] == "canceled"
+    assert sub["plan_key"] == "pro_month" and sub["state"] == "active_recurring"
+    assert sub["renewal"]["plan_key"] == "pro_month" and sub["next_renewal_at"] == sub["expires_at"]
+    # Starter's renewal was stopped through Telegram; its paid period stays.
+    assert edits(shop) == [{"user_id": UID, "telegram_payment_charge_id": "starter-month-1", "is_canceled": True}]
+    agreements = shop.q("SELECT plan_key, renewal_status, cancel_reason FROM subscription_agreements ORDER BY id")
+    assert agreements == [("starter_month", "canceled", "replaced"), ("pro_month", "auto", None)]
+    assert [e["plan_key"] for e in sub["entitlements"]] == ["starter_month"]
+    assert shop.balance() == START + 100 + 300  # full price, credits only added
+    assert shop.events("primary_changed")[-1][1:3] == ("pro_month", "effective")
 
 
-# 7 ------------------------------------------------ reactivation
-
-
-def test_reactivate_re_enables_renewal_before_the_period_ends(shop):
-    subscribe(shop, "pro")
+def test_annual_to_monthly_keeps_the_annual_and_falls_back_to_it(shop):
+    buy("starter", "year")
+    annual_expiry = status()["expires_at"]
+    buy("pro", "month", confirm=True)
+    sub = status()
+    assert sub["plan_key"] == "pro_month" and sub["entitlements"][0]["plan_key"] == "starter_year"
+    assert sub["entitlements"][0]["expires_at"] == annual_expiry  # not restarted, extended or frozen
     manage("cancel")
-    code, body = manage("reactivate")
-    assert code == 200 and body["status"] == "reactivated" and body["subscription"]["auto_renew"]
-    assert shop.telegram.of("editUserStarSubscription")[-1]["is_canceled"] is False
+    age(shop, 31, "pro_month")
+    main.run_subscription_sweep()
+    sub = status()
+    assert sub["plan_key"] == "starter_year" and sub["state"] == "active_annual" and sub["expires_at"] == annual_expiry
+    assert users_plan(shop) == "starter_year"
+    assert ("primary_changed", "starter_year", "fallback") == shop.events("primary_changed")[-1][:3]
+    assert shop.balance() == START + 1200 + 300
 
 
-def test_after_expiry_resubscribing_is_a_new_purchase(shop):
-    subscribe(shop, "pro")
-    manage("cancel")
+def test_monthly_to_annual_stops_the_monthly_renewal(shop):
+    buy("starter")
+    buy("pro", "year", confirm=True)
+    sub = status()
+    assert sub["plan_key"] == "pro_year" and sub["state"] == "active_annual" and near(sub["expires_at"], 365)
+    assert not sub["auto_renew"] and edits(shop)[-1]["telegram_payment_charge_id"] == "starter-month-1"
+    assert shop.q("SELECT renewal_status FROM subscription_agreements") == [("canceled",)]
+    assert shop.balance() == START + 100 + 3600
+
+
+def test_annual_to_annual_keeps_both_entitlements_without_combining(shop):
+    buy("starter", "year")
+    starter_expiry = status()["expires_at"]
+    code, body = invoice("plan_pro_year")
+    assert code == 409 and body["change"]["type"] == "upgrade"
+    buy("pro", "year", confirm=True)
+    sub = status()
+    assert sub["plan_key"] == "pro_year" and near(sub["expires_at"], 365)
+    assert sub["entitlements"][0]["plan_key"] == "starter_year" and sub["entitlements"][0]["expires_at"] == starter_expiry
+    assert shop.balance() == START + 1200 + 3600
+
+
+def test_downgrade_keeps_the_higher_plan_until_it_ends(shop):
+    buy("max")
+    code, body = invoice("plan_starter_month")
+    assert code == 409 and body["change"]["type"] == "downgrade" and body["change"]["becomes_primary_now"] is False
+    buy("starter", confirm=True)
+    sub = status()
+    assert sub["plan_key"] == "max_month" and sub["state"] == "renewal_canceled"  # Max stays until it ends
+    assert sub["renewal"]["plan_key"] == "starter_month" and sub["auto_renew"]  # only Starter renews
+    assert edits(shop)[-1]["telegram_payment_charge_id"] == "max-month-1"
+    age(shop, 31, "max_month")
+    main.run_subscription_sweep()
+    assert status()["plan_key"] == "starter_month" and users_plan(shop) == "starter_month"
+    assert shop.balance() == START + 1000 + 100
+
+
+def test_downgrade_can_be_scheduled_without_paying_now(shop):
+    buy("pro")
+    assert manage("change", plan_key="starter_month")[1]["error"] == "confirmation_required"
+    code, body = manage("change", plan_key="starter_month", confirm=True)
+    assert code == 200 and body["subscription"]["state"] == "renewal_canceled"
+    assert body["subscription"]["pending_plan_key"] == "starter_month"
+    assert body["subscription"]["pending_product_id"] == "plan_starter_month"
+    assert shop.balance() == START + 300 and len(shop.telegram.of("createInvoiceLink")) == 1
     age(shop, 31)
-    code, body = manage("reactivate")
-    assert code == 404 and body["error"] == "no_recurring_subscription"
-    subscribe(shop, "pro", charge="second-1")
-    assert status()["active"] and status()["auto_renew"] and shop.balance() == 40 + 600
+    assert status()["pending_plan_key"] == "starter_month"
+    buy("starter", charge="starter-1")  # nothing valid any more: no confirmation needed
+    assert status()["plan_key"] == "starter_month"
 
 
-def test_a_renewal_after_a_cancel_reflects_that_telegram_still_renews(shop):
-    payload = subscribe(shop, "pro")
+# 12 ------------------------------------------------ credits are only ever added
+
+
+def test_no_subscription_change_ever_reduces_the_balance(shop):
+    observed = [shop.balance()]
+    payload = buy("starter")
+    observed.append(shop.balance())
+    paid(payload, 499, "renew-1", expires_in_days=60)
+    observed.append(shop.balance())
+    buy("pro", confirm=True)
+    observed.append(shop.balance())
     manage("cancel")
-    assert paid(payload, 998, "renew-1", expires_in_days=60)[1]["status"] == "granted"
-    assert status()["auto_renew"] is True
+    observed.append(shop.balance())
+    buy("starter", "year", confirm=True)
+    observed.append(shop.balance())
+    age(shop, 400)
+    main.run_subscription_sweep()
+    observed.append(shop.balance())
+    assert observed == sorted(observed) and observed[-1] == START + 100 + 100 + 300 + 1200
 
 
-# 8 ------------------------------------------------ plan changes
+# 14 ------------------------------------------------ no unwanted duplicate renewals
 
 
-def test_no_second_plan_while_one_renews(shop):
-    subscribe(shop, "pro")
-    created = len(shop.telegram.of("createInvoiceLink"))
-    for product_id in ("plan_max_month", "plan_pro_month", "plan_creator_year"):
-        code, body = invoice(product_id, confirm_replace=True)
-        assert code == 409 and body["error"] == "subscription_renewing" and body["subscription"]["plan_key"] == "pro_month"
-    assert len(shop.telegram.of("createInvoiceLink")) == created
-    # Credit packs stay available.
-    assert invoice("pack_500")[0] == 200
+def test_the_same_monthly_plan_is_never_bought_twice(shop):
+    buy("pro")
+    for extra in ({}, {"confirm_change": True}):
+        code, body = invoice("plan_pro_month", **extra)
+        assert code == 409 and body["error"] == "already_subscribed"
+    assert len(shop.telegram.of("createInvoiceLink")) == 1
+    assert invoice("pack_500")[0] == 200  # credit packs stay available
 
 
-def test_plan_change_is_scheduled_for_the_end_of_the_paid_period(shop):
-    subscribe(shop, "pro")
-    assert manage("change", plan_key="max_month")[1]["error"] == "confirmation_required"
-    assert manage("change", plan_key="pro_month", confirm=True)[1]["error"] == "same_plan"
-    assert manage("change", plan_key="max_year", confirm=True)[1]["error"] == "unknown_plan"
-    assert not shop.telegram.of("editUserStarSubscription")
-    code, body = manage("change", plan_key="max_month", confirm=True)
-    assert code == 200 and body["ok"]
-    sub = body["subscription"]
-    assert sub["plan_key"] == "pro_month" and sub["active"] and not sub["auto_renew"]
-    assert sub["pending_plan_key"] == "max_month" and sub["pending_product_id"] == "plan_max_month" and sub["pending_price_stars"] == 2495
-    assert shop.telegram.of("editUserStarSubscription")[-1]["is_canceled"] is True
-    balance = shop.balance()
-    # Nothing is charged for the new plan until the user subscribes to it
-    # after the current period ends.
-    age(shop, 31)
-    sub = status()
-    assert not sub["active"] and sub["pending_plan_key"] == "max_month" and shop.balance() == balance
-    subscribe(shop, "max", charge="max-1")
-    sub = status()
-    assert sub["plan_key"] == "max_month" and sub["auto_renew"] and shop.balance() == balance + 1000
+def test_unconfirmed_or_stale_orders_are_refused_at_pre_checkout(shop):
+    # Created while nothing was active, paid after another plan started.
+    stale = orders.order_payload(invoice("plan_max_month")[1]["order_id"])
+    buy("pro")
+    assert pre_checkout(stale, 2495) is False
+    # Same monthly plan, even confirmed: refused.
+    same = orders.order_payload(invoice("plan_max_month", confirm_change=True)[1]["order_id"])
+    buy("max", confirm=True, charge="max-1")
+    assert pre_checkout(same, 2495) is False
 
 
-def test_reactivating_drops_a_scheduled_plan_change(shop):
-    subscribe(shop, "pro")
-    manage("change", plan_key="starter_month", confirm=True)
-    body = manage("reactivate")[1]
-    assert body["subscription"]["auto_renew"] and body["subscription"]["pending_plan_key"] is None
-
-
-def test_replacing_a_paid_one_time_plan_needs_explicit_confirmation(shop):
-    shop.q("INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, expires_at, status, charge_id) "
-           "VALUES (%s, 'pro_year', 'telegram_stars', CURRENT_TIMESTAMP + INTERVAL '100 days', 'active', 'annual-1')", (UID,))
-    code, body = invoice("plan_max_month")
-    assert code == 409 and body["error"] == "subscription_replace_confirmation_required"
-    assert body["subscription"]["plan_key"] == "pro_year" and body["subscription"]["is_recurring"] is False
-    code, body = invoice("plan_max_month", confirm_replace=True)
-    assert code == 200
-    payload = orders.order_payload(body["order_id"])
-    assert pre_checkout(shop, payload, 2495)
-    assert paid(payload, 2495, "max-1", first=True)[1]["status"] == "granted"
-    assert shop.q("SELECT status FROM subscriptions WHERE charge_id = 'annual-1'")[0][0] == "cancelled"
+def test_racing_purchases_leave_exactly_one_renewal(shop):
+    a = orders.order_payload(invoice("plan_pro_month")[1]["order_id"])
+    b = orders.order_payload(invoice("plan_max_month")[1]["order_id"])
+    assert pre_checkout(a, 998) and pre_checkout(b, 2495)
+    assert paid(a, 998, "pro-1", first=True)[1]["status"] == "granted"
+    assert paid(b, 2495, "max-1", first=True)[1]["status"] == "granted"  # money taken: honored
+    assert shop.q("SELECT plan_key, renewal_status FROM subscription_agreements ORDER BY id") == [
+        ("pro_month", "canceled"), ("max_month", "auto")]
     assert status()["plan_key"] == "max_month"
 
 
-def test_a_racing_second_subscription_is_refused_or_its_renewal_stopped(shop):
-    first = invoice("plan_pro_month")[1]
-    second = invoice("plan_max_month")[1]
-    p1, p2 = orders.order_payload(first["order_id"]), orders.order_payload(second["order_id"])
-    assert pre_checkout(shop, p1, 998)
-    assert paid(p1, 998, "pro-1", first=True)[1]["status"] == "granted"
-    # Pre-checkout of the second plan is refused: never two renewing plans.
-    assert pre_checkout(shop, p2, 2495) is False
-    # Had Telegram charged it anyway, the money is honored and the older
-    # subscription's renewal is cancelled through Telegram.
-    assert paid(p2, 2495, "max-1", first=True)[1]["status"] == "granted"
-    assert shop.telegram.of("editUserStarSubscription")[-1] == {"user_id": UID, "telegram_payment_charge_id": "pro-1",
-                                                                "is_canceled": True}
-    rows = shop.q("SELECT subscription_type, status, renewal_status FROM subscriptions ORDER BY id")
-    assert rows == [("pro_month", "cancelled", "replaced"), ("max_month", "active", "auto")]
+def test_an_unstopped_replaced_renewal_is_honored_retried_and_flagged(shop):
+    pro = buy("pro")
+    shop.telegram.edit_ok = False
+    buy("max", confirm=True)
+    assert shop.q("SELECT plan_key, renewal_status FROM subscription_agreements ORDER BY id")[0] == ("pro_month", "stop_pending")
+    assert shop.events("management_error")[0][2] == "replaced_renewal_not_stopped"
+    assert status()["renewal"]["plan_key"] == "max_month"
+    # Telegram still renews Pro: the payment is honored, flagged, stop retried.
+    assert paid(pro, 998, "pro-renew", expires_in_days=60)[1]["status"] == "granted"
+    assert shop.events("payment_attention")[0][2] == "replaced_subscription_renewed"
+    shop.telegram.edit_ok = True
+    main.run_subscription_sweep()
+    assert shop.q("SELECT renewal_status FROM subscription_agreements ORDER BY id")[0] == ("canceled",)
 
 
-def test_reopening_a_paid_invoice_never_creates_a_silent_second_subscription(shop):
-    payload = subscribe(shop, "pro")
-    # Mid-period, a pre-checkout for the already-paid invoice is refused.
-    assert pre_checkout(shop, payload, 998) is False
-    # Around the renewal date it is accepted (in case renewals send one).
+def test_reopening_a_paid_invoice_never_starts_a_silent_second_subscription(shop):
+    payload = buy("pro")
+    assert pre_checkout(payload, 998) is False  # mid-period
     age(shop, 29.5)
-    assert pre_checkout(shop, payload, 998) is True
-    # If the same invoice was paid as a NEW subscription, that payment is
-    # honored once and the new subscription's renewal is cancelled.
+    assert pre_checkout(payload, 998) is True  # around the renewal date
     assert paid(payload, 998, "dup-sub-1", first=True)[1]["status"] == "granted"
-    assert shop.telegram.of("editUserStarSubscription")[-1]["telegram_payment_charge_id"] == "dup-sub-1"
+    assert edits(shop)[-1]["telegram_payment_charge_id"] == "dup-sub-1"
+    assert shop.events("payment_attention")[0][2] == "second_subscription_on_one_invoice"
 
 
-# 10 ------------------------------------------------ the 10,000-Star recurring cap
+# 15 ------------------------------------------------ administration notifications
 
 
-def test_recurring_prices_above_10000_stars_are_rejected(shop, monkeypatch):
-    with pytest.raises(tg.CatalogError) as err:
-        tg.check_invoice_amount(10001, tg.SUBSCRIPTION_PERIOD_SECONDS)
-    assert err.value.code == "subscription_amount_above_limit"
-    assert tg.check_invoice_amount(10000, tg.SUBSCRIPTION_PERIOD_SECONDS) == 10000
-    # An order snapshot above the cap never reaches Telegram as a subscription.
-    calls = len(shop.telegram.calls)
-    with pytest.raises(tg.CatalogError):
-        main.create_store_stars_invoice_link({"order_id": "o", "title": "SYLVEX", "stars": 10001,
-                                              "subscription_period": 2592000})
-    assert len(shop.telegram.calls) == calls
-    # A monthly plan priced above the cap would be unavailable, not split.
-    expensive = dict(tg.PRODUCTS["plan_creator_month"], stars=10001)
-    assert tg._with_availability(expensive)["unavailable_reason"] == "subscription_amount_above_limit"
-    assert all(tg.resolve(f"plan_{plan}_month")["stars"] <= 10000 for plan in MONTHLY)
+def test_admin_notifications_are_delivered_from_the_outbox_with_retries(shop):
+    payload = buy("pro")
+    paid(payload, 998, "renew-1", expires_in_days=60)
+    manage("cancel")
+    shop.telegram.send_ok = False
+    result = main.deliver_subscription_events()
+    assert result["sent"] == 0 and result["failed"] >= 3
+    assert shop.q("SELECT COUNT(*) FROM subscription_events WHERE sent_at IS NULL")[0][0] == result["failed"]
+    shop.telegram.send_ok = True
+    assert main.deliver_subscription_events()["sent"] == 0  # backing off, not hammering
+    shop.q("UPDATE subscription_events SET next_attempt_at = CURRENT_TIMESTAMP")
+    assert main.deliver_subscription_events()["sent"] == result["failed"]
+    texts = [m["text"] for m in shop.telegram.of("sendMessage") if m["chat_id"] == 4242]
+    purchase = next(t for t in texts if t.startswith("🟢 Новая подписка"))
+    for needle in ("SYLVEX ID: 110626010001", f"Telegram ID: {UID}", "Тариф: SYLVEX Pro", "Сумма: 998 XTR",
+                   "Статус: active_recurring", "Время: ", "Транзакция: pro-month-1"):
+        assert needle in purchase, needle
+    assert any(t.startswith("🔁 Подписка продлена") for t in texts)
+    assert any(t.startswith("⏹ Автопродление отменено") for t in texts)
+    for text in texts:
+        assert "123:TEST" not in text and "Buyer" not in text
 
 
-# 11, 12 ------------------------------------------------ annual plans and packs never renew
+def test_notification_failure_never_affects_payment_processing(shop, monkeypatch):
+    shop.telegram.send_ok = False
+    buy("pro")
+    assert shop.balance() == START + 300 and status()["state"] == "active_recurring"
+    # The delivery worker survives its own failures (one loop iteration with
+    # the outbox unreachable), and payments never wait for it.
+    monkeypatch.setattr(orders, "claim_events", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db down")))
+    errors = []
+    monkeypatch.setattr(main, "prostudio_error", lambda name, exc, **kw: errors.append((name, str(exc))))
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+    with pytest.raises(asyncio.CancelledError):
+        run(main.subscription_events_worker_loop())
+    assert errors == [("SUBSCRIPTION_EVENTS_WORKER_FAILED", "db down")]
+    assert shop.balance() == START + 300
 
 
-@pytest.mark.parametrize("product_id,stars", [("plan_pro_year", 9581), ("plan_creator_year", 95808), ("pack_1000", 998),
-                                              ("credits_custom", 1232)])
-def test_annual_plans_and_credit_packs_stay_one_time(shop, product_id, stars):
-    extra = {"credits": "1234"} if product_id == "credits_custom" else {}
-    code, body = invoice(product_id, **extra)
-    assert code == 200
-    assert "subscription_period" not in shop.telegram.of("createInvoiceLink")[-1]
+# 16 ------------------------------------------------ database and Telegram failures
+
+
+def test_a_failure_inside_the_payment_transaction_grants_nothing_and_is_retried(shop, monkeypatch):
+    code, body = invoice("plan_pro_month")
     payload = orders.order_payload(body["order_id"])
-    assert paid(payload, stars, "one-1", recurring=False)[1]["status"] == "granted"
-    # A "recurring" charge for a one-time order is never accepted.
-    assert paid(payload, stars, "one-2")[1]["status"] == "rejected"
-    if product_id.startswith("plan_"):
-        assert shop.q("SELECT is_recurring, renewal_status FROM subscriptions") == [(False, "none")]
-        assert status() is None or status()["is_recurring"] is False
+    original = orders._add_credits
+    monkeypatch.setattr(orders, "_add_credits", lambda *a: (_ for _ in ()).throw(RuntimeError("db write failed")))
+    with pytest.raises(RuntimeError):
+        paid(payload, 998, "c-1", first=True)  # webhook fails -> Telegram retries the delivery
+    assert shop.balance() == START and shop.q("SELECT COUNT(*) FROM purchases")[0][0] == 0
+    assert shop.q("SELECT COUNT(*) FROM subscription_agreements")[0][0] == 0
+    assert shop.events("payment_error")[0][2] == "finalize_failed"
+    monkeypatch.setattr(orders, "_add_credits", original)
+    assert paid(payload, 998, "c-1", first=True)[1]["status"] == "granted"  # the retry
+    assert paid(payload, 998, "c-1", first=True)[1]["status"] == "duplicate"
+    assert shop.balance() == START + 300
 
 
-# 13 ------------------------------------------------ forged notifications
+def test_rejected_star_payments_are_reported(shop):
+    payload = buy("pro")
+    for amount, currency, uid in ((1, "XTR", UID), (998, "XTR", OTHER)):
+        assert paid(payload, amount, f"bad-{amount}-{uid}", currency=currency, uid=uid)[1]["status"] == "rejected"
+    assert {e[2] for e in shop.events("payment_error")} == {"amount_mismatch", "payer_mismatch"}
+    assert shop.balance() == START + 300 and shop.balance(OTHER) == START
 
 
-def test_forged_or_invalid_payment_notifications_grant_nothing(shop):
-    payload = subscribe(shop, "pro")
-    before = shop.balance()
-    assert paid(payload, 998, "forged-1", headers={})[0] == 401
-    assert paid(payload, 998, "forged-2", headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"})[0] == 401
-    assert paid(orders.order_payload("f" * 32), 998, "forged-3")[1]["status"] == "rejected"
+def test_forged_notifications_grant_nothing(shop):
+    payload = buy("pro")
+    assert paid(payload, 998, "f1", headers={})[0] == 401
+    assert paid(payload, 998, "f2", headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"})[0] == 401
+    assert paid(orders.order_payload("f" * 32), 998, "f3")[1]["status"] == "rejected"
     assert paid(payload, 998, "")[1]["status"] == "rejected"
-    assert shop.balance() == before and status()["renewals_count"] == 0
-    # Another user cannot manage this subscription: endpoints act only on
-    # the caller's own (middleware-verified) telegram_id.
+    assert shop.balance() == START + 300
     assert manage("cancel", uid=OTHER)[1]["error"] == "no_recurring_subscription"
-    assert status()["auto_renew"] is True
 
 
 def test_management_routes_require_a_verified_telegram_user():
@@ -501,7 +635,38 @@ def test_management_routes_require_a_verified_telegram_user():
         assert path not in PUBLIC_POSTS and path not in TELEGRAM_BLOCKED_PURCHASE_ROUTES
 
 
-# 14 ------------------------------------------------ existing subscribers and history
+# limits ------------------------------------------------
+
+
+def test_recurring_prices_above_10000_stars_never_reach_telegram(shop):
+    with pytest.raises(tg.CatalogError) as err:
+        tg.check_invoice_amount(10001, tg.SUBSCRIPTION_PERIOD_SECONDS)
+    assert err.value.code == "subscription_amount_above_limit"
+    calls = len(shop.telegram.calls)
+    with pytest.raises(tg.CatalogError):
+        main.create_store_stars_invoice_link({"order_id": "o", "title": "SYLVEX", "stars": 10001, "subscription_period": 2592000})
+    assert len(shop.telegram.calls) == calls
+    assert all(tg.resolve(f"plan_{plan}_month")["stars"] <= 10000 for plan in MONTHLY)
+
+
+# 19 ------------------------------------------------ credit purchases stay one-time
+
+
+@pytest.mark.parametrize("product_id,credits,stars", [("pack_1000", None, 998), ("pack_20000", None, 19960),
+                                                      ("credits_custom", "1234", 1232)])
+def test_credit_purchases_stay_one_time_even_with_a_subscription(shop, product_id, credits, stars):
+    buy("pro")
+    code, body = invoice(product_id, **({"credits": credits} if credits else {}))
+    assert code == 200 and "subscription_period" not in shop.telegram.of("createInvoiceLink")[-1]
+    payload = orders.order_payload(body["order_id"])
+    before = shop.balance()
+    assert paid(payload, stars, "pack-1", recurring=False)[1]["status"] == "granted"
+    assert paid(payload, stars, "pack-2")[1]["status"] == "rejected"
+    assert shop.balance() == before + (int(credits) if credits else int(product_id.split("_")[1]))
+    assert status()["plan_key"] == "pro_month" and status()["auto_renew"]
+
+
+# 14 (legacy) ------------------------------------------------ existing subscribers
 
 
 def test_existing_subscribers_and_history_are_unchanged(shop):
@@ -510,11 +675,23 @@ def test_existing_subscribers_and_history_are_unchanged(shop):
     shop.q("INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id) "
            "VALUES (%s, 'crypto_pay', 500, 500, 'USDT', 'sylvex_order:x', 'crypto-old')", (UID,))
     orders.ensure_order_tables(shop.connect)
-    orders.ensure_order_tables(shop.connect)  # the migration is idempotent
+    orders.ensure_order_tables(shop.connect)  # idempotent
     sub = status()
-    assert sub["active"] and sub["plan_key"] == "month" and sub["is_recurring"] is False
-    assert sub["renewal_status"] == "none" and sub["auto_renew"] is False and sub["next_renewal_at"] is None
-    assert manage("cancel")[1]["error"] == "no_recurring_subscription"
-    assert not shop.telegram.of("editUserStarSubscription")
+    assert sub["state"] == "active_one_time" and sub["plan_key"] == "month" and not sub["auto_renew"]
+    assert manage("cancel")[1]["error"] == "no_recurring_subscription" and not edits(shop)
     assert shop.q("SELECT provider, credits FROM purchases WHERE charge_id = 'crypto-old'") == [("crypto_pay", 500)]
-    assert shop.balance() == 40
+    assert shop.balance() == START
+
+
+# 5 (architecture) ------------------------------------------------ future plan benefits
+
+
+def test_overlapping_entitlements_can_add_up_future_allowances(shop):
+    buy("starter", "year")
+    buy("pro", "month", confirm=True)
+    plans = orders.valid_entitlement_plans(shop.connect, UID)
+    assert plans == ["pro_month", "starter_year"]
+    example = {"starter": {"saved_characters": 5}, "pro": {"saved_characters": 10}}
+    assert orders.combined_allowance(plans, example, "saved_characters") == 15
+    assert orders.combined_allowance(plans, {}, "saved_characters") == 0  # nothing defined or enforced yet
+    assert tg.PLAN_ALLOWANCES == {}
