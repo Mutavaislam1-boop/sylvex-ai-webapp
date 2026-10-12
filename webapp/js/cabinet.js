@@ -23067,26 +23067,6 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Shop: buy flow ===== */
-  const PACK_META = {
-    sub_month: { title: 'SYLVEX Pro · 1 месяц',  price: '$5 · 499 ⭐' },
-    sub_year:  { title: 'SYLVEX Pro · 1 год',    price: '$59 · 5889 ⭐' },
-    pack_100:  { title: '100 ⚡️ токенов',        price: '$1 · 100 ⭐' },
-    pack_500:  { title: '500 ⚡️ токенов',        price: '$5 · 499 ⭐' },
-    pack_1000: { title: '1000 ⚡️ токенов',       price: '$10 · 998 ⭐' },
-    pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 1996 ⭐' },
-    pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 2994 ⭐' },
-    pack_4000: { title: '4000 ⚡️ токенов',       price: '$40 · 3992 ⭐' },
-    pack_5000: { title: '5000 ⚡️ токенов',       price: '$50 · 4990 ⭐' },
-  };
-  const PAYPAL_PAYMENT_LINKS = {
-    pack_100: 'https://www.paypal.com/ncp/payment/BBWGSMRNBPHSS',
-    pack_500: 'https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L',
-    pack_1000: 'https://www.paypal.com/ncp/payment/YRWTDN4D585SL',
-    pack_2000: 'https://www.paypal.com/ncp/payment/YGGSLURF7ZC8N',
-    pack_3000: 'https://www.paypal.com/ncp/payment/5MV8DDWFZK5KC',
-    pack_4000: 'https://www.paypal.com/ncp/payment/Z5R9QMJKY2A2Y',
-    pack_5000: 'https://www.paypal.com/ncp/payment/LTF8NMXED9ZCW',
-  };
   const PAYPAL_PRO_MONTHLY_PLAN_ID = 'P-2JN99488MP781262CNJDGCZI';
   const PAYPAL_PRO_YEARLY_PLAN_ID = 'P-0YT1496917791881BNJDGRMY';
   const paypalSubscriptionRendered = {};
@@ -23133,19 +23113,19 @@ async function waitGeneration(jobId, options) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openBuy
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
+  // Legacy entry point. Inside Telegram everything is sold from the Telegram
+  // catalog for Stars: a package the catalog sells opens that product;
+  // anything else (e.g. the legacy month/year plans) opens the Store.
+  function openStoreFor(packId) {
+    const tab = String(packId || '').indexOf('pack_') === 0 ? 'tokens' : 'subscriptions';
+    loadStoreCatalog().then(() => {
+      if (storeProductAvailable(packId)) { openStoreProduct(packId); return; }
+      switchView('shop');
+      switchShopTab(tab);
+    });
+  }
   function openBuy(packId) {
-    // If already subscribed and clicking same-tier subscription card, open info modal instead.
-    const u = S.user || {};
-    if ((packId === 'sub_month' || packId === 'sub_year')
-        && u.subscription_status === 'active') {
-      openSubActive(packId);
-      return;
-    }
-    pendingPack = packId;
-    pendingStoreProduct = null;
-    setStorePayMethods(null);
-    const m = PACK_META[packId] || { title: packId, price: '—' };
-    showPayView(m.title, m.price);
+    openStoreFor(packId);
   }
   // Fills the existing pay screen (title, price, user, balance) and opens it.
   function showPayView(title, price) {
@@ -23190,18 +23170,19 @@ async function waitGeneration(jobId, options) {
   let storeCatalogLoading = null;
   let pendingStoreProduct = null;
   const storeOrderWatchers = {};
-  const STORE_METHODS = { stars: 'telegram_stars', crypto: 'crypto_pay' };
+  // Inside Telegram the Store sells only the Telegram catalog
+  // (services/telegram_catalog.py), for Telegram Stars only.
+  const STORE_METHODS = { stars: 'telegram_stars' };
+  const STORE_STARS_RATE = { stars: 499, usd_cents: 500 };
   const STORE_ERRORS = {
     unknown_product: 'Этот товар сейчас недоступен',
-    amount_required: 'Введите сумму',
-    invalid_amount: 'Сумма указана неверно',
-    amount_out_of_range: 'Введите сумму от $1 до $1 000',
-    stars_amount_above_limit: 'Сумма выше лимита Telegram Stars — выберите криптовалюту',
-    crypto_amount_out_of_range: 'Эта сумма недоступна для крипто-оплаты',
+    amount_required: 'Введите количество ⚡',
+    invalid_amount: 'Количество ⚡ указано неверно',
+    amount_out_of_range: 'Это количество ⚡ недоступно',
+    stars_amount_above_limit: 'Сумма выше лимита Telegram Stars',
     stars_not_configured: 'Оплата звёздами временно недоступна',
-    crypto_not_configured: 'Крипто-оплата ещё не настроена',
     stars_invoice_failed: 'Не удалось создать счёт Telegram Stars',
-    crypto_invoice_failed: 'Не удалось создать крипто-счёт',
+    telegram_stars_only: 'В Telegram покупки оплачиваются только звёздами',
   };
   function loadStoreCatalog() {
     if (storeCatalogLoading) return storeCatalogLoading;
@@ -23221,41 +23202,32 @@ async function waitGeneration(jobId, options) {
   function storeProduct(productId) {
     return (storeCatalog && (storeCatalog.products || []).find((p) => p.product_id === productId)) || null;
   }
-  // Display-only mirror of the server's custom pricing; the server re-derives it.
-  function storeCustomProduct(usd) {
+  // Display price: the server's formula, ceil(usd_cents * 499 / 500).
+  function storeStarsFor(usdCents) {
+    const rate = (storeCatalog && storeCatalog.stars_rate) || STORE_STARS_RATE;
+    return Math.max(1, Math.ceil(Number(usdCents) * Number(rate.stars) / Number(rate.usd_cents)));
+  }
+  // Display-only mirror of the server's custom pricing (whole credits); the
+  // server re-derives price and availability.
+  function storeCustomProduct(credits) {
     if (!storeCatalog || !storeCatalog.custom) return null;
-    const cents = Math.round(Number(usd) * 100);
+    const amount = Number(credits);
     const custom = storeCatalog.custom;
-    if (!(cents >= custom.min_cents && cents <= custom.max_cents)) return null;
-    // Same formula as the server: ceil(usd_cents * 499 / 500), minimum 1.
-    const rate = storeCatalog.stars_rate || { stars: 499, usd_cents: 500 };
-    const stars = Math.max(1, Math.ceil(cents * Number(rate.stars) / Number(rate.usd_cents)));
+    if (!Number.isInteger(amount) || amount < custom.min_credits || amount > custom.max_credits) return null;
     return {
-      product_id: custom.product_id, kind: 'credits', usd_cents: cents, credits: cents, stars,
-      title: cents.toLocaleString('ru-RU') + ' ⚡ SYLVEX',
-      providers: {
-        telegram_stars: { available: cents <= custom.stars_max_cents, reason: cents <= custom.stars_max_cents ? null : 'stars_amount_above_limit' },
-        crypto_pay: { available: cents >= custom.crypto_min_cents && cents <= custom.crypto_max_cents, reason: null },
-      },
+      product_id: custom.product_id, kind: 'credits', credits: amount, stars: storeStarsFor(amount),
+      title: amount.toLocaleString('ru-RU') + ' ⚡ SYLVEX', available: true,
     };
   }
   function storeMethodState(product, method) {
-    const provider = STORE_METHODS[method];
-    const info = (product.providers || {})[provider] || {};
-    if (!info.available && info.reason === 'telegram_stars_only') {
-      return { available: false, message: 'Этот тариф оплачивается только звёздами Telegram' };
-    }
-    if (!info.available) {
-      return { available: false, message: method === 'stars'
-        ? 'Недоступно для этой суммы (лимит Telegram Stars)'
-        : 'Недоступно для этой суммы' };
-    }
-    if (!storeProviderOpen(provider)) return { available: false, message: 'Временно недоступно' };
+    if (!STORE_METHODS[method]) return { available: false, message: 'Недоступно в Telegram' };
+    if (!product.available) return { available: false, message: 'Недоступно в Telegram (лимит Telegram Stars)' };
+    if (!storeProviderOpen(STORE_METHODS[method])) return { available: false, message: 'Временно недоступно' };
     return { available: true, message: '' };
   }
   function storeProductAvailable(productId) {
     const product = storeProduct(productId);
-    return !!product && Object.keys(STORE_METHODS).some((method) => storeMethodState(product, method).available);
+    return !!product && storeMethodState(product, 'stars').available;
   }
   function setStorePayMethods(product) {
     document.querySelectorAll('[data-pay-method]').forEach((button) => {
@@ -23277,35 +23249,32 @@ async function waitGeneration(jobId, options) {
     note.textContent = text;
     note.hidden = !text;
   }
-  function openStoreProduct(productId, usd) {
+  function openStoreProduct(productId, credits) {
     const isCustom = productId === 'credits_custom';
-    const product = isCustom ? storeCustomProduct(usd) : storeProduct(productId);
+    const product = isCustom ? storeCustomProduct(credits) : storeProduct(productId);
     if (!product) { toast(STORE_ERRORS.unknown_product); return; }
-    pendingStoreProduct = { productId, usd: isCustom ? String(usd) : null, product };
+    pendingStoreProduct = { productId, credits: isCustom ? Number(credits) : null, product };
     pendingPack = null;
-    const usdLabel = '$' + (product.usd_cents / 100).toLocaleString('en-US', { minimumFractionDigits: product.usd_cents % 100 ? 2 : 0, maximumFractionDigits: 2 });
-    const starsText = Number(product.stars).toLocaleString('ru-RU') + ' ⭐';
-    const starsLabel = storeMethodState(product, 'stars').available ? ' · ' + starsText : '';
-    const credits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
+    const planCredits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
     setStorePayMethods(product);
-    // Telegram-only plans have a fixed Stars price and no USD price.
-    showPayView(product.title + credits, product.telegram_only ? starsText : usdLabel + starsLabel);
+    // Stars only: the price shown is the exact invoice amount.
+    showPayView(product.title + planCredits, Number(product.stars).toLocaleString('ru-RU') + ' ⭐');
   }
   async function payStoreProduct(method) {
     const selected = pendingStoreProduct;
     if (!selected) return;
     const tg = getTelegramId();
     if (!tg) { toast('Telegram ID не найден'); return; }
-    if (!STORE_METHODS[method]) { toast('Способ оплаты недоступен'); return; }
+    if (!STORE_METHODS[method]) { toast(STORE_ERRORS.telegram_stars_only); return; }
     const state = storeMethodState(selected.product, method);
     if (!state.available) { toast(state.message); return; }
     toast('Создаём счёт…');
     let response, data;
     try {
-      response = await fetch(method === 'stars' ? '/api/public/payments/stars/invoice' : '/api/public/payments/crypto/invoice', {
+      response = await fetch('/api/public/payments/stars/invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_id: tg, product_id: selected.productId, usd: selected.usd }),
+        body: JSON.stringify({ telegram_id: tg, product_id: selected.productId, credits: selected.credits }),
       });
       data = await response.json();
     } catch {
@@ -23316,23 +23285,18 @@ async function waitGeneration(jobId, options) {
       toast(STORE_ERRORS[data && data.error] || 'Не удалось создать счёт');
       return;
     }
-    if (method === 'stars') {
-      const tgApp = S.tg;
-      if (!tgApp || !tgApp.openInvoice || !data.invoice_url) { toast('Оплата звёздами доступна в Telegram'); return; }
-      tgApp.openInvoice(data.invoice_url, (status) => {
-        if (status === 'paid') {
-          toast('Оплата получена, начисляем…');
-          watchStoreOrder(data.order_id, 3 * 60 * 1000);
-        } else if (status === 'cancelled') {
-          toast('Оплата отменена');
-        } else if (status === 'failed') {
-          toast('Оплата не прошла');
-        }
-      });
-      return;
-    }
-    openPaymentUrl(data.url, 'crypto');
-    watchStoreOrder(data.order_id, 35 * 60 * 1000);
+    const tgApp = S.tg;
+    if (!tgApp || !tgApp.openInvoice || !data.invoice_url) { toast('Оплата звёздами доступна в Telegram'); return; }
+    tgApp.openInvoice(data.invoice_url, (status) => {
+      if (status === 'paid') {
+        toast('Оплата получена, начисляем…');
+        watchStoreOrder(data.order_id, 3 * 60 * 1000);
+      } else if (status === 'cancelled') {
+        toast('Оплата отменена');
+      } else if (status === 'failed') {
+        toast('Оплата не прошла');
+      }
+    });
   }
   // Polls the server until the provider-confirmed grant lands (the bot for
   // Stars, Crypto Pay verification for crypto), then refreshes the user.
@@ -23372,9 +23336,8 @@ async function waitGeneration(jobId, options) {
     };
     setTimeout(tick, 1500);
   }
-  // proplus = Pro Plus, the Telegram-only annual plan paid once in Stars.
-  const STORE_PLAN_NAMES = { starter: 'Starter', pro: 'Pro', max: 'Max', ultra: 'Ultra', creator: 'Creator', proplus: 'Pro Plus' };
-  const STORE_PLAN_KEY_RE = /^(starter|pro|max|ultra|creator|proplus)_(month|year)$/;
+  const STORE_PLAN_NAMES = { starter: 'Starter', pro: 'Pro', max: 'Max', ultra: 'Ultra', creator: 'Creator' };
+  const STORE_PLAN_KEY_RE = /^(starter|pro|max|ultra|creator)_(month|year)$/;
   function subscriptionPlanLabel(plan) {
     const key = String(plan || '').toLowerCase();
     if (key === 'year') return 'SYLVEX Pro · 1 год';
@@ -23593,8 +23556,7 @@ async function waitGeneration(jobId, options) {
       + '<div><b id="expiredSubscriptionName">Пользователь</b><small id="expiredSubscriptionHandle">@user</small><em id="expiredSubscriptionDate"></em></div>'
       + '</div>'
       + '<div class="expired-subscription-plans">'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_month\')"><span><b>1 месяц</b><small>SYLVEX Pro</small></span><strong>$5 · 499 ⭐</strong></button>'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_year\')"><span><b>1 год</b><small>Выгодный план</small></span><strong>$59 · 5889 ⭐</strong></button>'
+      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'plans\')"><span><b>Выбрать тариф</b><small>Starter, Pro, Max, Ultra, Creator</small></span><strong>⭐ Stars</strong></button>'
       + '</div>'
       + '</section>';
     document.body.appendChild(modal);
@@ -23678,7 +23640,7 @@ async function waitGeneration(jobId, options) {
       e.stopPropagation();
     }
     closeExpiredSubscriptionModal();
-    openBuy(packId === 'sub_year' ? 'sub_year' : 'sub_month');
+    openStoreFor(packId);
   }
 
   // =====================================================
@@ -23716,11 +23678,8 @@ async function waitGeneration(jobId, options) {
       loadStoreCatalog().then(() => (storeProductAvailable(productId) ? openStoreProduct(productId) : switchView('shop')));
       return;
     }
-    // Force purchase flow (bypass "already subscribed" branch).
-    const pack = pendingPack || 'sub_month';
-    const savedUser = S.user; S.user = Object.assign({}, savedUser, { subscription_status: 'free' });
-    openBuy(pack);
-    S.user = savedUser;
+    // Legacy plans are no longer sold: choose a plan in the Store.
+    openStoreFor(pendingPack || 'sub_month');
   }
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openManageSub
@@ -24141,103 +24100,12 @@ async function waitGeneration(jobId, options) {
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
     else window.open(url, '_blank');
   }
+  // Inside Telegram the only purchase path is a Telegram catalog product paid
+  // with Stars (payStoreProduct); the legacy PayPal/Crypto/pack_id flows that
+  // used to live here are gone and the backend refuses them anyway.
   async function payWith(method) {
     if (pendingStoreProduct) return payStoreProduct(method);
-    const packId = pendingPack;
-    if (!packId) return;
-    const tg = getTelegramId();
-    if (!tg) { toast('Telegram ID не найден'); return; }
-
-    if (method === 'paypal' && PAYPAL_PAYMENT_LINKS[packId]) {
-      window.location.href = PAYPAL_PAYMENT_LINKS[packId];
-      return;
-    }
-
-    if (method === 'paypal' && getPayPalSubscriptionConfig(packId)) {
-      if (showPayPalSubscriptionPanel(packId)) {
-        toast('Выберите PayPal ниже');
-      } else {
-        toast('PayPal подписка недоступна');
-      }
-      return;
-    }
-
-    toast('Создаём счёт…');
-    try {
-      let path = '';
-      if (method === 'stars')  path = '/api/public/payments/stars/invoice';
-      if (method === 'paypal') path = '/api/public/payments/paypal/create-order';
-      if (method === 'crypto') path = '/api/public/payments/crypto/invoice';
-      if (!path) { toast('Способ оплаты недоступен'); return; }
-      const r = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pack_id: packId,
-          telegram_id: tg,
-          user_id: tg,
-          type: packId.indexOf('sub_') === 0 ? 'subscription' : 'tokens',
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok || j.error) {
-        if (j.error === 'paypal_not_configured') { toast('PayPal ещё не настроен'); return; }
-        if (j.error === 'crypto_not_configured') { toast('Крипто-оплата ещё не настроена'); return; }
-        toast('Ошибка: ' + (j.error || r.status));
-        return;
-      }
-      const tgApp = S.tg;
-      if (method === 'stars' && j.invoice_url && tgApp && tgApp.openInvoice) {
-        tgApp.openInvoice(j.invoice_url, async (status) => {
-          if (status === 'paid') {
-            toast('Оплачено ✓');
-            try {
-              const confirmRes = await fetch('/api/public/payments/stars/confirm', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telegram_id: tg, pack_id: packId, charge_id: j.charge_id }),
-              });
-              const confirmJson = await confirmRes.json();
-              if (confirmRes.ok && confirmJson.user) {
-                S.renderUser && S.renderUser(confirmJson.user);
-                if (confirmJson.subscription_activated) {
-                  showSubscriptionCelebration(confirmJson.user, confirmJson.subscription_plan);
-                } else if (packId.indexOf('sub_') === 0 && S.syncUser) {
-                  // successful_payment can reach the polling bot a fraction
-                  // later than the Mini App receives openInvoice("paid").
-                  for (let attempt = 0; attempt < 3; attempt += 1) {
-                    await new Promise(resolve => setTimeout(resolve, 900 + attempt * 600));
-                    const syncedUser = await S.syncUser({ force: true });
-                    if (syncedUser && syncedUser.subscription_status === 'active') {
-                      showSubscriptionCelebration(syncedUser, syncedUser.subscription_plan);
-                      break;
-                    }
-                  }
-                }
-              } else if (S.syncUser) {
-                S.syncUser();
-              }
-            } catch {
-              if (S.syncUser) S.syncUser();
-            }
-          } else if (status === 'failed' || status === 'cancelled') {
-            toast('Оплата отменена');
-          }
-        });
-      } else if (method === 'paypal') {
-        const paypalUrl = j.url || j.approval_url || j.checkout_url;
-        if (!paypalUrl) { toast('Ссылка PayPal не найдена'); return; }
-        toast('Открываем PayPal…');
-        console.log('PAYPAL CHECKOUT URL:', paypalUrl);
-        openPaymentUrl(paypalUrl, method);
-      } else if (j.url) {
-        openPaymentUrl(j.url, method);
-      } else if (j.invoice_url) {
-        openPaymentUrl(j.invoice_url, method);
-      }
-    } catch (err) {
-      toast('Сетевая ошибка');
-    }
+    openStoreFor(pendingPack || '');
   }
 
   /* ===== Input mic/send toggle ===== */
@@ -24472,23 +24340,9 @@ async function waitGeneration(jobId, options) {
   function applyAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0',fab=document.getElementById('aiAssistantFab'),control=document.getElementById('aiAssistantVisibilitySwitch');if(fab)fab.hidden=!visible;if(control)control.classList.toggle('on',visible)}
   function toggleAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0';localStorage.setItem('sylvex-ai-assistant-visible',visible?'0':'1');if(visible)closeAiAssistant();applyAiAssistantVisibility()}
 
-  // Store cards (js/store-cards.js). Once the server catalog loads, plans,
-  // packs and custom amounts open the existing pay view as server-side
-  // orders (openStoreProduct); before that, existing packs use openBuy.
-  // Telegram-only plans from the server catalog (e.g. Pro Plus: one Stars
-  // payment for 365 days), shown as extra plan cards in the Mini App only.
-  function telegramStorePlans() {
-    if (!storeCatalog) return [];
-    return (storeCatalog.products || []).filter((p) => p.telegram_only).map((p) => ({
-      productId: p.product_id,
-      name: STORE_PLAN_NAMES[p.plan_id] || p.plan_id,
-      stars: p.stars,
-      credits: p.credits,
-      months: Math.round(p.days / 30.4) || 12,
-      monthlyCredits: Math.round(p.credits / (Math.round(p.days / 30.4) || 12)),
-      available: storeProductAvailable(p.product_id),
-    }));
-  }
+  // Store cards (js/store-cards.js) in Stars mode: every price is the
+  // Telegram catalog's Stars price and purchases are Telegram Stars orders
+  // (openStoreProduct). Nothing is purchasable until the catalog loads.
   // "Compare prices": opens the public sylvex.ai price list in the external
   // browser. Shown only when the server provides compare_prices_url; carries
   // no purchase, cart or session.
@@ -24511,6 +24365,7 @@ async function waitGeneration(jobId, options) {
       t: window.t,
       locale: (S.getLang && S.getLang()) || 'en',
       examples: storeCatalog && storeCatalog.examples,
+      starsPrice: storeStarsFor,
     };
     const plans = document.getElementById('storePlanCards');
     const credits = document.getElementById('storeCreditCards');
@@ -24518,17 +24373,18 @@ async function waitGeneration(jobId, options) {
       onContactSales: contactAdmin,
       isPlanAvailable: (plan, period) => storeProductAvailable('plan_' + plan + '_' + period),
       onSelectPlan: (plan, period) => openStoreProduct('plan_' + plan + '_' + period),
-      telegramPlans: telegramStorePlans(),
-      onSelectTelegramPlan: (productId) => openStoreProduct(productId),
     }, options));
+    const packs = storeCatalog
+      ? (storeCatalog.products || []).filter((p) => p.kind === 'credits').map((p) => p.credits / 100)
+      : [1, 5, 10, 20, 30, 40, 50, 100, 200];
+    const custom = storeCatalog && storeCatalog.custom;
     if (credits) cards.renderCredits(credits, Object.assign({
-      // Until the catalog loads, the existing packs keep their existing flow.
-      packIdForUsd: (usd) => (storeCatalog
-        ? (storeProductAvailable('pack_' + usd * 100) ? 'pack_' + usd * 100 : null)
-        : cards.packIdForUsd(usd)),
-      onContinue: (packId) => (storeCatalog ? openStoreProduct(packId) : openBuy(packId)),
-      customPurchase: !!(storeCatalog && (storeProviderOpen('telegram_stars') || storeProviderOpen('crypto_pay'))),
-      onContinueCustom: (usd) => openStoreProduct('credits_custom', usd),
+      packUsd: packs,
+      packIdForUsd: (usd) => (storeProductAvailable('pack_' + usd * 100) ? 'pack_' + usd * 100 : null),
+      onContinue: (packId) => openStoreProduct(packId),
+      customCredits: custom ? { min: custom.min_credits, max: custom.max_credits } : { min: 100, max: 10000 },
+      customPurchase: !!(custom && storeProviderOpen('telegram_stars')),
+      onContinueCustom: (amount) => openStoreProduct('credits_custom', amount),
     }, options));
     if (!storeCatalog) loadStoreCatalog();
     if (!mountStoreCards.bound) {

@@ -287,7 +287,8 @@ def test_wrong_amount_unpaid_or_unknown_sessions_grant_nothing(db):
     assert sb.handle_event(db.connect, client_for(fake), event("checkout.session.completed", unpaid), finalizer(db))["outcome"] == "pending"
     stranger = dict(paid_session(order), client_reference_id="f" * 32, metadata={})
     assert sb.handle_event(db.connect, client_for(fake), event("checkout.session.completed", stranger), finalizer(db))["outcome"] == "ignored"
-    stars_order = orders.create_order(db.connect, UID, catalog.resolve_product("pack_1000"), "telegram_stars", 3600)
+    from services import telegram_catalog
+    stars_order = orders.create_order(db.connect, UID, telegram_catalog.resolve("pack_1000"), "telegram_stars", 3600)
     assert sb.handle_event(db.connect, client_for(fake), event("checkout.session.completed", paid_session(stars_order)),
                            finalizer(db))["outcome"] == "ignored"
     assert balance(db) == 50

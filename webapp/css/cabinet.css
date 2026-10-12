@@ -9986,3 +9986,5 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
 .view[data-view="pay"] .pay-store-note{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:var(--surface);color:var(--text);color:color-mix(in srgb,var(--text) 78%,transparent);font-size:12.5px;line-height:1.45}
 .view[data-view="pay"] .pm-card.is-unavailable{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
 .view[data-view="pay"] .pm-card[hidden]{display:none}
+/* Telegram Store is priced in Stars only: no USD equivalents or rates. */
+.view[data-view="shop"] .sb-usd,.view[data-view="shop"] .sb-rate,.view[data-view="pay"] .pay-usd{display:none}
