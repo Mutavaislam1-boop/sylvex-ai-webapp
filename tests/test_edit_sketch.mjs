@@ -42,6 +42,13 @@ test('free rotation is normalized to 360 degrees and preserves the visual center
  assert.equal(item.rotation,45);assert.ok(Math.abs(center.x-after.x)<.001);assert.ok(Math.abs(center.y-after.y)<.001);
  const frame=sketch.selectionFrame(item,2);assert.ok(frame.points.rotate&&frame.corners.length===4);
 });
+test('text tool recognizes a second click on text and expands the editor width with input',()=>{
+ const d=sketch.create(),text=(value,x=100)=>({type:'text',text:value,x,y:80,w:sketch.textWidth(value,30),h:30,sx:1,sy:1,rotation:0,size:4,color:'#202534',fill:'#ffffff',opacity:1});
+ d.items=[text('First'),text('Top')];
+ assert.equal(sketch.textAt(d,{x:115,y:90}),1,'the top text object is edited instead of inserting another one');
+ assert.equal(sketch.textAt(d,{x:500,y:500}),-1,'a free position remains available for a new text object');
+ assert.ok(sketch.textWidth('A much longer line',30)>sketch.textWidth('Text',30));
+});
 test('restoration keeps editable artwork and rejects corrupt canvas geometry and unsafe colors',()=>{
  const d=sketch.create();d.items=[stroke(),{...stroke(),type:'arrow',points:undefined,w:-40,h:-20}];
  const saved=JSON.parse(JSON.stringify(d));assert.equal(sketch.restore(saved).items.length,2);assert.equal(sketch.hasContent(sketch.restore(saved)),true);
