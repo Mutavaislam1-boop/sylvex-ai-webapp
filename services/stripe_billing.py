@@ -43,8 +43,9 @@ SIGNATURE_TOLERANCE_SECONDS = 300
 # retries failed charges for some days. Access runs this long past the paid
 # period end so a renewal that settles a little late never lapses the plan.
 RENEWAL_GRACE_DAYS = 2
-# Stripe's minimum Checkout Session lifetime.
-CHECKOUT_TTL_SECONDS = 1800
+# Checkout Session lifetime. Stripe accepts 30 minutes to 24 hours after
+# creation; an hour keeps clear of the minimum despite request latency.
+CHECKOUT_TTL_SECONDS = 3600
 # A user with a Stripe subscription in one of these states must manage it
 # (Customer Portal) instead of starting a second, separately billed one.
 LIVE_SUBSCRIPTION_STATUSES = ("active", "trialing", "past_due", "unpaid")
@@ -343,13 +344,16 @@ STRIPE_DDL = (
     """,
     """
     CREATE TABLE IF NOT EXISTS stripe_customers (
+        customer_id TEXT PRIMARY KEY,
         telegram_id BIGINT NOT NULL,
         livemode BOOLEAN NOT NULL,
-        customer_id TEXT NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (telegram_id, livemode)
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    # Keyed by the Stripe customer, not the user: an account merge
+    # (services/account_identity.py) moves every telegram_id column with a
+    # plain UPDATE, which must never collide here.
+    "CREATE INDEX IF NOT EXISTS idx_stripe_customers_user ON stripe_customers (telegram_id, livemode, created_at DESC)",
     """
     CREATE TABLE IF NOT EXISTS stripe_subscriptions (
         subscription_id TEXT PRIMARY KEY,
@@ -435,8 +439,10 @@ def catalog_complete(mapping: dict) -> bool:
 
 
 def get_customer(connect, telegram_id: int, livemode: bool):
-    row = _run(connect, "SELECT customer_id FROM stripe_customers WHERE telegram_id = %s AND livemode = %s",
-               (int(telegram_id), bool(livemode)), fetch="one")
+    row = _run(connect, """
+        SELECT customer_id FROM stripe_customers WHERE telegram_id = %s AND livemode = %s
+         ORDER BY created_at DESC LIMIT 1
+    """, (int(telegram_id), bool(livemode)), fetch="one")
     return row[0] if row else None
 
 
@@ -445,7 +451,7 @@ def save_customer(connect, telegram_id: int, customer_id: str, livemode: bool):
         return
     _run(connect, """
         INSERT INTO stripe_customers (telegram_id, livemode, customer_id) VALUES (%s, %s, %s)
-        ON CONFLICT (telegram_id, livemode) DO NOTHING
+        ON CONFLICT (customer_id) DO NOTHING
     """, (int(telegram_id), bool(livemode), str(customer_id)))
 
 
