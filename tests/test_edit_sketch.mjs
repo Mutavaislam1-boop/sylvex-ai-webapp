@@ -25,6 +25,23 @@ test('selection bounds follow negative-direction lines, resized objects and rota
  assert.equal(sketch.bounds(item).x,-63);item.sx=2;item.sy=2;assert.equal(sketch.bounds(item).w,212);
  item.rotation=90;const b=sketch.bounds(item);assert.ok(Math.abs(b.h-212)<.001);
 });
+test('all eight selection handles resize from their own edge and keep the opposite anchor fixed',()=>{
+ const original={type:'rectangle',x:100,y:80,w:120,h:60,sx:1,sy:1,rotation:27,size:2,color:'#123456',fill:'#ffffff',opacity:1};
+ const opposite={e:'w',w:'e',s:'n',n:'s',se:'nw',sw:'ne',ne:'sw',nw:'se'};
+ for(const [handle,anchor] of Object.entries(opposite)){
+   const item={...original},frame=sketch.selectionFrame(item),before=frame.points[anchor],b=sketch.localBounds(item),local={nw:[b.x,b.y],n:[b.x+b.w/2,b.y],ne:[b.x+b.w,b.y],e:[b.x+b.w,b.y+b.h/2],se:[b.x+b.w,b.y+b.h],s:[b.x+b.w/2,b.y+b.h],sw:[b.x,b.y+b.h],w:[b.x,b.y+b.h/2]},start=local[handle],fixed=local[anchor],a=original.rotation*Math.PI/180;
+   const dx=(start[0]-fixed[0])*(handle.includes('e')||handle.includes('w')?1.5:1),dy=(start[1]-fixed[1])*(handle.includes('n')||handle.includes('s')?2:1),pointer={x:before.x+dx*Math.cos(a)-dy*Math.sin(a),y:before.y+dx*Math.sin(a)+dy*Math.cos(a)};
+   sketch.resizeItem(item,{...original},handle,pointer);const after=sketch.selectionFrame(item).points[anchor];
+   assert.ok(Math.abs(before.x-after.x)<.001,handle+' keeps x anchor');assert.ok(Math.abs(before.y-after.y)<.001,handle+' keeps y anchor');
+   if(handle.includes('e')||handle.includes('w'))assert.ok(Math.abs(item.sx-1.5)<.001);if(handle.includes('n')||handle.includes('s'))assert.ok(Math.abs(item.sy-2)<.001);
+ }
+});
+test('free rotation is normalized to 360 degrees and preserves the visual center',()=>{
+ const item={type:'rectangle',x:100,y:80,w:120,h:60,sx:1.4,sy:.8,rotation:25,size:2,color:'#123456',fill:'#ffffff',opacity:1};
+ const center=sketch.selectionFrame(item).center;sketch.rotateItem(item,405);const after=sketch.selectionFrame(item).center;
+ assert.equal(item.rotation,45);assert.ok(Math.abs(center.x-after.x)<.001);assert.ok(Math.abs(center.y-after.y)<.001);
+ const frame=sketch.selectionFrame(item,2);assert.ok(frame.points.rotate&&frame.corners.length===4);
+});
 test('restoration keeps editable artwork and rejects corrupt canvas geometry and unsafe colors',()=>{
  const d=sketch.create();d.items=[stroke(),{...stroke(),type:'arrow',points:undefined,w:-40,h:-20}];
  const saved=JSON.parse(JSON.stringify(d));assert.equal(sketch.restore(saved).items.length,2);assert.equal(sketch.hasContent(sketch.restore(saved)),true);
