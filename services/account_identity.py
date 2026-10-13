@@ -748,7 +748,7 @@ def get_account_summary(database_url, account_id):
         "active_telegram_id": int(acc[0]) if acc[0] is not None else None,
         "telegram_connected": acc[2] is not None,
         "telegram_username": None,
-        "merged_at": acc[2].isoformat() if acc[2] else None,
+        "merged_at": (acc[2].isoformat() if hasattr(acc[2], "isoformat") else str(acc[2])) if acc[2] else None,
         "email": email_row[0] if email_row else None,
         "email_verified": bool(email_row[1]) if email_row else False,
         "has_email": email_row is not None,

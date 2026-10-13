@@ -620,3 +620,109 @@ async def test_top_spenders_ranks_by_credits_and_reports_currency_separately(api
     assert items[0]["spent_by_currency"] == {"USD": 500} and items[1]["spent_by_currency"] == {"XTR": 50}
     assert all("total_spent" not in i for i in items)
     assert str(people["web_storage"]) not in r.text
+
+
+# --- end to end: the website merge endpoint and the browser session -------
+
+WEB_SECRET = "test-only-web-session-secret"
+
+
+def _signed_widget(telegram_id, username="tguser", first_name="Tele"):
+    """A Telegram Login Widget payload signed the way Telegram signs it:
+    HMAC-SHA256 keyed with SHA256(bot_token)."""
+    import hashlib
+    import hmac
+    import time
+    fields = {"id": str(telegram_id), "first_name": first_name, "username": username,
+              "auth_date": str(int(time.time()))}
+    check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
+    fields["hash"] = hmac.new(hashlib.sha256(TOKEN.encode()).digest(), check.encode(), hashlib.sha256).hexdigest()
+    return fields
+
+
+@pytest.fixture
+def web(ai, database, monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", TOKEN)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("WEB_SESSION_SECRET", WEB_SECRET)
+    import main
+    monkeypatch.setattr(main, "TELEGRAM_AUTH_TOKENS", (TOKEN,))
+    monkeypatch.setattr(main, "BOT_TOKEN", TOKEN)
+    monkeypatch.setattr(main, "DATABASE_URL", "pglite://test")
+    monkeypatch.setattr(main, "db_connect", lambda *a, **k: database.connect())
+    # The real session-generation counter, read from the same database the
+    # merge writes to (production reads it through its own pool).
+    monkeypatch.setattr(main, "current_web_session_generation", lambda account_id: int(
+        (q(database, "SELECT session_generation FROM sylvex_accounts WHERE account_id = %s", (account_id,)) or [[0]])[0][0]))
+    # Business state (balance, plan...) is not what these tests are about.
+    monkeypatch.setattr(main, "get_user_state", lambda telegram_id: {"first_name": "Person", "balance": 0})
+    main.app.middleware_stack = None
+    for mw in main.app.user_middleware:
+        if mw.cls is SecurityMiddleware:
+            mw.kwargs["quota_check"] = AsyncMock()
+    return main
+
+
+async def _web_call(main, method, path, cookie, body=None):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test") as client:
+        return await client.request(method, path, json=body, headers={"Cookie": f"sylvex_web_session={cookie}"})
+
+
+@pytest.mark.asyncio
+async def test_merge_reissues_the_website_session_for_the_surviving_older_account(web, ai, database):
+    from services.security import create_web_session_token, verify_web_session_token
+    add_user(database, 7000000001)
+    tg_id = account_of(database, 7000000001)[0]
+    set_created(database, tg_id, "2024-01-01 00:00:00")
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    old_cookie = create_web_session_token(web_id, 0)
+
+    r = await _web_call(web, "POST", "/api/web/account/telegram/confirm", old_cookie, _signed_widget(7000000001))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["merge_result"]["sylvex_user_id"] == str(tg_id)
+    assert body["merge_result"]["retired_sylvex_user_id"] == str(web_id)
+    assert body["authenticated"] is True and body["sylvex_user_id"] == tg_id
+    assert body["email"] == "zed@test.com" and body["telegram_connected"] is True
+
+    # The browser now holds a session for the surviving canonical account...
+    new_cookie = r.cookies.get("sylvex_web_session")
+    assert new_cookie and new_cookie != old_cookie
+    assert verify_web_session_token(new_cookie) == (tg_id, 0)
+    me = await _web_call(web, "GET", "/api/web/session/me", new_cookie)
+    assert me.json()["authenticated"] is True and me.json()["sylvex_user_id"] == tg_id
+
+    # ...and the retired account's old session no longer works anywhere.
+    stale = await _web_call(web, "GET", "/api/web/session/me", old_cookie)
+    assert stale.json() == {"authenticated": False}
+
+
+@pytest.mark.asyncio
+async def test_merge_keeps_the_website_session_when_the_website_account_survives(web, ai, database):
+    from services.security import create_web_session_token
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    set_created(database, web_id, "2024-01-01 00:00:00")
+    add_user(database, 7000000001)
+    cookie = create_web_session_token(web_id, 0)
+
+    r = await _web_call(web, "POST", "/api/web/account/telegram/confirm", cookie, _signed_widget(7000000001))
+    assert r.status_code == 200, r.text
+    assert r.json()["merge_result"]["sylvex_user_id"] == str(web_id)
+    assert r.json()["sylvex_user_id"] == web_id
+    assert r.cookies.get("sylvex_web_session") is None  # nothing to re-issue
+    me = await _web_call(web, "GET", "/api/web/session/me", cookie)
+    assert me.json()["authenticated"] is True and me.json()["sylvex_user_id"] == web_id
+
+
+@pytest.mark.asyncio
+async def test_merge_with_a_forged_widget_signature_changes_nothing(web, ai, database):
+    from services.security import create_web_session_token
+    add_user(database, 7000000001)
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    payload = _signed_widget(7000000001)
+    payload["hash"] = "0" * 64
+    r = await _web_call(web, "POST", "/api/web/account/telegram/confirm", create_web_session_token(web_id, 0), payload)
+    assert r.status_code in (401, 403)
+    assert r.cookies.get("sylvex_web_session") is None
+    assert account_of(database, 7000000001)[1] == "telegram"
+    assert alias_row(database, web_id)[1] is None
