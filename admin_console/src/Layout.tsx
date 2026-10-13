@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { post } from "./api";
 import { useApp } from "./state";
+import { channelLabel, LangSwitch, roleLabel, t } from "./i18n";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
 import UserDetail from "./pages/UserDetail";
@@ -80,22 +81,23 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
         <div className="brand"><span className="brand-mark">S</span>SYLVEX Admin</div>
         {visible.map((n) => (
           <button key={n.key} className={`nav-item ${current === n.key ? "active" : ""}`} onClick={() => navigate(n.key)}>
-            <span className="nav-icon">{n.icon}</span>{n.label}
+            <span className="nav-icon">{n.icon}</span>{t(n.label)}
           </button>
         ))}
         <div className="sidebar-foot">
           <div style={{ fontWeight: 600, color: "var(--text)" }}>{name}</div>
-          <div>{me.admin.role.replace("_", " ")} · {me.session.channel === "web" ? "browser" : "Telegram"}</div>
-          <button className="btn small ghost" style={{ paddingLeft: 0, marginTop: 6 }} onClick={signOut}>Sign out</button>
+          <div>{roleLabel(me.admin.role)} · {channelLabel(me.session.channel)}</div>
+          <button className="btn small ghost" style={{ paddingLeft: 0, marginTop: 6 }} onClick={signOut}>{t("Sign out")}</button>
         </div>
       </aside>
       <main className="main">
         <div className="topbar">
-          <button className="btn small menu-toggle" onClick={() => setMenuOpen(true)} aria-label="Menu">☰</button>
-          <h1>{rest[0] && current.startsWith("users") ? "User" : TITLES[current] || "Admin"}</h1>
+          <button className="btn small menu-toggle" onClick={() => setMenuOpen(true)} aria-label={t("Menu")}>☰</button>
+          <h1>{rest[0] && current === "users" ? t("User") : t(TITLES[current] || "Admin")}</h1>
+          <LangSwitch />
           {can("users.view") && (
             <form className="search-global" onSubmit={submitSearch}>
-              <input placeholder="Search users: SYLVEX ID, Telegram ID, email, @username, payment ID" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <input placeholder={t("Search users: SYLVEX ID, Telegram ID, email, @username, payment ID")} value={search} onChange={(e) => setSearch(e.target.value)} />
             </form>
           )}
         </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { get, patch, post } from "../api";
 import { useApp } from "../state";
+import { roleLabel, t } from "../i18n";
 import { ConfirmAction, Empty, ErrorNotice, Identity, Loading, StatusBadge, useAsync } from "../ui";
 
 type AdminRow = {
@@ -8,11 +9,6 @@ type AdminRow = {
   permissions: string[]; totp_enabled: boolean; identity: Identity | null;
 };
 type Catalog = { permissions: Record<string, string>; roles: string[]; role_defaults: Record<string, string[]> };
-
-const ROLE_LABEL: Record<string, string> = {
-  owner: "Owner", administrator: "Administrator", finance: "Finance", support: "Support",
-  moderator: "Moderator", analyst: "Analyst", read_only: "Read only",
-};
 
 function PermissionPicker({ catalog, role, grants, denies, onChange }: {
   catalog: Catalog; role: string; grants: string[]; denies: string[];
@@ -32,7 +28,7 @@ function PermissionPicker({ catalog, role, grants, denies, onChange }: {
   };
   return (
     <div className="stack" style={{ maxHeight: 320, overflow: "auto" }}>
-      <div className="muted small">Click a permission to override the role default. Green = granted, red = denied.</div>
+      <div className="muted small">{t("Click a permission to override the role default. Green = granted, red = denied.")}</div>
       {Object.entries(groups).map(([group, perms]) => (
         <div key={group}>
           <div className="small muted" style={{ textTransform: "capitalize", marginBottom: 4 }}>{group}</div>
@@ -40,7 +36,7 @@ function PermissionPicker({ catalog, role, grants, denies, onChange }: {
             const s = state(p);
             const effective = s === "grant" || (s === "default" && defaults.has(p));
             return (
-              <button key={p} type="button" onClick={() => cycle(p)} title={`risk: ${catalog.permissions[p]}`}
+              <button key={p} type="button" onClick={() => cycle(p)} title={`${t("Risk")}: ${t(catalog.permissions[p])}`}
                 className={`badge ${s === "grant" ? "good" : s === "deny" ? "bad" : effective ? "accent" : ""}`} style={{ cursor: "pointer", border: 0 }}>
                 {s === "deny" ? "✕ " : s === "grant" ? "+ " : ""}{p}
               </button>
@@ -62,34 +58,34 @@ function EditAdmin({ row, catalog, onClose, onSaved }: { row: AdminRow | null; c
   const assignable = catalog.roles.filter((r) => me.admin.role === "owner" || r !== "owner");
   return (
     <ConfirmAction
-      title={row ? `Edit admin · SYLVEX ${row.sylvex_user_id}` : "Add admin"}
-      confirmLabel={row ? "Save changes" : "Add admin"}
+      title={row ? `${t("Edit admin")} · SYLVEX ${row.sylvex_user_id}` : t("Add admin")}
+      confirmLabel={row ? t("Save changes") : t("Add admin")}
       onConfirm={async (reason) => {
         if (row) {
           await patch(`/api/admin/v2/admins/${row.admin_id}`, { role, status, grants, denies, reason });
-          toast("Admin updated");
+          toast(t("Admin updated"));
         } else {
-          if (!/^\d{6,20}$/.test(sylvexId.trim())) throw new Error("Enter the person's SYLVEX ID (digits).");
+          if (!/^\d{6,20}$/.test(sylvexId.trim())) throw new Error(t("Enter the person's SYLVEX ID (digits)."));
           await post("/api/admin/v2/admins", { sylvex_user_id: sylvexId.trim(), role, grants, denies, reason });
-          toast("Admin added");
+          toast(t("Admin added"));
         }
         onSaved();
       }}
       onClose={onClose}
       description={<div className="stack">
         {!row && (
-          <label className="field">SYLVEX ID of the person
-            <input value={sylvexId} onChange={(e) => setSylvexId(e.target.value)} placeholder="e.g. 110626130001" inputMode="numeric" />
+          <label className="field">{t("SYLVEX ID of the person")}
+            <input value={sylvexId} onChange={(e) => setSylvexId(e.target.value)} placeholder={t("e.g. 110626130001")} inputMode="numeric" />
           </label>
         )}
         <div className="grid two" style={{ gap: 10 }}>
-          <label className="field">Role
-            <select value={role} onChange={(e) => setRole(e.target.value)}>{assignable.map((r) => <option key={r} value={r}>{ROLE_LABEL[r] || r}</option>)}</select>
+          <label className="field">{t("Role")}
+            <select value={role} onChange={(e) => setRole(e.target.value)}>{assignable.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select>
           </label>
           {row && (
-            <label className="field">Status
+            <label className="field">{t("Status")}
               <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="active">Active</option><option value="suspended">Suspended</option><option value="revoked">Revoked</option>
+                <option value="active">{t("active")}</option><option value="suspended">{t("suspended")}</option><option value="revoked">{t("revoked")}</option>
               </select>
             </label>
           )}
@@ -113,37 +109,37 @@ export default function Admins() {
   return (
     <div className="stack">
       <div className="row between">
-        <span className="muted small">Admins are SYLVEX accounts. They sign in with Telegram (Mini App) or email + password + 2FA (browser).</span>
-        {can("admins.create") && <button className="btn primary" onClick={() => setEditing("new")}>+ Add admin</button>}
+        <span className="muted small">{t("Admins are SYLVEX accounts. They sign in with Telegram (Mini App) or email + password + 2FA (browser).")}</span>
+        {can("admins.create") && <button className="btn primary" onClick={() => setEditing("new")}>+ {t("Add admin")}</button>}
       </div>
       {admins.data.items.length ? (
         <div className="table-wrap"><table>
-          <thead><tr><th>Admin</th><th>Role</th><th>Status</th><th>2FA</th><th>Overrides</th><th></th></tr></thead>
+          <thead><tr><th>{t("Admin")}</th><th>{t("Role")}</th><th>{t("Status")}</th><th>2FA</th><th>{t("Overrides")}</th><th></th></tr></thead>
           <tbody>{admins.data.items.map((a) => (
             <tr key={a.admin_id}>
               <td>
-                <div className="cell-main">{a.identity?.display_name || a.identity?.username || `SYLVEX ${a.sylvex_user_id}`}{a.admin_id === me.admin.admin_id ? " (you)" : ""}</div>
+                <div className="cell-main">{a.identity?.display_name || a.identity?.username || `SYLVEX ${a.sylvex_user_id}`}{a.admin_id === me.admin.admin_id ? ` (${t("you")})` : ""}</div>
                 <div className="cell-sub">SYLVEX {a.sylvex_user_id}{a.identity?.email ? ` · ${a.identity.email}` : ""}{a.identity?.telegram_id ? ` · TG ${a.identity.telegram_id}` : ""}</div>
               </td>
-              <td><span className="badge accent">{ROLE_LABEL[a.role] || a.role}</span></td>
+              <td><span className="badge accent">{roleLabel(a.role)}</span></td>
               <td><StatusBadge status={a.status} /></td>
-              <td>{a.totp_enabled ? <span className="badge good">on</span> : <span className="badge">off</span>}</td>
+              <td>{a.totp_enabled ? <span className="badge good">{t("on")}</span> : <span className="badge">{t("off")}</span>}</td>
               <td className="small">
                 {a.grants.map((g) => <span key={g} className="badge good" style={{ marginRight: 4 }}>+{g}</span>)}
                 {a.denies.map((d) => <span key={d} className="badge bad" style={{ marginRight: 4 }}>✕{d}</span>)}
-                {!a.grants.length && !a.denies.length && <span className="muted">role defaults</span>}
+                {!a.grants.length && !a.denies.length && <span className="muted">{t("role defaults")}</span>}
               </td>
-              <td className="right">{canEdit && a.admin_id !== me.admin.admin_id && <button className="btn small" onClick={() => setEditing(a)}>Edit</button>}</td>
+              <td className="right">{canEdit && a.admin_id !== me.admin.admin_id && <button className="btn small" onClick={() => setEditing(a)}>{t("Edit")}</button>}</td>
             </tr>
           ))}</tbody>
         </table></div>
-      ) : <Empty>No admins.</Empty>}
+      ) : <Empty>{t("No admins.")}</Empty>}
 
       <details className="card">
-        <summary className="small" style={{ cursor: "pointer" }}>What each role can do</summary>
+        <summary className="small" style={{ cursor: "pointer" }}>{t("What each role can do")}</summary>
         <div className="stack section">
           {catalog.data.roles.map((r) => (
-            <div key={r}><b>{ROLE_LABEL[r] || r}</b>
+            <div key={r}><b>{roleLabel(r)}</b>
               <div className="small muted">{(catalog.data!.role_defaults[r] || []).join(", ")}</div></div>
           ))}
         </div>

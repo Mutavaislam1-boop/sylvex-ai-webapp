@@ -1,13 +1,14 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "./api";
+import { locale, t } from "./i18n";
 
 // ---------- formatting ----------
-export const fmtNum = (n: unknown) => (typeof n === "number" ? n.toLocaleString() : n == null ? "—" : String(n));
+export const fmtNum = (n: unknown) => (typeof n === "number" ? n.toLocaleString(locale()) : n == null ? "—" : String(n));
 export function fmtDate(value: unknown, withTime = true) {
   if (!value) return "—";
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return String(value);
-  return withTime ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : d.toLocaleDateString();
+  return withTime ? d.toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : d.toLocaleDateString(locale());
 }
 export function fmtMoneyMap(map: Record<string, number> | undefined | null) {
   const entries = Object.entries(map || {});
@@ -36,13 +37,13 @@ export function useAsync<T>(load: () => Promise<T>, deps: unknown[] = []) {
 }
 
 // ---------- simple pieces ----------
-export const Loading = ({ label = "Loading…" }: { label?: string }) => (
-  <div className="loading"><span className="spinner" />{label}</div>
+export const Loading = ({ label }: { label?: string }) => (
+  <div className="loading"><span className="spinner" />{label ?? t("Loading…")}</div>
 );
 export const ErrorNotice = ({ message, onRetry }: { message: string; onRetry?: () => void }) => (
   <div className="notice bad row between">
     <span>{message}</span>
-    {onRetry && <button className="btn small" onClick={onRetry}>Retry</button>}
+    {onRetry && <button className="btn small" onClick={onRetry}>{t("Retry")}</button>}
   </div>
 );
 export const Empty = ({ children }: { children: ReactNode }) => <div className="empty">{children}</div>;
@@ -66,17 +67,17 @@ export function StatusBadge({ status }: { status: string }) {
       : ["queued", "processing", "running", "pending", "provider_processing", "suspended", "open"].includes(s)
         ? "warn"
         : "";
-  return <span className={`badge ${tone}`}>{status || "—"}</span>;
+  return <span className={`badge ${tone}`}>{status ? t(status) : "—"}</span>;
 }
 
 export function Pager({ offset, limit, total, onChange }: { offset: number; limit: number; total: number; onChange: (o: number) => void }) {
   if (total <= limit) return null;
   return (
     <div className="row between section">
-      <span className="muted small">{offset + 1}–{Math.min(offset + limit, total)} of {fmtNum(total)}</span>
+      <span className="muted small">{t("{from}–{to} of {total}", { from: offset + 1, to: Math.min(offset + limit, total), total: fmtNum(total) })}</span>
       <div className="row">
-        <button className="btn small" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - limit))}>← Prev</button>
-        <button className="btn small" disabled={offset + limit >= total} onClick={() => onChange(offset + limit)}>Next →</button>
+        <button className="btn small" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - limit))}>← {t("Prev")}</button>
+        <button className="btn small" disabled={offset + limit >= total} onClick={() => onChange(offset + limit)}>{t("Next")} →</button>
       </div>
     </div>
   );
@@ -100,7 +101,7 @@ export function SourceBadges({ identity }: { identity?: Identity | null }) {
   return (
     <span className="badges">
       {l.telegram && <span className="badge accent">Telegram</span>}
-      {(l.email || l.google || l.apple || identity.account_origin === "website") && <span className="badge">Website</span>}
+      {(l.email || l.google || l.apple || identity.account_origin === "website") && <span className="badge">{t("Website")}</span>}
       {l.google && <span className="badge">Google</span>}
       {l.apple && <span className="badge">Apple</span>}
     </span>
@@ -136,7 +137,7 @@ export function Modal({ title, children, onClose, actions }: { title: string; ch
 /** Confirm a High/Critical action: always asks for a reason; `typed` makes
  * the admin type an exact word (e.g. the recipient count) to proceed. */
 export function ConfirmAction({
-  title, description, confirmLabel = "Confirm", danger, typed, needReason = true, onConfirm, onClose,
+  title, description, confirmLabel, danger, typed, needReason = true, onConfirm, onClose,
 }: {
   title: string; description: ReactNode; confirmLabel?: string; danger?: boolean; typed?: string; needReason?: boolean;
   onConfirm: (reason: string) => Promise<void>; onClose: () => void;
@@ -160,20 +161,20 @@ export function ConfirmAction({
   };
   return (
     <Modal title={title} onClose={onClose} actions={<>
-      <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+      <button className="btn" onClick={onClose} disabled={busy}>{t("Cancel")}</button>
       <button className={`btn ${danger ? "danger solid" : "primary"}`} disabled={!ok || busy} onClick={submit}>
-        {busy ? <span className="spinner" /> : null}{confirmLabel}
+        {busy ? <span className="spinner" /> : null}{confirmLabel ?? t("Confirm")}
       </button>
     </>}>
       <div className="stack">
         <div className="muted">{description}</div>
         {needReason && (
-          <label className="field">Reason (saved in the audit log)
-            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this needed?" autoFocus />
+          <label className="field">{t("Reason (saved in the audit log)")}
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("Why is this needed?")} autoFocus />
           </label>
         )}
         {typed && (
-          <label className="field">Type <b>{typed}</b> to confirm
+          <label className="field"><span>{t("Type")} <b>{typed}</b> {t("to confirm")}</span>
             <input value={typedValue} onChange={(e) => setTypedValue(e.target.value)} />
           </label>
         )}

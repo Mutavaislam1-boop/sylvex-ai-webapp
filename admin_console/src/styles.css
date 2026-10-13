@@ -74,6 +74,9 @@ h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; te
 .main { min-width: 0; padding: 24px 28px 48px; }
 .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .topbar h1 { flex: 1; }
+.lang-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--surface); flex: none; }
+.lang-switch button { border: 0; background: none; padding: 6px 10px; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.lang-switch button.active { background: var(--accent); color: var(--accent-text); }
 .search-global { position: relative; width: min(420px, 100%); }
 .search-global input { width: 100%; padding-left: 34px; }
 .search-global::before { content: "⌕"; position: absolute; left: 12px; top: 50%; transform: translateY(-52%); color: var(--muted); font-size: 16px; }
