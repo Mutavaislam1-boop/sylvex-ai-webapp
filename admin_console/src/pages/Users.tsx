@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { post } from "../api";
 import { useApp } from "../state";
+import Audience from "./Audience";
 import { t } from "../i18n";
 import { Empty, ErrorNotice, fmtDate, fmtNum, Identity, Loading, SourceBadges, useAsync, userRef } from "../ui";
 
@@ -25,7 +26,7 @@ function matchesSource(row: UserRow, source: string) {
 
 export default function Users({ query }: { query: string }) {
   const { go } = useApp();
-  const [tab, setTab] = useState<"search" | "online">("search");
+  const [tab, setTab] = useState<"search" | "online" | "audience">("search");
   const [input, setInput] = useState(query);
   const [q, setQ] = useState(query);
   const [source, setSource] = useState("");
@@ -33,7 +34,8 @@ export default function Users({ query }: { query: string }) {
   useEffect(() => { setInput(query); setQ(query); setTab("search"); }, [query]);
 
   const { data, error, loading, reload } = useAsync(
-    () => tab === "search"
+    () => tab === "audience" ? Promise.resolve({ items: [] as UserRow[] })
+      : tab === "search"
       ? post<{ items: UserRow[] }>("/api/admin/users/search", { query: q, limit: 100 })
       : post<{ items: UserRow[] }>("/api/admin/users/online", { limit: 200, window_minutes: windowMinutes }),
     [tab, q, windowMinutes],
@@ -46,7 +48,9 @@ export default function Users({ query }: { query: string }) {
       <div className="tabs">
         <button className={`tab ${tab === "search" ? "active" : ""}`} onClick={() => setTab("search")}>{t("All users")}</button>
         <button className={`tab ${tab === "online" ? "active" : ""}`} onClick={() => setTab("online")}>{t("Recently active")}</button>
+        <button className={`tab ${tab === "audience" ? "active" : ""}`} onClick={() => setTab("audience")}>{t("Audience & visitors")}</button>
       </div>
+      {tab === "audience" ? <Audience /> : <>
       <div className="card">
         <div className="row">
           {tab === "search" ? (
@@ -108,6 +112,7 @@ export default function Users({ query }: { query: string }) {
           ) : <Empty>{t("No users found.")}</Empty>}
         </div>
       )}
+      </>}
     </div>
   );
 }

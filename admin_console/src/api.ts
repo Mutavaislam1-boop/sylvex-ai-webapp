@@ -122,6 +122,14 @@ const MESSAGES: Record<string, string> = {
   totp_required: "Enter your 6-digit 2FA code.",
   totp_enrollment_not_started: "Two-factor setup expired. Sign in again to get a new QR code.",
   email_not_verified: "This email is not verified yet. The person must confirm it first.",
+  message_required: "Write the message text.",
+  message_too_long: "The message is longer than 4000 characters.",
+  invalid_link: "Links must start with https://",
+  too_many_links: "Up to 5 links per message.",
+  invalid_channel: "Unknown delivery channel.",
+  invalid_image: "The image was not uploaded through the console.",
+  unsupported_image: "Use a PNG, JPG, WebP or GIF image.",
+  thread_not_found: "Conversation not found.",
 };
 
 export function errorText(err: unknown): string {

@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { post } from "./api";
 import { useApp } from "./state";
 import { channelLabel, LangSwitch, roleLabel, t } from "./i18n";
@@ -8,6 +8,7 @@ import UserDetail from "./pages/UserDetail";
 import Generations from "./pages/Generations";
 import Payments from "./pages/Payments";
 import Broadcast from "./pages/Broadcast";
+import Inbox from "./pages/Inbox";
 import Content from "./pages/Content";
 import Errors from "./pages/Errors";
 import Admins from "./pages/Admins";
@@ -23,6 +24,7 @@ export const NAV: NavItem[] = [
   { key: "generations", label: "Generations", icon: "✦", permission: "generations.view" },
   { key: "payments", label: "Payments", icon: "◈", permission: "payments.view" },
   { key: "broadcast", label: "Messages", icon: "✉", anyOf: ["broadcast.send", "messages.send"] },
+  { key: "inbox", label: "Inbox", icon: "✆", permission: "messages.send" },
   { key: "content", label: "Content", icon: "▤", permission: "content.references.manage" },
   { key: "errors", label: "Errors", icon: "⚠", permission: "errors.view" },
   { key: "admins", label: "Admins", icon: "⛨", permission: "admins.view" },
@@ -44,6 +46,19 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
   const allowed = visible.some((n) => n.key === section);
   const current = allowed ? section : visible[0]?.key || "account";
 
+  // Unread "Contact SYLVEX" conversations, shown next to Inbox.
+  const [inboxUnread, setInboxUnread] = useState(0);
+  const canInbox = can("messages.send");
+  useEffect(() => {
+    if (!canInbox) return;
+    let alive = true;
+    const load = () => post<{ unread: number }>("/api/admin/inbox/list", { limit: 1 })
+      .then((r) => alive && setInboxUnread(r.unread || 0)).catch(() => undefined);
+    load();
+    const timer = window.setInterval(load, 60000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [canInbox, current]);
+
   const navigate = (key: string) => {
     setMenuOpen(false);
     go(key);
@@ -63,7 +78,8 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
       case "users": return rest[0] ? <UserDetail refId={rest[0]} /> : <Users query={params.get("q") || ""} />;
       case "generations": return <Generations sylvexUserId={params.get("sylvex") || ""} />;
       case "payments": return <Payments />;
-      case "broadcast": return <Broadcast />;
+      case "broadcast": return <Broadcast to={params.get("to") || ""} />;
+      case "inbox": return <Inbox />;
       case "content": return <Content />;
       case "errors": return <Errors />;
       case "admins": return <Admins />;
@@ -82,6 +98,7 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
         {visible.map((n) => (
           <button key={n.key} className={`nav-item ${current === n.key ? "active" : ""}`} onClick={() => navigate(n.key)}>
             <span className="nav-icon">{n.icon}</span>{t(n.label)}
+            {n.key === "inbox" && inboxUnread > 0 && <span className="nav-count">{inboxUnread}</span>}
           </button>
         ))}
         <div className="sidebar-foot">

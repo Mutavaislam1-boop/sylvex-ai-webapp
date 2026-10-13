@@ -18,6 +18,11 @@ for (const file of files) {
   // Dynamic keys: string values of the tables below are passed through t().
   const tables = [/label: "([^"]+)"/g, /^\s+[a-z_]+: "([^"]+)",?$/gm];
   if (/Layout\.tsx$|Users\.tsx$/.test(file)) for (const m of code.matchAll(tables[0])) add(m[1], file);
+  // Label maps translated with t(MAP[key]) in the messaging screens.
+  if (/(Inbox|messaging|Broadcast)\.tsx$/.test(file))
+    for (const block of code.matchAll(/const [A-Z_]+: Record<string, string> = \{([^}]+)\}/g))
+      for (const m of block[1].matchAll(/:\s*"([^"]+)"/g)) add(m[1], file);
+  for (const m of code.matchAll(/\[\s*"[a-z]*",\s*"([A-Z][^"]+)"\s*\]/g)) add(m[1], file);
   if (/api\.ts$/.test(file)) {
     const block = code.slice(code.indexOf("const MESSAGES"), code.indexOf("};", code.indexOf("const MESSAGES")));
     for (const m of block.matchAll(tables[1])) add(m[1], file);

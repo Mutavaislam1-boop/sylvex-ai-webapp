@@ -60,7 +60,7 @@ export function Kpi({ label, value, sub }: { label: string; value: ReactNode; su
 
 export function StatusBadge({ status }: { status: string }) {
   const s = (status || "").toLowerCase();
-  const tone = ["completed", "active", "success", "ok", "published", "resolved"].includes(s)
+  const tone = ["completed", "active", "success", "ok", "published", "resolved", "answered"].includes(s)
     ? "good"
     : ["failed", "error", "cancelled", "revoked", "banned", "expired"].includes(s)
       ? "bad"
