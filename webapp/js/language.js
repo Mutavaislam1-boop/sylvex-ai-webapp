@@ -194,6 +194,18 @@
     support_sent: 'Сообщение отправлено. Ответ придёт в колокольчик уведомлений.',
   });
 
+  // Browser Mini App guest block (home user card).
+  Object.assign(I18N.en, {
+    guest_title: 'Welcome to SYLVEX',
+    guest_sub: 'Log in or sign up to see your SYLVEX ID, balance and subscription.',
+    guest_login: 'Log in / Sign up',
+  });
+  Object.assign(I18N.ru, {
+    guest_title: 'Добро пожаловать в SYLVEX',
+    guest_sub: 'Войдите или зарегистрируйтесь, чтобы видеть SYLVEX ID, баланс и подписку.',
+    guest_login: 'Войти / Регистрация',
+  });
+
   let lang = localStorage.getItem('sylvex-lang') || 'en';
 
   // =====================================================

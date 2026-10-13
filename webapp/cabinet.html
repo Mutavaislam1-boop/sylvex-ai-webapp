@@ -94,6 +94,13 @@ HTML-страница Mini App. Комментарии подписывают э
           =================================================== -->
           <button class="topup" onclick="switchView('shop')">+ <span data-i18n="topup">Top up</span></button>
         </div>
+        <!-- Browser Mini App guest (not signed in): no account details, just
+        Log in / Sign up, which opens the SYLVEX sign-in window. -->
+        <div class="user-guest" id="homeGuest">
+          <div class="user-guest-title" data-i18n="guest_title">Welcome to SYLVEX</div>
+          <div class="user-guest-sub" data-i18n="guest_sub">Log in or sign up to see your SYLVEX ID, balance and subscription.</div>
+          <button class="topup user-guest-btn" type="button" onclick="SYLVEX.openWebAuthGate && SYLVEX.openWebAuthGate()" data-i18n="guest_login">Log in / Sign up</button>
+        </div>
       </div>
 
       <div class="home-socials" aria-label="Follow us">
