@@ -283,3 +283,38 @@ def test_validate_runtime_does_not_require_website_origins_outside_production(mo
     monkeypatch.delenv('RAILWAY_ENVIRONMENT_ID', raising=False)
     monkeypatch.setenv('APP_ENV', 'development')
     module.validate_runtime()
+
+
+# ---------------------------------------------------------------------------
+# Same-origin requests: the Mini App opened directly in a browser shares its
+# origin with this API, which need not be listed in WEBSITE_ORIGINS.
+# ---------------------------------------------------------------------------
+
+def test_same_origin_request_is_allowed_without_being_listed(monkeypatch):
+    monkeypatch.setenv('WEBSITE_ORIGINS', 'https://sylvex.ai')
+    monkeypatch.setenv('APP_ENV', 'production')
+    host = {b'host': b'api.sylvex.ai'}
+    assert origin_allowed({**host, b'origin': b'https://api.sylvex.ai'}) is True
+    assert origin_allowed({**host, b'referer': b'https://api.sylvex.ai/webapp/index.html'}) is True
+    # Another site, a look-alike host, plain http in production, or no Host.
+    assert origin_allowed({**host, b'origin': b'https://evil.example'}) is False
+    assert origin_allowed({**host, b'origin': b'https://api.sylvex.ai.evil.example'}) is False
+    assert origin_allowed({**host, b'origin': b'http://api.sylvex.ai'}) is False
+    assert origin_allowed({b'origin': b'https://api.sylvex.ai'}) is False
+    # The listed website still works as before.
+    assert origin_allowed({**host, b'origin': b'https://sylvex.ai'}) is True
+
+
+@pytest.mark.asyncio
+async def test_same_origin_browser_mini_app_can_post_with_the_session_cookie(monkeypatch):
+    monkeypatch.setenv('WEBSITE_ORIGINS', 'https://sylvex.ai')
+    monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
+    monkeypatch.setattr('services.security.resolve_web_session_uid', lambda account_id: 1234)
+    cookie = 'sylvex_web_session=' + create_web_session_token(77)
+    # httpx sends Host: test, so Origin http://test is this API's own origin.
+    async with _client(_app()) as client:
+        ok = await client.post('/api/public/payments/paypal/create-order', json={},
+                               headers={'Cookie': cookie, 'Origin': 'http://test'})
+        bad = await client.post('/api/public/payments/paypal/create-order', json={},
+                                headers={'Cookie': cookie, 'Origin': 'https://evil.example'})
+    assert ok.status_code == 200 and bad.status_code == 403

@@ -731,3 +731,49 @@ def test_test_mode_records_never_affect_live_mode(db):
     count = "SELECT COUNT(*) FROM subscriptions s WHERE " 
     assert db.query(count + sb.renews_automatically_sql("s", False)) == [(1,)]
     assert db.query(count + sb.renews_automatically_sql("s", True)) == [(0,)]  # live reminders unaffected
+
+
+# ---------------------------------------------------------------------------
+# Mini App opened in a plain browser (no Telegram): it starts Stripe Checkout
+# from its own origin and asks to come back to itself, never anywhere else.
+# ---------------------------------------------------------------------------
+SAME_ORIGIN = {"origin": "https://api.sylvex.ai", "host": "api.sylvex.ai"}
+
+
+def browser_checkout(body, headers):
+    return body_of(run(main.public_stripe_checkout(FakeRequest(dict({"telegram_id": UID}, **body), headers=headers))))
+
+
+def test_browser_mini_app_checkout_returns_to_the_mini_app(app, db):
+    status, body = browser_checkout({"product_id": "plan_pro_month", "return_to": "miniapp"}, SAME_ORIGIN)
+    assert status == 200 and body["ok"]
+    params = next(iter(app.fake.sessions.values()))["params"]
+    base = f"https://api.sylvex.ai/webapp/index.html?view=shop&provider=stripe&order_id={body['order_id']}&payment="
+    assert params["success_url"] == base + "success" and params["cancel_url"] == base + "cancelled"
+    # Same product, price and owner as a website purchase.
+    order = orders.get_order(db.connect, body["order_id"])
+    assert order["telegram_id"] == UID and order["usd_cents"] == 1000 and order["provider"] == "stripe"
+
+
+@pytest.mark.parametrize("headers, body", [
+    ({"origin": "https://evil.example", "host": "api.sylvex.ai"}, {"return_to": "miniapp"}),
+    ({"host": "api.sylvex.ai"}, {"return_to": "miniapp"}),
+    (SAME_ORIGIN, {}),
+])
+def test_checkout_return_url_never_leaves_sylvex(app, db, headers, body):
+    status, out = browser_checkout(dict({"product_id": "pack_500"}, **body), headers)
+    assert status == 200
+    params = next(iter(app.fake.sessions.values()))["params"]
+    assert params["success_url"].startswith("https://sylvex.ai/store.html?payment=success&provider=stripe&order_id=")
+
+
+def test_browser_mini_app_portal_returns_to_the_mini_app(app, db):
+    sb.save_customer(db.connect, UID, "cus_portal", False)
+    request = FakeRequest({"telegram_id": UID, "return_to": "miniapp"}, headers=SAME_ORIGIN)
+    status, body = body_of(run(main.public_stripe_portal(request)))
+    assert status == 200 and body["url"].startswith("https://billing.stripe.com/")
+    portal = [b for _m, p, b, _h in app.fake.calls if p == "/billing_portal/sessions"]
+    assert portal[-1]["return_url"] == "https://api.sylvex.ai/webapp/index.html?view=shop"
+    run(main.public_stripe_portal(FakeRequest({"telegram_id": UID})))
+    portal = [b for _m, p, b, _h in app.fake.calls if p == "/billing_portal/sessions"]
+    assert portal[-1]["return_url"] == "https://sylvex.ai/store.html"
