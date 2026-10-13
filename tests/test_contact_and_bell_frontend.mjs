@@ -16,6 +16,7 @@ assert.doesNotMatch(cabinet, /sendToBot\(\{ type: 'support'/, 'support no longer
 assert.match(cabinet, /\/api\/public\/notifications\?surface=miniapp/);
 assert.match(cabinet, /\/api\/public\/notifications\/read/);
 assert.match(html, /id="notifBtn"/);
+assert.match(cabinet, /const onHome = !!\(home && home\.classList\.contains\('active'\)\)/, 'bell only on the home screen');
 assert.match(html, /id="notifPop"/);
 for (const key of ['notif_title', 'notif_empty', 'contact_title', 'support_failed']) {
   assert.match(lang, new RegExp(key + ':'), `translation ${key}`);

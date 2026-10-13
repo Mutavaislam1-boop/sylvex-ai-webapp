@@ -26824,11 +26824,22 @@ async function waitGeneration(jobId, options) {
     S.haptic.impact('light');
     loadNotifications().then(markNotificationsRead);
   }
+  // Колокольчик показывается только на главном экране Mini App.
+  function syncNotifBell() {
+    const btn = document.getElementById('notifBtn');
+    if (!btn) return;
+    const home = document.querySelector('.view[data-view="home"]');
+    const onHome = !!(home && home.classList.contains('active'));
+    btn.hidden = !(notifEnabled() && onHome);
+    if (!onHome) closeNotifications();
+  }
   function initNotifications() {
     const btn = document.getElementById('notifBtn');
     if (!btn) return;
     if (!notifEnabled()) { btn.hidden = true; return; }
-    btn.hidden = false;
+    syncNotifBell();
+    const home = document.querySelector('.view[data-view="home"]');
+    if (home && window.MutationObserver) new MutationObserver(syncNotifBell).observe(home, { attributes: true, attributeFilter: ['class'] });
     renderNotifications();
     loadNotifications();
     clearInterval(notifTimer);
