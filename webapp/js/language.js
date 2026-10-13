@@ -162,6 +162,38 @@
     store_note_text: '{model}, {input} ⚡ за 1 000 входных + {output} ⚡ за 1 000 выходных токенов, минимум {credits} ⚡ за запрос',
   });
 
+  // Notification bell and the internal Contact SYLVEX popup.
+  Object.assign(I18N.en, {
+    notif_title: 'Notifications',
+    notif_empty: 'No notifications yet. Messages from the SYLVEX team will appear here.',
+    contact_title: 'Contact SYLVEX',
+    contact_title_sales: 'Contact sales',
+    contact_sub_support: 'Your message goes straight to the SYLVEX team. The reply will appear in the notification bell.',
+    contact_sub_admin: 'Write to the SYLVEX administrator here. The reply will appear in the notification bell.',
+    contact_sub_sales: 'Tell us about your team or business needs. The reply will appear in the notification bell.',
+    contact_sub_general: 'Your message goes straight to the SYLVEX team. The reply will appear in the notification bell.',
+    optional: '(optional)',
+    support_email_invalid: 'Enter a valid e-mail or leave it empty',
+    support_too_many: 'You have sent several messages already. Please wait for the reply.',
+    support_failed: 'Could not send the message. Please try again.',
+    support_sent: 'Message sent. The reply will appear in the notification bell.',
+  });
+  Object.assign(I18N.ru, {
+    notif_title: 'Уведомления',
+    notif_empty: 'Уведомлений пока нет. Здесь появятся сообщения от команды SYLVEX.',
+    contact_title: 'Связаться с SYLVEX',
+    contact_title_sales: 'Связаться с отделом продаж',
+    contact_sub_support: 'Сообщение попадёт напрямую команде SYLVEX. Ответ придёт в колокольчик уведомлений.',
+    contact_sub_admin: 'Напишите администратору SYLVEX здесь. Ответ придёт в колокольчик уведомлений.',
+    contact_sub_sales: 'Расскажите о задачах вашей команды или бизнеса. Ответ придёт в колокольчик уведомлений.',
+    contact_sub_general: 'Сообщение попадёт напрямую команде SYLVEX. Ответ придёт в колокольчик уведомлений.',
+    optional: '(необязательно)',
+    support_email_invalid: 'Введите корректный e-mail или оставьте поле пустым',
+    support_too_many: 'Вы уже отправили несколько сообщений. Пожалуйста, дождитесь ответа.',
+    support_failed: 'Не удалось отправить сообщение. Попробуйте ещё раз.',
+    support_sent: 'Сообщение отправлено. Ответ придёт в колокольчик уведомлений.',
+  });
+
   let lang = localStorage.getItem('sylvex-lang') || 'en';
 
   // =====================================================

@@ -24542,12 +24542,10 @@ async function waitGeneration(jobId, options) {
     try { localStorage.removeItem('sylvex-theme-id'); } catch {}
     if (S.tg && S.tg.close) S.tg.close();
   }
-  function contactAdmin() {
-    const url = 'https://t.me/sylvex_admin';
-    const tgApp = S.tg;
-    if (tgApp && tgApp.openTelegramLink) tgApp.openTelegramLink(url);
-    else if (tgApp && tgApp.openLink)    tgApp.openLink(url);
-    else window.open(url, '_blank');
+  // Contact administrator / sales: an internal popup that sends the message
+  // to the Admin Console Inbox - the user never leaves SYLVEX.
+  function contactAdmin(topic) {
+    openSupport(typeof topic === 'string' ? topic : 'admin');
   }
   function isTelegramLink(url) {
     return /^https:\/\/t\.me\//i.test(url || '') || /^tg:\/\//i.test(url || '');
@@ -24669,8 +24667,17 @@ async function waitGeneration(jobId, options) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openSupport
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
-  function openSupport() {
+  let supportTopic = 'support';
+  function openSupport(topic) {
+    supportTopic = ['support', 'sales', 'admin', 'general'].includes(topic) ? topic : 'support';
+    // Website Pro Studio: the website's own Contact SYLVEX popup.
+    const site = window.SYLVEX_SITE;
+    if (isWebEmbed() && site && typeof site.openContact === 'function') { site.openContact(supportTopic); return; }
     const m = document.getElementById('supportModal');
+    const title = document.getElementById('supportTitle');
+    const sub = document.getElementById('supportSub');
+    if (title) title.textContent = t(supportTopic === 'sales' ? 'contact_title_sales' : 'contact_title');
+    if (sub) sub.textContent = t('contact_sub_' + supportTopic);
     m.classList.add('show');
     const email = document.getElementById('supportEmail');
     if (email && !email.value && S.user && S.user.email) email.value = S.user.email;
@@ -24685,36 +24692,49 @@ async function waitGeneration(jobId, options) {
     document.getElementById('supportModal').classList.remove('show');
   }
   // =====================================================
-  // ЗАПУСК ГЕНЕРАЦИИ: sendSupport
-  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // СВЯЗЬ С SYLVEX: sendSupport
+  // Отправляет сообщение в Admin Console (раздел «Входящие»). Ответ придёт
+  // от SYLVEX Team в колокольчик уведомлений (и сообщением бота в Telegram).
   // =====================================================
-  function sendSupport() {
+  let supportSending = false;
+  async function sendSupport() {
     const ta = document.getElementById('supportMsg');
     const emailInput = document.getElementById('supportEmail');
     const error = document.getElementById('supportEmailError');
+    const button = document.getElementById('supportSendBtn');
     const email = String(emailInput && emailInput.value || '').trim();
     const v = (ta.value || '').trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
-      if (error) error.textContent = 'Введите корректный e-mail';
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
+      if (error) error.textContent = t('support_email_invalid');
       emailInput && emailInput.focus();
       return;
     }
     if (error) error.textContent = '';
     if (!v) { toast(t('support_empty')); return; }
-    const pendingKey = 'sylvex-support-pending-' + (getTelegramId() || 'guest');
-    let pending = null;
-    try { pending = JSON.parse(localStorage.getItem(pendingKey) || 'null'); } catch {}
-    const repliedAt = Date.parse(String((S.user && (S.user.support_replied_at || S.user.support_reply_at)) || '')) || 0;
-    if (pending && Number(pending.sentAt || 0) > repliedAt) {
-      toast('Вы уже отправили сообщение. Дождитесь ответа техподдержки');
-      return;
+    if (supportSending) return;
+    supportSending = true;
+    if (button) button.disabled = true;
+    try {
+      const res = await fetch('/api/public/contact', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: v, email, topic: supportTopic, surface: 'miniapp' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(t((data.error || data.detail) === 'too_many_messages' ? 'support_too_many' : 'support_failed'));
+        S.haptic.notify('error');
+        return;
+      }
+      ta.value = '';
+      closeSupport();
+      toast(t('support_sent'));
+      S.haptic.notify('success');
+    } catch (_) {
+      toast(t('support_failed'));
+    } finally {
+      supportSending = false;
+      if (button) button.disabled = false;
     }
-    S.sendToBot({ type: 'support', email, message: v });
-    try { localStorage.setItem(pendingKey, JSON.stringify({ sentAt:Date.now(), email })); } catch {}
-    ta.value = '';
-    closeSupport();
-    toast(t('support_sent'));
-    S.haptic.notify('success');
   }
 
   const AI_ASSISTANT_WELCOME = 'Здравствуйте! Я SYLVEX Ассистент. Напишите, что вы хотите сделать, и я помогу.';
@@ -24845,7 +24865,7 @@ async function waitGeneration(jobId, options) {
     const plans = document.getElementById('storePlanCards');
     const credits = document.getElementById('storeCreditCards');
     if (plans) cards.renderPlans(plans, Object.assign({
-      onContactSales: contactAdmin,
+      onContactSales: () => openSupport('sales'),
       isPlanAvailable: (plan, period) => storeProductAvailable('plan_' + plan + '_' + period),
       onSelectPlan: (plan, period) => openStoreProduct('plan_' + plan + '_' + period),
     }, options));
@@ -26727,6 +26747,105 @@ async function waitGeneration(jobId, options) {
 
   let presenceTimer=0;
   async function sendPresence(){if(document.hidden||!currentTelegramInitData())return;const active=document.querySelector('.view.active,[data-view].active');const view=active&&active.dataset&&active.dataset.view||'home';try{await fetch('/api/public/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:currentTelegramInitData(),view,platform:'telegram'})})}catch(_){}}
+  // =====================================================
+  // КОЛОКОЛЬЧИК УВЕДОМЛЕНИЙ: сообщения от SYLVEX Team.
+  // Та же история, что на сайте: прочитанное здесь прочитано и там.
+  // На сайте (Pro Studio внутри сайта) показывается колокольчик сайта.
+  // =====================================================
+  let notifItems = [], notifUnread = 0, notifTimer = 0, notifLoading = false;
+  function notifEnabled() { return !isWebEmbed() && !!currentTelegramInitData(); }
+  function notifTime(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const lang = (window.SYLVEX && window.SYLVEX.getLang && window.SYLVEX.getLang()) || 'en';
+    return d.toLocaleString(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+  function renderNotifications() {
+    const dot = document.getElementById('notifDot');
+    const btn = document.getElementById('notifBtn');
+    const list = document.getElementById('notifList');
+    if (dot) dot.hidden = !notifUnread;
+    if (btn) btn.setAttribute('aria-label', t('notif_title') + (notifUnread ? ` (${notifUnread})` : ''));
+    if (!list) return;
+    if (!notifItems.length) { list.innerHTML = `<div class="notif-empty">${S.escapeHtml(t('notif_empty'))}</div>`; return; }
+    list.innerHTML = notifItems.map((n) => {
+      const links = (n.links || []).filter((l) => /^https?:\/\//i.test(l.url || '')).map((l) =>
+        `<button type="button" class="notif-link" data-url="${S.escapeHtml(l.url)}">${S.escapeHtml(l.label || l.url)}</button>`).join('');
+      return `<article class="notif-item${n.read ? '' : ' unread'}">
+        <header><b>${S.escapeHtml(n.sender || 'SYLVEX Team')}</b><time>${S.escapeHtml(notifTime(n.created_at))}</time></header>
+        <p>${S.escapeHtml(n.text || '')}</p>
+        ${n.image_url ? `<img src="${S.escapeHtml(n.image_url)}" alt="" loading="lazy">` : ''}
+        ${links ? `<div class="notif-links">${links}</div>` : ''}
+      </article>`;
+    }).join('');
+  }
+  async function loadNotifications() {
+    if (!notifEnabled() || document.hidden || notifLoading) return;
+    notifLoading = true;
+    try {
+      const res = await fetch('/api/public/notifications?surface=miniapp&limit=30');
+      if (res.ok) {
+        const data = await res.json();
+        notifItems = data.items || [];
+        notifUnread = data.unread || 0;
+        renderNotifications();
+      }
+    } catch (_) {} finally { notifLoading = false; }
+  }
+  async function markNotificationsRead() {
+    if (!notifUnread) return;
+    try {
+      const res = await fetch('/api/public/notifications/read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }),
+      });
+      if (res.ok) { notifUnread = 0; const dot = document.getElementById('notifDot'); if (dot) dot.hidden = true; }
+    } catch (_) {}
+  }
+  function closeNotifications() {
+    const pop = document.getElementById('notifPop');
+    if (pop && pop.classList.contains('show')) {
+      pop.classList.remove('show');
+      notifItems.forEach((n) => { n.read = true; });
+      const btn = document.getElementById('notifBtn');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+  function toggleNotifications(event) {
+    if (event) event.stopPropagation();
+    const pop = document.getElementById('notifPop');
+    if (!pop) return;
+    if (pop.classList.contains('show')) { closeNotifications(); return; }
+    const langPop = document.getElementById('langPop');
+    if (langPop) langPop.classList.remove('show');
+    renderNotifications();
+    pop.classList.add('show');
+    const btn = document.getElementById('notifBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    S.haptic.impact('light');
+    loadNotifications().then(markNotificationsRead);
+  }
+  function initNotifications() {
+    const btn = document.getElementById('notifBtn');
+    if (!btn) return;
+    if (!notifEnabled()) { btn.hidden = true; return; }
+    btn.hidden = false;
+    renderNotifications();
+    loadNotifications();
+    clearInterval(notifTimer);
+    notifTimer = setInterval(loadNotifications, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotifications(); });
+    document.addEventListener('click', closeNotifications);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNotifications(); });
+    window.addEventListener('sylvex:languagechange', renderNotifications);
+    const list = document.getElementById('notifList');
+    if (list) list.addEventListener('click', (e) => {
+      const link = e.target.closest('.notif-link');
+      if (!link) return;
+      const url = link.dataset.url;
+      if (S.tg && typeof S.tg.openLink === 'function') S.tg.openLink(url); else window.open(url, '_blank', 'noopener');
+    });
+  }
+
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
   function restoreAppTheme() {
@@ -26754,6 +26873,7 @@ async function waitGeneration(jobId, options) {
 
     bindEvents();
     initPresence();
+    initNotifications();
     initHomeIdeaAi();
     initAiAssistantFab();
     window.addEventListener('message', handleKnowledgeWorkspaceMessage);
@@ -26818,7 +26938,7 @@ async function waitGeneration(jobId, options) {
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
-    openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
+    openSupport, closeSupport, sendSupport, toggleNotifications, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
     cancelSubscriptionRenewal, reactivateSubscriptionRenewal, openStorePlans,

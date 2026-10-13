@@ -44,6 +44,9 @@ PUBLIC_GETS = frozenset({
  # CRUD, files, realtime voice) requires a real signed-in account and goes
  # through this middleware's normal website-session resolution instead.
  '/api/web/assistant/state',
+ # Notification bell of an anonymous website visitor: identified only by the
+ # random visitor id the site was issued (services/notifications.py).
+ '/api/public/visitor/notifications',
 })
 # POST routes under /api/web/... all authenticate with the website's own
 # session cookie or a mailed/one-time token (see services/account_identity.py
@@ -66,6 +69,10 @@ PUBLIC_POSTS = frozenset({
  # never calls OpenAI regardless of what a tampered client claims, since
  # the guide-vs-AI choice is re-derived server-side from get_user_state().
  '/api/web/assistant/message',
+ # Anonymous website visitors (no account, no Telegram): the visit beacon,
+ # their bell's read receipts and the internal Contact SYLVEX popup. Each
+ # validates the server-issued visitor id itself and is rate limited.
+ '/api/public/visitor/ping', '/api/public/visitor/notifications/read', '/api/public/visitor/contact',
  # Telegram bot media re-hosting: authenticated inside the handler by the
  # TELEGRAM_MEDIA_SERVICE_TOKEN header, never by a user session.
  '/api/internal/telegram-media',
