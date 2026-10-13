@@ -254,6 +254,60 @@ def _admin_from_row(row):
     }
 
 
+def owner_email_setting():
+    """ADMIN_OWNER_EMAIL, normalized; empty disables the browser
+    bootstrap-owner path entirely."""
+    from services.account_identity import normalize_email
+    return normalize_email(os.getenv("ADMIN_OWNER_EMAIL", "") or "")
+
+
+def is_bootstrap_owner_email(cur, email, account_id):
+    """True only when `email` is exactly ADMIN_OWNER_EMAIL (after the same
+    normalization signup uses), it is a *verified* email, and it belongs to
+    `account_id`. An unverified address never qualifies: otherwise anyone
+    could register the developer's Gmail first and claim the console."""
+    from services.account_identity import normalize_email
+    owner = owner_email_setting()
+    email = normalize_email(email or "")
+    if not owner or not email or not hmac.compare_digest(owner, email):
+        return False
+    cur.execute("SELECT account_id, email_verified FROM account_emails WHERE email = %s", (email,))
+    row = cur.fetchone()
+    return bool(row and int(row[0]) == int(account_id) and row[1])
+
+
+def bootstrap_email_owner(cur, account_id, email):
+    """Makes the ADMIN_OWNER_EMAIL account an owner the first time it signs
+    in, and only if it has no admin record yet: a later suspension or
+    revocation by another owner is never undone by this path."""
+    if load_admin(cur, account_id=account_id):
+        return None
+    cur.execute("""
+        INSERT INTO admin_accounts (account_id, role, status) VALUES (%s, 'owner', 'active')
+        ON CONFLICT (account_id) DO NOTHING RETURNING id
+    """, (account_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    admin_id = int(row[0])
+    audit(cur, None, "owner_bootstrapped_from_email", risk=rbac.CRITICAL, target_account_id=account_id,
+          channel="web", after={"admin_id": admin_id, "account_id": account_id, "source": "ADMIN_OWNER_EMAIL"})
+    return admin_id
+
+
+def account_for_email(cur, email):
+    """(account_id, verified) for a registered email, or (None, False)."""
+    from services.account_identity import normalize_email
+    email = normalize_email(email or "")
+    if not email:
+        return None, False
+    cur.execute("SELECT account_id, email_verified FROM account_emails WHERE email = %s", (email,))
+    row = cur.fetchone()
+    if not row:
+        return None, False
+    return canonical_account(cur, row[0]) or int(row[0]), bool(row[1])
+
+
 def load_admin(cur, *, admin_id=None, account_id=None):
     where, value = ("a.id = %s", admin_id) if admin_id is not None else ("a.account_id = %s", account_id)
     cur.execute(f"SELECT {_ADMIN_COLUMNS} FROM admin_accounts a "
@@ -453,6 +507,31 @@ def confirm_totp_enrollment(cur, admin, code):
             totp_enabled_at = NOW(), totp_last_step = %s, totp_failures = 0, totp_locked_until = NULL
         WHERE id = %s
     """, (counter, admin["admin_id"]))
+
+
+def confirm_totp_enrollment_limited(cur, admin, code):
+    """confirm_totp_enrollment for the browser bootstrap-owner setup, where
+    the caller is not yet holding a session: wrong codes count towards the
+    same lockout as verify_totp, so the pending secret cannot be guessed."""
+    cur.execute("""
+        SELECT totp_failures, (totp_locked_until IS NOT NULL AND totp_locked_until > NOW())
+        FROM admin_accounts WHERE id = %s FOR UPDATE
+    """, (admin["admin_id"],))
+    row = cur.fetchone()
+    if row and row[1]:
+        raise AdminAuthError("totp_locked", 429)
+    try:
+        confirm_totp_enrollment(cur, admin, code)
+    except AdminAuthError as exc:
+        if exc.code == "totp_invalid":
+            failures = int((row or [0])[0] or 0) + 1
+            cur.execute(f"""
+                UPDATE admin_accounts SET totp_failures = %s,
+                    totp_locked_until = CASE WHEN %s >= {TOTP_MAX_FAILURES}
+                        THEN NOW() + INTERVAL '{TOTP_LOCK_SECONDS} seconds' ELSE totp_locked_until END
+                WHERE id = %s
+            """, (failures, failures, admin["admin_id"]))
+        raise
 
 
 def _decrypt(token):

@@ -65,8 +65,12 @@ function EditAdmin({ row, catalog, onClose, onSaved }: { row: AdminRow | null; c
           await patch(`/api/admin/v2/admins/${row.admin_id}`, { role, status, grants, denies, reason });
           toast(t("Admin updated"));
         } else {
-          if (!/^\d{6,20}$/.test(sylvexId.trim())) throw new Error(t("Enter the person's SYLVEX ID (digits)."));
-          await post("/api/admin/v2/admins", { sylvex_user_id: sylvexId.trim(), role, grants, denies, reason });
+          // One field: a SYLVEX ID (digits) or the person's Gmail / email.
+          const who = sylvexId.trim();
+          const target = /^\d{6,20}$/.test(who) ? { sylvex_user_id: who }
+            : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(who) ? { email: who.toLowerCase() } : null;
+          if (!target) throw new Error(t("Enter the person's SYLVEX ID or email."));
+          await post("/api/admin/v2/admins", { ...target, role, grants, denies, reason });
           toast(t("Admin added"));
         }
         onSaved();
@@ -74,8 +78,8 @@ function EditAdmin({ row, catalog, onClose, onSaved }: { row: AdminRow | null; c
       onClose={onClose}
       description={<div className="stack">
         {!row && (
-          <label className="field">{t("SYLVEX ID of the person")}
-            <input value={sylvexId} onChange={(e) => setSylvexId(e.target.value)} placeholder={t("e.g. 110626130001")} inputMode="numeric" />
+          <label className="field">{t("SYLVEX ID or email of the person")}
+            <input value={sylvexId} onChange={(e) => setSylvexId(e.target.value)} placeholder={t("e.g. 110626130001 or name@gmail.com")} autoComplete="off" />
           </label>
         )}
         <div className="grid two" style={{ gap: 10 }}>

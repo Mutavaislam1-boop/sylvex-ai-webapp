@@ -10743,10 +10743,21 @@ async def admin_v2_auth_telegram(request: Request):
 
 @app.post("/api/admin/v2/auth/web")
 async def admin_v2_auth_web(request: Request):
-    """Web login: email + password + TOTP (required). TOTP is enrolled from
-    a Telegram-verified Mini App session, never from the web."""
+    """Browser login: SYLVEX email + password, then a TOTP code.
+
+    - An active admin with TOTP signs in with email + password + code
+      (no code yet -> "totp_required", so the console asks for it).
+    - An admin without TOTP is refused ("totp_enrollment_required"): TOTP
+      is enrolled from a Telegram-verified Mini App session...
+    - ...except the bootstrap owner: the account whose *verified* email is
+      exactly ADMIN_OWNER_EMAIL. It becomes owner on its first sign-in (only
+      if it has no admin record yet) and may set up TOTP right here: the
+      first call returns a QR code, the next one (same email + password +
+      "setup_code") confirms it and signs in.
+    Anyone else is rejected before any QR or 2FA step. The Telegram Mini App
+    login is a separate route and is unaffected."""
     body = await _admin_v2_body(request)
-    if not (body.get("email") and body.get("password") and body.get("totp")):
+    if not (body.get("email") and body.get("password")):
         return _admin_json({"ok": False, "error": "invalid_credentials"}, 401)
     _admin_v2_ready()
     try:
@@ -10756,10 +10767,28 @@ async def admin_v2_auth_web(request: Request):
         return _admin_json({"ok": False, "error": exc.code}, exc.status)
 
     def work(cursor):
-        admin = admin_auth.load_admin(cursor, account_id=account_id)
+        live_account = admin_auth.canonical_account(cursor, account_id) or account_id
+        bootstrap = admin_auth.is_bootstrap_owner_email(cursor, body.get("email"), account_id)
+        if bootstrap:
+            admin_auth.bootstrap_email_owner(cursor, live_account, body.get("email"))
+        admin = admin_auth.load_admin(cursor, account_id=live_account)
         if not admin or admin["status"] != "active":
             raise admin_auth.AdminAuthError("admin_access_denied", 403)
-        admin_auth.verify_totp(cursor, admin, body.get("totp"))
+        if not admin["totp_enabled"]:
+            if not bootstrap:
+                raise admin_auth.AdminAuthError("totp_enrollment_required", 403)
+            if not body.get("setup_code"):
+                secret, uri = admin_auth.begin_totp_enrollment(cursor, admin)
+                admin_auth.audit(cursor, dict(admin, channel="web"), "admin_totp_enrollment_started",
+                                 risk=admin_rbac.HIGH, ip=_admin_client_ip(request))
+                return admin, None, {"secret": secret, "otpauth_uri": uri}
+            admin_auth.confirm_totp_enrollment_limited(cursor, admin, body.get("setup_code"))
+            admin_auth.audit(cursor, dict(admin, channel="web"), "admin_totp_enabled", risk=admin_rbac.HIGH,
+                             ip=_admin_client_ip(request))
+        else:
+            if not body.get("totp"):
+                raise admin_auth.AdminAuthError("totp_required", 401)
+            admin_auth.verify_totp(cursor, admin, body.get("totp"))
         token, csrf, _ = admin_auth.create_session(cursor, admin, "web", _admin_client_ip(request),
                                                    request.headers.get("user-agent"))
         admin_auth.audit(cursor, dict(admin, channel="web"), "admin_login", risk=admin_rbac.LOW,
@@ -10767,10 +10796,13 @@ async def admin_v2_auth_web(request: Request):
         return admin, token, csrf
 
     try:
-        admin, token, csrf = await asyncio.to_thread(_admin_v2_run_keep_failures, work)
+        admin, token, result = await asyncio.to_thread(_admin_v2_run_keep_failures, work)
     except HTTPException as exc:
         return _admin_json({"ok": False, "error": exc.detail}, exc.status_code)
-    response = _admin_json(_admin_session_payload(admin, csrf, "web"))
+    if token is None:
+        # Bootstrap owner without 2FA yet: `result` is the QR setup, no session.
+        return _admin_json({"ok": True, "totp_setup_required": True, **result})
+    response = _admin_json(_admin_session_payload(admin, result, "web"))
     _admin_set_session_cookie(response, token)
     return response
 
@@ -10969,7 +11001,14 @@ async def admin_v2_admin_create(request: Request):
     def work(cursor):
         actor, _ = _admin_v2_actor(cursor, request, "admins.create", mutation=True)
         reason = _admin_v2_reason(body)
-        account_id = admin_auth.canonical_account(cursor, body.get("sylvex_user_id"))
+        if body.get("email") and not body.get("sylvex_user_id"):
+            # By Gmail / email: only a verified address, so an admin can never
+            # be granted to someone who merely typed that email at signup.
+            account_id, verified = admin_auth.account_for_email(cursor, body.get("email"))
+            if account_id and not verified:
+                raise admin_auth.AdminAuthError("email_not_verified", 409)
+        else:
+            account_id = admin_auth.canonical_account(cursor, body.get("sylvex_user_id"))
         if not account_id:
             raise admin_auth.AdminAuthError("account_not_found", 404)
         admin = admin_auth.create_admin(cursor, actor, account_id, str(body.get("role") or ""),
