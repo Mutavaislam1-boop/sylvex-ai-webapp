@@ -12,3 +12,6 @@ outputs
 provider_limits_report.*
 
 .venv-secure/
+
+admin_console/node_modules
+admin_console/src

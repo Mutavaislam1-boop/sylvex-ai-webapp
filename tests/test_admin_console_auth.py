@@ -558,3 +558,72 @@ async def test_bot_channel_allows_high_but_audits_the_channel(ready):
     assert r.status_code == 200, r.text
     row = q(env, "SELECT channel, risk, action FROM admin_audit_events WHERE action = 'balance_changed'")
     assert row == [["bot", "high", "balance_changed"]]
+
+
+# --- Admin Console UI: v1 data routes with the console session ----------------
+
+@pytest.mark.asyncio
+async def test_console_session_drives_v1_routes_with_rbac_and_audit(ready):
+    env = ready
+    q(env, "INSERT INTO users (telegram_id, first_name, balance) VALUES (%s, 'U', 10)", (USER_TG,))
+    token, csrf = await login(env, FINANCE_TG)
+    body = {"user_id": USER_TG, "delta": 7, "reason": "console goodwill", "source": "admin_console"}
+    r = await call(env, "POST", "/api/admin/users/balance", cookie=token, csrf=csrf, json_body=body)
+    assert r.status_code == 200, r.text
+    assert q(env, "SELECT balance FROM users WHERE telegram_id = %s", (USER_TG,)) == [[17]]
+    channel = q(env, "SELECT channel FROM admin_sessions WHERE revoked_at IS NULL")[0][0]
+    rows = q(env, "SELECT channel, risk, reason FROM admin_audit_events WHERE action = 'balance_changed'")
+    assert rows == [[channel, "high", "console goodwill"]]
+    # Support has no balance permission: the session's role decides.
+    token, csrf = await login(env, SUPPORT_TG)
+    r = await call(env, "POST", "/api/admin/users/balance", cookie=token, csrf=csrf, json_body=body)
+    assert r.status_code == 403 and r.json()["detail"] == "admin_permission_denied"
+
+
+@pytest.mark.asyncio
+async def test_console_session_on_v1_needs_csrf_and_origin(ready):
+    env = ready
+    token, csrf = await login(env, OWNER_TG)
+    assert (await call(env, "POST", "/api/admin/dashboard", cookie=token, json_body={})).json()["detail"] == "csrf_token_invalid"
+    r = await call(env, "POST", "/api/admin/dashboard", cookie=token, csrf=csrf, origin="https://evil.example", json_body={})
+    assert r.status_code == 403 and r.json()["detail"] == "origin_not_allowed"
+    r = await call(env, "POST", "/api/admin/dashboard", cookie="made-up", csrf=csrf, json_body={})
+    assert r.status_code == 401
+    # Nothing at all: still refused (no Telegram, no service token, no session).
+    assert (await call(env, "POST", "/api/admin/dashboard", json_body={})).status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_console_session_needs_reauth_for_critical_v1_actions(ready):
+    env = ready
+    token, csrf = await login(env, OWNER_TG)
+    q(env, "UPDATE admin_sessions SET reauth_at = NOW() - INTERVAL '6 minutes'")
+    r = await call(env, "POST", "/api/admin/messages/broadcast", cookie=token, csrf=csrf,
+                   json_body={"message": "hi", "all": True})
+    assert r.status_code == 403 and r.json()["detail"] == "reauth_required"
+
+
+@pytest.mark.asyncio
+async def test_mini_app_login_returns_a_header_token_only_in_miniapp_mode(ready):
+    env = ready
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(OWNER_TG)})
+    assert "session_token" not in r.json()
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(OWNER_TG), "mode": "miniapp"})
+    token, csrf = r.json()["session_token"], r.json()["csrf_token"]
+    assert token
+    h = {"X-Admin-Session": token}
+    assert (await call(env, "GET", "/api/admin/v2/auth/me", headers=h)).status_code == 200
+    r = await call(env, "POST", "/api/admin/me", csrf=csrf, headers=h, json_body={})
+    assert r.status_code == 200, r.text
+    assert r.json()["admin"]["role"] == "owner"
+
+
+@pytest.mark.asyncio
+async def test_console_served_from_the_api_host_is_an_allowed_origin(ready, monkeypatch):
+    env = ready
+    monkeypatch.setattr(env.main, "ADMIN_CONSOLE_ORIGINS", ())
+    token, csrf = await login(env, OWNER_TG)
+    r = await call(env, "POST", "/api/admin/me", cookie=token, csrf=csrf, origin="https://admin.test", json_body={})
+    assert r.status_code == 200, r.text
+    r = await call(env, "POST", "/api/admin/me", cookie=token, csrf=csrf, origin="https://other.test", json_body={})
+    assert r.status_code == 403
