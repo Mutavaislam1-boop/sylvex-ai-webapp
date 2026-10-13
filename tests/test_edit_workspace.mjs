@@ -11,6 +11,7 @@ function harness(){
     Image:class{naturalWidth=1200;naturalHeight=800;set src(value){queueMicrotask(()=>this.onload());}},
     document:{querySelector:()=>null,getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
     toast:m=>messages.push(m),updateComposerMode(){},callGenerate:async (...args)=>{requests.push(args);return {images:['https://cdn.example/result.png']};},
+    validateSylvexRestorePlan:()=>'',
     uploadProStudioMediaFile:async ()=>{if(rejectUpload)throw new Error('upload failed');return 'https://cdn.example/new.png';},
     activeGenerationPlaceholderIndex:()=>-1,generatedUrlsFromResponse:r=>r.images,generatedThumbsFromResponse:()=>[],addGeneratedImages(){},imageGenerationMetadata:()=>({}),loadConversations(){},chatMessages:[],resolveFailureMessage:e=>({error:e.message}),translateGenerationError:e=>e.message,clearActiveProStudioJob(){},renderChat(){},rememberCurrentChatSpace(){},
   });
@@ -234,6 +235,14 @@ test('Upscale rejects corrupt numeric controls and preserves face settings while
  h.state.busy=true;const saved=JSON.stringify(h.state.upscale);h.context.setEditUpscaleScale(null,4);
  h.context.updateEditWorkspaceField({currentTarget:{type:'number',value:'800'}},'upscale','width');assert.equal(JSON.stringify(h.state.upscale),saved);
 });
+test('Sylvex Restore X1 X2 X4 are exact output multipliers',()=>{
+ const h=harness();h.state.mode='upscale';h.state.upscale.model='sylvex_sr';h.context.setEditWorkspaceDimensions(3000,2000);
+ h.context.setEditUpscaleScale(null,4);
+ assert.equal(h.state.upscale.width,12000);assert.equal(h.state.upscale.height,8000);assert.equal(h.state.upscale.scale,4);
+ assert.equal(h.state.upscale.sylvex.finalEnhance.upscale_factor,4);assert.equal(h.context.editWorkspaceValidation(),'');
+ h.context.setEditWorkspaceDimensions(4000,3000);h.context.setEditUpscaleScale(null,4);
+ assert.equal(h.state.upscale.width,16000);assert.equal(h.state.upscale.height,12000);assert.match(h.context.editWorkspaceValidation(),/100 мегапикселей/);
+});
 test('Upscale sends isolated controls once, keeps camera unchanged, and preserves failed inputs',async()=>{
  const h=harness();h.state.mode='upscale';h.context.setEditWorkspaceDimensions(1200,800);h.context.setEditUpscaleScale(null,4);
  h.state.upscale.faceEnhancement=false;h.state.upscale.sharpness=73;h.state.viewport={x:100,y:-50};h.state.zoom=400;
@@ -254,7 +263,7 @@ test('Upscale quotes come from the server; stale responses cannot replace the cu
  assert.deepEqual(quotes[1].payload.image_options.referenceImageUrls,[h.state.sourceUrl]);assert.deepEqual(quotes[1].payload.image_options.referenceImages,[h.state.sourceUrl]);
  quotes[1].resolve({ok:true,json:async()=>({ok:true,credits:75})});await second;assert.equal(node.textContent,'75 ⚡');
  quotes[0].resolve({ok:true,json:async()=>({ok:true,credits:15})});await first;assert.equal(node.textContent,'75 ⚡');
- h.context.setEditUpscaleScale(null,1);h.context.fetch=async()=>{throw new Error('offline');};await h.context.refreshEditUpscaleEstimate();assert.equal(node.textContent,'Уточняется при запуске');
+ h.context.setEditUpscaleScale(null,1);h.context.fetch=async()=>{throw new Error('offline');};await h.context.refreshEditUpscaleEstimate();assert.equal(node.textContent,'Confirmed at generation');
 });
 test('failed upload preserves existing document and chain; successful upload starts a new reference',async()=>{
  const h=harness();await h.context.generateEditWorkspace();const savedChain=JSON.stringify(h.state.chain),savedUrl=h.state.sourceUrl;

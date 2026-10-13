@@ -14,82 +14,70 @@ def png(size=(120, 80), color=(30, 40, 50, 255)):
     return output.getvalue()
 
 
-def region(region_id="region_1", region_type="face", action="auto_restore", **extra):
+def region(region_id="region_1", reference=None, instruction=None, **extra):
     value = {
         "region_id": region_id,
-        "source": "auto",
-        "region_type": region_type,
+        "source": "user_added",
+        "region_type": "other",
         "bbox": {"x": 10, "y": 10, "width": 30, "height": 25},
-        "confidence": 0.2,
-        "importance_score": 0.9,
-        "issue_type": "uncertain",
-        "issue_summary": "Important detail is uncertain.",
-        "suggested_action": "upload_reference",
-        "user_action": action,
-        "reference_asset_id": None,
-        "text_instruction": None,
+        "user_action": "upload_reference" if reference else "enter_text" if instruction else "auto_restore",
+        "reference_asset_id": reference,
+        "text_instruction": instruction,
         "protection_mode": None,
     }
     value.update(extra)
     return value
 
 
-def test_analysis_keeps_only_high_priority_regions_and_enforces_type_caps():
-    rows = []
-    for index in range(9):
-        rows.append({
-            "region_type": "face" if index < 6 else "text",
-            "bbox": {"x": index * 5, "y": 2, "width": 20, "height": 20},
-            "confidence": 0.1,
-            "importance_score": 1 - index / 20,
-            "issue_type": "blur",
-            "issue_summary": f"Issue {index}",
-            "suggested_action": "upload_reference",
-        })
-    normalized = sr.normalize_analysis_regions(rows, 200, 100)
-    assert len(normalized) == 8
-    assert sum(item["region_type"] == "face" for item in normalized) == 5
-    assert sum(item["region_type"] == "text" for item in normalized) == 3
-    assert [item["region_id"] for item in normalized] == [f"region_{index}" for index in range(1, 9)]
+def test_manual_regions_allow_empty_plan_and_limit_photo_references_to_four():
+    assert sr.validate_regions([], 120, 80) == []
+    rows = [region(f"region_{index}", reference=f"https://cdn.example.com/ref-{index}.png") for index in range(1, 5)]
+    assert len(sr.validate_regions(rows, 120, 80)) == 4
+    rows.append(region("region_5", reference="https://cdn.example.com/ref-5.png"))
+    with pytest.raises(sr.SylvexRestoreValidationError, match="up to 4 reference images"):
+        sr.validate_regions(rows, 120, 80)
 
 
-def test_region_validation_requires_explicit_action_inputs():
-    with pytest.raises(sr.SylvexRestoreValidationError, match="reference"):
-        sr.validate_regions([region(action="upload_reference")], 120, 80)
-    with pytest.raises(sr.SylvexRestoreValidationError, match="instruction"):
-        sr.validate_regions([region(action="enter_text")], 120, 80)
-    with pytest.raises(sr.SylvexRestoreValidationError, match="Hard or Soft"):
-        sr.validate_regions([region(action="protect_region")], 120, 80)
+def test_restore_prompt_maps_each_reference_to_its_region_and_keeps_text_independent():
+    rows = sr.validate_regions([
+        region("region_1", reference="https://cdn.example.com/face.png", instruction="Preserve this face."),
+        region("region_2", instruction="Restore the sign text as H605."),
+        region("region_3", reference="https://cdn.example.com/object.png"),
+    ], 120, 80)
+    prompt = sr.restore_prompt(rows, 120, 80)
+    assert "Input image 2 is mapped only to region_1" in prompt
+    assert "Input image 3 is mapped only to region_3" in prompt
+    assert "Restore the sign text as H605." in prompt
+    assert "same aspect ratio" in prompt
 
 
-def test_manual_region_is_valid_and_processed_after_faces_text_and_objects():
-    rows = [
-        region("region_4", "other", "auto_restore", source="user_added"),
-        region("region_2", "text", "enter_text", text_instruction="Correct text: H605"),
-        region("region_1", "face", "protect_region", protection_mode="soft"),
-        region("region_3", "object", "auto_restore"),
-    ]
-    validated = sr.validate_regions(rows, 120, 80)
-    assert [item["region_id"] for item in sr.ordered_regions(validated)] == ["region_1", "region_2", "region_3", "region_4"]
+def test_restore_prompt_supports_full_photo_enhancement_without_regions():
+    prompt = sr.restore_prompt([], 120, 80, 4)
+    assert "Improve overall detail, focus, sharpness" in prompt
+    assert "No local regions were selected" in prompt
+    assert "final output scale is X4" in prompt
 
 
-def test_gpt_mask_is_transparent_only_inside_region():
-    mask = sr.region_mask((40, 30), {"x": 10, "y": 8, "width": 12, "height": 10})
-    with Image.open(io.BytesIO(mask)) as image:
-        alpha = image.getchannel("A")
-        assert alpha.getpixel((0, 0)) == 255
-        assert alpha.getpixel((12, 10)) == 0
+def test_final_output_scale_is_exact_for_x1_x2_x4():
+    source = png((37, 23), (255, 0, 0, 255))
+    restored = png((37, 23), (0, 0, 255, 255))
+    for factor in (1, 2, 4):
+        output = sr.final_enhance(source, restored, {"apply_global_enhance": False, "upscale_factor": factor}, [])
+        with Image.open(io.BytesIO(output)) as image:
+            assert image.size == (37 * factor, 23 * factor)
 
 
-def test_hard_protection_restores_original_pixels_after_global_enhance():
-    source = png((20, 20), (255, 0, 0, 255))
-    working = png((20, 20), (0, 0, 255, 255))
-    protected = [{"bbox": {"x": 5, "y": 5, "width": 5, "height": 5}}]
-    output = sr.final_enhance(source, working, {"apply_global_enhance": False, "upscale_factor": 2}, protected)
+def test_final_restore_preserves_source_transparency():
+    source = Image.new("RGBA", (8, 8), (40, 80, 120, 0))
+    source.putpixel((3, 3), (40, 80, 120, 128))
+    source.putpixel((4, 4), (40, 80, 120, 255))
+    source_raw = io.BytesIO()
+    source.save(source_raw, "PNG")
+    output = sr.final_enhance(source_raw.getvalue(), png((8, 8), (200, 100, 50, 255)), {"apply_global_enhance": False, "upscale_factor": 2}, [])
     with Image.open(io.BytesIO(output)) as image:
-        assert image.size == (40, 40)
-        assert image.getpixel((12, 12))[:3] == (255, 0, 0)
-        assert image.getpixel((2, 2))[:3] == (0, 0, 255)
+        assert image.size == (16, 16)
+        assert image.getpixel((0, 0))[3] == 0
+        assert 0 < image.getpixel((6, 6))[3] < 255
 
 
 def test_topaz_pricing_and_route_remain_unchanged():
@@ -99,50 +87,44 @@ def test_topaz_pricing_and_route_remain_unchanged():
     assert not main.is_sylvex_restore_request({"image_options": {"tool": "enhance_photo"}})
 
 
-def test_sylvex_restore_price_scales_with_actionable_regions():
-    estimate = main.estimate_generation_cost({"mode": "image", "image_options": {
+def test_sylvex_restore_price_is_one_gpt_image_pass_with_or_without_regions():
+    empty = main.estimate_generation_cost({"mode": "image", "image_options": {"tool": "enhance_photo", "enhancePhotoModel": "sylvex_sr", "sylvexRestoreRegions": []}})
+    guided = main.estimate_generation_cost({"mode": "image", "image_options": {
         "tool": "enhance_photo", "enhancePhotoModel": "sylvex_sr",
-        "sylvexRestoreRegions": [region("region_1"), region("region_2", "text", "skip_region")],
+        "sylvexRestoreRegions": [region("region_1"), region("region_2", instruction="Keep this text unchanged")],
     }})
-    assert estimate["pricing_available"] is True
-    assert estimate["operation"] == "sylvex_sr"
-    assert estimate["region_count"] == 1
-    assert estimate["credits"] == 32
+    assert empty["pricing_available"] is True
+    assert empty["operation"] == "sylvex_sr"
+    assert empty["credits"] == guided["credits"]
+    assert guided["region_count"] == 2
 
 
-def edit_restore_payload():
+def edit_restore_payload(regions=None, scale=2):
     return {
         "mode": "image",
-        "provider": "topaz",
-        "model": "topaz_enhance_photo",
+        "provider": "openai",
+        "model": "sylvex_sr",
         "image_options": {
             "tool": "edit_workspace",
             "editWorkspaceMode": "upscale",
             "editWorkspaceSourceUrl": "https://cdn.example.com/source.png",
-            "editWorkspaceUpscale": {
-                "model": "sylvex_sr",
-                "width": 120,
-                "height": 80,
-            },
+            "enhancePhotoSourceUrl": "https://cdn.example.com/source.png",
+            "editWorkspaceUpscale": {"model": "sylvex_sr", "width": 120 * scale, "height": 80 * scale},
             "enhancePhotoModel": "sylvex_sr",
-            "sylvexRestoreAnalysisId": "anl_123",
-            "sylvexRestoreRegions": [region("region_1")],
-            "sylvexRestoreFinalEnhance": {"apply_global_enhance": True, "upscale_factor": 1},
+            "sylvexRestoreRegions": regions or [],
+            "sylvexRestoreFinalEnhance": {"apply_global_enhance": True, "upscale_factor": scale},
         },
     }
 
 
-def test_edit_upscale_sylvex_restore_uses_openai_route_and_region_pricing():
+def test_edit_upscale_sylvex_restore_uses_openai_without_analysis_id():
     payload = edit_restore_payload()
     assert main.is_edit_workspace_sylvex_restore(payload) is True
     assert main.resolve_prostudio_provider_for_slot(payload, "image", payload["model"], payload["provider"]) == "OPENAI"
-    estimate = main.calculate_generation_price(payload)
-    assert estimate["operation"] == "sylvex_sr"
-    assert estimate["region_count"] == 1
-    assert estimate["credits"] == 32
+    assert "sylvexRestoreAnalysisId" not in payload["image_options"]
 
 
-def test_edit_upscale_dispatches_to_guided_restore_instead_of_topaz(monkeypatch):
+def test_edit_upscale_dispatches_to_restore_instead_of_topaz(monkeypatch):
     calls = []
 
     async def fake_restore(payload):
@@ -163,39 +145,47 @@ def test_edit_upscale_dispatches_to_guided_restore_instead_of_topaz(monkeypatch)
     assert result["provider"] == "openai"
 
 
-def test_restore_continues_after_one_region_failure_and_returns_partial_result(monkeypatch):
+def test_restore_runs_gpt_image_even_without_manual_regions_and_returns_exact_scale(monkeypatch):
     source = png()
+    provider_calls = []
     monkeypatch.setattr(main, "OPENAI_API_KEY", "test")
     monkeypatch.setattr(main, "_read_image_bytes_for_generation", lambda value: source)
-    calls = []
-    def fake_edit(working, row, reference=b"", soft=None):
-        calls.append(row["region_id"])
-        if row["region_id"] == "region_1":
-            raise RuntimeError("provider failure")
-        return working
-    monkeypatch.setattr(main, "_sylvex_sr_provider_edit", fake_edit)
+
+    def fake_restore(source_png, rows, references, upscale_factor):
+        provider_calls.append((rows, references, upscale_factor))
+        return source_png
+
+    monkeypatch.setattr(main, "_sylvex_sr_provider_restore", fake_restore)
     monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: "https://cdn.example.com/final.png")
     monkeypatch.setattr(main, "attach_image_thumbnails", lambda value: value)
-    payload = {
-        "mode": "image", "telegram_id": 0,
-        "image_options": {
-            "tool": "enhance_photo", "enhancePhotoModel": "sylvex_sr",
-            "enhancePhotoSourceUrl": "https://cdn.example.com/source.png",
-            "sylvexRestoreAnalysisId": "anl_123",
-            "sylvexRestoreRegions": [region("region_1"), region("region_2", "object", "auto_restore")],
-            "sylvexRestoreFinalEnhance": {"apply_global_enhance": False, "upscale_factor": 1},
-        },
-    }
-    result = asyncio.run(main.generate_sylvex_restore_image(payload))
+    result = asyncio.run(main.generate_sylvex_restore_image(edit_restore_payload(scale=4)))
     assert result["ok"] is True
-    assert result["restore_status"] == "partially_failed"
-    assert result["failed_region_ids"] == ["region_1"]
-    assert calls == ["region_1", "region_2"]
-    assert result["output_asset_id"] == "https://cdn.example.com/final.png"
+    assert provider_calls == [([], [], 4)]
+    assert result["restore_status"] == "completed"
+    assert result["final_enhance"]["upscale_factor"] == 4
 
 
-def test_analysis_prompt_explicitly_prevents_over_detection():
-    prompt = sr.analysis_prompt(1280, 1280)
-    assert "only the most important uncertain regions" in prompt
-    assert "at most 8" in prompt
-    assert "Ignore minor background blur" in prompt
+def test_restore_pass_receives_references_in_explicit_region_order(monkeypatch):
+    source = png()
+    captured = []
+    monkeypatch.setattr(main, "OPENAI_API_KEY", "test")
+    monkeypatch.setattr(main, "_read_image_bytes_for_generation", lambda value: source)
+
+    def fake_restore(source_png, rows, references, upscale_factor):
+        captured.extend(region_id for region_id, _ in references)
+        return source_png
+
+    monkeypatch.setattr(main, "_sylvex_sr_provider_restore", fake_restore)
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: "https://cdn.example.com/final.png")
+    monkeypatch.setattr(main, "attach_image_thumbnails", lambda value: value)
+    rows = [region("region_1", reference="https://cdn.example.com/a.png"), region("region_2", instruction="Preserve it"), region("region_3", reference="https://cdn.example.com/b.png")]
+    result = asyncio.run(main.generate_sylvex_restore_image(edit_restore_payload(rows, scale=1)))
+    assert result["ok"] is True
+    assert captured == ["region_1", "region_3"]
+    assert result["reference_images"] == ["https://cdn.example.com/source.png", "https://cdn.example.com/a.png", "https://cdn.example.com/b.png"]
+
+
+def test_automatic_analysis_routes_are_removed():
+    paths = {route.path for route in main.app.routes if hasattr(route, "path")}
+    assert "/api/public/enhance/sylvex-sr/analyze" not in paths
+    assert "/enhance/sylvex-sr/analyze/{analysis_id}" not in paths
