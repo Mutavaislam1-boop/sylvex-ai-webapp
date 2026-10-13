@@ -16003,7 +16003,11 @@ def is_replace_character_request(payload: dict) -> bool:
 # =====================================================
 ENHANCE_PHOTO_TOOL_KEY = "enhance_photo"
 SYLVEX_RESTORE_MODEL_KEY = sylvex_restore_service.MODEL_KEY
-SYLVEX_RESTORE_PROVIDER_MODEL = os.getenv("SYLVEX_SR_IMAGE_MODEL", "gpt-image-2.5-sunburst").strip() or "gpt-image-2.5-sunburst"
+# Sylvex Restore is a product contract, not a configurable provider alias.
+# Keep it pinned to OpenAI's quality-first GPT Image model so an environment
+# variable can never silently route restoration to another image model.
+SYLVEX_RESTORE_PROVIDER_MODEL = "gpt-image-2.5-sunburst"
+SYLVEX_RESTORE_PROVIDER_QUALITY = "high"
 
 
 def is_enhance_photo_request(payload: dict) -> bool:
@@ -16013,16 +16017,27 @@ def is_enhance_photo_request(payload: dict) -> bool:
 
 def is_sylvex_restore_request(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
-    return is_enhance_photo_request(payload) and str(opts.get("enhancePhotoModel") or "topaz").strip().lower() == SYLVEX_RESTORE_MODEL_KEY
+    selected = str(opts.get("enhancePhotoModel") or payload.get("model") or "topaz").strip().lower()
+    return is_enhance_photo_request(payload) and selected == SYLVEX_RESTORE_MODEL_KEY
 
 
 def is_edit_workspace_sylvex_restore(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
     upscale = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else {}
+    # The model selected inside Edit Upscale is authoritative. Older saved
+    # sessions may still carry a stale enhancePhotoModel="topaz" alongside
+    # editWorkspaceUpscale.model="sylvex_sr"; that stale value must never
+    # divert an explicitly selected Sylvex Restore request to Topaz.
+    selected = str(
+        upscale.get("model")
+        or opts.get("enhancePhotoModel")
+        or payload.get("model")
+        or "topaz"
+    ).strip().lower()
     return (
         is_edit_workspace_request(payload)
         and str(opts.get("editWorkspaceMode") or "").strip().lower() == "upscale"
-        and str(opts.get("enhancePhotoModel") or upscale.get("model") or "topaz").strip().lower() == SYLVEX_RESTORE_MODEL_KEY
+        and selected == SYLVEX_RESTORE_MODEL_KEY
     )
 
 
@@ -16035,7 +16050,7 @@ def sylvex_restore_cost_info(opts: dict) -> dict:
     # Sylvex Restore now makes one controlled GPT Image edit for the whole
     # photo. Manual regions and up to four mapped references are guidance for
     # that single pass, rather than separate paid generations.
-    detail = openai_image_cost_info("gpt_image_2_5_sunburst", SYLVEX_RESTORE_PROVIDER_MODEL, "high", 1)
+    detail = openai_image_cost_info("gpt_image_2_5_sunburst", SYLVEX_RESTORE_PROVIDER_MODEL, SYLVEX_RESTORE_PROVIDER_QUALITY, 1)
     credits = int(detail.get("cost_credits") or 0)
     return {
         "credits": credits,
@@ -16351,8 +16366,19 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
     durable SYLVEX storage synchronously, inside this function, before it
     ever returns - the result never carries Topaz's own temporary URL."""
     opts = payload.get("image_options") or {}
-    if str(opts.get("enhancePhotoModel") or "topaz").strip().lower() == SYLVEX_RESTORE_MODEL_KEY:
-        return await generate_sylvex_restore_image(payload)
+    if is_sylvex_restore_request(payload) or is_edit_workspace_sylvex_restore(payload):
+        # Defense in depth: Topaz is a separate product route. The central
+        # dispatcher and Edit adapter call generate_sylvex_restore_image()
+        # directly; reaching this function with sylvex_sr is a routing bug,
+        # never an invitation to forward or fall back.
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Sylvex Restore was incorrectly routed to the Topaz adapter.",
+            "raw_error": "sylvex_restore_misrouted_to_topaz",
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
 
     headers = topaz_headers()
     if not headers:
@@ -17880,6 +17906,15 @@ def build_gpt_image_removal_mask(source_bytes: bytes, mask_bytes: bytes) -> byte
 # =====================================================
 # Sylvex Restore: one manual, explicitly mapped GPT Image restore pass.
 # =====================================================
+class SylvexRestoreProviderError(RuntimeError):
+    """A real GPT Image failure that must reach the failed job unchanged."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", str(message or "GPT Image restoration failed")).strip()
+        super().__init__(cleaned[:2000] or "GPT Image restoration failed")
+        self.status_code = status_code
+
+
 def _sylvex_sr_provider_restore(source_png: bytes, regions: list[dict], references: list[tuple[str, bytes]], upscale_factor: int) -> bytes:
     model = SYLVEX_RESTORE_PROVIDER_MODEL
     endpoint = f"{OPENAI_API_BASE}/images/edits"
@@ -17897,24 +17932,36 @@ def _sylvex_sr_provider_restore(source_png: bytes, regions: list[dict], referenc
         "model": model,
         "prompt": sylvex_restore_service.restore_prompt(regions, *source_size, upscale_factor),
         "size": "auto",
-        "quality": "high",
+        "quality": SYLVEX_RESTORE_PROVIDER_QUALITY,
         "n": "1",
         "output_format": "png",
     }
     prostudio_debug("SYLVEX_SR_RESTORE_REQUEST", endpoint=endpoint, provider="openai", provider_model=model,
-                    region_count=len(regions), reference_count=len(references), mapped_reference_region_ids=mapped_reference_ids)
-    response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files,
-                             timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+                    quality=request_data["quality"], output_scale=upscale_factor,
+                    region_count=len(regions), reference_count=len(references),
+                    mapped_reference_region_ids=mapped_reference_ids,
+                    prompt_length=len(request_data["prompt"]))
+    try:
+        response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files,
+                                 timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+    except Exception as exc:
+        raise SylvexRestoreProviderError(f"OpenAI GPT Image request failed: {exc}") from exc
     prostudio_debug("SYLVEX_SR_RESTORE_RESPONSE", endpoint=endpoint, provider_model=model, status_code=response.status_code)
     data = safe_provider_json(response, "openai", endpoint)
     if response.status_code >= 400 or data.get("ok") is False:
-        raise RuntimeError(str(data.get("error") or data.get("message") or "Photo restoration failed"))
+        provider_message = raw_error_text(data, "")
+        if not provider_message:
+            provider_message = raw_error_text(getattr(response, "text", ""), "GPT Image restoration failed")
+        raise SylvexRestoreProviderError(
+            f"OpenAI GPT Image error (HTTP {response.status_code}): {provider_message}",
+            response.status_code,
+        )
     images = normalize_image_response(data)
     if not images:
-        raise RuntimeError("Photo restoration returned no image")
+        raise SylvexRestoreProviderError("OpenAI GPT Image returned no image", response.status_code)
     generated = _read_image_bytes_for_generation(images[0])
     if not generated:
-        raise RuntimeError("Could not read restored image")
+        raise SylvexRestoreProviderError("OpenAI GPT Image returned an unreadable image", response.status_code)
     generated_png, _ = normalize_gpt_image_source(generated)
     with Image.open(io.BytesIO(generated_png)) as generated_image:
         restored = generated_image.convert("RGBA").resize(source_size, Image.Resampling.LANCZOS)
@@ -17924,8 +17971,24 @@ def _sylvex_sr_provider_restore(source_png: bytes, regions: list[dict], referenc
 
 
 async def generate_sylvex_restore_image(payload: dict) -> dict:
+    if not (is_sylvex_restore_request(payload) or is_edit_workspace_sylvex_restore(payload)):
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Sylvex Restore routing mismatch: the request did not select sylvex_sr.",
+            "raw_error": "sylvex_restore_route_mismatch",
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
     if not OPENAI_API_KEY:
-        return {"ok": False, "type": "image", "error": "Sylvex Restore is temporarily unavailable."}
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Sylvex Restore cannot call GPT Image because OPENAI_API_KEY is not configured.",
+            "raw_error": "openai_api_key_not_configured",
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
     opts = payload.get("image_options") or {}
     source_url = str(opts.get("enhancePhotoSourceUrl") or "").strip()
     if not source_url:
@@ -17960,9 +18023,30 @@ async def generate_sylvex_restore_image(payload: dict) -> dict:
         restored_png = await asyncio.to_thread(_sylvex_sr_provider_restore, source_png, regions, references, final_settings["upscale_factor"])
         final_png = await asyncio.to_thread(sylvex_restore_service.final_enhance, source_png, restored_png, final_settings, hard_regions)
         image_url = await asyncio.to_thread(storage_put_bytes, final_png, generated_key("images", f"sylvex_sr_{uuid4().hex}.png"), "image/png")
-    except Exception as exc:
+        if not image_url:
+            raise RuntimeError("the restored image could not be persisted")
+    except SylvexRestoreProviderError as exc:
         prostudio_error("SYLVEX_SR_RESTORE_FAILED", exc, job_id=str(payload.get("job_id") or ""))
-        return {"ok": False, "type": "image", "error": "Photo restoration failed. Please try again."}
+        return {
+            "ok": False,
+            "type": "image",
+            "error": str(exc),
+            "message": str(exc),
+            "raw_error": str(exc),
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+            "status_code": exc.status_code,
+        }
+    except Exception as exc:
+        prostudio_error("SYLVEX_SR_POSTPROCESS_FAILED", exc, job_id=str(payload.get("job_id") or ""))
+        return {
+            "ok": False,
+            "type": "image",
+            "error": f"Sylvex Restore failed after GPT Image: {exc}",
+            "raw_error": str(exc),
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
     price = sylvex_restore_cost_info({**opts, "sylvexRestoreRegions": regions})
     extra = {
         "provider": "openai",
@@ -18457,7 +18541,8 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         sylvex_restore = is_edit_workspace_sylvex_restore(upscale_payload)
         result = await generate_sylvex_restore_image(upscale_payload) if sylvex_restore else await generate_enhance_photo_image(upscale_payload)
         if result.get("ok"):
-            result.update({"tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": "upscale", "source_image_url": source_url, "reference_images": [source_url]})
+            result.update({"tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": "upscale", "source_image_url": source_url})
+            result.setdefault("reference_images", [source_url])
             if sylvex_restore:
                 result.update({"enhance_model": SYLVEX_RESTORE_MODEL_KEY, "model": SYLVEX_RESTORE_MODEL_KEY, "provider": "openai"})
         return result
@@ -23674,13 +23759,17 @@ async def dispatch_prostudio_provider_request(
         # image_options.characterReferences/objectReferences/style.
         result = await run_provider_coroutine_off_loop(lambda: generate_character_replace_image(payload))
     elif mode == "image" and is_enhance_photo_request(payload):
-        enhance_provider = "openai" if is_sylvex_restore_request(payload) else "topaz"
-        enhance_route = "generate_sylvex_restore_image" if is_sylvex_restore_request(payload) else "generate_enhance_photo_image"
+        sylvex_restore = is_sylvex_restore_request(payload)
+        enhance_provider = "openai" if sylvex_restore else "topaz"
+        enhance_route = "generate_sylvex_restore_image" if sylvex_restore else "generate_enhance_photo_image"
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=enhance_provider, model=selected_model, route=enhance_route)
         # Isolated Quick Tool flow - never falls through to the normal
         # Seedream/image_generation dispatch below, which would read
         # image_options.characterReferences/objectReferences/style.
-        result = await run_provider_coroutine_off_loop(lambda: generate_enhance_photo_image(payload))
+        if sylvex_restore:
+            result = await run_provider_coroutine_off_loop(lambda: generate_sylvex_restore_image(payload))
+        else:
+            result = await run_provider_coroutine_off_loop(lambda: generate_enhance_photo_image(payload))
     elif mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
         # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.

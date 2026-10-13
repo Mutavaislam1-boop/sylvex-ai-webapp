@@ -9,6 +9,7 @@ mapping, a four-reference limit and exact final output scaling.
 from __future__ import annotations
 
 import io
+import json
 import math
 import re
 from typing import Any
@@ -132,14 +133,16 @@ def restore_prompt(regions: list[dict[str, Any]], image_width: int, image_height
         f"The requested final output scale is X{upscale_factor}; restore fine detail suitable for that scale while keeping the source aspect ratio.",
     ]
     reference_index = 2
-    for region in regions:
+    structured_regions = []
+    for number, region in enumerate(regions, start=1):
         bbox = region["bbox"]
         left = bbox["x"] / image_width * 100
         top = bbox["y"] / image_height * 100
         width = bbox["width"] / image_width * 100
         height = bbox["height"] / image_height * 100
+        mapped_input = reference_index if region.get("reference_asset_id") else None
         line = (
-            f"Region {region['region_id']}: pixels x={bbox['x']}, y={bbox['y']}, "
+            f"Region number {number}, ID {region['region_id']}: pixels x={bbox['x']}, y={bbox['y']}, "
             f"width={bbox['width']}, height={bbox['height']} "
             f"({left:.3f}% from left, {top:.3f}% from top, {width:.3f}% wide, {height:.3f}% high)."
         )
@@ -151,11 +154,42 @@ def restore_prompt(regions: list[dict[str, Any]], image_width: int, image_height
             reference_index += 1
         if region.get("text_instruction"):
             line += f" User instruction: {region['text_instruction']}"
-        elif not region.get("reference_asset_id"):
+        action = region.get("user_action") or "auto_restore"
+        protection = region.get("protection_mode")
+        if action == "skip_region":
+            line += " Skip restoration for this region and preserve it from the source image."
+        elif action == "protect_region" and protection == "hard":
+            line += " Hard protection: preserve the original source pixels in this region exactly."
+        elif action == "protect_region":
+            line += " Soft protection: enhancement is allowed, but identity, meaning, geometry and content must remain unchanged."
+        elif not region.get("text_instruction") and not region.get("reference_asset_id"):
             line += " Restore this selected area conservatively from the source image without inventing new semantic content."
         parts.append(line)
+        structured_regions.append({
+            "number": number,
+            "region_id": region["region_id"],
+            "region_type": region.get("region_type") or "other",
+            "bbox_pixels": bbox,
+            "bbox_percent": {
+                "x": round(left, 3),
+                "y": round(top, 3),
+                "width": round(width, 3),
+                "height": round(height, 3),
+            },
+            "reference_input_image": mapped_input,
+            "text_instruction": region.get("text_instruction") or None,
+            "action": region.get("user_action") or "auto_restore",
+        })
     if not regions:
         parts.append("No local regions were selected. Apply only a faithful global photo restoration and quality enhancement.")
+    else:
+        # Keep a machine-readable plan inside the prompt so region numbers,
+        # pixel coordinates, reference slots and notes stay bound together.
+        # Input image 1 is always the original; referenced inputs start at 2.
+        parts.append(
+            "Authoritative region-to-reference plan (JSON; apply every entry exactly): "
+            + json.dumps(structured_regions, ensure_ascii=False, separators=(",", ":"))
+        )
     parts.append("Return one clean final image with the same aspect ratio as the first input image and no boxes, labels, lines or UI overlays.")
     return " ".join(parts)
 

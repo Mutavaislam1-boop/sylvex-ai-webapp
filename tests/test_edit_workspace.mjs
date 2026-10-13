@@ -12,6 +12,7 @@ function harness(){
     document:{querySelector:()=>null,getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
     toast:m=>messages.push(m),updateComposerMode(){},callGenerate:async (...args)=>{requests.push(args);return {images:['https://cdn.example/result.png']};},
     validateSylvexRestorePlan:()=>'',
+    serializeSylvexRestoreRegions:regions=>regions.map(region=>{const instruction=String(region.text_instruction||'').slice(0,500),reference=region.reference_asset_id||null;return{region_id:region.region_id,source:'user_added',region_type:region.region_type||'other',bbox:{...region.bbox},confidence:null,importance_score:1,issue_type:'user_defined',issue_summary:'User manually marked this region.',suggested_action:null,user_action:reference?'upload_reference':instruction.trim()?'enter_text':'auto_restore',reference_asset_id:reference,text_instruction:instruction||null,protection_mode:null}}),
     uploadProStudioMediaFile:async ()=>{if(rejectUpload)throw new Error('upload failed');return 'https://cdn.example/new.png';},
     activeGenerationPlaceholderIndex:()=>-1,generatedUrlsFromResponse:r=>r.images,generatedThumbsFromResponse:()=>[],addGeneratedImages(){},imageGenerationMetadata:()=>({}),loadConversations(){},chatMessages:[],resolveFailureMessage:e=>({error:e.message}),translateGenerationError:e=>e.message,clearActiveProStudioJob(){},renderChat(){},rememberCurrentChatSpace(){},
   });
@@ -242,6 +243,25 @@ test('Sylvex Restore X1 X2 X4 are exact output multipliers',()=>{
  assert.equal(h.state.upscale.sylvex.finalEnhance.upscale_factor,4);assert.equal(h.context.editWorkspaceValidation(),'');
  h.context.setEditWorkspaceDimensions(4000,3000);h.context.setEditUpscaleScale(null,4);
  assert.equal(h.state.upscale.width,16000);assert.equal(h.state.upscale.height,12000);assert.match(h.context.editWorkspaceValidation(),/100 мегапикселей/);
+});
+test('Sylvex Restore submits every region reference note and X scale through the OpenAI route',async()=>{
+ const h=harness();h.state.mode='upscale';h.state.upscale.model='sylvex_sr';h.context.setEditWorkspaceDimensions(1200,800);h.context.setEditUpscaleScale(null,4);
+ h.state.upscale.sylvex.regions=[
+  {region_id:'region_1',region_type:'face',bbox:{x:40,y:50,width:120,height:140},reference_asset_id:'https://cdn.example/face.png',text_instruction:'Preserve the exact identity.'},
+  {region_id:'region_2',region_type:'text',bbox:{x:300,y:200,width:240,height:80},reference_asset_id:null,text_instruction:'Restore the text as SYLVEX.'},
+ ];
+ await h.context.generateEditWorkspace();
+ const options=h.requests[0][4],payload=options.imageOptions;
+ assert.equal(options.provider,'openai');assert.equal(options.model,'sylvex_sr');
+ assert.equal(payload.enhancePhotoModel,'sylvex_sr');assert.equal(payload.editWorkspaceUpscale.model,'sylvex_sr');
+ assert.equal(payload.sylvexRestoreFinalEnhance.upscale_factor,4);
+ assert.equal(payload.sylvexRestoreRegions.length,2);
+ assert.deepEqual(payload.sylvexRestoreRegions[0].bbox,{x:40,y:50,width:120,height:140});
+ assert.equal(payload.sylvexRestoreRegions[0].reference_asset_id,'https://cdn.example/face.png');
+ assert.equal(payload.sylvexRestoreRegions[0].text_instruction,'Preserve the exact identity.');
+ assert.equal(payload.sylvexRestoreRegions[1].reference_asset_id,null);
+ assert.equal(payload.sylvexRestoreRegions[1].text_instruction,'Restore the text as SYLVEX.');
+ assert.equal(payload.referenceImageUrls.length,1);assert.equal(payload.referenceImageUrls[0],'https://cdn.example/source.png');
 });
 test('Upscale sends isolated controls once, keeps camera unchanged, and preserves failed inputs',async()=>{
  const h=harness();h.state.mode='upscale';h.context.setEditWorkspaceDimensions(1200,800);h.context.setEditUpscaleScale(null,4);

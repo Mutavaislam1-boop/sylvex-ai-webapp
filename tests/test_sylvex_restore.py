@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import io
+import json
 
 import pytest
 from PIL import Image
@@ -48,7 +50,22 @@ def test_restore_prompt_maps_each_reference_to_its_region_and_keeps_text_indepen
     assert "Input image 2 is mapped only to region_1" in prompt
     assert "Input image 3 is mapped only to region_3" in prompt
     assert "Restore the sign text as H605." in prompt
+    assert '"region_id":"region_2"' in prompt
+    assert '"bbox_pixels":{"x":10,"y":10,"width":30,"height":25}' in prompt
+    assert '"reference_input_image":3' in prompt
     assert "same aspect ratio" in prompt
+
+
+def test_restore_prompt_preserves_skip_and_protection_actions():
+    rows = sr.validate_regions([
+        {**region("region_1", instruction="Keep this exact face."), "user_action": "protect_region", "protection_mode": "soft"},
+        {**region("region_2"), "user_action": "skip_region"},
+    ], 100, 80)
+    prompt = sr.restore_prompt(rows, 100, 80, 1)
+    assert "Soft protection: enhancement is allowed" in prompt
+    assert "Skip restoration for this region" in prompt
+    assert '"action":"protect_region"' in prompt
+    assert '"action":"skip_region"' in prompt
 
 
 def test_restore_prompt_supports_full_photo_enhancement_without_regions():
@@ -124,6 +141,14 @@ def test_edit_upscale_sylvex_restore_uses_openai_without_analysis_id():
     assert "sylvexRestoreAnalysisId" not in payload["image_options"]
 
 
+def test_nested_edit_model_keeps_sylvex_restore_off_topaz_even_with_stale_alias():
+    payload = edit_restore_payload()
+    payload["image_options"]["enhancePhotoModel"] = "topaz"
+    assert payload["image_options"]["editWorkspaceUpscale"]["model"] == "sylvex_sr"
+    assert main.is_edit_workspace_sylvex_restore(payload) is True
+    assert main.resolve_prostudio_provider_for_slot(payload, "image", "topaz_enhance_photo", "topaz") == "OPENAI"
+
+
 def test_edit_upscale_dispatches_to_restore_instead_of_topaz(monkeypatch):
     calls = []
 
@@ -142,6 +167,44 @@ def test_edit_upscale_dispatches_to_restore_instead_of_topaz(monkeypatch):
     assert result["ok"] is True
     assert result["tool"] == "edit_workspace"
     assert result["enhance_model"] == "sylvex_sr"
+    assert result["provider"] == "openai"
+
+
+def test_job_dispatch_calls_sylvex_restore_directly_and_never_topaz_adapter(monkeypatch):
+    calls = {"sylvex": 0, "topaz": 0}
+
+    async def fake_restore(payload):
+        calls["sylvex"] += 1
+        return {"ok": True, "type": "image", "image_url": "https://cdn.example.com/restored.png"}
+
+    async def fail_topaz(payload):
+        calls["topaz"] += 1
+        raise AssertionError("Topaz adapter must never receive Sylvex Restore")
+
+    monkeypatch.setattr(main, "generate_sylvex_restore_image", fake_restore)
+    monkeypatch.setattr(main, "generate_enhance_photo_image", fail_topaz)
+    payload = {
+        "mode": "image",
+        "provider": "openai",
+        "model": "sylvex_sr",
+        "image_options": {
+            "tool": "enhance_photo",
+            "enhancePhotoModel": "sylvex_sr",
+            "enhancePhotoSourceUrl": "https://cdn.example.com/source.png",
+        },
+    }
+    result = asyncio.run(main.dispatch_prostudio_provider_request(
+        "job_sr", payload, "image", "sylvex_sr", "openai", {"text", "chat", "pro", "lite"},
+    ))
+    assert result["ok"] is True
+    assert calls == {"sylvex": 1, "topaz": 0}
+
+
+def test_topaz_adapter_refuses_sylvex_restore_instead_of_forwarding(monkeypatch):
+    monkeypatch.setattr(main, "topaz_headers", lambda: pytest.fail("Topaz credentials must not be read"))
+    result = asyncio.run(main.generate_enhance_photo_image(edit_restore_payload()))
+    assert result["ok"] is False
+    assert result["raw_error"] == "sylvex_restore_misrouted_to_topaz"
     assert result["provider"] == "openai"
 
 
@@ -183,6 +246,77 @@ def test_restore_pass_receives_references_in_explicit_region_order(monkeypatch):
     assert result["ok"] is True
     assert captured == ["region_1", "region_3"]
     assert result["reference_images"] == ["https://cdn.example.com/source.png", "https://cdn.example.com/a.png", "https://cdn.example.com/b.png"]
+
+
+def test_gpt_image_request_contains_source_regions_references_notes_and_scale(monkeypatch):
+    source = png((120, 80))
+    face = png((40, 40), (100, 20, 20, 255))
+    product = png((50, 30), (20, 100, 20, 255))
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = json.dumps({"data": [{"b64_json": base64.b64encode(source).decode()}]})
+
+    def fake_post(url, **kwargs):
+        captured.update({"url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr(main, "OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    rows = sr.validate_regions([
+        region("region_1", reference="https://cdn.example.com/face.png", instruction="Preserve the exact identity."),
+        region("region_2", instruction="Restore the label as SYLVEX."),
+        region("region_3", reference="https://cdn.example.com/product.png"),
+    ], 120, 80)
+    restored = main._sylvex_sr_provider_restore(
+        source, rows, [("region_1", face), ("region_3", product)], 4,
+    )
+
+    assert restored.startswith(b"\x89PNG")
+    assert captured["url"].endswith("/images/edits")
+    assert captured["headers"] == {"Authorization": "Bearer test-openai-key"}
+    assert captured["data"]["model"] == "gpt-image-2.5-sunburst"
+    assert captured["data"]["quality"] == main.SYLVEX_RESTORE_PROVIDER_QUALITY
+    assert captured["data"]["output_format"] == "png"
+    assert captured["data"]["n"] == "1"
+    assert [field for field, _ in captured["files"]] == ["image[]", "image[]", "image[]"]
+    assert [item[0] for _, item in captured["files"]] == [
+        "source.png", "region_1-reference.png", "region_3-reference.png",
+    ]
+    prompt = captured["data"]["prompt"]
+    assert "Region number 1, ID region_1" in prompt
+    assert "pixels x=10, y=10, width=30, height=25" in prompt
+    assert "Input image 2 is mapped only to region_1" in prompt
+    assert "Input image 3 is mapped only to region_3" in prompt
+    assert "Preserve the exact identity." in prompt
+    assert "Restore the label as SYLVEX." in prompt
+    assert "final output scale is X4" in prompt
+
+
+def test_gpt_image_failure_returns_real_error_without_storage_or_topaz(monkeypatch):
+    source = png()
+    touched = {"storage": 0, "topaz": 0}
+
+    class Response:
+        status_code = 400
+        text = json.dumps({"error": {"message": "Reference image 2 could not be decoded", "code": "invalid_image"}})
+
+    monkeypatch.setattr(main, "OPENAI_API_KEY", "test")
+    monkeypatch.setattr(main, "_read_image_bytes_for_generation", lambda value: source)
+    monkeypatch.setattr(main.requests, "post", lambda *args, **kwargs: Response())
+    monkeypatch.setattr(main, "storage_put_bytes", lambda *args, **kwargs: touched.__setitem__("storage", touched["storage"] + 1))
+    monkeypatch.setattr(main, "topaz_headers", lambda: touched.__setitem__("topaz", touched["topaz"] + 1))
+
+    result = asyncio.run(main.generate_sylvex_restore_image(edit_restore_payload([
+        region("region_1", reference="https://cdn.example.com/ref.png")
+    ])))
+    assert result["ok"] is False
+    assert result["provider"] == "openai"
+    assert result["provider_model"] == "gpt-image-2.5-sunburst"
+    assert result["status_code"] == 400
+    assert "Reference image 2 could not be decoded" in result["error"]
+    assert touched == {"storage": 0, "topaz": 0}
 
 
 def test_automatic_analysis_routes_are_removed():
