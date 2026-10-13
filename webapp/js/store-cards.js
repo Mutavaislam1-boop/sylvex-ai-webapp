@@ -252,6 +252,49 @@
     return '<p class="sxs-footnote">' + escapeHtml(tr('store_examples_note', parts)) + '</p>';
   }
 
+  /* ---------------- scroll stability ---------------- */
+
+  // The element that actually scrolls around `el` (the Mini App scrolls a
+  // <main class="scroll">, the Website the document).
+  function scrollParent(el) {
+    for (var node = el && el.parentElement; node; node = node.parentElement) {
+      var style = root.getComputedStyle ? root.getComputedStyle(node) : null;
+      if (style && /(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+    }
+    return (typeof document !== 'undefined' && document.scrollingElement) || null;
+  }
+
+  // Runs a full re-render without moving what the user is looking at: the
+  // first card still on screen keeps its exact position afterwards.
+  function keepScroll(container, render) {
+    var scroller = typeof document !== 'undefined' ? scrollParent(container) : null;
+    var anchor = null, key = null, top = 0;
+    if (scroller && container.querySelectorAll) {
+      var view = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
+      var cards = container.querySelectorAll('[data-plan],[data-pack-usd]');
+      for (var i = 0; i < cards.length; i++) {
+        var rect = cards[i].getBoundingClientRect();
+        if (rect.bottom > view) { anchor = cards[i]; break; }
+      }
+      if (anchor) {
+        key = anchor.hasAttribute('data-plan') ? '[data-plan="' + anchor.getAttribute('data-plan') + '"]'
+          : '[data-pack-usd="' + anchor.getAttribute('data-pack-usd') + '"]';
+        top = anchor.getBoundingClientRect().top;
+      }
+    }
+    var saved = scroller ? scroller.scrollTop : 0;
+    render();
+    if (!scroller) return;
+    var again = key ? container.querySelector(key) : null;
+    if (again) scroller.scrollTop += again.getBoundingClientRect().top - top;
+    else scroller.scrollTop = saved;
+  }
+
+  function focusQuietly(el) {
+    if (!el || typeof el.focus !== 'function') return;
+    try { el.focus({ preventScroll: true }); } catch (_) { /* old WebViews */ }
+  }
+
   /* ---------------- subscriptions ---------------- */
 
   var planState = new WeakMap();
@@ -271,18 +314,49 @@
     var starsPrice = typeof opts.starsPrice === 'function' ? opts.starsPrice : null;
     var examples = resolveExamples(opts.examples);
 
-    function planCard(plan) {
-      var period = state.periods[plan.id] || 'month';
+    function planView(plan, period) {
       var price = planPricing(plan, period);
-      var available = !!isAvailable(plan.id, period);
       var note = period === 'year'
         ? (starsPrice ? tr('store_billed_annually_stars', { pct: price.discountPct })
           : tr(autoRenew ? 'store_billed_annually_auto' : 'store_billed_annually', { total: fmt.usd(price.totalUsd, 0), pct: price.discountPct }))
         : tr(starsPrice && autoRenew ? 'store_renews_every_30_days'
           : autoRenew ? 'store_billed_monthly_auto' : 'store_billed_monthly');
-      // Stars mode shows what one payment costs: a month, or the whole year.
-      var amount = starsPrice ? fmt.number(starsPrice(Math.round(price.totalUsd * 100))) + ' ⭐' : fmt.usd(price.displayUsd, price.decimals);
-      var unit = tr(starsPrice && period === 'year' ? 'store_per_year' : 'store_per_month');
+      return {
+        price: price,
+        available: !!isAvailable(plan.id, period),
+        note: note,
+        // Stars mode shows what one payment costs: a month, or the whole year.
+        amount: starsPrice ? fmt.number(starsPrice(Math.round(price.totalUsd * 100))) + ' ⭐' : fmt.usd(price.displayUsd, price.decimals),
+        unit: tr(starsPrice && period === 'year' ? 'store_per_year' : 'store_per_month'),
+        creditNote: tr(period === 'year' ? 'store_credits_annual' : 'store_credits_monthly'),
+      };
+    }
+
+    // Month / Year: only the values inside this one card change - no
+    // re-render, so nothing on the page moves.
+    function updatePlanCard(card, plan, period) {
+      var v = planView(plan, period);
+      card.querySelectorAll('[data-sxs-period]').forEach(function (btn) {
+        btn.setAttribute('aria-pressed', String(btn.dataset.sxsPeriod === period));
+      });
+      card.querySelector('.sxs-price-amount').textContent = v.amount;
+      card.querySelector('.sxs-price-unit').textContent = v.unit;
+      card.querySelector('.sxs-price-note').textContent = v.note;
+      card.querySelector('[data-sxs-credits]').textContent = fmt.number(v.price.credits);
+      card.querySelector('.sxs-credit-note').textContent = v.creditNote;
+      card.querySelectorAll('.sxs-example').forEach(function (row, i) {
+        row.querySelector('[data-sxs-example-value]').textContent = exampleValue(tr, fmt, v.price.credits, examples[i]);
+      });
+      var cta = card.querySelector('[data-sxs-select-plan]');
+      cta.disabled = !v.available;
+      if (v.available) cta.removeAttribute('aria-disabled'); else cta.setAttribute('aria-disabled', 'true');
+      cta.textContent = tr(v.available ? 'store_select_plan' : 'store_plan_soon');
+    }
+
+    function planCard(plan) {
+      var period = state.periods[plan.id] || 'month';
+      var v = planView(plan, period);
+      var price = v.price, available = v.available, note = v.note, amount = v.amount, unit = v.unit;
       return '<article class="sxs-card sxs-plan' + (plan.popular ? ' is-popular' : '') + '" data-plan="' + plan.id + '">' +
         '<div class="sxs-plan-head"><h3 class="sxs-plan-name">' + escapeHtml(plan.name) + '</h3>' +
           (plan.popular ? '<span class="sxs-badge">' + escapeHtml(tr('store_popular')) + '</span>' : '') + '</div>' +
@@ -293,7 +367,7 @@
         '</div>' +
         '<div class="sxs-price"><span class="sxs-price-amount">' + escapeHtml(amount) + '</span><span class="sxs-price-unit">' + escapeHtml(unit) + '</span></div>' +
         '<div class="sxs-price-note">' + escapeHtml(note) + '</div>' +
-        creditPanel(fmt, price.credits, tr(period === 'year' ? 'store_credits_annual' : 'store_credits_monthly'), true) +
+        creditPanel(fmt, price.credits, v.creditNote, true) +
         examplesBlock(tr, fmt, price.credits, examples) +
         '<button type="button" class="sxs-plan-cta" data-sxs-select-plan' + (available ? '' : ' disabled aria-disabled="true"') + '>' +
           escapeHtml(tr(available ? 'store_select_plan' : 'store_plan_soon')) + '</button>' +
@@ -310,7 +384,10 @@
     }
 
     container.classList.add('sxs-root', 'sxs-plans');
-    container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + businessCard() + '</div>' + examplesNote(tr, fmt, examples);
+    keepScroll(container, function () {
+      container.innerHTML = '<div class="sxs-grid">' + PLANS.map(planCard).join('') + businessCard() + '</div>' + examplesNote(tr, fmt, examples);
+    });
+    container.__sxsUpdatePlanCard = updatePlanCard;
 
     if (!container.__sxsPlansBound) {
       container.__sxsPlansBound = true;
@@ -318,10 +395,11 @@
         var periodBtn = event.target.closest('[data-sxs-period]');
         var card = event.target.closest('[data-plan]');
         if (periodBtn && card) {
+          var plan = PLANS.filter(function (p) { return p.id === card.dataset.plan; })[0];
           state.periods[card.dataset.plan] = periodBtn.dataset.sxsPeriod;
-          renderPlans(container, container.__sxsPlanOptions);
-          var again = container.querySelector('[data-plan="' + card.dataset.plan + '"] [data-sxs-period="' + periodBtn.dataset.sxsPeriod + '"]');
-          if (again) again.focus();
+          if (plan && typeof card.querySelectorAll === 'function') container.__sxsUpdatePlanCard(card, plan, periodBtn.dataset.sxsPeriod);
+          else renderPlans(container, container.__sxsPlanOptions); // no live DOM (headless hosts)
+          focusQuietly(periodBtn);
           return;
         }
         var select = event.target.closest('[data-sxs-select-plan]');
@@ -456,9 +534,32 @@
 
     function paint() {
       container.classList.add('sxs-root', 'sxs-credits');
-      container.innerHTML =
-        '<div class="sxs-grid" role="group">' + packList.map(packCard).join('') + '</div>' +
-        customCard() + summary() + examplesNote(tr, fmt, examples);
+      keepScroll(container, function () {
+        container.innerHTML =
+          '<div class="sxs-grid" role="group">' + packList.map(packCard).join('') + '</div>' +
+          customCard() + summary() + examplesNote(tr, fmt, examples);
+      });
+    }
+
+    // Picking another package updates the cards and the summary in place.
+    function selectPack(usd) {
+      if (state.customOpen) {
+        state.usd = usd;
+        state.customOpen = false;
+        paint();
+        return;
+      }
+      state.usd = usd;
+      container.querySelectorAll('[data-pack-usd]').forEach(function (card) {
+        var on = Number(card.dataset.packUsd) === usd;
+        card.classList.toggle('is-selected', on);
+        var pick = card.querySelector('.sxs-pick');
+        if (pick) pick.outerHTML = on ? icon('check', 'sxs-pick sxs-pick--on') : '<span class="sxs-pick" aria-hidden="true"></span>';
+        var cta = card.querySelector('[data-sxs-pick]');
+        if (cta) { cta.setAttribute('aria-pressed', String(on)); cta.textContent = tr(on ? 'store_selected' : 'store_select'); }
+      });
+      var old = container.querySelector('.sxs-summary');
+      if (old) old.outerHTML = summary();
     }
 
     // Typing in the custom amount updates credits, examples and summary in
@@ -498,6 +599,8 @@
     container.__sxsCreditOptions = opts;
     container.__sxsCreditPaint = paint;
     container.__sxsCreditUpdate = updateCustom;
+    container.__sxsCreditSelect = selectPack;
+    container.__sxsCreditPackId = function (usd) { return (opts.packIdForUsd || packIdForUsd)(usd); };
     if (container.__sxsCreditsBound) return;
     container.__sxsCreditsBound = true;
 
@@ -525,11 +628,17 @@
       }
       var card = event.target.closest('[data-pack-usd]');
       if (card) {
-        state.usd = Number(card.dataset.packUsd);
-        state.customOpen = false;
-        container.__sxsCreditPaint();
-        var pick = container.querySelector('[data-sxs-pick="' + state.usd + '"]');
-        if (pick) pick.focus();
+        var usd = Number(card.dataset.packUsd);
+        container.__sxsCreditSelect(usd);
+        var pick = container.querySelector('[data-sxs-pick="' + usd + '"]');
+        focusQuietly(pick);
+        // Hosts that ask for it (the Mini App): the card's Select button is
+        // the purchase - open the checkout right away, no Continue step.
+        var options = container.__sxsCreditOptions;
+        if (event.target.closest('[data-sxs-pick]') && options.selectOpensCheckout && typeof options.onContinue === 'function') {
+          var packId = container.__sxsCreditPackId(usd);
+          if (packId) options.onContinue(packId, pick);
+        }
       }
     });
     container.addEventListener('input', function (event) {

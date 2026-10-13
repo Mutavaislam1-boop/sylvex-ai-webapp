@@ -24877,6 +24877,8 @@ async function waitGeneration(jobId, options) {
       packUsd: packs,
       packIdForUsd: (usd) => (storeProductAvailable('pack_' + usd * 100) ? 'pack_' + usd * 100 : null),
       onContinue: (packId) => openStoreProduct(packId),
+      // "Select" on a package opens its checkout at once (no Continue step).
+      selectOpensCheckout: true,
       customCredits: custom ? { min: custom.min_credits, max: custom.max_credits } : { min: 100, max: 10000 },
       customPurchase: !!(custom && storeProviderOpen('telegram_stars')),
       onContinueCustom: (amount) => openStoreProduct('credits_custom', amount),
@@ -24887,6 +24889,133 @@ async function waitGeneration(jobId, options) {
       window.addEventListener('sylvex:languagechange', mountStoreCards);
     }
   }
+  // =====================================================
+  // МАГАЗИН: мягкое центрирование карточек тарифов и пакетов токенов.
+  // Пользователь листает свободно; когда прокрутка останавливается, ближайшая
+  // карточка плавно встаёт по центру экрана, а короткий свайп ведёт к
+  // следующей карточке. Никаких перерисовок - только прокрутка.
+  // =====================================================
+  function initStoreCardCentering() {
+    const sc = document.querySelector('.scroll');
+    if (!sc || initStoreCardCentering.bound) return;
+    initStoreCardCentering.bound = true;
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let timer = 0, touching = false, startTop = null, startCard = null, settling = false;
+    const shopActive = () => {
+      const view = document.querySelector('.view[data-view="shop"]');
+      return !!(view && view.classList.contains('active'));
+    };
+    const cards = () => {
+      const panel = [...document.querySelectorAll('.view[data-view="shop"] [data-shop-panel]')]
+        .find((el) => !el.hidden && el.querySelector('[data-plan],[data-pack-usd]'));
+      return panel ? [...panel.querySelectorAll('[data-plan],[data-pack-usd]')] : [];
+    };
+    const viewport = () => {
+      const r = sc.getBoundingClientRect();
+      const navEl = document.getElementById('nav');
+      const navTop = navEl && !navEl.classList.contains('nav-autohide') ? navEl.getBoundingClientRect().top : r.bottom;
+      return { top: r.top, bottom: Math.min(r.bottom, navTop), center: (r.top + Math.min(r.bottom, navTop)) / 2 };
+    };
+    // Cards in the same row (two-column packs) share one stop.
+    const rows = (list) => {
+      const out = [];
+      list.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        const row = out.find((r) => Math.abs(r.top - rect.top) < 4);
+        if (row) row.bottom = Math.max(row.bottom, rect.bottom);
+        else out.push({ el, top: rect.top, bottom: rect.bottom });
+      });
+      return out;
+    };
+    const nearest = (list, vp) => {
+      let best = null, bestDist = Infinity;
+      list.forEach((row) => {
+        const d = Math.abs((row.top + row.bottom) / 2 - vp.center);
+        if (d < bestDist) { best = row; bestDist = d; }
+      });
+      return best && bestDist < (vp.bottom - vp.top) * 0.75 ? best : null;
+    };
+    const settle = () => {
+      timer = 0;
+      if (touching || settling || !shopActive()) { startTop = null; return; }
+      const vp = viewport();
+      const list = rows(cards());
+      let target = nearest(list, vp);
+      if (!target) { startTop = null; return; }
+      // A short swipe that would fall back to the card it started on moves
+      // on to the neighbouring card in the swipe direction instead.
+      const moved = startTop == null ? 0 : sc.scrollTop - startTop;
+      if (startCard && target.el === startCard && Math.abs(moved) > 24) {
+        const i = list.indexOf(target) + (moved > 0 ? 1 : -1);
+        if (list[i]) target = list[i];
+      }
+      startTop = null;
+      // Above the first card (tabs, header) or below the last one (custom
+      // amount, summary) the user stays where they scrolled to.
+      const first = list[0], lastRow = list[list.length - 1];
+      if (target === first && first.top > vp.top + 4 && moved <= 0) return;
+      if (target === lastRow && lastRow.bottom < vp.bottom - 4 && moved >= 0) return;
+      const height = vp.bottom - vp.top;
+      const cardHeight = target.bottom - target.top;
+      // Tall cards align their top instead of their middle.
+      const delta = cardHeight > height - 24
+        ? target.top - vp.top - 12
+        : (target.top + target.bottom) / 2 - vp.center;
+      if (Math.abs(delta) < 2) return;
+      settling = true;
+      sc.scrollTo({ top: sc.scrollTop + delta, behavior: reduceMotion ? 'auto' : 'smooth' });
+      setTimeout(() => { settling = false; }, reduceMotion ? 50 : 450);
+    };
+    const remember = () => {
+      if (startTop != null || settling || !shopActive()) return;
+      startTop = sc.scrollTop;
+      const vp = viewport();
+      const row = nearest(rows(cards()), vp);
+      startCard = row ? row.el : null;
+    };
+    sc.addEventListener('touchstart', () => { touching = true; remember(); }, { passive: true });
+    sc.addEventListener('touchend', () => { touching = false; clearTimeout(timer); timer = setTimeout(settle, 160); }, { passive: true });
+    sc.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
+    sc.addEventListener('wheel', remember, { passive: true });
+    sc.addEventListener('scroll', () => {
+      if (settling || !shopActive()) return;
+      remember();
+      clearTimeout(timer);
+      timer = setTimeout(settle, 160);
+    }, { passive: true });
+  }
+
+  // =====================================================
+  // НИЖНЯЯ НАВИГАЦИЯ: прячется при прокрутке вниз и возвращается при
+  // прокрутке вверх - на всех экранах Mini App (любой вертикальный скролл).
+  // =====================================================
+  function initNavAutoHide() {
+    const navEl = document.getElementById('nav');
+    if (!navEl || initNavAutoHide.bound) return;
+    initNavAutoHide.bound = true;
+    const last = new WeakMap();
+    let travel = 0;
+    const show = () => { navEl.classList.remove('nav-autohide'); travel = 0; };
+    document.addEventListener('scroll', (event) => {
+      const el = event.target === document ? document.scrollingElement : event.target;
+      if (!el || typeof el.scrollTop !== 'number' || navEl.contains(el)) return;
+      const top = el.scrollTop;
+      const prev = last.has(el) ? last.get(el) : top;
+      last.set(el, top);
+      const delta = top - prev;
+      if (!delta) return; // horizontal carousels do not change scrollTop
+      if (top <= 8) { show(); return; }
+      travel = (travel > 0) === (delta > 0) ? travel + delta : delta;
+      if (travel > 14) navEl.classList.add('nav-autohide');
+      else if (travel < -10) show();
+    }, { capture: true, passive: true });
+    // Switching screens always brings the navigation back.
+    navEl.addEventListener('click', show);
+    window.addEventListener('sylvex:languagechange', show);
+    const observer = window.MutationObserver ? new MutationObserver(show) : null;
+    document.querySelectorAll('.view').forEach((view) => observer && observer.observe(view, { attributes: true, attributeFilter: ['class'] }));
+  }
+
   function switchShopTab(tab){const selected=tab==='tokens'?'tokens':'subscriptions';document.querySelectorAll('[data-shop-tab]').forEach(button=>button.classList.toggle('active',button.dataset.shopTab===selected));document.querySelectorAll('[data-shop-panel]').forEach(panel=>panel.hidden=panel.dataset.shopPanel!==selected)}
   function openSpendingStats(){let modal=document.getElementById('spendingStatsModal');if(!modal){modal=document.createElement('div');modal.id='spendingStatsModal';modal.className='community-modal spending-stats-modal';document.body.appendChild(modal)}const spent=Number((S.user&&S.user.tokens_spent)||0);modal.innerHTML='<section><header><div><small>Статистика расходов</small><h3>Токены SYLVEX</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><div class="spending-total"><small>Потрачено за всё время</small><b>'+spent.toLocaleString()+' ⚡️</b></div><div class="spending-chart-empty"><span style="height:22%"></span><span style="height:38%"></span><span style="height:31%"></span><span style="height:54%"></span><span style="height:44%"></span><span style="height:70%"></span><span style="height:62%"></span></div><p class="spending-note">Детализация по дням появится после подключения серверной истории списаний. Текущая сумма взята из реальных данных профиля.</p><button class="community-publish-submit" type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\');switchView(\'history\')">Открыть историю генераций</button></section>';modal.classList.add('show')}
 
@@ -26885,6 +27014,8 @@ async function waitGeneration(jobId, options) {
     bindEvents();
     initPresence();
     initNotifications();
+    initStoreCardCentering();
+    initNavAutoHide();
     initHomeIdeaAi();
     initAiAssistantFab();
     window.addEventListener('message', handleKnowledgeWorkspaceMessage);
