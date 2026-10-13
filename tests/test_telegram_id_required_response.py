@@ -59,9 +59,15 @@ def test_helper_returns_a_fresh_response_object_each_call():
 # different occurrences were left alone.
 # ---------------------------------------------------------------------------
 
-def test_exactly_31_call_sites_now_use_the_shared_helper():
+def test_exactly_39_call_sites_now_use_the_shared_helper():
+    # 31 from the original extraction, plus the Store order endpoints
+    # (store Crypto invoice, order status) and the Stripe checkout and portal
+    # endpoints, which use the helper from the start. The Stars invoice route
+    # now has a single path (legacy pack_id requests become catalog orders),
+    # so it uses the helper once. The four Telegram Stars subscription
+    # endpoints (status, cancel, reactivate, change) use it from the start.
     count = MAIN_PY_SOURCE.count("return telegram_id_required_response()")
-    assert count == 31, f"expected exactly 31 call sites using the helper, found {count}"
+    assert count == 39, f"expected exactly 39 call sites using the helper, found {count}"
 
 
 def test_the_raw_duplicate_literal_appears_only_inside_the_helpers_own_definition():

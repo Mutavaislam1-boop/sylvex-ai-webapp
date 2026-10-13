@@ -19,11 +19,15 @@ actor_id = contextvars.ContextVar('sylvex_actor_id', default=0)
 actor_init_data = contextvars.ContextVar('sylvex_init_data', default='')
 PUBLIC_GETS = frozenset({
  '/health/live', '/health/ready', '/api/public/config', '/api/payment-links',
+ # Stripe deployment check (mode, webhook readiness, catalog sync counts; no secrets).
+ '/api/public/payments/stripe/status',
  '/api/public/prostudio/preset-catalog', '/api/public/prostudio/voice-avatars',
  '/api/public/prostudio/image-capabilities', '/api/public/prostudio/model-capabilities', '/api/public/prostudio/video-templates',
  '/api/public/prostudio/photo-catalog', '/api/public/prostudio/photo-tool-demos',
  '/api/public/prostudio/quick-image-catalog', '/api/public/prostudio/kling/effects',
  '/api/public/prostudio/pricing-catalog',
+ # Static Store catalog (products, prices, generation examples); no user data.
+ '/api/public/shop/catalog',
  '/api/public/video/templates', '/api/public/prostudio/references',
  # Website web-session read: has no Telegram initData to present, so it
  # authenticates itself off its own cookie (see verify_web_session_token)
@@ -40,6 +44,9 @@ PUBLIC_GETS = frozenset({
  # CRUD, files, realtime voice) requires a real signed-in account and goes
  # through this middleware's normal website-session resolution instead.
  '/api/web/assistant/state',
+ # Notification bell of an anonymous website visitor: identified only by the
+ # random visitor id the site was issued (services/notifications.py).
+ '/api/public/visitor/notifications',
 })
 # POST routes under /api/web/... all authenticate with the website's own
 # session cookie or a mailed/one-time token (see services/account_identity.py
@@ -62,12 +69,30 @@ PUBLIC_POSTS = frozenset({
  # never calls OpenAI regardless of what a tampered client claims, since
  # the guide-vs-AI choice is re-derived server-side from get_user_state().
  '/api/web/assistant/message',
+ # Anonymous website visitors (no account, no Telegram): the visit beacon,
+ # their bell's read receipts and the internal Contact SYLVEX popup. Each
+ # validates the server-issued visitor id itself and is rate limited.
+ '/api/public/visitor/ping', '/api/public/visitor/notifications/read', '/api/public/visitor/contact',
  # Telegram bot media re-hosting: authenticated inside the handler by the
  # TELEGRAM_MEDIA_SERVICE_TOKEN header, never by a user session.
  '/api/internal/telegram-media',
 })
 MULTIPART_ROUTES = frozenset({'/api/internal/telegram-media','/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
-WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook'})
+WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook','/api/public/payments/stripe/webhook'})
+# Inside Telegram (any request carrying Telegram initData), Telegram Stars is
+# the only purchase method: these non-Stars purchase routes are refused for
+# Telegram requests, including from older Mini App builds. The Website (no
+# initData, session cookie) keeps using them. Webhooks, order status and
+# history are unaffected.
+TELEGRAM_BLOCKED_PURCHASE_ROUTES = frozenset({
+ '/api/public/payments/crypto/invoice',
+ '/api/public/payments/paypal/create-order',
+ '/api/public/payments/paypal/subscription-binding',
+ '/api/public/payments/paypal/subscription-created',
+ '/api/public/payments/lemonsqueezy/checkout',
+ '/api/public/payments/stripe/checkout',
+ '/api/public/payments/stripe/portal',
+})
 # Routes whose own handler resolves the real authenticated user id itself
 # (after subscription state is known, for /assistant/message) and calls
 # check_request_quota exactly once with it. The generic per-request
@@ -654,6 +679,17 @@ class SecurityMiddleware:
     await send(message)
    return await self.app(scope,receive,unprotected_send)
   is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS))) or (method=='POST' and path in PUBLIC_POSTS)
+  # Admin Console v2: never Telegram initData or the bot service token -
+  # every route authenticates its own admin session (cookie + CSRF + Origin,
+  # see main._admin_v2_actor), so the Telegram identity step is skipped here.
+  is_public=is_public or path.startswith('/api/admin/v2/')
+  # Admin Console calling a v1 /api/admin/* route with its admin session
+  # (cookie or X-Admin-Session) and no Telegram/service credential: the
+  # route's _admin_actor() validates that session (Origin + CSRF + RBAC).
+  if path.startswith('/api/admin/') and not headers.get(b'x-telegram-init-data') \
+     and not headers.get(b'x-admin-service-token') and not headers.get(b'authorization') \
+     and (headers.get(b'x-admin-session') or b'__Host-sylvex_admin=' in headers.get(b'cookie',b'')):
+   is_public=True
   is_webhook=path in WEBHOOKS
   # CSRF guard: every /api/web/* route authenticates off the sylvex_web_session
   # cookie (SameSite=None, required for the cross-origin Pro Studio iframe
@@ -792,6 +828,7 @@ class SecurityMiddleware:
      # Legacy handlers now see the same verified credentials as middleware.
      json_body['initData']=init_data;json_body['init_data']=init_data
      body=json.dumps(json_body,separators=(',',':')).encode()
+    if init_data and path in TELEGRAM_BLOCKED_PURCHASE_ROUTES:raise SecurityError('telegram_stars_only',403)
     scope.setdefault('state',{}).update(telegram_id=uid,telegram_user=user,telegram_init_data=init_data)
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)

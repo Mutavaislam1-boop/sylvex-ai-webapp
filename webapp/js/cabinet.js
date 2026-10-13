@@ -306,12 +306,12 @@ const PHOTO_TOOL_CONFIG = {
     demo: '/webapp/assets/photo-tools/replace-character/demo.mp4',
   },
   enhance: {
-    title: 'Улучшение фото',
-    shortTitle: 'Улучшение фото',
-    description: 'Загрузите одно фото для улучшения качества и детализации.',
+    title: 'Enhance Photo',
+    shortTitle: 'Enhance Photo',
+    description: 'Enhance image quality automatically with Topaz.',
     min: 1,
     max: 1,
-    labels: ['Фото для улучшения'],
+    labels: ['Source image'],
     demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
   },
   animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
@@ -6742,26 +6742,32 @@ function createEditWorkspaceState() {
     width:0,height:0,showBefore:false,history:[],chain:[],activeNodeId:'',nodeSequence:0,maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:0,right:0,top:0,bottom:0},
-    backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
-    upscaleEstimate:null,
-    upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
+    backgroundMode:'transparent',background:{color:'#ffffff',url:'',name:''},translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
+    upscaleEstimate:null,sketch:null,
+    upscale:{model:'topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0,sylvex:{sourceUrl:'',resultUrl:'',imageWidth:0,imageHeight:0,regions:[],selectedRegionId:'',addingRegion:false,absorbing:false,guidesHidden:false,finalEnhance:{apply_global_enhance:true,upscale_factor:2,denoise_strength:.2,sharpen_strength:.2}}}};
+}
+function createEditSylvexRestoreState() {
+  return {sourceUrl:'',resultUrl:'',imageWidth:0,imageHeight:0,regions:[],selectedRegionId:'',addingRegion:false,absorbing:false,guidesHidden:false,
+    finalEnhance:{apply_global_enhance:true,upscale_factor:2,denoise_strength:.2,sharpen_strength:.2}};
 }
 let editSessionsOwner='',editSessions=[],editSessionsHasMore=false,editSessionsOffset=0,editSessionSaveTimer=0,editSessionSaveQueue=Promise.resolve(),editSessionSyncStatus='',editSessionOpenVersion=0,editSessionPagehideBound=false,editSessionRevision=0,editSessionLocalAvailable=true;
 const editSessionLocalStates=new Map();
 function editSessionOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):'';}
 function editSessionSnapshot(){
   const s=editWorkspaceState,urls=new Map(s.chain.map(node=>[node.preview,node.url]));
-  return JSON.parse(JSON.stringify({...s,busy:false,uploading:false,showBefore:false,upscaleEstimate:null},(key,value)=>{
+  const snapshot=JSON.parse(JSON.stringify({...s,busy:false,uploading:false,showBefore:false,upscaleEstimate:null},(key,value)=>{
     if(typeof value==='string'&&value.startsWith('blob:'))return urls.get(value)||'';
     return value;
   }));
+  if(snapshot.upscale?.sylvex){snapshot.upscale.sylvex.absorbing=false;snapshot.upscale.sylvex.guidesHidden=false;}
+  return snapshot;
 }
 function editSessionSummary(state){
-  return {id:state.sessionId,title:state.sourceName||'Рабочая область Edit',preview_url:[...state.chain].reverse().find(node=>node.status==='ready')?.url||'',count:state.chain.filter(node=>node.parentId&&node.status==='ready').length,updatedAt:state.updatedAt||new Date().toISOString()};
+  return {id:state.sessionId,title:state.sourceName||'Edit workspace',preview_url:[...state.chain].reverse().find(node=>node.status==='ready')?.url||'',count:state.chain.filter(node=>node.parentId&&node.status==='ready').length,updatedAt:state.updatedAt||new Date().toISOString()};
 }
 function writeEditSessionLocal(){
   try{localStorage.setItem('sylvex-edit-sessions-v1:'+editSessionsOwner,JSON.stringify({active:editWorkspaceState.sessionId,states:[...editSessionLocalStates.values()]}));editSessionLocalAvailable=true;}
-  catch(_){editSessionLocalAvailable=false;editSessionSyncStatus='Локальное сохранение недоступно';}
+  catch(_){editSessionLocalAvailable=false;editSessionSyncStatus='Local saving is unavailable';}
 }
 function renderEditSessionList(){
   const host=document.getElementById('editSessionList');if(!host)return;
@@ -6771,24 +6777,24 @@ function renderEditSessionList(){
     const active=item.id===editWorkspaceState.sessionId;
     const title=safe(item.title),details=item.count+' · '+safe(new Date(item.updatedAt).toLocaleDateString());
     return '<button type="button" class="'+(shared?'sx-sidebar-history-item':'edit-session-item')+(active?' active':'')+'" data-edit-session="'+safe(item.id)+'" '+(active?'aria-current="true" ':'')+'title="'+title+' · '+details+'" '+(editWorkspaceLocked()?'disabled':'')+'>'+(shared?'<span class="sx-sidebar-history-text">'+title+'</span>':'<img src="'+safe(item.preview_url)+'" alt=""><span><b>'+title+'</b><small>'+details+'</small></span>')+'</button>';
-  }).join(''):'<p class="'+(shared?'sx-sidebar-history-empty':'edit-session-empty')+'">Здесь появятся ваши рабочие области</p>';
-  if(editSessionsHasMore)host.insertAdjacentHTML('beforeend','<button class="'+(shared?'sx-sidebar-history-item':'edit-session-more')+'" type="button" onclick="SYLVEX.loadMoreEditSessions(event)">Показать ещё</button>');
+  }).join(''):'<p class="'+(shared?'sx-sidebar-history-empty':'edit-session-empty')+'">Your workspaces will appear here</p>';
+  if(editSessionsHasMore)host.insertAdjacentHTML('beforeend','<button class="'+(shared?'sx-sidebar-history-item':'edit-session-more')+'" type="button" onclick="SYLVEX.loadMoreEditSessions(event)">Show more</button>');
   host.onclick=e=>{const button=e.target.closest('[data-edit-session]');if(button)void openEditSession(button.dataset.editSession);};
   const status=document.getElementById('editSessionSync');if(status)status.textContent=editSessionSyncStatus;
   const newButton=document.getElementById('editSidebarNew');if(newButton)newButton.disabled=editWorkspaceLocked();
 }
 function scheduleEditWorkspaceSave(){
-  if(!editSessionOwner()||!editWorkspaceState.chain.length)return;
+  if(!editSessionOwner()||!editWorkspaceHasContent(editWorkspaceState))return;
   clearTimeout(editSessionSaveTimer);editSessionSaveTimer=setTimeout(()=>{void saveEditWorkspaceSession();},650);
 }
 function saveEditWorkspaceSession(){
   clearTimeout(editSessionSaveTimer);
-  const owner=editSessionOwner();if(!owner||!editWorkspaceState.chain.length)return Promise.resolve();
+  const owner=editSessionOwner();if(!owner||!editWorkspaceHasContent(editWorkspaceState))return Promise.resolve();
   if(editSessionsOwner!==owner)return Promise.resolve();
   editWorkspaceState.updatedAt=new Date().toISOString();editWorkspaceState.saveRevision=++editSessionRevision;
   const state=editSessionSnapshot();editSessionLocalStates.set(state.sessionId,{...state,localUnsynced:true});
   editSessions=[editSessionSummary(state),...editSessions.filter(item=>item.id!==state.sessionId)];writeEditSessionLocal();
-  editSessionSyncStatus='Сохранение…';renderEditSessionList();
+  editSessionSyncStatus='Saving…';renderEditSessionList();
   const save=async()=>{
     try{
       if(editSessionOwner()!==owner)return;
@@ -6796,8 +6802,8 @@ function saveEditWorkspaceSession(){
       if(!response.ok)throw new Error('save_failed');
       if(editSessionsOwner!==owner)return;
       if(editSessionLocalStates.get(state.sessionId)?.saveRevision===state.saveRevision)editSessionLocalStates.set(state.sessionId,state);
-      editSessionSyncStatus='Сохранено';writeEditSessionLocal();
-    }catch(_){if(editSessionsOwner===owner)editSessionSyncStatus=editSessionLocalAvailable?'Сохранено на устройстве · нет связи с сервером':'Не удалось сохранить историю · проверьте соединение';}
+      editSessionSyncStatus='Saved';writeEditSessionLocal();
+    }catch(_){if(editSessionsOwner===owner)editSessionSyncStatus=editSessionLocalAvailable?'Saved on this device · server unavailable':'Could not save history · check your connection';}
     if(editSessionsOwner===owner)renderEditSessionList();
   };
   editSessionSaveQueue=editSessionSaveQueue.then(save,save);return editSessionSaveQueue;
@@ -6814,9 +6820,9 @@ async function loadEditSessionHistory(more=false){
     editSessionsOwner=owner;editSessions=[];editSessionLocalStates.clear();editSessionsOffset=0;
     try{
       const saved=JSON.parse(localStorage.getItem('sylvex-edit-sessions-v1:'+owner)||'null');
-      (saved?.states||[]).forEach(state=>{if(state?.sessionId&&Array.isArray(state.chain)&&state.chain.length)editSessionLocalStates.set(state.sessionId,state);});
+      (saved?.states||[]).forEach(state=>{if(state?.sessionId&&Array.isArray(state.chain)&&editWorkspaceHasContent(state))editSessionLocalStates.set(state.sessionId,state);});
       editSessions=[...editSessionLocalStates.values()].map(editSessionSummary).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
-      if(!editWorkspaceState.chain.length&&editSessionLocalStates.has(saved?.active)){restoreEditSessionState(editSessionLocalStates.get(saved.active));restoredId=saved.active;}
+      if(!editWorkspaceHasContent(editWorkspaceState)&&editSessionLocalStates.has(saved?.active)){restoreEditSessionState(editSessionLocalStates.get(saved.active));restoredId=saved.active;}
     }catch(_){}
   }
   if(restoredId){renderEditWorkspace();void openEditSession(restoredId,true);}
@@ -6830,12 +6836,15 @@ async function loadEditSessionHistory(more=false){
     editSessions=[...merged.values()].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));editSessionsHasMore=!!data.hasMore;editSessionsOffset=offset+items.length;
     if(!more){for(const state of editSessionLocalStates.values())if(state.localUnsynced&&state.sessionId===editWorkspaceState.sessionId)void saveEditWorkspaceSession();}
     renderEditSessionList();
-  }catch(_){editSessionSyncStatus='История на устройстве · нет связи с сервером';renderEditSessionList();}
+  }catch(_){editSessionSyncStatus='History on this device · server unavailable';renderEditSessionList();}
 }
 function restoreEditSessionState(saved){
   const fresh=createEditWorkspaceState();
   Object.assign(editWorkspaceState,fresh,JSON.parse(JSON.stringify(saved)),{busy:false,uploading:false,upscaleEstimate:null,viewNeedsFit:false});
   delete editWorkspaceState.localUnsynced;
+  editWorkspaceState.background={...fresh.background,...saved.background};
+  editWorkspaceState.upscale={...fresh.upscale,...saved.upscale,sylvex:{...fresh.upscale.sylvex,...saved.upscale?.sylvex,absorbing:false,guidesHidden:false}};
+  editWorkspaceState.sketch=saved.sketch&&typeof SYLVEXSketch!=='undefined'?SYLVEXSketch.restore(saved.sketch):null;
   // Blob previews never survive a WebView restart; durable URLs do.
   editWorkspaceState.chain.forEach(node=>{node.preview=node.url||'';});
   editWorkspaceState.sourcePreview=editWorkspaceState.sourceUrl;
@@ -6851,13 +6860,14 @@ async function openEditSession(id,refresh=false){
   let state=editSessionLocalStates.get(id);
   try{
     if(!state?.localUnsynced){const response=await fetch('/api/public/prostudio/edit-sessions/'+encodeURIComponent(id),{cache:'no-store'});if(!response.ok)throw new Error();state=(await response.json()).state;}
-  }catch(_){if(!state){editWorkspaceToast('Не удалось открыть рабочую область. Попробуйте ещё раз.');return;}}
+  }catch(_){if(!state){editWorkspaceToast('Could not open the workspace. Please try again.');return;}}
   if(owner!==editSessionsOwner||owner!==editSessionOwner()||version!==editSessionOpenVersion||editWorkspaceLocked())return;
-  if(!state?.chain?.length||state.sessionId!==id)return;
+  if(!editWorkspaceHasContent(state)||state.sessionId!==id)return;
   resetEditWorkspaceSurface();restoreEditSessionState(state);editSessionLocalStates.set(id,state);writeEditSessionLocal();renderEditWorkspace();void recoverEditSessionJob();
 }
 function resetEditWorkspaceSurface(){
   const root=document.getElementById('editWorkspace');if(!root)return;
+  root._editSketch?.destroy();root._editSketch=null;
   root._editObserver?.disconnect();root._editExpandCleanup?.();root._editNavigationCleanup?.();root._editStopChainMotion?.();root._cameraOrbit?.destroy();root._lightOrbit?.destroy();
   clearTimeout(root._editRefreshTimer);clearTimeout(root._editAdvanceTimer);root._editAdvance=false;root.innerHTML='';
 }
@@ -6881,8 +6891,8 @@ function mountEditWorkspaceSidebar(root){
   const studioShell=document.getElementById('sxStudioShell'),wasInert=studioShell?.inert;
   if(studioShell)studioShell.inert=true;
   const history=document.createElement('section');history.id='editSidebarHistory';history.className='sx-sidebar-history';
-  history.setAttribute('aria-label','История Edit');
-  history.innerHTML='<button type="button" id="editSidebarNew" class="sx-sidebar-newchat" title="Новая рабочая область" aria-label="Новая рабочая область" onclick="SYLVEX.newEditWorkspace(event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Новая область</span></button><div class="edit-sidebar-history-heading">История Edit</div><div id="editSessionList" class="sx-sidebar-history-list"></div><small id="editSessionSync" aria-live="polite"></small>';
+  history.setAttribute('aria-label','Edit history');
+  history.innerHTML='<button type="button" id="editSidebarNew" class="sx-sidebar-newchat" title="New workspace" aria-label="New workspace" onclick="SYLVEX.newEditWorkspace(event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New workspace</span></button><div class="edit-sidebar-history-heading">Edit history</div><div id="editSessionList" class="sx-sidebar-history-list"></div><small id="editSessionSync" aria-live="polite"></small>';
   sidebar.insertBefore(history,sidebar.querySelector('.sx-sidebar-bottom'));
   sidebar.classList.add('has-edit-history');
   const links=Array.from(sidebar.querySelectorAll('.sx-sidebar-studio-link')).map(link=>({link,active:link.classList.contains('is-active')}));
@@ -6895,7 +6905,7 @@ function mountEditWorkspaceSidebar(root){
 }
 function editWorkspaceSidebar(){
   if(document.getElementById('sxSidebar'))return '';
-  return '<button type="button" class="edit-sidebar-toggle" aria-label="История Edit" aria-expanded="'+editWorkspaceState.sidebarOpen+'" onclick="SYLVEX.toggleEditWorkspaceSidebar(event)">☰</button><aside class="edit-workspace-sidebar" aria-label="Меню Edit"><header><b>Edit</b><button type="button" aria-label="Свернуть меню" onclick="SYLVEX.toggleEditWorkspaceSidebar(event)">‹</button></header><nav aria-label="Режимы Studio"><button type="button" onclick="SYLVEX.leaveEditWorkspace(event,\'chat\')">Pro Studio</button><button type="button" onclick="SYLVEX.leaveEditWorkspace(event,\'grid\')">Grid Mode</button><button type="button" aria-current="page">Edit</button></nav><button type="button" class="edit-session-new" onclick="SYLVEX.newEditWorkspace(event)">＋ Новая рабочая область</button><h3>История Edit</h3><div id="editSessionList"></div><small id="editSessionSync" aria-live="polite"></small></aside>';
+  return '<button type="button" class="edit-sidebar-toggle" aria-label="Edit history" aria-expanded="'+editWorkspaceState.sidebarOpen+'" onclick="SYLVEX.toggleEditWorkspaceSidebar(event)">☰</button><aside class="edit-workspace-sidebar" aria-label="Edit menu"><header><b>Edit</b><button type="button" aria-label="Collapse menu" onclick="SYLVEX.toggleEditWorkspaceSidebar(event)">‹</button></header><nav aria-label="Studio modes"><button type="button" onclick="SYLVEX.leaveEditWorkspace(event,\'chat\')">Pro Studio</button><button type="button" onclick="SYLVEX.leaveEditWorkspace(event,\'grid\')">Grid Mode</button><button type="button" aria-current="page">Edit</button></nav><button type="button" class="edit-session-new" onclick="SYLVEX.newEditWorkspace(event)">＋ New workspace</button><h3>Edit history</h3><div id="editSessionList"></div><small id="editSessionSync" aria-live="polite"></small></aside>';
 }
 // Chain geometry is presentation-only. Source pixels, masks and provider
 // parameters continue to use their original dimensions and URLs.
@@ -6947,6 +6957,42 @@ function editWorkspaceChainPath(parent,child) {
   const a=port(parent,child),b=port(child,parent),bend=Math.max(24,Math.min(160,Math.hypot(b.x-a.x,b.y-a.y)*.45));
   return `M ${a.x} ${a.y} C ${a.x+a.dx*bend} ${a.y+a.dy*bend}, ${b.x+b.dx*bend} ${b.y+b.dy*bend}, ${b.x} ${b.y}`;
 }
+function editSylvexGuideAnchor(node,region,restore){
+  const box=region.bbox||{},width=Math.max(1,restore.imageWidth||node.width||1),height=Math.max(1,restore.imageHeight||node.height||1);
+  return{x:node.x-node.slotWidth/2+(Number(box.x||0)+Number(box.width||0)/2)/width*node.slotWidth,y:node.y-node.slotHeight/2+(Number(box.y||0)+Number(box.height||0)/2)/height*node.slotHeight};
+}
+function editSylvexGuidePath(anchor,guide){
+  const dx=guide.x-anchor.x,dy=guide.y-anchor.y,bend=Math.max(28,Math.min(150,Math.hypot(dx,dy)*.42));
+  if(Math.abs(dx)>=Math.abs(dy)){const sign=dx<0?-1:1;return `M ${anchor.x} ${anchor.y} C ${anchor.x+sign*bend} ${anchor.y}, ${guide.x-sign*bend} ${guide.y}, ${guide.x} ${guide.y}`;}
+  const sign=dy<0?-1:1;return `M ${anchor.x} ${anchor.y} C ${anchor.x} ${anchor.y+sign*bend}, ${guide.x} ${guide.y-sign*bend}, ${guide.x} ${guide.y}`;
+}
+function paintEditSylvexGuides(root,positions){
+  const s=editWorkspaceState,r=s.upscale?.sylvex;if(!r)return;const active=positions.get(s.activeNodeId);if(!active)return;
+  (r.regions||[]).forEach(region=>{
+    const guide={x:Number(region.guideX),y:Number(region.guideY)};if(!Number.isFinite(guide.x)||!Number.isFinite(guide.y))return;
+    const node=root.querySelector('[data-sr-guide="'+region.region_id+'"]'),path=root.querySelector('[data-sr-guide-line="'+region.region_id+'"]');
+    if(node)node.style.transform=`translate(${guide.x-32}px,${guide.y-32}px)`;
+    if(path)path.setAttribute('d',editSylvexGuidePath(editSylvexGuideAnchor(active,region,r),guide));
+  });
+}
+function syncEditSylvexGuides(root,world){
+  const s=editWorkspaceState,r=s.upscale?.sylvex||{},active=s.chain.find(node=>node.id===s.activeNodeId);
+  const visible=!!(active&&active.status==='ready'&&s.mode==='upscale'&&s.upscale.model==='sylvex_sr'&&!s.showBefore&&!s.busy&&!r.guidesHidden&&r.regions?.length);
+  let lines=world.querySelector('.edit-sr-guide-lines');
+  if(!visible){lines?.remove();world.querySelectorAll('[data-sr-guide]').forEach(node=>node.remove());return;}
+  if(!lines){lines=document.createElementNS('http://www.w3.org/2000/svg','svg');lines.setAttribute('class','edit-sr-guide-lines');lines.setAttribute('aria-hidden','true');world.prepend(lines);}
+  lines.querySelectorAll('[data-sr-guide-line]').forEach(path=>{if(!r.regions.some(region=>region.region_id===path.dataset.srGuideLine))path.remove();});
+  world.querySelectorAll('[data-sr-guide]').forEach(node=>{if(!r.regions.some(region=>region.region_id===node.dataset.srGuide))node.remove();});
+  r.regions.forEach((region,index)=>{
+    if(region.guideX==null||region.guideY==null||!Number.isFinite(Number(region.guideX))||!Number.isFinite(Number(region.guideY))){const column=Math.floor(index/4),row=index%4;region.guideX=active.x-active.slotWidth/2-78-column*86;region.guideY=active.y+(row-1.5)*78;}
+    let path=lines.querySelector('[data-sr-guide-line="'+region.region_id+'"]');if(!path){path=document.createElementNS('http://www.w3.org/2000/svg','path');path.dataset.srGuideLine=region.region_id;path.setAttribute('class','edit-sr-guide-line');lines.appendChild(path);}
+    let node=world.querySelector('[data-sr-guide="'+region.region_id+'"]');
+    if(!node){node=document.createElement('article');node.className='edit-sr-reference-node';node.dataset.srGuide=region.region_id;node.tabIndex=0;node.setAttribute('role','button');node.onclick=e=>openEditSylvexReference(e,region.region_id);node.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openEditSylvexReference(e,region.region_id);}};world.appendChild(node);}
+    node.classList.toggle('selected',region.region_id===r.selectedRegionId);node.classList.toggle('has-reference',!!region.reference_asset_id);node.classList.toggle('has-instruction',!!String(region.text_instruction||'').trim());
+    node.setAttribute('aria-label',(region.reference_asset_id?'Replace':'Add')+' reference for region '+String(region.region_id).replace('region_',''));
+    node.innerHTML=(region.reference_asset_id?'<img src="'+S.escapeHtml(region.reference_asset_id)+'" alt="">':'<span aria-hidden="true">＋</span>')+'<b>'+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</b>'+(String(region.text_instruction||'').trim()?'<i title="Text instruction added">T</i>':'');
+  });
+}
 function paintEditWorkspaceChain(root,time) {
   const s=editWorkspaceState,motion=root._editChainMotion;
   let progress=1;
@@ -6966,6 +7012,7 @@ function paintEditWorkspaceChain(root,time) {
     const parent=positions.get(node.parentId),path=root.querySelector('[data-chain-link="'+node.id+'"]');
     if(parent&&path)path.setAttribute('d',editWorkspaceChainPath(parent,positions.get(node.id)));
   });
+  paintEditSylvexGuides(root,positions);
   if(motion&&progress<1&&!root._editChainFrame){
     root._editChainFrame=requestAnimationFrame(now=>{root._editChainFrame=0;if(root.isConnected)paintEditWorkspaceChain(root,now);});
   }else if(progress===1)root._editChainMotion=null;
@@ -6980,13 +7027,15 @@ function stopEditWorkspaceChainMotion(root) {
   root._editChainMotion=null;
 }
 function editWorkspaceChainLabel(node,index) {
-  return index===0?'Исходный референс':index+' · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===node.mode)?.[1]||'Результат');
+  if(node.mode==='sketch-source')return 'Sketch reference';
+  if(node.restoreModel==='sylvex_sr')return index+' · Sylvex Restore';
+  return index===0?'Source reference':index+' · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===node.mode)?.[1]||'Result');
 }
 function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
   ensureEditWorkspaceChain();
   if(!s.chain.length){
-    if(!world.querySelector('.edit-workspace-upload'))world.innerHTML='<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Загрузите фото или перетащите его сюда</b><small>JPEG, PNG, WebP · до 50 MB</small></button>';
+    if(!world.querySelector('.edit-workspace-upload'))world.innerHTML='<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Upload a photo or drop it here</b><small>JPEG, PNG, WebP · up to 50 MB</small></button>';
     return;
   }
   world.querySelector('.edit-workspace-upload')?.remove();
@@ -7012,15 +7061,26 @@ function syncEditWorkspaceChain(root) {
     }
     card.dataset.status=node.status;card.dataset.active=String(node.id===focusedId);card.setAttribute('aria-busy',String(node.status==='pending'));
     card.style.width=node.slotWidth+'px';card.style.height=node.slotHeight+'px';
-    card.tabIndex=0;card.setAttribute('aria-description','Перетащите изображение или используйте стрелки для перемещения. Пробел и перетаскивание перемещают весь холст.');
-    const label=editWorkspaceChainLabel(node,index);card.setAttribute('aria-label',label+(node.status==='pending'?' — генерация':node.status==='failed'?' — не удалось создать изображение':''));card.querySelector('.edit-chain-caption').textContent=label;
+    card.tabIndex=0;card.setAttribute('aria-description','Drag the image or use arrow keys to move it. Hold Space and drag to pan the canvas.');
+    const label=editWorkspaceChainLabel(node,index);card.setAttribute('aria-label',label+(node.status==='pending'?' — generating':node.status==='failed'?' — generation failed':''));card.querySelector('.edit-chain-caption').textContent=label;
     const frame=card.querySelector('.edit-workspace-frame');
     let img=frame.querySelector('.edit-workspace-image');
     if(node.status==='ready'&&!img){
       img=document.createElement('img');img.className='edit-workspace-image';img.alt=label;img.draggable=false;card.dataset.media='loading';frame.appendChild(img);img.src=node.preview||node.url;
     }
+    const restore=s.upscale?.sylvex||{},showRestoreRegions=node.id===s.activeNodeId&&node.status==='ready'&&s.mode==='upscale'&&s.upscale.model==='sylvex_sr'&&!s.showBefore&&!s.busy&&!restore.guidesHidden;
+    let restoreOverlay=frame.querySelector('.edit-sr-overlay');
+    if(showRestoreRegions){
+      if(!restoreOverlay){restoreOverlay=document.createElement('div');restoreOverlay.className='edit-sr-overlay';frame.appendChild(restoreOverlay);}
+      restoreOverlay.classList.toggle('drawing',!!restore.addingRegion);
+      restoreOverlay.innerHTML=(restore.regions||[]).map(region=>{
+        const box=region.bbox||{},width=Math.max(1,restore.imageWidth||s.width),height=Math.max(1,restore.imageHeight||s.height),color=sylvexRestoreColor(region);
+        const style='left:'+(Number(box.x)||0)/width*100+'%;top:'+(Number(box.y)||0)/height*100+'%;width:'+(Number(box.width)||0)/width*100+'%;height:'+(Number(box.height)||0)/height*100+'%';
+        return '<button type="button" class="edit-sr-region '+color+(region.region_id===restore.selectedRegionId?' selected':'')+'" style="'+style+'" onclick="SYLVEX.selectEditSylvexRegion(event,\''+S.escapeHtml(region.region_id)+'\')"><span>'+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</span></button>';
+      }).join('')+'<div class="edit-sr-draft" hidden></div>';
+    }else restoreOverlay?.remove();
     let failure=frame.querySelector('.edit-chain-failure');
-    if(node.status==='failed'&&!failure){failure=document.createElement('div');failure.className='edit-chain-failure';failure.innerHTML='<b>Не удалось создать изображение</b><span>Повторите запуск в панели инструмента.</span>';frame.appendChild(failure);}
+    if(node.status==='failed'&&!failure){failure=document.createElement('div');failure.className='edit-chain-failure';failure.innerHTML='<b>Could not generate the image</b><span>Try again from the tool panel.</span>';frame.appendChild(failure);}
     if(node.status!=='failed')failure?.remove();
     let mask=frame.querySelector('canvas');
     const needsMask=node.id===s.activeNodeId&&s.mode==='retouch'&&!s.showBefore;
@@ -7045,6 +7105,7 @@ function syncEditWorkspaceChain(root) {
       path.dataset.chainSource=node.parentId;
     }
   });
+  syncEditSylvexGuides(root,world);
   root._editChainLayout=()=>paintEditWorkspaceChain(root);
   root._editStopChainMotion=()=>stopEditWorkspaceChainMotion(root);
   paintEditWorkspaceChain(root);
@@ -7454,26 +7515,30 @@ function initEditExpandHandles(root){
 function initEditWorkspaceNavigation(stage) {
   const state=editWorkspaceState;let drag=null,space=false,pinch=null,gesture=null;
   const touches=new Map();
-  stage.tabIndex=0;stage.setAttribute('aria-label','Бесконечный холст: перетаскивайте изображения отдельно, пустое место или Пробел с перетаскиванием перемещают весь холст, Ctrl или ⌘ с прокруткой меняют масштаб, 0 вписывает фото');
+  stage.tabIndex=0;stage.setAttribute('aria-label','Infinite canvas: drag images individually; drag empty space or hold Space and drag to pan; Ctrl or ⌘ + scroll to zoom; press 0 to fit images');
   stage.onpointerdown=e=>{
-    if(pinch||document.getElementById('editWorkspace')?._editExpandDrag||e.button>1||e.target.closest('button'))return;
-    const card=!space&&e.button===0?e.target.closest('[data-chain-node]'):null;
+    const guideEl=!space&&e.button===0?e.target.closest('[data-sr-guide]'):null;
+    if(pinch||document.getElementById('editWorkspace')?._editExpandDrag||e.button>1||e.target.closest('button')&&!guideEl)return;
+    const guideRegion=guideEl&&editSylvexRestoreState().regions.find(region=>region.region_id===guideEl.dataset.srGuide);
+    const card=!guideEl&&!space&&e.button===0?e.target.closest('[data-chain-node]'):null;
     const node=card&&state.chain.find(item=>item.id===card.dataset.chainNode);
     if(editWorkspaceLocked()&&!node)return;
     if(e.pointerType!=='touch'&&state.mode==='retouch'&&!space&&e.button===0&&!state.showBefore&&e.target.closest('#editWorkspaceMask'))return;
     const root=document.getElementById('editWorkspace');root?._editStopChainMotion?.();root?.querySelector('.edit-workspace-world')?.classList.remove('is-advancing');
-    e.preventDefault();(card||stage).focus({preventScroll:true});stage.setPointerCapture(e.pointerId);
-    drag={id:e.pointerId,x:e.clientX,y:e.clientY,pan:{...state.viewport},node,position:node?{x:node.x,y:node.y}:null,scale:state.zoom/100,card};
-    stage.classList.add(node?'is-moving-node':'is-panning');card?.classList.add('is-moving');
+    e.preventDefault();(guideEl||card||stage).focus({preventScroll:true});stage.setPointerCapture(e.pointerId);
+    drag={id:e.pointerId,x:e.clientX,y:e.clientY,pan:{...state.viewport},node,position:node?{x:node.x,y:node.y}:null,guideRegion,guidePosition:guideRegion?{x:Number(guideRegion.guideX),y:Number(guideRegion.guideY)}:null,guideEl,moved:false,scale:state.zoom/100,card};
+    stage.classList.add(node||guideRegion?'is-moving-node':'is-panning');card?.classList.add('is-moving');guideEl?.classList.add('is-moving');
   };
   stage.onpointermove=e=>{
     if(drag?.id!==e.pointerId)return;e.preventDefault();
     const root=document.getElementById('editWorkspace');
-    if(drag.node){
+    if(drag.guideRegion){
+      const dx=(e.clientX-drag.x)/drag.scale,dy=(e.clientY-drag.y)/drag.scale;drag.moved=drag.moved||Math.hypot(dx,dy)>3;drag.guideRegion.guideX=drag.guidePosition.x+dx;drag.guideRegion.guideY=drag.guidePosition.y+dy;root?._editChainLayout?.();
+    }else if(drag.node){
       drag.node.x=drag.position.x+(e.clientX-drag.x)/drag.scale;drag.node.y=drag.position.y+(e.clientY-drag.y)/drag.scale;root?._editChainLayout?.();
     }else{state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};root?._editView?.();}
   };
-  const end=e=>{if(drag?.id===e.pointerId){drag.card?.classList.remove('is-moving');drag=null;stage.classList.remove('is-panning');stage.classList.remove('is-moving-node');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);scheduleEditWorkspaceSave();}};
+  const end=e=>{if(drag?.id===e.pointerId){const finished=drag;finished.card?.classList.remove('is-moving');finished.guideEl?.classList.remove('is-moving');if(finished.guideEl&&finished.moved){finished.guideEl.dataset.dragged='true';setTimeout(()=>{if(finished.guideEl)delete finished.guideEl.dataset.dragged;},0);}drag=null;stage.classList.remove('is-panning');stage.classList.remove('is-moving-node');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);scheduleEditWorkspaceSave();}};
   stage.onpointerup=stage.onpointercancel=stage.onlostpointercapture=end;
   const touchStart=e=>{
     if(e.pointerType!=='touch'||editWorkspaceLocked()||document.getElementById('editWorkspace')?._editExpandDrag||e.target.closest('button'))return;
@@ -7547,17 +7612,28 @@ function initEditWorkspaceNavigation(stage) {
   return ()=>{if(drag)end({pointerId:drag.id});stage.classList.remove('can-pan');listeners.forEach(([type,fn,capture])=>stage.removeEventListener?.(type,fn,capture));stage.removeEventListener?.('wheel',wheel);document.removeEventListener('keydown',spaceDown);document.removeEventListener('keyup',spaceUp);window.removeEventListener('blur',stage.onblur);};
 }
 
-function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspaceState.uploading; }
+function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspaceState.uploading || !!editWorkspaceState.upscale?.sylvex?.absorbing; }
 function editWorkspaceValidation() {
   const s=editWorkspaceState, prompt=s.prompt.trim();
-  if(s.uploading)return 'Загрузка изображения…';
-  if(!s.sourceUrl)return 'Загрузите исходное изображение.';
-  if(!s.width||!s.height)return 'Подождите загрузки изображения.';
-  if(s.showBefore)return 'Вернитесь к результату, чтобы продолжить редактирование.';
+  if(s.uploading)return 'Uploading image…';
+  if(s.mode==='sketch'){
+    if(typeof SYLVEXSketch==='undefined')return 'Drawing tools could not load. Refresh the page to try again.';
+    if(!SYLVEXSketch.hasContent(s.sketch))return 'Draw something before generating.';
+    if(!SYLVEXSketch.validSize(s.sketch.width,s.sketch.height))return 'Use canvas dimensions from 256 to 4096 px.';
+    return '';
+  }
+  if(!s.sourceUrl)return 'Upload a source image.';
+  if(!s.width||!s.height)return 'Wait for the image to load.';
+  if(s.showBefore)return 'Return to the result to continue editing.';
   if(s.mode==='edit'&&!prompt)return 'Опишите, что нужно изменить.';
   if(s.mode==='retouch'&&!s.maskStrokes.length)return 'Выделите область кистью.';
   if(s.mode==='retouch'&&s.brushMode==='replace'&&!prompt)return 'Опишите замену выделенной области.';
-  if(s.mode==='background'&&s.backgroundMode==='replace'&&!prompt)return 'Опишите новый фон.';
+  if(s.mode==='background'){
+    if(!['transparent','replace','color','image'].includes(s.backgroundMode))return 'Choose a background mode.';
+    if(s.backgroundMode==='replace'&&!prompt)return 'Describe the new background.';
+    if(s.backgroundMode==='color'&&!/^#[0-9a-f]{6}$/i.test(s.background.color))return 'Enter a background color in #RRGGBB format.';
+    if(s.backgroundMode==='image'&&!s.background.url)return 'Upload an image for the new background.';
+  }
   if(s.mode==='translate'&&!s.translateLanguage)return 'Выберите язык перевода.';
   if(s.mode==='lighting'&&!s.light.layers.some(l=>l.enabled!==false&&l.brightness>0))return 'Включите источник света и задайте яркость.';
   if(s.mode==='resize'&&(s.resize.width*s.resize.height>16777216||Math.max(s.resize.width,s.resize.height)>8192))return 'Resize: максимум 8192 px по стороне и 16 мегапикселей.';
@@ -7565,6 +7641,11 @@ function editWorkspaceValidation() {
     const u=s.upscale;
     if(![u.width,u.height].every(v=>Number.isInteger(v)&&v>0&&v<=24000)||u.width*u.height>100000000)return 'Upscale: максимум 24 000 px по стороне и 100 мегапикселей.';
     if(u.width!==Math.max(1,Math.round(s.width*u.height/s.height)))return 'Upscale сохраняет пропорции. Задайте размер заново.';
+    if(u.model==='sylvex_sr'){
+      const restore=u.sylvex||{};
+      if(restore.addingRegion)return 'Finish or cancel the area selection.';
+      const planError=validateSylvexRestorePlan(restore);if(planError)return planError;
+    }
   }
   if(s.mode==='expand'){
     const x=s.expand,w=s.width+x.left+x.right,h=s.height+x.top+x.bottom;
@@ -7578,7 +7659,7 @@ function updateEditWorkspaceReady() {
   const reason=editWorkspaceValidation(),root=document.getElementById('editWorkspace');if(!root)return;
   root.querySelectorAll('.edit-workspace-generate').forEach(button=>{button.disabled=!!reason||editWorkspaceLocked();button.title=reason;});
   root.querySelectorAll('[data-mask-action]').forEach(button=>{button.disabled=editWorkspaceLocked()||!(button.dataset.maskAction==='redo'?editWorkspaceState.maskRedo:editWorkspaceState.maskStrokes).length;});
-  const hint=root.querySelector('.edit-workspace-status');if(hint)hint.textContent=editWorkspaceState.busy?'Обработка изображения…':reason||'Тяните фото — переместить · Пробел + перетаскивание — холст · Ctrl / ⌘ + прокрутка — масштаб'+(editWorkspaceState.mode==='retouch'?' · Для перемещения фото тяните подпись':'');
+  const hint=root.querySelector('.edit-workspace-status');if(hint)hint.textContent=editWorkspaceState.busy?'Processing image…':reason||'Drag image to move · Space + drag to pan · Ctrl / ⌘ + scroll to zoom'+(editWorkspaceState.mode==='retouch'?' · Drag the caption to move the image':'');
 }
 function editWorkspaceSnapshot() {
   const s=editWorkspaceState;return {sourceUrl:s.sourceUrl,sourcePreview:s.sourcePreview,sourceName:s.sourceName,resultUrl:s.resultUrl,jobId:s.jobId,beforeUrl:s.beforeUrl,width:s.width,height:s.height,activeNodeId:s.activeNodeId,expand:{...s.expand}};
@@ -7657,6 +7738,7 @@ function initEditWorkspaceStage() {
   root.ondrop=e=>{e.preventDefault();root.classList.remove('is-dragging');if(!editWorkspaceLocked())onEditWorkspaceFile({target:{files:e.dataTransfer.files,value:''}});};
   root.onkeydown=e=>{
     if(e.key==='Escape'&&!editWorkspaceLocked()){
+      if(root.dataset.drawing==='true')return;
       if(document.querySelector('.sx-search-overlay:not([hidden]),.sx-account-menu:not([hidden])'))return;
       closeEditWorkspace(e);return;
     }
@@ -7722,7 +7804,7 @@ function initEditWorkspaceStage() {
     img.onerror=()=>{
       if(!root.isConnected)return;card.dataset.media='error';
       if(card.querySelector('.edit-chain-media-error'))return;
-      const message=document.createElement('button');message.type='button';message.className='edit-chain-media-error';message.textContent='Изображение готово. Повторить загрузку превью';
+      const message=document.createElement('button');message.type='button';message.className='edit-chain-media-error';message.textContent='Image ready. Retry loading preview';
       message.onclick=()=>{message.remove();card.dataset.media='loading';img.src=node.preview||node.url;};card.querySelector('.edit-workspace-frame').appendChild(message);
     };
     if(img.complete&&img.naturalWidth)loaded();
@@ -7742,33 +7824,34 @@ function initEditWorkspaceStage() {
 }
 async function loadEditWorkspaceImage(file) {
   const s=editWorkspaceState;if(editWorkspaceLocked())return;
-  if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type))return editWorkspaceToast('Выберите JPEG, PNG или WebP.');
-  if(file.size>50*1024*1024)return editWorkspaceToast('Изображение должно быть меньше 50 MB.');
+  if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type))return editWorkspaceToast('Choose a JPEG, PNG or WebP image.');
+  if(file.size>50*1024*1024)return editWorkspaceToast('The image must be smaller than 50 MB.');
   const version=++s.uploadVersion,preview=URL.createObjectURL(file);s.uploading=true;renderEditWorkspace();
   try {
-    const probe=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('Не удалось прочитать изображение.'));img.src=preview;});
-    if(probe.naturalWidth*probe.naturalHeight>100000000)throw new Error('Изображение превышает 100 мегапикселей.');
+    const probe=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('Could not read the image.'));img.src=preview;});
+    if(probe.naturalWidth*probe.naturalHeight>100000000)throw new Error('The image exceeds 100 megapixels.');
     const url=await uploadProStudioMediaFile(file,'image');
     if(s.uploadVersion!==version){URL.revokeObjectURL(preview);return;}
     // Archive the complete previous workspace only after a successful upload.
     ++editSessionOpenVersion;void saveEditWorkspaceSession();
     s.sessionId=createEditWorkspaceState().sessionId;
+    s.sketch=null;if(s.mode==='sketch')s.mode='edit';
     const previews=new Set([s.sourcePreview,s.beforeUrl,...s.history.flatMap(item=>[item.sourcePreview,item.beforeUrl]),...s.chain.map(node=>node.preview)]);
     previews.forEach(url=>{if(url.startsWith('blob:'))URL.revokeObjectURL(url);});
-    s.history=[];s.chain=[];s.activeNodeId='';s.expand={left:0,right:0,top:0,bottom:0};Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
+    s.history=[];s.chain=[];s.activeNodeId='';s.expand={left:0,right:0,top:0,bottom:0};s.upscale.sylvex=createEditSylvexRestoreState();Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
     setEditWorkspaceDimensions(probe.naturalWidth,probe.naturalHeight);
     ensureEditWorkspaceChain();
-  } catch(error){URL.revokeObjectURL(preview);editWorkspaceToast(error.message||'Не удалось загрузить изображение.');}
+  } catch(error){URL.revokeObjectURL(preview);editWorkspaceToast(error.message||'Could not upload the image.');}
   finally{if(s.uploadVersion===version){s.uploading=false;renderEditWorkspace();}}
 }
 
 const EDIT_WORKSPACE_MODES = [
-  ['edit','Edit'],['retouch','Retouch'],['resize','Resize'],['background','Background'],['expand','Expand'],['upscale','Upscale'],['lighting','Change Lighting'],['camera','Change Camera'],['translate','Translate'],
+  ['edit','Edit'],['sketch','Sketch to Image'],['retouch','Retouch'],['resize','Resize'],['background','Background'],['expand','Expand'],['upscale','Upscale'],['lighting','Change Lighting'],['camera','Change Camera'],['translate','Translate'],
 ];
 function editWorkspaceToast(message) { if (typeof toast === 'function') toast(message); }
 function openEditWorkspace(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (!window.matchMedia('(min-width: 1000px)').matches) { editWorkspaceToast('Edit пока доступен только на широком экране компьютера.'); return; }
+  if (!window.matchMedia('(min-width: 1000px)').matches) { editWorkspaceToast('Edit is currently available on wide desktop screens.'); return; }
   updateComposerMode('image');
   let root = document.getElementById('editWorkspace');
   if (!root) { root=document.createElement('div'); root.id='editWorkspace'; root.className='edit-workspace'; root.setAttribute('role','dialog'); root.setAttribute('aria-modal','true'); document.body.appendChild(root); }
@@ -7781,6 +7864,7 @@ function openEditWorkspace(e) {
 }
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  document.getElementById('editWorkspace')?._editSketch?.destroy();
   ++editSessionOpenVersion;void saveEditWorkspaceSession();
   const root=document.getElementById('editWorkspace');if(root){clearTimeout(root._editRefreshTimer);root._editObserver?.disconnect();root._editExpandCleanup?.();root._editNavigationCleanup?.();root._editStopChainMotion?.();clearTimeout(root._editAdvanceTimer);root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root._editSidebarCleanup?.();root.remove();}
   document.body.classList.remove('edit-workspace-open');
@@ -7788,6 +7872,7 @@ function closeEditWorkspace(e) {
 }
 function renderEditWorkspace() {
   const root=document.getElementById('editWorkspace'); if(!root)return;
+  root._editSketch?.destroy();root._editSketch=null;
   mountEditWorkspaceSidebar(root);
   clearTimeout(root._editRefreshTimer);
   if(root._editObserver)root._editObserver.disconnect();
@@ -7796,10 +7881,11 @@ function renderEditWorkspace() {
   root._cameraOrbit?.destroy();
   root._lightOrbit?.destroy();
   const state=editWorkspaceState, mode=state.mode, safe=(v)=>S.escapeHtml(String(v??''));
-  const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
+  const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',sketch:'✎',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
   root.dataset.mode=mode;root.dataset.sidebar=String(state.sidebarOpen);root.dataset.busy=String(editWorkspaceLocked());
+  root.dataset.drawing=String(mode==='sketch'&&!!state.sketch?.editing);
   root.setAttribute('aria-label','Edit image');root.setAttribute('aria-busy',String(editWorkspaceLocked()));
-  const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Обработка…':state.uploading?'Загрузка…':mode==='resize'?'Apply · Free':mode==='upscale'?'Улучшить качество':'Generate')+'</button>';
+  const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Processing…':state.uploading?'Uploading…':mode==='resize'?'Apply · Free':mode==='upscale'?(state.upscale.model==='sylvex_sr'?'Restore':'Upscale'):'Generate')+'</button>';
   const range=(label,key,min,max,step,value,group='camera',unit='°')=>'<label class="edit-workspace-range"><span>'+label+'</span><input '+(group==='camera'?'data-camera-input="'+key+'" ':'')+'aria-label="'+label+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'" oninput="SYLVEX.updateEditWorkspaceRange(event,\''+group+'\',\''+key+'\')"><output data-range-output="'+group+'-'+key+'">'+value+unit+'</output></label>';
   let panel='';let action='';
   if(mode==='camera'){
@@ -7814,30 +7900,67 @@ function renderEditWorkspace() {
   }
   if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button title="Attach image" onclick="document.getElementById(\'editWorkspaceFile\').click()">⌁</button><span class="edit-workspace-model-label">GPT Image 2.5</span>'+generate+'</div>';
   if(mode==='retouch')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Draw a selection and describe what you want to change" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.brushMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'replace\')">Replace</button><button class="'+(state.brushMode==='erase'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'erase\')">Erase</button><span>✎</span><input type="range" min="4" max="80" value="'+state.brushSize+'" oninput="SYLVEX.updateEditBrushSize(event)"><output id="editBrushSizeOutput">'+state.brushSize+'</output><button data-mask-action="undo" title="Undo stroke" aria-label="Undo stroke" onclick="SYLVEX.clearEditWorkspaceMask(event,true)">↶</button><button data-mask-action="redo" title="Redo stroke" aria-label="Redo stroke" onclick="SYLVEX.redoEditWorkspaceMask(event)">↷</button><button data-mask-action="clear" onclick="SYLVEX.clearEditWorkspaceMask(event)">Clear selection</button>'+generate+'</div>';
-  if(mode==='background')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Describe how you want to replace the background" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.backgroundMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBackgroundMode(event,\'replace\')">Replace</button><button class="'+(state.backgroundMode==='transparent'?'active':'')+'" onclick="SYLVEX.setEditBackgroundMode(event,\'transparent\')">Transparent</button>'+generate+'</div>';
+  if(mode==='background')action=editBackgroundPanel(generate);
+  if(mode==='sketch')action='<textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Sketch description" placeholder="Describe the scene, materials or lighting (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button type="button" onclick="SYLVEX.toggleEditSketch(event)">'+(state.sketch?.editing?'View results':'Edit drawing')+'</button><span class="edit-workspace-model-label">Sketch → realistic photo</span>'+generate+'</div>';
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action=editExpandPanel(generate);
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
   const surface='<section class="edit-workspace-stage"><div class="edit-workspace-grid"></div><div class="edit-workspace-world"></div></section>';
-  const controls=editWorkspaceSidebar()+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Вернуть изображения к стандартному размеру" onclick="SYLVEX.resetEditWorkspaceSize(event)">Стандартный размер</button><button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
+  const controls=editWorkspaceSidebar()+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Reset images to their default display size" onclick="SYLVEX.resetEditWorkspaceSize(event)">Default size</button><button title="Zoom out" aria-label="Zoom out" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Fit images to canvas (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Zoom in" aria-label="Zoom in" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
   const main=root.querySelector('.edit-workspace-main');
   if(main){
     // Keep the stage, its images and the pending card mounted throughout a job.
     Array.from(main.children).filter(el=>!el.classList.contains('edit-workspace-stage')).forEach(el=>el.remove());
     const template=document.createElement('template');template.innerHTML=controls;main.appendChild(template.content);
   }else root.innerHTML='<main class="edit-workspace-main">'+surface+controls+'</main>';
+  if(mode==='sketch'&&state.sketch?.editing){
+    const host=document.createElement('section');host.className='edit-sketch-workbench';root.querySelector('.edit-workspace-main').appendChild(host);
+    if(typeof SYLVEXSketch!=='undefined')root._editSketch=new SYLVEXSketch.Editor(host,state.sketch,updateEditWorkspaceReady,editWorkspaceToast);
+    else host.textContent='Drawing tools could not load. Refresh the page to try again.';
+    host.inert=editWorkspaceLocked();
+  }
   syncEditWorkspaceChain(root);
   root.querySelectorAll('.edit-workspace-stage button').forEach(el=>el.disabled=editWorkspaceLocked());
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
-  initEditWorkspaceStage();initEditExpandHandles(root);initEditCameraOrbit();initEditLightOrbit();updateEditWorkspaceReady();renderEditSessionList();
+  initEditWorkspaceStage();initEditExpandHandles(root);initEditCameraOrbit();initEditLightOrbit();initEditSylvexRestoreOverlay();updateEditWorkspaceReady();renderEditSessionList();
   if(mode==='upscale')void refreshEditUpscaleEstimate();
 
 }
-function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;renderEditWorkspace()}
+function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;if(mode==='sketch'&&typeof SYLVEXSketch!=='undefined'){s.sketch??=SYLVEXSketch.create();s.sketch.editing=true;if(!s.sourceName)s.sourceName='Sketch drawing';}renderEditWorkspace()}
+function editWorkspaceHasContent(state){return !!(state?.chain?.length||state?.sketch?.version===1);}
+function toggleEditSketch(e){e?.preventDefault();if(editWorkspaceLocked()||!editWorkspaceState.sketch)return;editWorkspaceState.sketch.editing=!editWorkspaceState.sketch.editing;renderEditWorkspace();}
+async function prepareEditSketchReference(){
+  const s=editWorkspaceState,d=s.sketch,session=s.sessionId;
+  let node=s.chain.find(n=>n.id===d.sourceNodeId&&n.mode==='sketch-source'&&n.url);
+  if(!node||d.sourceRevision!==d.revision){
+    s.uploading=true;renderEditWorkspace();
+    try{
+      const blob=await SYLVEXSketch.exportPNG(d),url=await uploadProStudioMediaFile(new File([blob],'sketch.png',{type:'image/png'}),'image');
+      if(s.sessionId!==session)throw new Error('The workspace changed. Please try again.');
+      const size=editWorkspacePreviewSize(d.width,d.height,s.zoom),parentId=node?.id||'',right=s.chain.length?Math.max(...s.chain.map(n=>n.x+n.slotWidth/2)):null;
+      node={id:'edit-node-'+(++s.nodeSequence),parentId,status:'ready',mode:'sketch-source',url,preview:url,jobId:'',width:d.width,height:d.height,x:right===null?0:right+72/(s.zoom/100)+size.slotWidth/2,y:node?.y||0,...size};
+      s.chain.push(node);d.sourceNodeId=node.id;d.sourceRevision=d.revision;
+    }finally{s.uploading=false;}
+  }
+  Object.assign(s,{sourceUrl:node.url,sourcePreview:node.url,activeNodeId:node.id,showBefore:false,maskStrokes:[],maskRedo:[],beforeUrl:'',viewNeedsFit:true});
+  setEditWorkspaceDimensions(d.width,d.height);d.editing=false;
+}
 function setEditCameraPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation()}updateEditCamera({horizontal:h,vertical:v},true);}
 function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}if(group==='light'){updateEditLight({[key]:Number(input.value)});return;}let value=Number(input.value);if(!Number.isFinite(value))return;if(group==='upscale'){if(!['sharpness','denoise','strength','creativity','modelStrength','fixCompression'].includes(key))return;if(['strength','creativity'].includes(key)&&!editWorkspaceState.upscale.faceEnhancement)return;value=Math.round(Math.max(key==='modelStrength'?1:0,Math.min(100,value)));}editWorkspaceState[group][key]=value;updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=value;}
 function updateEditLightColor(e){if(e?.currentTarget)updateEditLight({color:e.currentTarget.value});}
-function updateEditWorkspacePrompt(e){if(editWorkspaceLocked())return;if(e&&e.currentTarget)editWorkspaceState.prompt=e.currentTarget.value;updateEditWorkspaceReady()}
+function updateEditWorkspacePrompt(e){
+  if(editWorkspaceLocked())return;
+  const s=editWorkspaceState;
+  if(e?.currentTarget){
+    s.prompt=e.currentTarget.value;
+    if(s.mode==='background'&&s.prompt.trim()){
+      // A newly entered description selects text replacement. Keep the input
+      // mounted so typing, caret position and composition are uninterrupted.
+      s.backgroundMode='replace';syncEditBackgroundControls();
+    }
+  }
+  updateEditWorkspaceReady();
+}
 function addEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const state=editWorkspaceState.light,current=state.layers[state.active];if(state.layers.length>=8)return editWorkspaceToast('Максимум 8 источников света.');state.layers.push(editLightValues({...current,horizontal:(current.horizontal+90)%360,brightness:1,enabled:true}));state.active=state.layers.length-1;renderEditWorkspace()}
 function selectEditWorkspaceLight(e,index){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}if(index<0||index>=editWorkspaceState.light.layers.length)return;editWorkspaceState.light.active=index;renderEditWorkspace()}
 function toggleEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const l=editWorkspaceState.light.layers[editWorkspaceState.light.active];if(l)l.enabled=l.enabled===false;renderEditWorkspace()}
@@ -7852,33 +7975,86 @@ function clampEditUpscaleDimensions(width,height,sourceWidth=width,sourceHeight=
   while(height>1&&(width>24000||width*height>100000000)){height--;width=Math.max(1,Math.round(sourceWidth*height/sourceHeight));}
   return{width,height};
 }
+function editSylvexRestoreState(){
+  const s=editWorkspaceState,u=s.upscale;u.sylvex??=createEditSylvexRestoreState();const r=u.sylvex;
+  if(!r.sourceUrl&&s.sourceUrl){r.sourceUrl=s.sourceUrl;r.imageWidth=s.width;r.imageHeight=s.height;}
+  if((!r.imageWidth||!r.imageHeight)&&s.width&&s.height){r.imageWidth=s.width;r.imageHeight=s.height;}
+  return r;
+}
+function editSylvexRegion(){const r=editSylvexRestoreState();return r.regions.find(region=>region.region_id===r.selectedRegionId)||null;}
+function setEditUpscaleModel(e,model){
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  editWorkspaceState.upscale.model=model==='sylvex_sr'?'sylvex_sr':'topaz';
+  if(editWorkspaceState.upscale.model==='sylvex_sr'){const s=editWorkspaceState,r=editSylvexRestoreState(),factor=[1,2,4].includes(r.finalEnhance.upscale_factor)?r.finalEnhance.upscale_factor:2;r.sourceUrl=s.sourceUrl;r.imageWidth=s.width;r.imageHeight=s.height;r.guidesHidden=false;if(s.width&&s.height){Object.assign(s.upscale,{width:s.width*factor,height:s.height*factor,scale:factor});}}
+  renderEditWorkspace();
+}
+function editUpscaleModelSelector(){
+  const model=editWorkspaceState.upscale.model;
+  return '<div class="edit-sr-model-selector" role="group" aria-label="Enhancement model"><button type="button" class="'+(model==='topaz'?'active':'')+'" onclick="SYLVEX.setEditUpscaleModel(event,\'topaz\')"><b>Topaz</b><small>Fast automatic upscale</small></button><button type="button" class="'+(model==='sylvex_sr'?'active':'')+'" onclick="SYLVEX.setEditUpscaleModel(event,\'sylvex_sr\')"><b>Sylvex Restore</b><small>GPT Image restoration</small></button></div>';
+}
+function editSylvexRegionCard(){
+  const r=editSylvexRestoreState(),region=editSylvexRegion();
+  if(!region)return '<div class="edit-sr-empty-card"><b>Optional manual areas</b><span>Generate immediately for full-photo restoration, or select an area to attach a reference or instruction.</span></div>';
+  return '<section class="edit-sr-region-card"><header><span class="purple">'+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</span><div><b>Region '+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</b><small>Coordinates are saved automatically</small></div><button type="button" aria-label="Delete region" onclick="SYLVEX.deleteEditSylvexRegion(event)">×</button></header>'+
+    '<div class="edit-sr-reference"><button type="button" onclick="SYLVEX.openEditSylvexReference(event,\''+S.escapeHtml(region.region_id)+'\')">'+(region.reference_asset_id?'<img src="'+S.escapeHtml(region.reference_asset_id)+'" alt="Region reference"><span>Replace reference</span>':'<span>＋ Add photo reference</span>')+'</button>'+(region.reference_asset_id?'<button type="button" aria-label="Remove reference" onclick="SYLVEX.removeEditSylvexReference(event)">×</button>':'')+'</div>'+
+    '<label>Instruction <span class="edit-sr-optional">optional</span><textarea maxlength="500" rows="3" placeholder="Describe what to restore, change or keep unchanged" oninput="SYLVEX.updateEditSylvexRegion(event,\'text_instruction\')">'+S.escapeHtml(region.text_instruction||'')+'</textarea><small>'+String(region.text_instruction||'').length+'/500</small></label></section>';
+}
+function editSylvexPanel(generate){
+  const s=editWorkspaceState,r=editSylvexRestoreState(),ready=!!(s.width&&s.height),scale=ready?Number((s.upscale.height/s.height).toFixed(2)):0,referenceCount=r.regions.filter(region=>region.reference_asset_id).length;
+  const toolbar=ready?'<div class="edit-sr-toolbar"><button type="button" class="'+(r.addingRegion?'active':'')+'" onclick="SYLVEX.startEditSylvexRegion(event)">'+(r.addingRegion?'Cancel selection':'Select area')+'</button><button type="button" '+(!r.regions.length?'disabled ':'')+'onclick="SYLVEX.resetEditSylvexRestore(event)">Clear areas</button></div>':'';
+  const tabs=r.regions.length?'<div class="edit-sr-region-tabs">'+r.regions.map(region=>'<button type="button" class="'+(region.region_id===r.selectedRegionId?'active ':'')+'purple" onclick="SYLVEX.selectEditSylvexRegion(event,\''+S.escapeHtml(region.region_id)+'\')">'+S.escapeHtml(String(region.region_id||'').replace('region_',''))+'</button>').join('')+'</div>':'';
+  return '<div class="edit-camera-panel-title"><h3>Sylvex Restore</h3><span>GPT Image</span></div><div class="edit-upscale-options"><p class="edit-upscale-help">Restore the whole photo immediately, or mark important areas and attach matching references or instructions.</p><div class="edit-workspace-segment" aria-label="Output scale">'+[1,2,4].map(v=>'<button type="button" aria-pressed="'+(ready&&s.upscale.height===s.height*v)+'" class="'+(ready&&s.upscale.height===s.height*v?'active':'')+'" '+(ready?'':'disabled')+' onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'×</button>').join('')+'</div><div class="edit-upscale-summary"><span>Source</span><b>'+(ready?s.width+' × '+s.height+' px':'Upload an image')+'</b><span>Result</span><b>'+(ready?s.upscale.width+' × '+s.upscale.height+' px · '+scale+'×':'—')+'</b></div>'+toolbar+tabs+editSylvexRegionCard()+'<p class="edit-sr-reference-limit">'+referenceCount+' of 4 photo references · Text-only areas do not use this limit.</p></div><div class="edit-upscale-summary"><span>Cost</span><b data-upscale-cost aria-live="polite">'+(ready?'Calculating…':'—')+'</b></div>'+generate+'<input id="editSrReferenceInput" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditSylvexReference(event)">';
+}
 function editUpscalePanel(generate,range){
   const s=editWorkspaceState,u=s.upscale,ready=!!(s.width&&s.height),disabled=ready?'':' disabled';
+  const selector=editUpscaleModelSelector();if(u.model==='sylvex_sr')return selector+editSylvexPanel(generate);
   const scale=ready?Number((u.height/s.height).toFixed(2)):0;
-  return '<div class="edit-camera-panel-title"><h3>Улучшение качества</h3><span>Topaz · High Fidelity V2</span></div>'+
-    '<div class="edit-upscale-options">'+
-    '<p class="edit-upscale-help">Увеличьте фото и настройте детализацию. 1× улучшает качество без увеличения.</p>'+
-    '<div class="edit-workspace-segment" aria-label="Масштаб результата">'+[1,2,4].map(v=>'<button type="button" aria-pressed="'+(ready&&u.height===s.height*v)+'" class="'+(ready&&u.height===s.height*v?'active':'')+'"'+disabled+' onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'×</button>').join('')+'</div>'+
-    '<div class="edit-upscale-summary"><span>Исходник</span><b>'+(ready?s.width+' × '+s.height+' px':'Загрузите фото')+'</b><span>Результат</span><b>'+(ready?u.width+' × '+u.height+' px · '+scale+'×':'—')+'</b></div>'+
-    '<div class="edit-workspace-dimensions"><label>W <input aria-label="Ширина результата" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'width\')"> px</label><span>×</span><label>H <input aria-label="Высота результата" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'height\')"> px</label></div>'+
-    '<p class="edit-upscale-help">Пропорции сохраняются · до 100 Мп и 24 000 px по стороне. При достижении лимита масштаб уменьшается.</p>'+
-    '<details class="edit-workspace-settings" open><summary>Настройки улучшения</summary><div class="edit-upscale-controls">'+
-    range('Резкость','sharpness',0,100,1,u.sharpness,'upscale','')+range('Убрать шум','denoise',0,100,1,u.denoise,'upscale','')+
-    range('Сила улучшения','modelStrength',1,100,1,u.modelStrength,'upscale','')+range('Убрать сжатие','fixCompression',0,100,1,u.fixCompression,'upscale','')+
-    '<label class="edit-workspace-select-row">Область улучшения<select aria-label="Область улучшения" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'subject\')">'+[['All','Всё фото'],['Foreground','Передний план'],['Background','Фон']].map(([value,label])=>'<option value="'+value+'" '+(u.subject===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label>'+
-    '<label class="edit-workspace-switch-row">Улучшение лиц<input aria-label="Улучшение лиц" type="checkbox" '+(u.faceEnhancement?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'faceEnhancement\')"></label>'+
-    '<fieldset class="edit-upscale-faces" '+(u.faceEnhancement?'':'disabled')+'><legend class="sr-only">Настройки лиц</legend>'+range('Детализация лиц','strength',0,100,1,u.strength,'upscale','')+range('Креативность лиц','creativity',0,100,1,u.creativity,'upscale','')+'<p class="edit-upscale-help">Низкая креативность помогает сохранить исходные черты лица.</p></fieldset></div></details>'+
-    '</div><div class="edit-upscale-summary"><span>Стоимость</span><b data-upscale-cost aria-live="polite">'+(ready?'Расчёт…':'—')+'</b></div>'+generate;
+  return selector+'<div class="edit-camera-panel-title"><h3>Enhance quality</h3><span>Topaz · High Fidelity V2</span></div><div class="edit-upscale-options"><p class="edit-upscale-help">Upscale the photo and adjust detail. 1× improves quality without enlarging it.</p><div class="edit-workspace-segment" aria-label="Output scale">'+[1,2,4].map(v=>'<button type="button" aria-pressed="'+(ready&&u.height===s.height*v)+'" class="'+(ready&&u.height===s.height*v?'active':'')+'"'+disabled+' onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'×</button>').join('')+'</div><div class="edit-upscale-summary"><span>Source</span><b>'+(ready?s.width+' × '+s.height+' px':'Upload an image')+'</b><span>Result</span><b>'+(ready?u.width+' × '+u.height+' px · '+scale+'×':'—')+'</b></div><div class="edit-workspace-dimensions"><label>W <input aria-label="Result width" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'width\')"> px</label><span>×</span><label>H <input aria-label="Result height" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'height\')"> px</label></div><p class="edit-upscale-help">Aspect ratio is preserved · up to 100 MP and 24,000 px per side.</p><details class="edit-workspace-settings" open><summary>Enhancement settings</summary><div class="edit-upscale-controls">'+range('Sharpness','sharpness',0,100,1,u.sharpness,'upscale','')+range('Denoise','denoise',0,100,1,u.denoise,'upscale','')+range('Enhance strength','modelStrength',1,100,1,u.modelStrength,'upscale','')+range('Fix compression','fixCompression',0,100,1,u.fixCompression,'upscale','')+'<label class="edit-workspace-select-row">Enhance area<select aria-label="Enhance area" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'subject\')">'+[['All','Whole image'],['Foreground','Foreground'],['Background','Background']].map(([value,label])=>'<option value="'+value+'" '+(u.subject===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label><label class="edit-workspace-switch-row">Face enhancement<input aria-label="Face enhancement" type="checkbox" '+(u.faceEnhancement?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'faceEnhancement\')"></label><fieldset class="edit-upscale-faces" '+(u.faceEnhancement?'':'disabled')+'><legend class="sr-only">Face settings</legend>'+range('Face detail','strength',0,100,1,u.strength,'upscale','')+range('Face creativity','creativity',0,100,1,u.creativity,'upscale','')+'<p class="edit-upscale-help">Low creativity helps preserve the original facial features.</p></fieldset></div></details></div><div class="edit-upscale-summary"><span>Cost</span><b data-upscale-cost aria-live="polite">'+(ready?'Calculating…':'—')+'</b></div>'+generate;
+}
+function resetEditSylvexRestore(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState,current=s.upscale.sylvex?.finalEnhance||createEditSylvexRestoreState().finalEnhance;s.upscale.sylvex={...createEditSylvexRestoreState(),sourceUrl:s.sourceUrl,imageWidth:s.width,imageHeight:s.height,finalEnhance:{...current}};renderEditWorkspace();scheduleEditWorkspaceSave();}
+function selectEditSylvexRegion(e,id){if(e){e.preventDefault();e.stopPropagation()}const r=editSylvexRestoreState();r.selectedRegionId=id;r.addingRegion=false;renderEditWorkspace();}
+function startEditSylvexRegion(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const r=editSylvexRestoreState();if(r.regions.length>=12)return editWorkspaceToast('You can use up to 12 regions.');r.addingRegion=!r.addingRegion;renderEditWorkspace();if(r.addingRegion)editWorkspaceToast('Drag a rectangle over the image.');}
+function updateEditSylvexRegion(e,key){
+  const region=editSylvexRegion();if(!region||!e?.currentTarget)return;const value=String(e.currentTarget.value||'').slice(0,500);region[key]=value;region.user_action=region.reference_asset_id?'upload_reference':value.trim()?'enter_text':'auto_restore';
+  const counter=e.currentTarget.parentElement?.querySelector('small');if(counter)counter.textContent=value.length+'/500';updateEditWorkspaceReady();
+  scheduleEditWorkspaceSave();
+}
+function deleteEditSylvexRegion(e){if(e){e.preventDefault();e.stopPropagation()}const r=editSylvexRestoreState(),region=editSylvexRegion();if(!region)return;r.regions=r.regions.filter(item=>item.region_id!==region.region_id);r.selectedRegionId=r.regions[0]?.region_id||'';renderEditWorkspace();scheduleEditWorkspaceSave();}
+function openEditSylvexReference(e,id){if(e){e.preventDefault();e.stopPropagation()}if(e?.currentTarget?.dataset?.dragged)return;const r=editSylvexRestoreState();if(id)r.selectedRegionId=id;const region=editSylvexRegion();if(!region)return;if(!region.reference_asset_id&&r.regions.filter(item=>item.reference_asset_id).length>=4)return editWorkspaceToast('You can use up to 4 photo references.');const input=document.getElementById('editSrReferenceInput');if(input){input.value='';input.click();}}
+async function onEditSylvexReference(e){const file=e?.target?.files?.[0],r=editSylvexRestoreState(),region=editSylvexRegion();if(!file||!region)return;if(!region.reference_asset_id&&r.regions.filter(item=>item.reference_asset_id).length>=4)return editWorkspaceToast('You can use up to 4 photo references.');if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>50*1024*1024)return editWorkspaceToast('Choose a JPEG, PNG or WebP image under 50 MB.');try{region.reference_asset_id=await uploadProStudioMediaFile(file,'image');region.user_action='upload_reference';renderEditWorkspace();scheduleEditWorkspaceSave();}catch(error){editWorkspaceToast(error?.message||'Could not upload the reference.')}}
+function removeEditSylvexReference(e){if(e){e.preventDefault();e.stopPropagation()}const region=editSylvexRegion();if(region){region.reference_asset_id=null;region.user_action=String(region.text_instruction||'').trim()?'enter_text':'auto_restore';renderEditWorkspace();scheduleEditWorkspaceSave();}}
+function initEditSylvexRestoreOverlay(){
+  const overlay=document.querySelector('#editWorkspace .edit-sr-overlay');if(!overlay)return;let start=null,pointerId=null;
+  const point=e=>{const rect=overlay.getBoundingClientRect();return{x:Math.max(0,Math.min(rect.width,e.clientX-rect.left)),y:Math.max(0,Math.min(rect.height,e.clientY-rect.top)),w:rect.width,h:rect.height};};
+  overlay.onpointerdown=e=>{const r=editSylvexRestoreState();if(!r.addingRegion||e.target!==overlay)return;e.preventDefault();e.stopPropagation();start=point(e);pointerId=e.pointerId;overlay.setPointerCapture(pointerId);};
+  overlay.onpointermove=e=>{if(!start||e.pointerId!==pointerId)return;e.preventDefault();e.stopPropagation();const p=point(e),draft=overlay.querySelector('.edit-sr-draft'),x=Math.min(start.x,p.x),y=Math.min(start.y,p.y);if(!draft)return;draft.hidden=false;Object.assign(draft.style,{left:x/start.w*100+'%',top:y/start.h*100+'%',width:Math.abs(p.x-start.x)/start.w*100+'%',height:Math.abs(p.y-start.y)/start.h*100+'%'});};
+  overlay.onpointerup=e=>{if(!start||e.pointerId!==pointerId)return;e.preventDefault();e.stopPropagation();const p=point(e),r=editSylvexRestoreState(),x=Math.min(start.x,p.x),y=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);start=null;pointerId=null;if(w<12||h<12)return editWorkspaceToast('Draw a larger region.');const maxId=r.regions.reduce((max,row)=>Math.max(max,Number(String(row.region_id).replace(/\D/g,''))||0),0),region={region_id:'region_'+(maxId+1),source:'user_added',region_type:'other',bbox:{x:Math.round(x/p.w*r.imageWidth),y:Math.round(y/p.h*r.imageHeight),width:Math.round(w/p.w*r.imageWidth),height:Math.round(h/p.h*r.imageHeight)},confidence:null,importance_score:1,issue_type:'user_defined',issue_summary:'User manually marked this region.',suggested_action:null,user_action:'auto_restore',reference_asset_id:null,text_instruction:null,protection_mode:null,guideX:null,guideY:null};r.regions.push(region);r.selectedRegionId=region.region_id;r.addingRegion=false;renderEditWorkspace();scheduleEditWorkspaceSave();};
+}
+async function animateEditSylvexGuidesIntoSource(){
+  const s=editWorkspaceState,r=editSylvexRestoreState(),root=document.getElementById('editWorkspace'),active=s.chain.find(node=>node.id===s.activeNodeId);if(!root||!active||!r.regions.length)return;
+  const animations=[];r.absorbing=true;root.dataset.busy='true';root.querySelectorAll('.edit-workspace-generate').forEach(button=>button.disabled=true);
+  const cubic=(a,b,c,d,t)=>{const u=1-t;return u*u*u*a+3*u*u*t*b+3*u*t*t*c+t*t*t*d;};
+  r.regions.forEach(region=>{
+    const node=root.querySelector('[data-sr-guide="'+region.region_id+'"]'),path=root.querySelector('[data-sr-guide-line="'+region.region_id+'"]');if(!node)return;
+    const start={x:Number(region.guideX),y:Number(region.guideY)},end=editSylvexGuideAnchor(active,region,r),dx=end.x-start.x,dy=end.y-start.y,bend=Math.max(28,Math.min(150,Math.hypot(dx,dy)*.42));
+    let c1,c2;if(Math.abs(dx)>=Math.abs(dy)){const sign=dx<0?-1:1;c1={x:start.x+sign*bend,y:start.y};c2={x:end.x-sign*bend,y:end.y};}else{const sign=dy<0?-1:1;c1={x:start.x,y:start.y+sign*bend};c2={x:end.x,y:end.y-sign*bend};}
+    const frames=[0,.28,.58,.82,1].map(t=>({transform:`translate(${cubic(start.x,c1.x,c2.x,end.x,t)-32}px,${cubic(start.y,c1.y,c2.y,end.y,t)-32}px) scale(${1-t*.82})`,opacity:String(1-t)}));
+    const animation=node.animate(frames,{duration:560,easing:'cubic-bezier(.2,.75,.2,1)',fill:'forwards'});animations.push(animation.finished.catch(()=>{}));
+    if(path)animations.push(path.animate([{opacity:1},{opacity:.55,offset:.55},{opacity:0}],{duration:500,easing:'ease-out',fill:'forwards'}).finished.catch(()=>{}));
+  });
+  await Promise.all(animations);r.absorbing=false;r.guidesHidden=true;
 }
 async function refreshEditUpscaleEstimate(){
   const s=editWorkspaceState;
   if(s.mode!=='upscale'||editWorkspaceValidation())return;
-  const {width,height}=s.upscale,key=width+'x'+height;
-  const paint=()=>{if(s.mode!=='upscale')return;const node=document.querySelector('[data-upscale-cost]');if(node)node.textContent=s.upscaleEstimate?.credits!=null?s.upscaleEstimate.credits+' ⚡':s.upscaleEstimate?.loading?'Расчёт…':'Уточняется при запуске';};
+  const {width,height}=s.upscale,isSylvex=s.upscale.model==='sylvex_sr',restore=editSylvexRestoreState();
+  const restoreOptions=isSylvex?{enhancePhotoModel:'sylvex_sr',sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance}}:{};
+  const key=isSylvex?JSON.stringify(['sylvex_sr',restoreOptions.sylvexRestoreRegions.map(row=>[row.region_id,row.reference_asset_id,row.text_instruction]),restoreOptions.sylvexRestoreFinalEnhance]):width+'x'+height;
+  const paint=()=>{if(s.mode!=='upscale')return;const node=document.querySelector('[data-upscale-cost]');if(node)node.textContent=s.upscaleEstimate?.credits!=null?s.upscaleEstimate.credits+' ⚡':s.upscaleEstimate?.loading?'Calculating…':'Confirmed at generation';};
   if(s.upscaleEstimate?.key===key){paint();return;}
   const estimate={key,credits:null,loading:true};s.upscaleEstimate=estimate;paint();
   try{
-    const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'image',provider:'topaz',model:'topaz_enhance_photo',image_options:{tool:'edit_workspace',editWorkspaceMode:'upscale',editWorkspaceUpscale:{width,height},referenceImageUrls:[s.sourceUrl],referenceImages:[s.sourceUrl]}})});
+    const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'image',provider:isSylvex?'openai':'topaz',model:isSylvex?'sylvex_sr':'topaz_enhance_photo',image_options:{tool:'edit_workspace',editWorkspaceMode:'upscale',editWorkspaceUpscale:{...s.upscale,sylvex:undefined},editWorkspaceSourceUrl:s.sourceUrl,referenceImageUrls:[s.sourceUrl],referenceImages:[s.sourceUrl],...restoreOptions}})});
     const data=await response.json();if(response.ok&&data.ok&&Number.isFinite(data.credits)&&data.credits>0)estimate.credits=data.credits;
   }catch(_){}finally{estimate.loading=false;if(s.upscaleEstimate===estimate)paint();}
 }
@@ -7892,12 +8068,81 @@ function updateEditWorkspaceField(e,group,key){
   if(group==='upscale'&&(key==='width'||key==='height')){Object.assign(target,clampEditUpscaleDimensions(target.width,target.height,s.width,s.height));target.scale=target.height/s.height;}
   renderEditWorkspace();
 }
-function setEditUpscaleScale(e,scale){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;if(!s.width||!s.height||![1,2,4].includes(scale))return;Object.assign(s.upscale,clampEditUpscaleDimensions(s.width*scale,s.height*scale,s.width,s.height));s.upscale.scale=s.upscale.height/s.height;renderEditWorkspace()}
+function setEditUpscaleScale(e,scale){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;if(!s.width||!s.height||![1,2,4].includes(scale))return;if(s.upscale.model==='sylvex_sr'){Object.assign(s.upscale,{width:s.width*scale,height:s.height*scale,scale});editSylvexRestoreState().finalEnhance.upscale_factor=scale;}else{Object.assign(s.upscale,clampEditUpscaleDimensions(s.width*scale,s.height*scale,s.width,s.height));s.upscale.scale=s.upscale.height/s.height;}renderEditWorkspace()}
 function filterEditLanguages(e){const query=String(e&&e.currentTarget&&e.currentTarget.value||'').toLowerCase();document.querySelectorAll('.edit-workspace-language-list button').forEach(button=>button.hidden=!button.dataset.language.includes(query))}
 function selectEditLanguage(e,language){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.translateLanguage=language;renderEditWorkspace()}
 function setEditBrushMode(e,mode){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.brushMode=mode;renderEditWorkspace()}
 function updateEditBrushSize(e){const input=e&&e.currentTarget;if(input&&!editWorkspaceLocked()){editWorkspaceState.brushSize=Number(input.value)||24;const out=document.getElementById('editBrushSizeOutput');if(out)out.textContent=editWorkspaceState.brushSize}}
-function setEditBackgroundMode(e,mode){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.backgroundMode=mode;renderEditWorkspace()}
+function editBackgroundPrompt(state){return state.mode==='background'&&state.backgroundMode!=='replace'?'':state.prompt;}
+function editBackgroundOptions(state){
+  return state.mode!=='background'?{}:state.backgroundMode==='color'?{color:state.background.color}:state.backgroundMode==='image'?{url:state.background.url}:{};
+}
+function editBackgroundColorText(color){
+  const rgb=(/^#[0-9a-f]{6}$/i.test(color)?color:'#ffffff').slice(1).match(/../g).map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+  return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722>.179?'#000000':'#ffffff';
+}
+function editBackgroundPanel(generate){
+  const s=editWorkspaceState,b=s.background,safe=v=>S.escapeHtml(String(v||'')),replacing=s.backgroundMode!=='transparent';
+  const color=/^#[0-9a-f]{6}$/i.test(b.color)?b.color:'#ffffff';
+  return '<div class="edit-background-controls" data-background-choice="'+s.backgroundMode+'" style="--background-choice-color:'+color+';--background-choice-text:'+editBackgroundColorText(color)+'">'+
+    '<div class="edit-background-description"><textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Background description" placeholder="Describe the new background, or choose a photo or color" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea></div>'+
+    '<div class="edit-background-footer"><div class="edit-background-toolbar" role="group" aria-label="Background mode">'+
+    '<button type="button" class="edit-background-mode" data-background-mode="transparent" aria-pressed="'+!replacing+'" onclick="SYLVEX.setEditBackgroundMode(event,\'transparent\')">Remove background</button>'+
+    '<div class="edit-background-replacement">'+
+    '<div class="edit-background-choice"><button type="button" class="edit-background-mode edit-background-replace" data-background-mode="replace" aria-pressed="'+replacing+'" onclick="SYLVEX.setEditBackgroundMode(event,\'replace\')">'+
+    (b.url?'<img class="edit-background-choice-image" src="'+safe(b.url)+'" alt="">':'')+'<span>Replace background</span></button>'+
+    '<button type="button" class="edit-background-upload" aria-label="Upload background photo" title="Upload background photo" onclick="document.getElementById(\'editBackgroundFile\').click()">+</button>'+
+    '<button type="button" class="edit-background-clear" aria-label="Clear selected background" title="Clear selected background" onclick="SYLVEX.clearEditBackgroundImage(event)">×</button></div>'+
+    '<label class="edit-background-color" title="Choose background color"><input type="color" aria-label="Background color" data-background-color value="'+color+'" oninput="SYLVEX.updateEditBackgroundColor(event)"></label>'+
+    '<input id="editBackgroundFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditBackgroundFile(event)"></div></div>'+generate+'</div></div>';
+}
+function setEditBackgroundMode(e,mode){
+  if(editWorkspaceLocked()||!['transparent','replace','color','image'].includes(mode))return;
+  if(e){e.preventDefault();e.stopPropagation()}
+  // Clicking the active replacement button must not discard its photo or color.
+  if(mode==='replace'&&['image','color'].includes(editWorkspaceState.backgroundMode))return;
+  editWorkspaceState.backgroundMode=mode;renderEditWorkspace();
+}
+function updateEditBackgroundColor(e,color){
+  if(editWorkspaceLocked())return;
+  const s=editWorkspaceState,value=String(color??e?.currentTarget?.value??'').trim().toLowerCase();s.background.color=value;
+  if(/^#[0-9a-f]{6}$/.test(value))s.backgroundMode='color';
+  // Keep the native color picker mounted while it emits live color changes.
+  syncEditBackgroundControls();updateEditWorkspaceReady();
+}
+function syncEditBackgroundControls(){
+  const s=editWorkspaceState,value=s.background.color;
+  const root=document.getElementById('editWorkspace'),controls=root?.querySelector('.edit-background-controls');
+  if(controls){
+    controls.dataset.backgroundChoice=s.backgroundMode;
+    if(/^#[0-9a-f]{6}$/.test(value)){
+      controls.style.setProperty('--background-choice-color',value);controls.style.setProperty('--background-choice-text',editBackgroundColorText(value));
+      const picker=controls.querySelector('[data-background-color]');if(picker)picker.value=value;
+    }
+    controls.querySelectorAll('[data-background-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.backgroundMode===(s.backgroundMode==='transparent'?'transparent':'replace'))));
+  }
+}
+async function onEditBackgroundFile(e){
+  const input=e?.target,file=input?.files?.[0];if(!file)return;input.value='';await loadEditBackgroundImage(file);
+}
+async function loadEditBackgroundImage(file){
+  const s=editWorkspaceState;if(editWorkspaceLocked())return;
+  if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type))return editWorkspaceToast('Choose a JPEG, PNG or WebP image.');
+  if(file.size>50*1024*1024)return editWorkspaceToast('The image must be smaller than 50 MB.');
+  const version=++s.uploadVersion,preview=URL.createObjectURL(file);s.uploading=true;renderEditWorkspace();
+  try{
+    const probe=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('Could not read the image.'));img.src=preview;});
+    if(probe.naturalWidth*probe.naturalHeight>100000000)throw new Error('The image exceeds 100 megapixels.');
+    const url=await uploadProStudioMediaFile(file,'image');
+    if(s.uploadVersion!==version)return;
+    s.background={...s.background,url,name:file.name};s.backgroundMode='image';
+  }catch(error){editWorkspaceToast(error.message||'Could not upload the background.');}
+  finally{URL.revokeObjectURL(preview);if(s.uploadVersion===version){s.uploading=false;renderEditWorkspace();}}
+}
+function clearEditBackgroundImage(e){
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  Object.assign(editWorkspaceState.background,{url:'',name:'',color:'#ffffff'});editWorkspaceState.backgroundMode='replace';renderEditWorkspace();
+}
 function resetEditResize(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;s.resize={width:s.width,height:s.height,locked:s.resize.locked};renderEditWorkspace()}
 function cycleEditWorkspaceZoom(e){fitEditWorkspace(e);}
 function adjustEditWorkspaceZoom(e,delta){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceSetViewZoom(editWorkspaceState.zoom+delta);}
@@ -7906,14 +8151,14 @@ async function downloadEditWorkspaceResult(e){
   if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(!s.resultUrl)return;
   if(s.jobId)return downloadGeneratedFile({currentTarget:{dataset:{downloadUrl:completedGenerationDownloadUrl(s.jobId),fileName:'sylvex-edit.png'}}});
   try{const response=await fetch(s.resultUrl);if(!response.ok)throw new Error('Download failed');const blob=await response.blob(),url=URL.createObjectURL(blob);browserDownload(url,'sylvex-edit.png');setTimeout(()=>URL.revokeObjectURL(url),30000);}
-  catch(error){editWorkspaceToast('Не удалось скачать изображение. Попробуйте снова.');}
+  catch(error){editWorkspaceToast('Could not download the image. Please try again.');}
 }
 async function onEditWorkspaceFile(e){const input=e&&e.target,file=input&&input.files&&input.files[0];if(!file)return;input.value='';await loadEditWorkspaceImage(file)}
-function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(state.prompt.trim()?': '+state.prompt.trim():'')}
+function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);if(state.mode==='upscale'&&state.upscale.model==='sylvex_sr')return 'Sylvex Restore';const prompt=editBackgroundPrompt(state).trim();if(state.mode==='background')return 'Edit · Background · '+({transparent:'Remove background',replace:prompt,color:'Color '+state.background.color,image:'Custom photo'}[state.backgroundMode]);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(prompt?': '+prompt:'')}
 function completeEditChainResult(node,response,before){
   const s=editWorkspaceState,result=response.result||response,urls=generatedUrlsFromResponse(result,'image');
   const url=urls?.[0]||result.image_url||result.result_url||'';
-  if(!url)throw new Error('Генерация не вернула изображение.');
+  if(!url)throw new Error('Generation returned no image.');
   s.history.push(before);if(s.history.length>20)s.history.shift();
   s.jobId=response.job_id||result.job_id||result.generation_id||node.jobId||'';
   s.beforeUrl=before.sourcePreview||before.sourceUrl;s.resultUrl=url;s.sourceUrl=url;s.sourcePreview=url;s.maskStrokes=[];s.maskRedo=[];
@@ -7933,7 +8178,7 @@ async function recoverEditSessionJob(){
     if(['failed','cancelled','timeout'].includes(error.terminalStatus))node.status='failed';
     // A network interruption is not evidence that the provider job failed.
     // Keep its ID so reopening the canvas polls that same job again.
-    editWorkspaceToast(translateGenerationError(error,'Не удалось проверить результат. Откройте эту рабочую область из истории ещё раз.'));
+    editWorkspaceToast(translateGenerationError(error,'Could not check the result. Reopen this workspace from history.'));
   }finally{if(s.sessionId===sessionId&&owner===editSessionOwner()){s.busy=false;renderEditWorkspace();void saveEditWorkspaceSession();}}
 }
 async function generateEditWorkspace(e){
@@ -7941,18 +8186,26 @@ async function generateEditWorkspace(e){
   const state=editWorkspaceState;if(editWorkspaceLocked())return;
   if(state.chain.some(node=>node.status==='pending'&&node.jobId)){void recoverEditSessionJob();return;}
   const reason=editWorkspaceValidation();if(reason)return editWorkspaceToast(reason);
+  if(state.mode==='sketch'){
+    try{await prepareEditSketchReference();}catch(error){editWorkspaceToast(error.message||'Could not prepare the drawing.');renderEditWorkspace();return;}
+  }
+  const mode=state.mode,isSylvex=mode==='upscale'&&state.upscale.model==='sylvex_sr',restore=isSylvex?editSylvexRestoreState():null;
+  if(isSylvex)await animateEditSylvexGuidesIntoSource();
   ensureEditWorkspaceChain();
   const before=editWorkspaceSnapshot();state.showBefore=false;const maskCanvas=document.getElementById('editWorkspaceMask'),maskUrl=state.mode==='retouch'&&maskCanvas?maskCanvas.toDataURL('image/png'):'';
   state.busy=true;const chainResult=beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
-  const mode=state.mode,refs=[state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
-  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:state.prompt,editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  const refs=[state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
+  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  if(isSylvex)Object.assign(imageOptions,{enhancePhotoModel:'sylvex_sr',sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance}});
+  if(isSylvex)chainResult.restoreModel='sylvex_sr';
   try{
     prompt=editWorkspaceInstruction(state);
-    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:mode==='upscale'?'topaz':'openai',model:mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
+    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:isSylvex?'openai':mode==='upscale'?'topaz':'openai',model:isSylvex?'sylvex_sr':mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
     historyIndex=activeGenerationPlaceholderIndex();
     const response=await pending,providerResult=response.result||response;
     completeEditChainResult(chainResult,response,before);
+    if(isSylvex){const settings={...restore.finalEnhance};state.upscale.sylvex={...createEditSylvexRestoreState(),sourceUrl:state.sourceUrl,resultUrl:state.resultUrl,finalEnhance:settings};}
     const thumbs=generatedThumbsFromResponse(providerResult);
     addGeneratedImages([state.resultUrl],thumbs);
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
@@ -7960,11 +8213,13 @@ async function generateEditWorkspace(e){
     else chatMessages.push({role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)});
     loadConversations();
   }catch(error){
+    if(isSylvex)restore.guidesHidden=false;
     if(chainResult.status==='pending'&&(!chainResult.jobId||['failed','cancelled','timeout'].includes(error.terminalStatus)))chainResult.status='failed';
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
     if(historyIndex>=0)chatMessages[historyIndex]=resolveFailureMessage(error,{mode:'image',prompt});
-    editWorkspaceToast(translateGenerationError(error,'Не удалось отредактировать изображение.'));
+    editWorkspaceToast(translateGenerationError(error,'Could not edit the image.'));
   }finally{
+    if(isSylvex)restore.absorbing=false;
     state.busy=false;document.body.classList.remove('ai-generating');clearActiveProStudioJob();renderEditWorkspace();renderChat();rememberCurrentChatSpace();
   }
 }
@@ -9027,17 +9282,42 @@ function updatePhotoToolUploadSlot(index, file) {
     + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>');
 }
 
+function renderTopazEnhanceBody(state) {
+  const file=state.files[0];
+  return '<div class="photo-tool-layout"><div class="photo-tool-demo-column">'+photoToolDemoHtml(PHOTO_TOOL_CONFIG.enhance)+'<p>Automatic detail enhancement with the existing Topaz flow.</p></div>'
+    +'<div class="photo-tool-work-column"><div class="photo-tool-upload-grid count-1"><button class="photo-tool-upload-slot '+(file?'has-file':'')+'" type="button" data-slot-index="0" onclick="SYLVEX.openPhotoToolFilePicker(event,\'enhance\',0)">'
+    +(file?'<img src="'+S.escapeHtml(file.url)+'" alt=""><b>Source image</b><small>'+S.escapeHtml(file.name||'Image selected')+'</small><i role="button" aria-label="Remove" onclick="SYLVEX.removePhotoToolFile(event,\'enhance\',0)">×</i>':'<span class="photo-tool-upload-plus">＋</span><b>Source image</b><small>Click to upload</small>')
+    +'</button></div><input id="photoToolFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onPhotoToolFiles(event)">'
+    +'<button class="photo-tool-generate" type="button" '+(!file||state.generating?'disabled ':'')+'onclick="SYLVEX.generatePhotoTool(event)">'
+    +(state.generating?'<span class="photo-tool-spinner"></span>Enhancing…':'Enhance')+'</button></div></div>';
+}
+function sylvexRestoreColor(region) {
+  return region.source==='user_added'?'purple':region.region_type==='face'?'green':region.region_type==='text'?'blue':region.region_type==='object'?'orange':'purple';
+}
+function renderEnhancePhotoModal(body) {
+  const state=photoToolState.enhance;
+  body.innerHTML='<header class="photo-tool-head"><div><small>Photo tool</small><h3>Enhance Photo</h3></div><button type="button" aria-label="Close" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
+    +renderTopazEnhanceBody(state);
+}
+function validateSylvexRestorePlan(state){if(state.regions.length>12)return 'You can use up to 12 regions.';if(state.regions.filter(region=>region.reference_asset_id).length>4)return 'You can use up to 4 photo references.';return ''}
+function serializeSylvexRestoreRegions(regions){return regions.map(region=>{const instruction=String(region.text_instruction||'').slice(0,500),reference=region.reference_asset_id||null;return{region_id:region.region_id,source:'user_added',region_type:region.region_type||'other',bbox:Object.assign({},region.bbox),confidence:null,importance_score:1,issue_type:'user_defined',issue_summary:'User manually marked this region.',suggested_action:null,user_action:reference?'upload_reference':instruction.trim()?'enter_text':'auto_restore',reference_asset_id:reference,text_instruction:instruction||null,protection_mode:null}})}
 function renderPhotoToolModal() {
   const body = document.getElementById('photoToolModalBody');
   if (!body) return;
   const photoToolModal = document.getElementById('photoToolModal');
-  if (photoToolModal) photoToolModal.classList.toggle('logo-tool-modal', activePhotoTool === 'logo');
+  if (photoToolModal) {
+    photoToolModal.classList.toggle('logo-tool-modal', activePhotoTool === 'logo');
+  }
   if (activePhotoTool === 'try_on') {
     renderTryOnModal(body);
     return;
   }
   if (activePhotoTool === 'replace_character') {
     renderCharacterReplaceModal(body);
+    return;
+  }
+  if (activePhotoTool === 'enhance') {
+    renderEnhancePhotoModal(body);
     return;
   }
   const config = PHOTO_TOOL_CONFIG[activePhotoTool];
@@ -9447,7 +9727,7 @@ function closePhotoToolModal(e) {
   // blocked by an active generation" case (see studioGridHasActiveRun()
   // callers above).
   if (modal && photoToolGenerationActive) {
-    toast('Сначала дождитесь завершения текущей генерации');
+    toast(activePhotoTool === 'enhance' ? 'Wait for the current analysis or restoration to finish.' : 'Сначала дождитесь завершения текущей генерации');
     return;
   }
   if (modal) {
@@ -9567,7 +9847,7 @@ async function onPhotoToolFiles(e) {
   try {
     const loaded = await Promise.all(files.map(readPhotoToolFile));
     loaded.forEach((file, offset) => {
-      if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo') && file && files[offset]) file.originalFile = files[offset];
+      if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo' || activePhotoTool === 'enhance') && file && files[offset]) file.originalFile = files[offset];
       if (activePhotoTool === 'replace_object') {
         replaceObjectState.comparison = null;
         if (start + offset === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
@@ -9601,6 +9881,7 @@ function removePhotoToolFile(e, kind, index) {
     if (index === 1) replaceObjectState.selectedObjectId = null;
   }
   if (kind === 'watermark_removal') state.maskUrl = '';
+  if (kind === 'enhance') resetSylvexRestoreReview(false);
   activePhotoTool = kind;
   renderPhotoToolModal();
 }
@@ -10204,6 +10485,7 @@ async function generateRemoveBgTool(state) {
 const ENHANCE_PHOTO_TOOL_KEY = 'enhance_photo';
 
 async function generateEnhancePhotoTool(state) {
+  if (state.model === 'sylvex_sr') return runSylvexRestore({});
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
     toast('Загрузите фото');
@@ -22980,26 +23262,6 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Shop: buy flow ===== */
-  const PACK_META = {
-    sub_month: { title: 'SYLVEX Pro · 1 месяц',  price: '$5 · 230 ⭐' },
-    sub_year:  { title: 'SYLVEX Pro · 1 год',    price: '$59 · 2751 ⭐' },
-    pack_100:  { title: '100 ⚡️ токенов',        price: '$1 · 46 ⭐' },
-    pack_500:  { title: '500 ⚡️ токенов',        price: '$5 · 230 ⭐' },
-    pack_1000: { title: '1000 ⚡️ токенов',       price: '$10 · 460 ⭐' },
-    pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 920 ⭐' },
-    pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 1380 ⭐' },
-    pack_4000: { title: '4000 ⚡️ токенов',       price: '$40 · 1840 ⭐' },
-    pack_5000: { title: '5000 ⚡️ токенов',       price: '$50 · 2300 ⭐' },
-  };
-  const PAYPAL_PAYMENT_LINKS = {
-    pack_100: 'https://www.paypal.com/ncp/payment/BBWGSMRNBPHSS',
-    pack_500: 'https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L',
-    pack_1000: 'https://www.paypal.com/ncp/payment/YRWTDN4D585SL',
-    pack_2000: 'https://www.paypal.com/ncp/payment/YGGSLURF7ZC8N',
-    pack_3000: 'https://www.paypal.com/ncp/payment/5MV8DDWFZK5KC',
-    pack_4000: 'https://www.paypal.com/ncp/payment/Z5R9QMJKY2A2Y',
-    pack_5000: 'https://www.paypal.com/ncp/payment/LTF8NMXED9ZCW',
-  };
   const PAYPAL_PRO_MONTHLY_PLAN_ID = 'P-2JN99488MP781262CNJDGCZI';
   const PAYPAL_PRO_YEARLY_PLAN_ID = 'P-0YT1496917791881BNJDGRMY';
   const paypalSubscriptionRendered = {};
@@ -23046,18 +23308,25 @@ async function waitGeneration(jobId, options) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openBuy
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
+  // Legacy entry point. Inside Telegram everything is sold from the Telegram
+  // catalog for Stars: a package the catalog sells opens that product;
+  // anything else (e.g. the legacy month/year plans) opens the Store.
+  function openStoreFor(packId) {
+    const tab = String(packId || '').indexOf('pack_') === 0 ? 'tokens' : 'subscriptions';
+    loadStoreCatalog().then(() => {
+      if (storeProductAvailable(packId)) { openStoreProduct(packId); return; }
+      switchView('shop');
+      switchShopTab(tab);
+    });
+  }
   function openBuy(packId) {
-    // If already subscribed and clicking same-tier subscription card, open info modal instead.
+    openStoreFor(packId);
+  }
+  // Fills the existing pay screen (title, price, user, balance) and opens it.
+  function showPayView(title, price) {
     const u = S.user || {};
-    if ((packId === 'sub_month' || packId === 'sub_year')
-        && u.subscription_status === 'active') {
-      openSubActive(packId);
-      return;
-    }
-    pendingPack = packId;
-    const m = PACK_META[packId] || { title: packId, price: '—' };
-    const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.textContent = m.title;
-    const pEl = document.getElementById('payPackPrice'); if (pEl) pEl.textContent = m.price;
+    const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.textContent = title;
+    const pEl = document.getElementById('payPackPrice'); if (pEl) pEl.textContent = price;
     const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Guest';
     const handle   = u.username ? '@' + u.username : '@user';
     const nm = document.getElementById('payUserName');   if (nm) nm.textContent = fullName;
@@ -23084,6 +23353,211 @@ async function waitGeneration(jobId, options) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeBuy
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
+
+  /* ===== Store: server catalog + purchase orders =====
+     The Store cards (js/store-cards.js) sell the catalog served by
+     /api/public/shop/catalog. A purchase opens the existing pay screen;
+     payWith() then asks the server for a Stars or Crypto Pay invoice for
+     the product id (plus the USD amount for a custom purchase). The server
+     re-derives price, Stars and credits, and grants the order only after
+     the provider confirms payment; this screen just waits for it. */
+  let storeCatalog = null;
+  let storeCatalogLoading = null;
+  let pendingStoreProduct = null;
+  const storeOrderWatchers = {};
+  // Inside Telegram the Store sells only the Telegram catalog
+  // (services/telegram_catalog.py), for Telegram Stars only.
+  const STORE_METHODS = { stars: 'telegram_stars' };
+  const STORE_STARS_RATE = { stars: 499, usd_cents: 500 };
+  const STORE_ERRORS = {
+    unknown_product: 'Этот товар сейчас недоступен',
+    amount_required: 'Введите количество ⚡',
+    invalid_amount: 'Количество ⚡ указано неверно',
+    amount_out_of_range: 'Это количество ⚡ недоступно',
+    stars_amount_above_limit: 'Сумма выше лимита Telegram Stars',
+    stars_not_configured: 'Оплата звёздами временно недоступна',
+    stars_invoice_failed: 'Не удалось создать счёт Telegram Stars',
+    telegram_stars_only: 'В Telegram покупки оплачиваются только звёздами',
+    subscription_amount_above_limit: 'Цена подписки выше лимита Telegram Stars',
+    already_subscribed: 'Этот тариф уже оформлен и продлевается автоматически',
+    subscription_change_confirmation_required: 'Подтвердите смену тарифа',
+  };
+  const SUB_RENEWS_NOTE = 'Автоматически продлевается каждые 30 дней. Отменить можно в любой момент.';
+  const dot = (text) => (/\.$/.test(text) ? text : text + '.');
+  function loadStoreCatalog() {
+    if (storeCatalogLoading) return storeCatalogLoading;
+    storeCatalogLoading = fetch('/api/public/shop/catalog', { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.ok) { storeCatalog = data; mountStoreCards(); }
+        return storeCatalog;
+      })
+      .catch(() => null)
+      .finally(() => { if (!storeCatalog) storeCatalogLoading = null; });
+    return storeCatalogLoading;
+  }
+  function storeProviderOpen(provider) {
+    return !!(storeCatalog && storeCatalog.providers && storeCatalog.providers[provider]);
+  }
+  function storeProduct(productId) {
+    return (storeCatalog && (storeCatalog.products || []).find((p) => p.product_id === productId)) || null;
+  }
+  // Display price: the server's formula, ceil(usd_cents * 499 / 500).
+  function storeStarsFor(usdCents) {
+    const rate = (storeCatalog && storeCatalog.stars_rate) || STORE_STARS_RATE;
+    return Math.max(1, Math.ceil(Number(usdCents) * Number(rate.stars) / Number(rate.usd_cents)));
+  }
+  // Display-only mirror of the server's custom pricing (whole credits); the
+  // server re-derives price and availability.
+  function storeCustomProduct(credits) {
+    if (!storeCatalog || !storeCatalog.custom) return null;
+    const amount = Number(credits);
+    const custom = storeCatalog.custom;
+    if (!Number.isInteger(amount) || amount < custom.min_credits || amount > custom.max_credits) return null;
+    return {
+      product_id: custom.product_id, kind: 'credits', credits: amount, stars: storeStarsFor(amount),
+      title: amount.toLocaleString('ru-RU') + ' ⚡ SYLVEX', available: true,
+    };
+  }
+  function storeMethodState(product, method) {
+    if (!STORE_METHODS[method]) return { available: false, message: 'Недоступно в Telegram' };
+    if (!product.available) return { available: false, message: 'Недоступно в Telegram (лимит Telegram Stars)' };
+    if (!storeProviderOpen(STORE_METHODS[method])) return { available: false, message: 'Временно недоступно' };
+    return { available: true, message: '' };
+  }
+  function storeProductAvailable(productId) {
+    const product = storeProduct(productId);
+    return !!product && storeMethodState(product, 'stars').available;
+  }
+  function setStorePayMethods(product) {
+    document.querySelectorAll('[data-pay-method]').forEach((button) => {
+      const sub = button.querySelector('[data-pm-sub]');
+      const state = product ? storeMethodState(product, button.dataset.payMethod) : { available: true, message: '' };
+      button.disabled = !state.available;
+      button.classList.toggle('is-unavailable', !state.available);
+      if (sub) sub.textContent = state.available ? sub.dataset.pmDefault : state.message;
+    });
+    const note = document.getElementById('payStoreNote');
+    if (!note) return;
+    let text = '';
+    if (product && product.kind === 'subscription') {
+      const active = (S.user || {}).subscription_status === 'active';
+      if (product.recurring) {
+        // Monthly plans are Telegram Stars subscriptions renewing every 30 days.
+        text = SUB_RENEWS_NOTE + ' Каждые 30 дней списывается ' + Number(product.stars).toLocaleString('ru-RU')
+          + ' ⭐ и начисляется ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡.';
+      } else {
+        text = 'Одна оплата за 12 месяцев, без автопродления. ⚡ начисляются сразу после оплаты.';
+      }
+      if (active) text += ' У вас уже есть тариф — перед оплатой мы покажем, что изменится, и попросим подтвердить.';
+    }
+    note.textContent = text;
+    note.hidden = !text;
+  }
+  function openStoreProduct(productId, credits) {
+    const isCustom = productId === 'credits_custom';
+    const product = isCustom ? storeCustomProduct(credits) : storeProduct(productId);
+    if (!product) { toast(STORE_ERRORS.unknown_product); return; }
+    pendingStoreProduct = { productId, credits: isCustom ? Number(credits) : null, product };
+    pendingPack = null;
+    const planCredits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
+    setStorePayMethods(product);
+    // Stars only: the price shown is the exact invoice amount.
+    showPayView(product.title + planCredits, Number(product.stars).toLocaleString('ru-RU') + ' ⭐');
+  }
+  async function payStoreProduct(method, confirmChange) {
+    const selected = pendingStoreProduct;
+    if (!selected) return;
+    const tg = getTelegramId();
+    if (!tg) { toast('Telegram ID не найден'); return; }
+    if (!STORE_METHODS[method]) { toast(STORE_ERRORS.telegram_stars_only); return; }
+    const state = storeMethodState(selected.product, method);
+    if (!state.available) { toast(state.message); return; }
+    toast('Создаём счёт…');
+    let response, data;
+    try {
+      response = await fetch('/api/public/payments/stars/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ telegram_id: tg, product_id: selected.productId, credits: selected.credits },
+          confirmChange ? { confirm_change: true } : {})),
+      });
+      data = await response.json();
+    } catch {
+      toast('Сетевая ошибка');
+      return;
+    }
+    if (response.status === 409 && data && data.subscription) {
+      handleSubscriptionConflict(data, selected, method);
+      return;
+    }
+    if (!response.ok || !data || !data.ok) {
+      toast(STORE_ERRORS[data && data.error] || 'Не удалось создать счёт');
+      return;
+    }
+    const tgApp = S.tg;
+    if (!tgApp || !tgApp.openInvoice || !data.invoice_url) { toast('Оплата звёздами доступна в Telegram'); return; }
+    tgApp.openInvoice(data.invoice_url, (status) => {
+      if (status === 'paid') {
+        toast('Оплата получена, начисляем…');
+        watchStoreOrder(data.order_id, 3 * 60 * 1000);
+      } else if (status === 'cancelled') {
+        toast('Оплата отменена');
+      } else if (status === 'failed') {
+        toast('Оплата не прошла');
+      }
+    });
+  }
+  // Polls the server until the provider-confirmed grant lands (the bot for
+  // Stars, Crypto Pay verification for crypto), then refreshes the user.
+  function watchStoreOrder(orderId, maxMs) {
+    if (!orderId || storeOrderWatchers[orderId]) return;
+    const started = Date.now();
+    storeOrderWatchers[orderId] = true;
+    const tick = async () => {
+      let result = null;
+      try {
+        const response = await fetch('/api/public/payments/orders/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegram_id: getTelegramId(), order_id: orderId }),
+        });
+        result = await response.json();
+      } catch {}
+      const order = result && result.order;
+      if (order && order.status === 'paid') {
+        delete storeOrderWatchers[orderId];
+        if (result.user && S.renderUser) S.renderUser(result.user);
+        if (S.syncUser) S.syncUser({ force: true });
+        if (order.kind === 'subscription') showSubscriptionCelebration(result.user || S.user || {}, order.plan_key);
+        else toast('Зачислено ' + Number(order.credits).toLocaleString('ru-RU') + ' ⚡');
+        return;
+      }
+      if (order && (order.status === 'expired' || order.status === 'failed')) {
+        delete storeOrderWatchers[orderId];
+        toast(order.status === 'expired' ? 'Счёт истёк — создайте новый в магазине' : 'Оплата не прошла');
+        return;
+      }
+      if (Date.now() - started > maxMs) {
+        delete storeOrderWatchers[orderId];
+        return;
+      }
+      setTimeout(tick, Date.now() - started < 60000 ? 3000 : 10000);
+    };
+    setTimeout(tick, 1500);
+  }
+  const STORE_PLAN_NAMES = { starter: 'Starter', pro: 'Pro', max: 'Max', ultra: 'Ultra', creator: 'Creator' };
+  const STORE_PLAN_KEY_RE = /^(starter|pro|max|ultra|creator)_(month|year)$/;
+  function subscriptionPlanLabel(plan) {
+    const key = String(plan || '').toLowerCase();
+    if (key === 'year') return 'SYLVEX Pro · 1 год';
+    const match = key.match(STORE_PLAN_KEY_RE);
+    if (match) return 'SYLVEX ' + STORE_PLAN_NAMES[match[1]] + ' · ' + (match[2] === 'year' ? '12 месяцев' : '1 месяц');
+    return 'SYLVEX Pro · 1 месяц';
+  }
+  function isStorePlanKey(plan) {
+    return STORE_PLAN_KEY_RE.test(String(plan || '').toLowerCase());
+  }
   function closeBuy() { switchView('shop'); }
 
   /* ===== Subscription state rendering ===== */
@@ -23202,6 +23676,250 @@ async function waitGeneration(jobId, options) {
     });
   }
 
+  /* ===== Telegram Stars subscription management ===== */
+  // Monthly plans renew through Telegram Stars subscriptions. Renewal is
+  // cancelled / re-enabled through the server (Telegram editUserStarSubscription);
+  // the UI shows the server's actual result, never an assumed one.
+  function subDetails() {
+    return (S.user && S.user.subscription_details) || null;
+  }
+  function subPlanName(planKey) {
+    return subscriptionPlanLabel(planKey).replace(/ · .*$/, '');
+  }
+  function setSubDetails(details) {
+    S.user = Object.assign({}, S.user || {}, { subscription_details: details || null });
+    renderSubscription();
+    const modal = document.getElementById('subActiveModal');
+    if (modal && modal.classList.contains('show')) renderSubActiveDetails();
+  }
+  // Resolves 'yes' | 'alt' | 'no'. `alt` adds a second action (e.g. a
+  // plan change at the end of the period instead of paying now).
+  function sxConfirm(opts) {
+    return new Promise((resolve) => {
+      document.getElementById('sxConfirmModal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'sxConfirmModal';
+      overlay.className = 'modal-overlay sx-confirm-overlay show';
+      overlay.innerHTML = '<div class="modal sx-confirm" role="dialog" aria-modal="true">'
+        + '<h3>' + S.escapeHtml(opts.title) + '</h3>'
+        + opts.body.filter(Boolean).map((line) => '<p>' + S.escapeHtml(line) + '</p>').join('')
+        + '<div class="modal-actions sx-confirm-actions">'
+        + '<button class="btn-primary" type="button" data-sx-confirm="yes">' + S.escapeHtml(opts.confirm) + '</button>'
+        + (opts.alt ? '<button class="btn-ghost" type="button" data-sx-confirm="alt">' + S.escapeHtml(opts.alt) + '</button>' : '')
+        + '<button class="btn-ghost" type="button" data-sx-confirm="no">' + S.escapeHtml(opts.cancel || 'Отмена') + '</button>'
+        + '</div></div>';
+      const done = (value) => { overlay.remove(); resolve(value); };
+      overlay.addEventListener('click', (e) => {
+        const choice = e.target.closest && e.target.closest('[data-sx-confirm]');
+        if (choice) done(choice.dataset.sxConfirm);
+        else if (e.target === overlay) done('no');
+      });
+      document.body.appendChild(overlay);
+    });
+  }
+  async function subscriptionRequest(action, extra) {
+    const tg = getTelegramId();
+    if (!tg) { toast('Telegram ID не найден'); return null; }
+    try {
+      const response = await fetch('/api/public/subscription/' + action, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ telegram_id: tg }, extra || {})),
+      });
+      const data = await response.json();
+      if (data && 'subscription' in data) setSubDetails(data.subscription);
+      return data;
+    } catch {
+      return { ok: false, error: 'network' };
+    }
+  }
+  const SUB_ACTION_ERRORS = {
+    telegram_refused: 'Telegram не подтвердил изменение. Автопродление не изменено.',
+    no_recurring_subscription: 'Активной подписки с автопродлением нет.',
+    another_subscription_renewing: 'Сейчас автоматически продлевается другой тариф. Двух продлений одновременно быть не может.',
+    reactivation_unavailable: 'Telegram не разрешил возобновить продление из SYLVEX. Включите его в Telegram: Настройки → Мои звёзды → Подписки — или оформите тариф заново в магазине.',
+    same_plan: 'Этот тариф уже активен.',
+    unknown_plan: 'Этот тариф недоступен.',
+    network: 'Сетевая ошибка. Изменение не применено.',
+  };
+  const SUB_STATES = {
+    active_recurring: 'Активна · продлевается автоматически',
+    renewal_canceled: 'Автопродление отменено · доступ сохраняется',
+    active_annual: 'Годовой тариф · без автопродления',
+    active_one_time: 'Активна · разовая оплата',
+    renewal_unconfirmed: 'Продление не подтверждено',
+    expired: 'Подписка закончилась',
+  };
+  const SUB_BILLING = {
+    monthly: 'Ежемесячно · автопродление через Telegram Stars',
+    annual: 'Годовой · одна оплата',
+    monthly_one_time: 'Разовая оплата',
+  };
+  function showSubResult(ok, text) {
+    const el = document.getElementById('saResult');
+    if (el) { el.hidden = false; el.textContent = text; el.classList.toggle('is-error', !ok); }
+    toast(text);
+  }
+  async function cancelSubscriptionRenewal() {
+    const d = subDetails();
+    const r = d && d.renewal;
+    if (!r || !r.auto_renew) return;
+    const until = fmtDate(r.expires_at);
+    const choice = await sxConfirm({
+      title: 'Отменить автопродление?',
+      body: ['Следующего списания ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ за ' + subPlanName(r.plan_key) + ' не будет.',
+             dot('Оплаченный доступ сохранится до ' + until + ', все начисленные ⚡ остаются на балансе')],
+      confirm: 'Отменить автопродление', cancel: 'Оставить',
+    });
+    if (choice !== 'yes') return;
+    const data = await subscriptionRequest('cancel');
+    if (data && data.ok) showSubResult(true, dot('Автопродление отменено — Telegram подтвердил. Доступ сохраняется до ' + until));
+    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось отменить автопродление. Ничего не изменено.');
+  }
+  async function reactivateSubscriptionRenewal() {
+    const d = subDetails();
+    const r = d && d.renewal;
+    if (!r || r.auto_renew) return;
+    const data = await subscriptionRequest('reactivate');
+    const next = data && data.subscription && data.subscription.next_renewal_at;
+    if (data && data.ok) showSubResult(true, dot('Автопродление возобновлено — Telegram подтвердил. Следующее списание — ' + fmtDate(next || r.expires_at)));
+    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось возобновить автопродление.');
+  }
+  async function scheduleSubscriptionChange(planKey) {
+    const d = subDetails();
+    const r = d && d.renewal;
+    const product = storeProduct('plan_' + planKey);
+    if (!r || !product) return false;
+    const until = fmtDate(r.expires_at);
+    const data = await subscriptionRequest('change', { plan_key: planKey, confirm: true });
+    if (data && data.ok) showSubResult(true, dot('Смена запланирована: автопродление ' + subPlanName(r.plan_key) + ' отменено, после ' + until + ' оформите ' + subPlanName(planKey)));
+    else showSubResult(false, SUB_ACTION_ERRORS[data && data.error] || 'Не удалось запланировать смену тарифа.');
+    return !!(data && data.ok);
+  }
+  // A plan bought next to another valid paid plan: the server describes the
+  // change; the user confirms the full price and its consequences first.
+  async function handleSubscriptionConflict(data, selected, method) {
+    if (data.subscription) setSubDetails(data.subscription);
+    if (data.error === 'already_subscribed') {
+      toast('Этот тариф уже оформлен и продлевается автоматически.');
+      return;
+    }
+    const c = data.change || {};
+    const product = selected.product || {};
+    const newName = subPlanName(c.new_plan_key || product.plan_key);
+    const price = Number(c.price_stars || product.stars || 0).toLocaleString('ru-RU') + ' ⭐';
+    const periodText = c.new_billing === 'monthly' ? 'продлевается каждые 30 дней' : '365 дней, без автопродления';
+    const current = c.current_plan_key ? subscriptionPlanLabel(c.current_plan_key) : '';
+    const lines = [];
+    let title = 'Перейти на ' + newName + '?';
+    if (c.type === 'renew_same_plan') {
+      title = 'Продлить ' + newName + '?';
+      lines.push('Полная цена ' + price + '. Новый период 365 дней начнётся ' + fmtDate(c.starts_at) + ', после окончания текущего.');
+    } else if (c.type === 'downgrade') {
+      lines.push('Полная цена ' + price + ' сейчас, без пересчёта и скидок. ' + newName + ' ' + periodText + '.');
+      lines.push(dot(current + ' выше по уровню и остаётся основным тарифом до ' + fmtDate(c.current_expires_at)) + ' Затем основным станет ' + newName + '.');
+    } else {
+      lines.push('Полная цена ' + price + ', без пересчёта и скидок. ' + newName + ' станет основным тарифом сразу после оплаты и ' + periodText + '.');
+      if (current) lines.push(dot('Оплаченный период ' + current + ' сохраняется до ' + fmtDate(c.current_expires_at)));
+    }
+    if (c.stops_renewal_of) lines.push('Автопродление ' + subPlanName(c.stops_renewal_of) + ' будет отключено — новых списаний за него не будет.');
+    lines.push('Все начисленные ⚡ остаются на балансе; ' + Number(c.credits || product.credits || 0).toLocaleString('ru-RU') + ' ⚡ нового тарифа начислятся после оплаты.');
+    const canSchedule = c.type === 'downgrade' && c.new_billing === 'monthly' && c.stops_renewal_of;
+    const choice = await sxConfirm({
+      title, body: lines,
+      confirm: 'Оплатить ' + price,
+      alt: canSchedule ? 'Перейти после ' + fmtDate(c.current_expires_at) + ' без оплаты сейчас' : '',
+      cancel: 'Отмена',
+    });
+    if (choice === 'yes') payStoreProduct(method, true);
+    else if (choice === 'alt') {
+      openSubActive();
+      scheduleSubscriptionChange(c.new_plan_key);
+    }
+  }
+  function renderSubActiveDetails() {
+    const u = S.user || {};
+    const d = subDetails() || {};
+    const p = d.primary || {};
+    const r = d.renewal || null;
+    const box = document.getElementById('saDetails');
+    const actions = document.getElementById('saActions');
+    const noteEl = document.getElementById('saNote');
+    const title = document.getElementById('saTitle');
+    const subtitle = document.getElementById('saSubtitle');
+    if (!box || !actions) return;
+    const plan = p.plan_key || d.plan_key || u.subscription_plan;
+    const exp = p.expires_at || d.expires_at || u.subscription_expires_at;
+    const state = d.state || (u.subscription_status === 'active' ? 'active_one_time' : 'expired');
+    if (title) title.textContent = state === 'expired' ? 'Подписка закончилась' : state === 'renewal_unconfirmed' && !d.active ? 'Продление не подтверждено' : 'Ваша подписка';
+    const awaitingRenewal = state === 'renewal_unconfirmed' && !d.active;
+    if (subtitle) subtitle.textContent = awaitingRenewal ? 'Доступ продолжится после подтверждённой оплаты' : (SUB_STATES[state] || '');
+    const cell = (k, v, id) => '<div><div class="k">' + k + '</div><div class="v"' + (id ? ' id="' + id + '"' : '') + '>' + S.escapeHtml(String(v)) + '</div></div>';
+    const billing = SUB_BILLING[p.billing || d.billing] || '—';
+    const monthly = (p.billing || d.billing) === 'monthly';
+    const price = p.price_stars ? Number(p.price_stars).toLocaleString('ru-RU') + ' ⭐' + (monthly ? ' / 30 дней' : '') : '—';
+    let renewalText = 'Нет · разовая оплата';
+    if (r) renewalText = r.auto_renew ? 'Включено' : (r.renewal_status === 'stop_pending' ? 'Отключается…' : 'Отключено');
+    if (awaitingRenewal) renewalText = 'Ожидается оплата от Telegram';
+    box.innerHTML = cell('Тариф', subscriptionPlanLabel(plan), 'saPlan')
+      + cell('Оплата', billing, 'saBilling')
+      + cell('Цена', price)
+      + cell('Автопродление', renewalText, 'saRenewal')
+      + cell('Начало', p.started_at ? fmtDate(p.started_at) : '—', 'saStarted')
+      + cell('Оплачено до', fmtDate(exp), 'saExpires')
+      + cell('Следующее списание', d.next_renewal_at ? fmtDate(d.next_renewal_at) : '—', 'saNextRenewal')
+      + cell('Осталось', exp && d.active !== false ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—', 'saCountdown')
+      + cell('⚡ за период', p.period_credits ? Number(p.period_credits).toLocaleString('ru-RU') + ' ⚡' : '—')
+      + cell('Доступно ⚡', Number(u.balance || 0).toLocaleString('ru-RU') + ' ⚡', 'saBalance');
+    const notes = [];
+    if (state === 'active_recurring') notes.push(SUB_RENEWS_NOTE);
+    if (r && r.plan_key !== plan && r.auto_renew) {
+      notes.push('Автопродление: ' + subPlanName(r.plan_key) + ' · ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ / 30 дней, следующее списание ' + fmtDate(r.next_renewal_at) + '.');
+    }
+    if (state === 'renewal_canceled') notes.push(dot('Автопродление отменено. Доступ и начисленные ⚡ сохраняются до ' + fmtDate(exp)));
+    if (state === 'renewal_unconfirmed') {
+      notes.push(d.active
+        ? 'Отключаем автопродление прежнего тарифа в Telegram — статус ещё не подтверждён. Мы повторим попытку автоматически.'
+        : 'Дата продления прошла, но оплата от Telegram пока не поступила. Доступ продлевается только после подтверждённой оплаты.');
+    }
+    if (d.pending_plan_key) {
+      notes.push('Запланирован переход: после ' + fmtDate(exp) + ' оформите ' + subPlanName(d.pending_plan_key) + ' за '
+        + Number(d.pending_price_stars || 0).toLocaleString('ru-RU') + ' ⭐ / 30 дней.');
+    }
+    (d.entitlements || []).forEach((e) => {
+      notes.push(dot('Также оплачено: ' + subscriptionPlanLabel(e.plan_key) + (e.auto_renew ? ' (продлевается)' : '')
+        + ' до ' + fmtDate(e.expires_at)));
+    });
+    if (r && r.auto_renew) notes.push('Если вы отмените подписку в самом Telegram (Настройки → Мои звёзды), SYLVEX узнает об этом только в дату продления.');
+    if (noteEl) {
+      noteEl.innerHTML = notes.map((n) => '<span>' + S.escapeHtml(n) + '</span>').join('<br>');
+      noteEl.hidden = !notes.length;
+    }
+    const buttons = [];
+    if (r && r.auto_renew) {
+      buttons.push('<button class="btn-ghost sa-cancel" type="button" onclick="SYLVEX.cancelSubscriptionRenewal()">Отменить автопродление</button>');
+    } else if (r && r.reactivatable) {
+      buttons.push('<button class="btn-primary sa-reactivate" type="button" onclick="SYLVEX.reactivateSubscriptionRenewal()">'
+        + (d.pending_plan_key ? 'Отменить смену тарифа и возобновить' : 'Возобновить автопродление') + '</button>');
+    }
+    if ((state === 'active_annual' || state === 'active_one_time') && !(r && r.auto_renew)) {
+      const yearlyRenewalLocked = String(plan || '').endsWith('year') && exp && new Date(exp).getTime() - Date.now() > 7 * 24 * 60 * 60 * 1000;
+      buttons.push('<button class="btn-primary" type="button" ' + (yearlyRenewalLocked ? 'disabled' : '') + ' onclick="SYLVEX.renewFromModal()">'
+        + (yearlyRenewalLocked ? 'Продление доступно за 7 дней' : 'Продлить подписку') + '</button>');
+    }
+    if (d.pending_product_id && !d.active) {
+      buttons.push('<button class="btn-primary" type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'' + S.escapeHtml(d.pending_product_id) + '\')">Оформить '
+        + S.escapeHtml(subPlanName(d.pending_plan_key)) + '</button>');
+    }
+    buttons.push('<button class="btn-ghost sa-plans" type="button" onclick="SYLVEX.openStorePlans()">' + (d.active === false ? 'Выбрать тариф' : 'Сменить тариф') + '</button>');
+    actions.innerHTML = buttons.join('');
+  }
+  function openStorePlans() {
+    closeModal(null, 'subActiveModal');
+    switchView('shop');
+    switchShopTab('subscriptions');
+  }
+
   // =====================================================
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderSubscription
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
@@ -23242,9 +23960,11 @@ async function waitGeneration(jobId, options) {
     });
     // Manage-subscription row subtitle
     const ms = document.getElementById('manageSubSub');
+    const details = subDetails();
     if (ms) ms.textContent = active
-      ? (plan === 'year' ? '1 год · до ' : '1 месяц · до ') + fmtDate(expIso)
-      : 'Нет активной подписки';
+      ? subscriptionPlanLabel(plan).replace(/^SYLVEX (Pro · )?/, '')
+        + (details && details.auto_renew ? ' · продление ' + fmtDate(details.next_renewal_at) : ' · до ' + fmtDate(expIso))
+      : (details && details.pending_plan_key ? 'Оформите ' + subPlanName(details.pending_plan_key) : 'Нет активной подписки');
     // Live countdown every second while subscription is active.
     if (_cdTimer) clearInterval(_cdTimer);
     if (active && expIso) {
@@ -23286,14 +24006,14 @@ async function waitGeneration(jobId, options) {
       + '<button class="expired-subscription-close" type="button" aria-label="Закрыть" onclick="SYLVEX.closeExpiredSubscriptionModal(event)">×</button>'
       + '<div class="expired-subscription-badge">SYLVEX PRO</div>'
       + '<h2 id="expiredSubscriptionTitle">Подписка закончилась</h2>'
-      + '<p>Продлите подписку, чтобы продолжить пользоваться всеми возможностями SYLVEX.</p>'
+      + '<p id="expiredSubscriptionLead">Продлите подписку, чтобы продолжить пользоваться всеми возможностями SYLVEX.</p>'
       + '<div class="expired-subscription-user">'
       + '<span id="expiredSubscriptionAvatar"></span>'
       + '<div><b id="expiredSubscriptionName">Пользователь</b><small id="expiredSubscriptionHandle">@user</small><em id="expiredSubscriptionDate"></em></div>'
       + '</div>'
       + '<div class="expired-subscription-plans">'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_month\')"><span><b>1 месяц</b><small>SYLVEX Pro</small></span><strong>$5 · 230 ⭐</strong></button>'
-      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_year\')"><span><b>1 год</b><small>Выгодный план</small></span><strong>$59 · 2751 ⭐</strong></button>'
+      + '<button type="button" id="expiredSubscriptionPending" hidden onclick="SYLVEX.openExpiredSubscriptionPurchase(event,this.dataset.productId)"><span><b>Оформить</b><small>Запланированная смена тарифа</small></span><strong>⭐</strong></button>'
+      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'plans\')"><span><b>Выбрать тариф</b><small>Starter, Pro, Max, Ultra, Creator</small></span><strong>⭐ Stars</strong></button>'
       + '</div>'
       + '</section>';
     document.body.appendChild(modal);
@@ -23335,6 +24055,21 @@ async function waitGeneration(jobId, options) {
     if (handleEl) handleEl.textContent = handle;
     const expiredAt = info.last_subscription_expires_at || info.subscription_expires_at;
     if (dateEl) dateEl.textContent = expiredAt ? 'Завершена: ' + fmtDate(expiredAt) : 'Подписка не активна';
+    const details = info.subscription_details || subDetails();
+    const lead = modal.querySelector('#expiredSubscriptionLead');
+    if (lead) lead.textContent = details && details.renewal_missed
+      ? 'Продление через Telegram Stars не поступило, поэтому подписка не продлена. Оформите её снова, чтобы продолжить.'
+      : 'Продлите подписку, чтобы продолжить пользоваться всеми возможностями SYLVEX.';
+    const pendingBtn = modal.querySelector('#expiredSubscriptionPending');
+    if (pendingBtn) {
+      const pendingId = details && details.pending_product_id;
+      pendingBtn.hidden = !pendingId;
+      if (pendingId) {
+        pendingBtn.dataset.productId = pendingId;
+        pendingBtn.querySelector('b').textContent = 'Оформить ' + subPlanName(details.pending_plan_key);
+        pendingBtn.querySelector('strong').textContent = Number(details.pending_price_stars || 0).toLocaleString('ru-RU') + ' ⭐ / 30 дней';
+      }
+    }
     _expiredSubscriptionModalShown = true;
     try { localStorage.setItem(noticeKey, localDay); } catch {}
     modal.classList.add('show');
@@ -23345,7 +24080,7 @@ async function waitGeneration(jobId, options) {
     document.getElementById('subscriptionCelebration')?.remove();
     const user = Object.assign({}, S.user || {}, userState || {});
     const name = user.display_name || [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Пользователь';
-    const planLabel = String(plan || user.subscription_plan || '').toLowerCase() === 'year' ? 'SYLVEX Pro · 1 год' : 'SYLVEX Pro · 1 месяц';
+    const planLabel = subscriptionPlanLabel(plan || user.subscription_plan);
     const overlay = document.createElement('div');
     overlay.id = 'subscriptionCelebration';
     overlay.className = 'subscription-celebration';
@@ -23353,7 +24088,7 @@ async function waitGeneration(jobId, options) {
       + '<section class="subscription-celebration-card" role="dialog" aria-modal="true">'
       + '<button type="button" aria-label="Закрыть" onclick="this.closest(\'#subscriptionCelebration\').remove()">×</button>'
       + '<span class="subscription-celebration-mark"><svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span>'
-      + '<h2>Подписка активирована!</h2><p>' + S.escapeHtml(name) + ', добро пожаловать в SYLVEX Pro.</p>'
+      + '<h2>Подписка активирована!</h2><p>' + S.escapeHtml(name) + ', добро пожаловать в ' + S.escapeHtml(planLabel.split(' · ')[0]) + '.</p>'
       + '<strong>' + S.escapeHtml(planLabel) + '</strong>'
       + '<button class="subscription-celebration-go" type="button" onclick="this.closest(\'#subscriptionCelebration\').remove();switchView(\'tools\')">Перейти в Pro Studio</button>'
       + '</section>';
@@ -23377,7 +24112,11 @@ async function waitGeneration(jobId, options) {
       e.stopPropagation();
     }
     closeExpiredSubscriptionModal();
-    openBuy(packId === 'sub_year' ? 'sub_year' : 'sub_month');
+    if (String(packId || '').indexOf('plan_') === 0) {
+      loadStoreCatalog().then(() => (storeProductAvailable(packId) ? openStoreProduct(packId) : switchView('shop')));
+      return;
+    }
+    openStoreFor(packId);
   }
 
   // =====================================================
@@ -23387,33 +24126,30 @@ async function waitGeneration(jobId, options) {
   function openSubActive(packId) {
     const u = S.user || {};
     const plan = u.subscription_plan || (packId === 'sub_year' ? 'year' : 'month');
-    const exp = u.subscription_expires_at;
-    document.getElementById('saPlan').textContent = plan === 'year' ? 'SYLVEX Pro · 1 год' : 'SYLVEX Pro · 1 месяц';
-    document.getElementById('saExpires').textContent = fmtDate(exp);
-    document.getElementById('saCountdown').textContent = exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—';
-    const renewButton = document.querySelector('#subActiveModal .btn-primary');
-    const remainingMs = exp ? new Date(exp).getTime() - Date.now() : 0;
-    const yearlyRenewalLocked = plan === 'year' && remainingMs > 7 * 24 * 60 * 60 * 1000;
-    if (renewButton) {
-      renewButton.disabled = yearlyRenewalLocked;
-      renewButton.textContent = yearlyRenewalLocked ? 'Продление доступно за 7 дней' : 'Продлить подписку';
-    }
+    const result = document.getElementById('saResult');
+    if (result) { result.hidden = true; result.textContent = ''; }
+    renderSubActiveDetails();
     document.getElementById('subActiveModal').classList.add('show');
-    pendingPack = 'sub_' + plan;
+    pendingPack = isStorePlanKey(plan) ? 'plan_' + plan : 'sub_' + plan;
+    // Refresh from the server so renewal state is never stale.
+    subscriptionRequest('status');
   }
   function renewFromModal() {
     const user = S.user || {};
     const remainingMs = user.subscription_expires_at ? new Date(user.subscription_expires_at).getTime() - Date.now() : 0;
-    if (user.subscription_plan === 'year' && remainingMs > 7 * 24 * 60 * 60 * 1000) {
+    if (String(user.subscription_plan || '').endsWith('year') && remainingMs > 7 * 24 * 60 * 60 * 1000) {
       toast('Годовую подписку можно продлить за 7 дней до окончания');
       return;
     }
     closeModal(null, 'subActiveModal');
-    // Force purchase flow (bypass "already subscribed" branch).
-    const pack = pendingPack || 'sub_month';
-    const savedUser = S.user; S.user = Object.assign({}, savedUser, { subscription_status: 'free' });
-    openBuy(pack);
-    S.user = savedUser;
+    // New Store plans renew through the Store (time stacks on the active plan).
+    if (String(pendingPack || '').indexOf('plan_') === 0) {
+      const productId = pendingPack;
+      loadStoreCatalog().then(() => (storeProductAvailable(productId) ? openStoreProduct(productId) : switchView('shop')));
+      return;
+    }
+    // Legacy plans are no longer sold: choose a plan in the Store.
+    openStoreFor(pendingPack || 'sub_month');
   }
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openManageSub
@@ -23421,8 +24157,10 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function openManageSub() {
     const u = S.user || {};
-    if (u.subscription_status === 'active') openSubActive('sub_' + (u.subscription_plan || 'month'));
-    else switchView('shop');
+    const d = subDetails();
+    if (u.subscription_status === 'active' || (d && (d.state === 'renewal_unconfirmed' || d.pending_plan_key))) {
+      openSubActive('sub_' + (u.subscription_plan || 'month'));
+    } else switchView('shop');
   }
 
   /* ===== Modal helpers ===== */
@@ -23443,13 +24181,14 @@ async function waitGeneration(jobId, options) {
     const body = document.getElementById('proInfoBody');
     if (!body) return;
     if (u.subscription_status === 'active') {
-      const plan = u.subscription_plan === 'year' ? '1 год' : '1 месяц';
+      const plan = subscriptionPlanLabel(u.subscription_plan);
       const exp = u.subscription_expires_at;
       body.innerHTML = '<h3 style="margin:6px 0 4px;font-size:17px">✅ Вы подписаны</h3>'
         + '<div class="sub-info-grid" style="margin-top:12px">'
-        + '<div><div class="k">Тариф</div><div class="v">SYLVEX Pro · ' + plan + '</div></div>'
+        + '<div><div class="k">Тариф</div><div class="v">' + S.escapeHtml(plan) + '</div></div>'
         + '<div><div class="k">Осталось</div><div class="v">' + (exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—') + '</div></div>'
         + '<div><div class="k">Окончание</div><div class="v">' + fmtDate(exp) + '</div></div>'
+        + '<div><div class="k">Автопродление</div><div class="v">' + (subDetails() && subDetails().is_recurring ? (subDetails().auto_renew ? 'Включено' : 'Отключено') : 'Нет') + '</div></div>'
         + '</div>';
     } else {
       body.innerHTML = '<h3 style="margin:6px 0 8px;font-size:17px">Нет активной подписки</h3>'
@@ -23803,12 +24542,10 @@ async function waitGeneration(jobId, options) {
     try { localStorage.removeItem('sylvex-theme-id'); } catch {}
     if (S.tg && S.tg.close) S.tg.close();
   }
-  function contactAdmin() {
-    const url = 'https://t.me/sylvex_admin';
-    const tgApp = S.tg;
-    if (tgApp && tgApp.openTelegramLink) tgApp.openTelegramLink(url);
-    else if (tgApp && tgApp.openLink)    tgApp.openLink(url);
-    else window.open(url, '_blank');
+  // Contact administrator / sales: an internal popup that sends the message
+  // to the Admin Console Inbox - the user never leaves SYLVEX.
+  function contactAdmin(topic) {
+    openSupport(typeof topic === 'string' ? topic : 'admin');
   }
   function isTelegramLink(url) {
     return /^https:\/\/t\.me\//i.test(url || '') || /^tg:\/\//i.test(url || '');
@@ -23834,102 +24571,12 @@ async function waitGeneration(jobId, options) {
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
     else window.open(url, '_blank');
   }
+  // Inside Telegram the only purchase path is a Telegram catalog product paid
+  // with Stars (payStoreProduct); the legacy PayPal/Crypto/pack_id flows that
+  // used to live here are gone and the backend refuses them anyway.
   async function payWith(method) {
-    const packId = pendingPack;
-    if (!packId) return;
-    const tg = getTelegramId();
-    if (!tg) { toast('Telegram ID не найден'); return; }
-
-    if (method === 'paypal' && PAYPAL_PAYMENT_LINKS[packId]) {
-      window.location.href = PAYPAL_PAYMENT_LINKS[packId];
-      return;
-    }
-
-    if (method === 'paypal' && getPayPalSubscriptionConfig(packId)) {
-      if (showPayPalSubscriptionPanel(packId)) {
-        toast('Выберите PayPal ниже');
-      } else {
-        toast('PayPal подписка недоступна');
-      }
-      return;
-    }
-
-    toast('Создаём счёт…');
-    try {
-      let path = '';
-      if (method === 'stars')  path = '/api/public/payments/stars/invoice';
-      if (method === 'paypal') path = '/api/public/payments/paypal/create-order';
-      if (method === 'crypto') path = '/api/public/payments/crypto/invoice';
-      if (!path) { toast('Способ оплаты недоступен'); return; }
-      const r = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pack_id: packId,
-          telegram_id: tg,
-          user_id: tg,
-          type: packId.indexOf('sub_') === 0 ? 'subscription' : 'tokens',
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok || j.error) {
-        if (j.error === 'paypal_not_configured') { toast('PayPal ещё не настроен'); return; }
-        if (j.error === 'crypto_not_configured') { toast('Крипто-оплата ещё не настроена'); return; }
-        toast('Ошибка: ' + (j.error || r.status));
-        return;
-      }
-      const tgApp = S.tg;
-      if (method === 'stars' && j.invoice_url && tgApp && tgApp.openInvoice) {
-        tgApp.openInvoice(j.invoice_url, async (status) => {
-          if (status === 'paid') {
-            toast('Оплачено ✓');
-            try {
-              const confirmRes = await fetch('/api/public/payments/stars/confirm', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telegram_id: tg, pack_id: packId, charge_id: j.charge_id }),
-              });
-              const confirmJson = await confirmRes.json();
-              if (confirmRes.ok && confirmJson.user) {
-                S.renderUser && S.renderUser(confirmJson.user);
-                if (confirmJson.subscription_activated) {
-                  showSubscriptionCelebration(confirmJson.user, confirmJson.subscription_plan);
-                } else if (packId.indexOf('sub_') === 0 && S.syncUser) {
-                  // successful_payment can reach the polling bot a fraction
-                  // later than the Mini App receives openInvoice("paid").
-                  for (let attempt = 0; attempt < 3; attempt += 1) {
-                    await new Promise(resolve => setTimeout(resolve, 900 + attempt * 600));
-                    const syncedUser = await S.syncUser({ force: true });
-                    if (syncedUser && syncedUser.subscription_status === 'active') {
-                      showSubscriptionCelebration(syncedUser, syncedUser.subscription_plan);
-                      break;
-                    }
-                  }
-                }
-              } else if (S.syncUser) {
-                S.syncUser();
-              }
-            } catch {
-              if (S.syncUser) S.syncUser();
-            }
-          } else if (status === 'failed' || status === 'cancelled') {
-            toast('Оплата отменена');
-          }
-        });
-      } else if (method === 'paypal') {
-        const paypalUrl = j.url || j.approval_url || j.checkout_url;
-        if (!paypalUrl) { toast('Ссылка PayPal не найдена'); return; }
-        toast('Открываем PayPal…');
-        console.log('PAYPAL CHECKOUT URL:', paypalUrl);
-        openPaymentUrl(paypalUrl, method);
-      } else if (j.url) {
-        openPaymentUrl(j.url, method);
-      } else if (j.invoice_url) {
-        openPaymentUrl(j.invoice_url, method);
-      }
-    } catch (err) {
-      toast('Сетевая ошибка');
-    }
+    if (pendingStoreProduct) return payStoreProduct(method);
+    openStoreFor(pendingPack || '');
   }
 
   /* ===== Input mic/send toggle ===== */
@@ -24020,8 +24667,17 @@ async function waitGeneration(jobId, options) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openSupport
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
-  function openSupport() {
+  let supportTopic = 'support';
+  function openSupport(topic) {
+    supportTopic = ['support', 'sales', 'admin', 'general'].includes(topic) ? topic : 'support';
+    // Website Pro Studio: the website's own Contact SYLVEX popup.
+    const site = window.SYLVEX_SITE;
+    if (isWebEmbed() && site && typeof site.openContact === 'function') { site.openContact(supportTopic); return; }
     const m = document.getElementById('supportModal');
+    const title = document.getElementById('supportTitle');
+    const sub = document.getElementById('supportSub');
+    if (title) title.textContent = t(supportTopic === 'sales' ? 'contact_title_sales' : 'contact_title');
+    if (sub) sub.textContent = t('contact_sub_' + supportTopic);
     m.classList.add('show');
     const email = document.getElementById('supportEmail');
     if (email && !email.value && S.user && S.user.email) email.value = S.user.email;
@@ -24036,36 +24692,49 @@ async function waitGeneration(jobId, options) {
     document.getElementById('supportModal').classList.remove('show');
   }
   // =====================================================
-  // ЗАПУСК ГЕНЕРАЦИИ: sendSupport
-  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // СВЯЗЬ С SYLVEX: sendSupport
+  // Отправляет сообщение в Admin Console (раздел «Входящие»). Ответ придёт
+  // от SYLVEX Team в колокольчик уведомлений (и сообщением бота в Telegram).
   // =====================================================
-  function sendSupport() {
+  let supportSending = false;
+  async function sendSupport() {
     const ta = document.getElementById('supportMsg');
     const emailInput = document.getElementById('supportEmail');
     const error = document.getElementById('supportEmailError');
+    const button = document.getElementById('supportSendBtn');
     const email = String(emailInput && emailInput.value || '').trim();
     const v = (ta.value || '').trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
-      if (error) error.textContent = 'Введите корректный e-mail';
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
+      if (error) error.textContent = t('support_email_invalid');
       emailInput && emailInput.focus();
       return;
     }
     if (error) error.textContent = '';
     if (!v) { toast(t('support_empty')); return; }
-    const pendingKey = 'sylvex-support-pending-' + (getTelegramId() || 'guest');
-    let pending = null;
-    try { pending = JSON.parse(localStorage.getItem(pendingKey) || 'null'); } catch {}
-    const repliedAt = Date.parse(String((S.user && (S.user.support_replied_at || S.user.support_reply_at)) || '')) || 0;
-    if (pending && Number(pending.sentAt || 0) > repliedAt) {
-      toast('Вы уже отправили сообщение. Дождитесь ответа техподдержки');
-      return;
+    if (supportSending) return;
+    supportSending = true;
+    if (button) button.disabled = true;
+    try {
+      const res = await fetch('/api/public/contact', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: v, email, topic: supportTopic, surface: 'miniapp' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(t((data.error || data.detail) === 'too_many_messages' ? 'support_too_many' : 'support_failed'));
+        S.haptic.notify('error');
+        return;
+      }
+      ta.value = '';
+      closeSupport();
+      toast(t('support_sent'));
+      S.haptic.notify('success');
+    } catch (_) {
+      toast(t('support_failed'));
+    } finally {
+      supportSending = false;
+      if (button) button.disabled = false;
     }
-    S.sendToBot({ type: 'support', email, message: v });
-    try { localStorage.setItem(pendingKey, JSON.stringify({ sentAt:Date.now(), email })); } catch {}
-    ta.value = '';
-    closeSupport();
-    toast(t('support_sent'));
-    S.haptic.notify('success');
   }
 
   const AI_ASSISTANT_WELCOME = 'Здравствуйте! Я SYLVEX Ассистент. Напишите, что вы хотите сделать, и я помогу.';
@@ -24164,6 +24833,60 @@ async function waitGeneration(jobId, options) {
   function applyAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0',fab=document.getElementById('aiAssistantFab'),control=document.getElementById('aiAssistantVisibilitySwitch');if(fab)fab.hidden=!visible;if(control)control.classList.toggle('on',visible)}
   function toggleAiAssistantVisibility(){const visible=localStorage.getItem('sylvex-ai-assistant-visible')!=='0';localStorage.setItem('sylvex-ai-assistant-visible',visible?'0':'1');if(visible)closeAiAssistant();applyAiAssistantVisibility()}
 
+  // Store cards (js/store-cards.js) in Stars mode: every price is the
+  // Telegram catalog's Stars price and purchases are Telegram Stars orders
+  // (openStoreProduct). Nothing is purchasable until the catalog loads.
+  // "Compare prices": opens the public sylvex.ai price list in the external
+  // browser. Shown only when the server provides compare_prices_url; carries
+  // no purchase, cart or session.
+  function syncComparePrices() {
+    const button = document.getElementById('payComparePrices');
+    if (button) button.hidden = !(storeCatalog && storeCatalog.compare_prices_url);
+  }
+  function openComparePrices() {
+    const url = storeCatalog && storeCatalog.compare_prices_url;
+    if (!url) return;
+    const tgApp = S.tg;
+    if (tgApp && tgApp.openLink) tgApp.openLink(url);
+    else window.open(url, '_blank', 'noopener');
+  }
+  function mountStoreCards() {
+    syncComparePrices();
+    const cards = window.SylvexStoreCards;
+    if (!cards) return;
+    const options = {
+      t: window.t,
+      locale: (S.getLang && S.getLang()) || 'en',
+      examples: storeCatalog && storeCatalog.examples,
+      starsPrice: storeStarsFor,
+      // Monthly plans renew every 30 days (Telegram Stars subscriptions).
+      renewal: 'auto',
+    };
+    const plans = document.getElementById('storePlanCards');
+    const credits = document.getElementById('storeCreditCards');
+    if (plans) cards.renderPlans(plans, Object.assign({
+      onContactSales: () => openSupport('sales'),
+      isPlanAvailable: (plan, period) => storeProductAvailable('plan_' + plan + '_' + period),
+      onSelectPlan: (plan, period) => openStoreProduct('plan_' + plan + '_' + period),
+    }, options));
+    const packs = storeCatalog
+      ? (storeCatalog.products || []).filter((p) => p.kind === 'credits').map((p) => p.credits / 100)
+      : [1, 5, 10, 20, 30, 40, 50, 100, 200];
+    const custom = storeCatalog && storeCatalog.custom;
+    if (credits) cards.renderCredits(credits, Object.assign({
+      packUsd: packs,
+      packIdForUsd: (usd) => (storeProductAvailable('pack_' + usd * 100) ? 'pack_' + usd * 100 : null),
+      onContinue: (packId) => openStoreProduct(packId),
+      customCredits: custom ? { min: custom.min_credits, max: custom.max_credits } : { min: 100, max: 10000 },
+      customPurchase: !!(custom && storeProviderOpen('telegram_stars')),
+      onContinueCustom: (amount) => openStoreProduct('credits_custom', amount),
+    }, options));
+    if (!storeCatalog) loadStoreCatalog();
+    if (!mountStoreCards.bound) {
+      mountStoreCards.bound = true;
+      window.addEventListener('sylvex:languagechange', mountStoreCards);
+    }
+  }
   function switchShopTab(tab){const selected=tab==='tokens'?'tokens':'subscriptions';document.querySelectorAll('[data-shop-tab]').forEach(button=>button.classList.toggle('active',button.dataset.shopTab===selected));document.querySelectorAll('[data-shop-panel]').forEach(panel=>panel.hidden=panel.dataset.shopPanel!==selected)}
   function openSpendingStats(){let modal=document.getElementById('spendingStatsModal');if(!modal){modal=document.createElement('div');modal.id='spendingStatsModal';modal.className='community-modal spending-stats-modal';document.body.appendChild(modal)}const spent=Number((S.user&&S.user.tokens_spent)||0);modal.innerHTML='<section><header><div><small>Статистика расходов</small><h3>Токены SYLVEX</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><div class="spending-total"><small>Потрачено за всё время</small><b>'+spent.toLocaleString()+' ⚡️</b></div><div class="spending-chart-empty"><span style="height:22%"></span><span style="height:38%"></span><span style="height:31%"></span><span style="height:54%"></span><span style="height:44%"></span><span style="height:70%"></span><span style="height:62%"></span></div><p class="spending-note">Детализация по дням появится после подключения серверной истории списаний. Текущая сумма взята из реальных данных профиля.</p><button class="community-publish-submit" type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\');switchView(\'history\')">Открыть историю генераций</button></section>';modal.classList.add('show')}
 
@@ -26024,6 +26747,116 @@ async function waitGeneration(jobId, options) {
 
   let presenceTimer=0;
   async function sendPresence(){if(document.hidden||!currentTelegramInitData())return;const active=document.querySelector('.view.active,[data-view].active');const view=active&&active.dataset&&active.dataset.view||'home';try{await fetch('/api/public/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:currentTelegramInitData(),view,platform:'telegram'})})}catch(_){}}
+  // =====================================================
+  // КОЛОКОЛЬЧИК УВЕДОМЛЕНИЙ: сообщения от SYLVEX Team.
+  // Та же история, что на сайте: прочитанное здесь прочитано и там.
+  // На сайте (Pro Studio внутри сайта) показывается колокольчик сайта.
+  // =====================================================
+  let notifItems = [], notifUnread = 0, notifTimer = 0, notifLoading = false;
+  function notifEnabled() { return !isWebEmbed() && !!currentTelegramInitData(); }
+  function notifTime(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const lang = (window.SYLVEX && window.SYLVEX.getLang && window.SYLVEX.getLang()) || 'en';
+    return d.toLocaleString(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+  function renderNotifications() {
+    const dot = document.getElementById('notifDot');
+    const btn = document.getElementById('notifBtn');
+    const list = document.getElementById('notifList');
+    if (dot) dot.hidden = !notifUnread;
+    if (btn) btn.setAttribute('aria-label', t('notif_title') + (notifUnread ? ` (${notifUnread})` : ''));
+    if (!list) return;
+    if (!notifItems.length) { list.innerHTML = `<div class="notif-empty">${S.escapeHtml(t('notif_empty'))}</div>`; return; }
+    list.innerHTML = notifItems.map((n) => {
+      const links = (n.links || []).filter((l) => /^https?:\/\//i.test(l.url || '')).map((l) =>
+        `<button type="button" class="notif-link" data-url="${S.escapeHtml(l.url)}">${S.escapeHtml(l.label || l.url)}</button>`).join('');
+      return `<article class="notif-item${n.read ? '' : ' unread'}">
+        <header><b>${S.escapeHtml(n.sender || 'SYLVEX Team')}</b><time>${S.escapeHtml(notifTime(n.created_at))}</time></header>
+        <p>${S.escapeHtml(n.text || '')}</p>
+        ${n.image_url ? `<img src="${S.escapeHtml(n.image_url)}" alt="" loading="lazy">` : ''}
+        ${links ? `<div class="notif-links">${links}</div>` : ''}
+      </article>`;
+    }).join('');
+  }
+  async function loadNotifications() {
+    if (!notifEnabled() || document.hidden || notifLoading) return;
+    notifLoading = true;
+    try {
+      const res = await fetch('/api/public/notifications?surface=miniapp&limit=30');
+      if (res.ok) {
+        const data = await res.json();
+        notifItems = data.items || [];
+        notifUnread = data.unread || 0;
+        renderNotifications();
+      }
+    } catch (_) {} finally { notifLoading = false; }
+  }
+  async function markNotificationsRead() {
+    if (!notifUnread) return;
+    try {
+      const res = await fetch('/api/public/notifications/read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }),
+      });
+      if (res.ok) { notifUnread = 0; const dot = document.getElementById('notifDot'); if (dot) dot.hidden = true; }
+    } catch (_) {}
+  }
+  function closeNotifications() {
+    const pop = document.getElementById('notifPop');
+    if (pop && pop.classList.contains('show')) {
+      pop.classList.remove('show');
+      notifItems.forEach((n) => { n.read = true; });
+      const btn = document.getElementById('notifBtn');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+  function toggleNotifications(event) {
+    if (event) event.stopPropagation();
+    const pop = document.getElementById('notifPop');
+    if (!pop) return;
+    if (pop.classList.contains('show')) { closeNotifications(); return; }
+    const langPop = document.getElementById('langPop');
+    if (langPop) langPop.classList.remove('show');
+    renderNotifications();
+    pop.classList.add('show');
+    const btn = document.getElementById('notifBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    S.haptic.impact('light');
+    loadNotifications().then(markNotificationsRead);
+  }
+  // Колокольчик показывается только на главном экране Mini App.
+  function syncNotifBell() {
+    const btn = document.getElementById('notifBtn');
+    if (!btn) return;
+    const home = document.querySelector('.view[data-view="home"]');
+    const onHome = !!(home && home.classList.contains('active'));
+    btn.hidden = !(notifEnabled() && onHome);
+    if (!onHome) closeNotifications();
+  }
+  function initNotifications() {
+    const btn = document.getElementById('notifBtn');
+    if (!btn) return;
+    if (!notifEnabled()) { btn.hidden = true; return; }
+    syncNotifBell();
+    const home = document.querySelector('.view[data-view="home"]');
+    if (home && window.MutationObserver) new MutationObserver(syncNotifBell).observe(home, { attributes: true, attributeFilter: ['class'] });
+    renderNotifications();
+    loadNotifications();
+    clearInterval(notifTimer);
+    notifTimer = setInterval(loadNotifications, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotifications(); });
+    document.addEventListener('click', closeNotifications);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNotifications(); });
+    window.addEventListener('sylvex:languagechange', renderNotifications);
+    const list = document.getElementById('notifList');
+    if (list) list.addEventListener('click', (e) => {
+      const link = e.target.closest('.notif-link');
+      if (!link) return;
+      const url = link.dataset.url;
+      if (S.tg && typeof S.tg.openLink === 'function') S.tg.openLink(url); else window.open(url, '_blank', 'noopener');
+    });
+  }
+
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
   function restoreAppTheme() {
@@ -26041,6 +26874,7 @@ async function waitGeneration(jobId, options) {
 
     // Restore saved theme.
     restoreAppTheme();
+    mountStoreCards();
 
     const initialShareId = shareStartId();
     if (initialShareId) {
@@ -26050,6 +26884,7 @@ async function waitGeneration(jobId, options) {
 
     bindEvents();
     initPresence();
+    initNotifications();
     initHomeIdeaAi();
     initAiAssistantFab();
     window.addEventListener('message', handleKnowledgeWorkspaceMessage);
@@ -26101,6 +26936,7 @@ async function waitGeneration(jobId, options) {
 
   // Expose to global scope.
   Object.assign(S, {
+    openComparePrices,
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     setStudioLayout, cycleStudioTheme, restoreStudioTheme, syncStudioThemeVarsToDocument, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
@@ -26113,9 +26949,10 @@ async function waitGeneration(jobId, options) {
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
-    openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
+    openSupport, closeSupport, sendSupport, toggleNotifications, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
+    cancelSubscriptionRenewal, reactivateSubscriptionRenewal, openStorePlans,
     openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, selectProfileCover, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openBrandGenerator, closeBrandPresentation, launchBrandProStudio, closeBrandGenerator, moveBrandMusic, selectBrandMusic, toggleBrandMusic, seekBrandMusic, toggleBrandMusicRepeat, shuffleBrandMusic, selectBrandMusicGenre, openKnowledgeWorkspace, closeKnowledgeWorkspace,
     loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     loadCommunityFeed, toggleCommunityLike, openCommunityPublisher, publishCommunityItem, openCommunityComments, sendCommunityComment, replyCommunityComment, cancelCommunityReply, likeCommunityComment, editCommunityComment, deleteCommunityComment, deleteCommunityPost, searchCommunity, toggleCommunityMenu, communityComingSoon,
@@ -26138,11 +26975,13 @@ async function waitGeneration(jobId, options) {
   S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;
   S.setEditLightPreset=setEditLightPreset;
   S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode;
-  S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
+  S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.updateEditBackgroundColor=updateEditBackgroundColor; S.onEditBackgroundFile=onEditBackgroundFile; S.clearEditBackgroundImage=clearEditBackgroundImage; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
   S.updateEditExpandField=updateEditExpandField; S.resetEditExpand=resetEditExpand;
+  S.setEditUpscaleModel=setEditUpscaleModel;S.resetEditSylvexRestore=resetEditSylvexRestore;S.selectEditSylvexRegion=selectEditSylvexRegion;S.startEditSylvexRegion=startEditSylvexRegion;S.updateEditSylvexRegion=updateEditSylvexRegion;S.deleteEditSylvexRegion=deleteEditSylvexRegion;S.openEditSylvexReference=openEditSylvexReference;S.onEditSylvexReference=onEditSylvexReference;S.removeEditSylvexReference=removeEditSylvexReference;
   S.updateEditWorkspacePrompt=updateEditWorkspacePrompt; S.addEditWorkspaceLight=addEditWorkspaceLight; S.onEditWorkspaceFile=onEditWorkspaceFile;
   S.clearEditWorkspaceMask=clearEditWorkspaceMask;S.redoEditWorkspaceMask=redoEditWorkspaceMask;S.undoEditWorkspace=undoEditWorkspace;S.compareEditWorkspace=compareEditWorkspace;
   S.generateEditWorkspace=generateEditWorkspace; S.useEditWorkspaceResult=useEditWorkspaceResult;
+  S.toggleEditSketch=toggleEditSketch;
   S.openReplaceObjectMaskEditor = openReplaceObjectMaskEditor;
   S.closeReplaceObjectMaskEditor = closeReplaceObjectMaskEditor;
   S.undoReplaceObjectMask = undoReplaceObjectMask;

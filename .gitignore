@@ -1,5 +1,6 @@
 .env
 .env.*
+*.env
 !.env.example
 __pycache__/
 *.pyc
@@ -9,3 +10,6 @@ venv/
 webapp/generated/
 
 .venv-secure/
+
+# Admin Console: dist/ is committed (served at /admin); sources stay, deps never ship.
+admin_console/node_modules/

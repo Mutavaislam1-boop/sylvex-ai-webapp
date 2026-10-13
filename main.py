@@ -37,9 +37,15 @@ from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services import edit_sessions as edit_sessions_service
+from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
+from services import admin_identity
+from services import admin_auth
+from services import admin_rbac
+from services import notifications as notifications_service
 from services import video_probe
+from services import payment_inbox, shop_catalog, shop_orders, stripe_billing, telegram_catalog
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -69,6 +75,7 @@ from services.security import (
     current_web_session_generation, revoke_web_sessions, website_origins,
 )
 from services import account_identity as account_identity_service
+STORAGE_ID_FLOOR = account_identity_service.STORAGE_ID_FLOOR
 from services.account_identity import AccountError
 from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
@@ -1058,7 +1065,23 @@ LEMONSQUEEZY_API_BASE = (os.getenv("LEMONSQUEEZY_API_BASE") or "https://api.lemo
 LEMONSQUEEZY_VARIANT_MONTH = os.getenv("LEMONSQUEEZY_VARIANT_MONTH")
 LEMONSQUEEZY_VARIANT_YEAR = os.getenv("LEMONSQUEEZY_VARIANT_YEAR")
 CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
-CRYPTO_PAY_API_URL = "https://pay.crypt.bot/api"
+# Point at https://testnet-pay.crypt.bot/api with a testnet token to test
+# invoices without real funds.
+CRYPTO_PAY_API_URL = os.getenv("CRYPTO_PAY_API_URL", "https://pay.crypt.bot/api").rstrip("/")
+# Stripe Checkout for Website purchases (services/stripe_billing.py). Both
+# are required before the Website offers Stripe: without the webhook secret
+# a payment could never be verified and granted.
+STRIPE_SECRET_KEY = (os.getenv("STRIPE_SECRET_KEY") or "").strip()
+STRIPE_WEBHOOK_SECRET = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
+# A test environment sets STRIPE_TEST_MODE_ONLY=1 so a live key can never be
+# used there (Stripe stays disabled instead). STRIPE_TEST_CLOCKS=1 (honored
+# only with a test key) attaches each new Stripe customer to its own test
+# clock, so renewals can be triggered by advancing the clock in the Dashboard.
+STRIPE_TEST_MODE_ONLY = os.getenv("STRIPE_TEST_MODE_ONLY", "0").lower() in {"1", "true", "yes", "on"}
+STRIPE_TEST_CLOCKS = os.getenv("STRIPE_TEST_CLOCKS", "0").lower() in {"1", "true", "yes", "on"}
+# Mini App "Compare prices" link to the Website price list (see the
+# /api/public/shop/catalog route). Off unless explicitly enabled.
+STORE_COMPARE_PRICES_ENABLED = os.getenv("STORE_COMPARE_PRICES_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
@@ -1076,7 +1099,6 @@ SHOP_ITEMS = {
         "credits": 0,
         "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 5.0,
-        "stars": 230,
     },
     "sub_year": {
         "kind": "subscription",
@@ -1086,16 +1108,21 @@ SHOP_ITEMS = {
         "credits": 0,
         "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 59.0,
-        "stars": 2751,
     },
-    "pack_100": {"kind": "credits", "title": "100 ⚡", "credits": 100, "usd": 1.0, "stars": 46},
-    "pack_500": {"kind": "credits", "title": "500 ⚡", "credits": 500, "usd": 5.0, "stars": 230},
-    "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0, "stars": 460},
-    "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0, "stars": 920},
-    "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0, "stars": 1380},
-    "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0, "stars": 1840},
-    "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0, "stars": 2300},
+    "pack_100": {"kind": "credits", "title": "100 ⚡", "credits": 100, "usd": 1.0},
+    "pack_500": {"kind": "credits", "title": "500 ⚡", "credits": 500, "usd": 5.0},
+    "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0},
+    "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0},
+    "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0},
+    "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0},
+    "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0},
 }
+# Telegram Stars prices follow the Telegram catalog's formula
+# (services/telegram_catalog.py: ceil(usd * 499 / 5)). These legacy items
+# are only used to finish invoices created before the Telegram catalog; new
+# Telegram purchases are catalog orders.
+for _shop_item in SHOP_ITEMS.values():
+    _shop_item["stars"] = telegram_catalog.stars_for_cents(round(_shop_item["usd"] * 100))
 
 
 def design(title: str, body: str) -> str:
@@ -1287,60 +1314,6 @@ def _restore_active_subscription(telegram_id: int) -> bool:
             },
         )
     return inserted
-
-
-# =====================================================
-# СИНХРОНИЗАЦИЯ С TELEGRAM: create_telegram_stars_invoice_link
-# Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
-# =====================================================
-def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dict, charge_id: str) -> str:
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN is not configured")
-
-    invoice_payload = {
-            "title": item["title"],
-            "description": f"Оплата {item['title']} в SYLVEX.",
-            # The polling Telegram bot currently consumes the canonical
-            # four-part payload. Keep the internal invoice id outside the
-            # Bot API payload so both deployments parse the same contract.
-            "payload": bot_stars_payload(telegram_id, item),
-            "currency": "XTR",
-            "prices": [
-                {
-                    "label": item["title"],
-                    "amount": int(item["stars"]),
-                }
-            ],
-        }
-    response = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
-        # Bot API requires provider_token to be omitted for Telegram Stars.
-        json=invoice_payload,
-        timeout=30,
-    )
-
-    data = response.json()
-    if response.status_code >= 400 or not data.get("ok"):
-        prostudio_debug(
-            "STARS_INVOICE_CREATE_FAILED",
-            telegram_id=telegram_id,
-            pack_id=pack_id,
-            charge_id=charge_id,
-            status=response.status_code,
-            telegram_error=data.get("description") or data.get("error_code") or "unknown",
-        )
-        raise RuntimeError(str(data))
-
-    prostudio_debug(
-        "STARS_INVOICE_CREATED",
-        telegram_id=telegram_id,
-        pack_id=pack_id,
-        charge_id=charge_id,
-        stars=int(item.get("stars") or 0),
-        payload_parts=4,
-    )
-
-    return data["result"]
 
 
 def crypto_pay_request(method: str, payload=None):
@@ -2010,12 +1983,10 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
 
         q_start = time.monotonic()
         cursor.execute("""
-            SELECT subscription_type, expires_at::timestamp
-            FROM subscriptions
-            WHERE telegram_id = %s
-              AND status = 'active'
-              AND expires_at::timestamp > NOW()
-            ORDER BY expires_at::timestamp DESC
+            SELECT s.subscription_type, s.expires_at::timestamp
+            FROM subscriptions s
+            WHERE s.telegram_id = %s AND """ + shop_orders.VALID_ENTITLEMENT_SQL + """
+            ORDER BY """ + shop_orders.EFFECTIVE_ORDER_SQL + """
             LIMIT 1
         """, (telegram_id,))
         active_sub = cursor.fetchone()
@@ -2140,6 +2111,13 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
 
     profile = get_user_profile(telegram_id)
     subscription_status = "active" if active_sub else "free"
+    subscription_details = None
+    if latest_sub:  # only users who ever had a plan; keeps the hot path cheap
+        try:
+            ensure_shop_orders()
+            subscription_details = _subscription_public(shop_orders.subscription_summary(shop_db, telegram_id))
+        except Exception as exc:
+            prostudio_error("USER_STATE_SUBSCRIPTION_DETAILS_FAILED", exc, telegram_id=telegram_id)
     last_subscription_expires_at = _to_iso(latest_sub[1]) if latest_sub and latest_sub[1] else None
     subscription_expired = bool(latest_sub and latest_sub[1] and not active_sub and latest_sub[1].timestamp() <= time.time())
     result = {
@@ -2153,6 +2131,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         "subscription_expires_at": _to_iso(active_sub[1]) if active_sub and active_sub[1] else None,
         "last_subscription_expires_at": last_subscription_expires_at,
         "subscription_expired": subscription_expired,
+        "subscription_details": subscription_details,
         "display_name": profile.get("display_name"),
         "custom_avatar_url": profile.get("custom_avatar_url"),
         "theme_preference": profile.get("theme_preference") or {},
@@ -2227,12 +2206,10 @@ def get_fast_user_state(telegram_id: int) -> dict:
         user_row = cursor.fetchone()
 
         cursor.execute("""
-            SELECT subscription_type, expires_at::timestamp
-            FROM subscriptions
-            WHERE telegram_id = %s
-              AND status = 'active'
-              AND expires_at::timestamp > NOW()
-            ORDER BY expires_at::timestamp DESC
+            SELECT s.subscription_type, s.expires_at::timestamp
+            FROM subscriptions s
+            WHERE s.telegram_id = %s AND """ + shop_orders.VALID_ENTITLEMENT_SQL + """
+            ORDER BY """ + shop_orders.EFFECTIVE_ORDER_SQL + """
             LIMIT 1
         """, (telegram_id,))
         active_sub = cursor.fetchone()
@@ -2511,11 +2488,11 @@ def send_subscription_congratulations(telegram_id: int, item: dict, provider: st
     except Exception as exc:
         prostudio_error("SUBSCRIPTION_CONGRATULATION_PROFILE_FAILED", exc, telegram_id=telegram_id)
 
-    plan_label = "1 год" if str(item.get("plan_key") or "").lower() == "year" else "1 месяц"
+    plan_label = shop_catalog.plan_label(item.get("plan_key"))
     handle = f"@{html.escape(username)}" if username else "без username"
     expiry_label = expires_at.strftime("%d.%m.%Y %H:%M") if expires_at else "активна"
     text = (
-        "🎉 <b>Поздравляем с подпиской SYLVEX Pro!</b>\n\n"
+        f"🎉 <b>Поздравляем с подпиской {html.escape(shop_catalog.plan_product_name(item.get('plan_key')))}!</b>\n\n"
         f"👤 <b>{html.escape(str(name))}</b> · {handle}\n"
         f"🆔 <code>{int(telegram_id)}</code>\n"
         f"💎 План: <b>{plan_label}</b>\n"
@@ -4272,6 +4249,9 @@ async def public_config():
         "paypal_subscriptions_enabled": paypal_subscriptions_configured(),
         "paypal_pro_monthly_plan_id": PAYPAL_PRO_MONTHLY_PLAN_ID,
         "paypal_pro_yearly_plan_id": PAYPAL_PRO_YEARLY_PLAN_ID,
+        # Website Stripe Checkout (plans, packs, custom amounts). No key or
+        # id is exposed; the Website only needs to know whether to offer it.
+        "stripe_enabled": stripe_enabled(),
     }
 
 # =====================================================
@@ -9707,7 +9687,7 @@ async def admin_recover_prostudio_job(job_id: str, request: Request):
     # single configured admin (in practice the project owner) could ever
     # call it.
     data = await request.json()
-    actor = _admin_actor(data, request, owner_only=True)
+    actor = _admin_actor(data, request, "generations.recover")
     force = bool(data.get("force", False))
     try:
         recovery = await asyncio.to_thread(
@@ -9731,7 +9711,7 @@ async def admin_recover_prostudio_job(job_id: str, request: Request):
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            _admin_audit(cursor, actor["telegram_id"], "prostudio_job_recovered", 0,
+            _admin_audit(cursor, actor, "prostudio_job_recovered", 0,
                          {}, {"job_id": job_id, "force": force, "recovery": recovery}, "")
             conn.commit()
         except Exception:
@@ -9867,6 +9847,9 @@ def ensure_admin_tables():
     with ADMIN_SCHEMA_LOCK:
         if ADMIN_SCHEMA_READY:
             return
+        # Admins are SYLVEX accounts: the account tables (and the
+        # Telegram-account allocator the migration uses) come first.
+        account_identity_service.ensure_account_tables(DATABASE_URL, connect=db_connect)
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
@@ -9948,12 +9931,15 @@ def ensure_admin_tables():
             )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_app_presence_last_seen ON app_presence(last_seen DESC)")
-            cursor.execute("""
-            INSERT INTO admin_users (telegram_id, role, permissions, active, granted_by, updated_at)
-            VALUES (%s, 'owner', '["all"]'::jsonb, TRUE, %s, NOW())
-            ON CONFLICT (telegram_id) DO UPDATE
-            SET role = 'owner', permissions = '["all"]'::jsonb, active = TRUE, updated_at = NOW()
-            """, (SUPERADMIN_TELEGRAM_ID, SUPERADMIN_TELEGRAM_ID))
+            # Admin authority lives in admin_accounts (keyed by SYLVEX
+            # account) from here on; admin_users is kept read-only for the
+            # one-time migration. The owner is bootstrapped only when no
+            # active owner exists - never re-seeded over a later change.
+            admin_auth.ensure_schema(cursor)
+            admin_auth.copy_legacy_audit(cursor)
+            admin_auth.migrate_legacy_admins(cursor)
+            admin_auth.bootstrap_owner(cursor, owner_account_id=os.getenv("OWNER_SYLVEX_ID", "").strip() or None,
+                                       owner_telegram_id=SUPERADMIN_TELEGRAM_ID)
             conn.commit()
             ADMIN_SCHEMA_READY = True
         except Exception:
@@ -9976,24 +9962,102 @@ def _admin_service_token_from_headers(request: Optional[Request]) -> str:
     return str(request.headers.get("x-admin-service-token") or "").strip()
 
 
+ADMIN_SESSION_HEADER = "x-admin-session"
+
+
+def _admin_session_token(request: Optional[Request]) -> str:
+    """The admin session token: the __Host- cookie (browser), or the
+    X-Admin-Session header (the Telegram Mini App, where Telegram Web runs
+    it in a cross-site iframe that never receives a SameSite=Strict cookie;
+    the Mini App keeps the token in memory only)."""
+    if request is None:
+        return ""
+    return (request.cookies.get(admin_auth.SESSION_COOKIE) or request.headers.get(ADMIN_SESSION_HEADER) or "").strip()
+
+
+def _admin_origin_ok(request: Request) -> bool:
+    """A state change must come from the console itself: a configured
+    console origin, or the same host that serves this API (the console at
+    /admin on the API domain)."""
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    if not origin:
+        return False
+    if origin in ADMIN_CONSOLE_ORIGINS:
+        return True
+    from urllib.parse import urlparse
+    host = (request.headers.get("host") or "").lower()
+    return bool(host) and urlparse(origin).netloc.lower() == host
+
+
+def _admin_actor_from_session(token: str, request: Request, permission: str, owner_only: bool) -> dict:
+    """v1 routes called by the Admin Console with an admin session: the same
+    checks as v2 (Origin + CSRF on every call - all v1 routes are POST -,
+    permission, and fresh re-authentication for Critical permissions)."""
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_unavailable")
+    ensure_admin_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        try:
+            admin, session = admin_auth.resolve_session(cursor, token)
+        except admin_auth.AdminAuthError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.code)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+    if not _admin_origin_ok(request):
+        raise HTTPException(status_code=403, detail="origin_not_allowed")
+    presented = request.headers.get(admin_auth.CSRF_HEADER) or ""
+    if not presented or not hmac.compare_digest(presented, session["csrf_token"]):
+        raise HTTPException(status_code=403, detail="csrf_token_invalid")
+    is_owner = admin["role"] == admin_rbac.OWNER
+    if owner_only and not is_owner:
+        raise HTTPException(status_code=403, detail="owner_access_required")
+    if permission:
+        if permission not in admin_rbac.PERMISSIONS:
+            raise HTTPException(status_code=500, detail="unknown_permission")
+        if permission not in admin["permissions_set"]:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        if admin_rbac.risk_of(permission) == admin_rbac.CRITICAL and not session["reauth_fresh"]:
+            raise HTTPException(status_code=403, detail="reauth_required")
+    return {
+        "telegram_id": admin["telegram_id"], "role": admin["role"],
+        "permissions": ["all"] if is_owner else admin_rbac.legacy_names(admin["permissions_set"]),
+        "effective_permissions": sorted(admin["permissions_set"]),
+        "admin_id": admin["admin_id"], "account_id": admin["account_id"], "sylvex_user_id": str(admin["account_id"]),
+        "channel": session["channel"], "session_id": session["session_id"], "permissions_set": admin["permissions_set"],
+        "grants": admin["grants"], "denies": admin["denies"],
+    }
+
+
 def _admin_actor(payload: dict, request: Optional[Request] = None, permission: str = "", owner_only: bool = False) -> dict:
+    """The admin behind a v1 /api/admin/* request, or HTTP 403.
+
+    Two callers, one permission system (services/admin_rbac.py):
+    - the Support Bot / main bot: ADMIN_SERVICE_TOKEN header + the sender's
+      Telegram id (channel "bot");
+    - the legacy Mini App admin: verified Telegram initData (channel
+      "miniapp_legacy").
+    Either way the Telegram id must belong to a SYLVEX account with an
+    active admin_accounts row - no id is an admin by itself (the old
+    SUPERADMIN_TELEGRAM_ID shortcut is gone; the owner is a real row,
+    bootstrapped once). On the bot channel only the owner may perform
+    Critical actions."""
     payload = payload or {}
     service_token = _admin_service_token_from_headers(request)
     service_authenticated = bool(ADMIN_SERVICE_TOKEN) and bool(service_token) and hmac.compare_digest(service_token, ADMIN_SERVICE_TOKEN)
+    session_token = "" if service_authenticated else _admin_session_token(request)
+    if session_token:
+        return _admin_actor_from_session(session_token, request, permission, owner_only)
     if service_authenticated:
-        # The Support Bot already verified the Telegram user calling it is
-        # one of ITS admins before ever making this request; this call still
-        # goes through the exact same admin_users role/permission check
-        # below as any Mini App request would. Unlike the initData path
-        # just below, a service-authenticated caller is NEVER granted the
-        # owner shortcut just for naming SUPERADMIN_TELEGRAM_ID - it must
-        # hold a real, active admin_users row (the owner's own row is
-        # auto-seeded there too), so revoking that row also revokes bot
-        # access for the owner's own id.
+        channel = "bot"
         telegram_id = int(payload.get("telegram_id") or 0)
         if not telegram_id:
             raise HTTPException(status_code=403, detail="telegram_user_missing")
     else:
+        channel = "miniapp_legacy"
         init_data = str(payload.get("initData") or payload.get("init_data") or "")
         if not init_data:
             raise HTTPException(status_code=403, detail="telegram_init_data_missing")
@@ -10004,52 +10068,94 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
         telegram_id = _telegram_id_from_init_data(init_data)
         if not telegram_id:
             raise HTTPException(status_code=403, detail="telegram_user_missing")
-        # The project owner is defined by the signed Telegram user id. Do
-        # not make first access depend on an admin_users row that may not
-        # exist yet. This shortcut is exclusive to the Mini App's own
-        # signed-initData path - see the service-authenticated branch above.
-        if telegram_id == SUPERADMIN_TELEGRAM_ID:
-            return {"telegram_id": telegram_id, "role": "owner", "permissions": ["all"]}
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_unavailable")
     ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT role, permissions, active FROM admin_users WHERE telegram_id = %s", (telegram_id,))
-        row = cursor.fetchone()
+        admin = admin_auth.active_admin_for_telegram(cursor, telegram_id)
+        if admin:
+            cursor.execute("UPDATE admin_accounts SET last_activity_at = NOW() WHERE id = %s", (admin["admin_id"],))
+            conn.commit()
     finally:
         cursor.close()
         conn.close()
-    if not row or not row[2]:
+    if not admin:
         raise HTTPException(status_code=403, detail="admin_access_denied")
-    permissions = row[1] or []
-    if isinstance(permissions, str):
-        try:
-            permissions = json.loads(permissions)
-        except Exception:
-            permissions = []
-    actor = {"telegram_id": telegram_id, "role": row[0], "permissions": permissions}
-    if owner_only and actor["role"] != "owner":
+    is_owner = admin["role"] == admin_rbac.OWNER
+    if owner_only and not is_owner:
         raise HTTPException(status_code=403, detail="owner_access_required")
-    if permission and actor["role"] != "owner" and "all" not in permissions and permission not in permissions:
-        raise HTTPException(status_code=403, detail="admin_permission_denied")
-    return actor
+    if permission:
+        if permission not in admin_rbac.PERMISSIONS:
+            raise HTTPException(status_code=500, detail="unknown_permission")
+        if permission not in admin["permissions_set"]:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        if (channel == "bot" and not is_owner
+                and admin_rbac.RISK_ORDER[admin_rbac.risk_of(permission)] > admin_rbac.RISK_ORDER[admin_rbac.BOT_CHANNEL_MAX_RISK_NON_OWNER]):
+            raise HTTPException(status_code=403, detail="console_required_for_critical_action")
+    return {
+        "telegram_id": telegram_id, "role": admin["role"],
+        # Legacy flat names for the bots' UI gating (the server re-checks).
+        "permissions": ["all"] if is_owner else admin_rbac.legacy_names(admin["permissions_set"]),
+        "effective_permissions": sorted(admin["permissions_set"]),
+        "admin_id": admin["admin_id"], "account_id": admin["account_id"], "sylvex_user_id": str(admin["account_id"]),
+        "channel": channel, "permissions_set": admin["permissions_set"], "grants": admin["grants"], "denies": admin["denies"],
+    }
 
 
-def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=None, after=None, reason: str = ""):
-    cursor.execute("""
-        INSERT INTO admin_audit_log
-            (actor_telegram_id, action, target_telegram_id, before_data, after_data, reason)
-        VALUES (%s, %s, NULLIF(%s, 0), %s::jsonb, %s::jsonb, %s)
-    """, (actor_id, action, int(target_id or 0), json.dumps(before or {}, default=str),
-          json.dumps(after or {}, default=str), str(reason or "")[:500]))
+def _public_actor(actor: dict) -> dict:
+    """The actor as returned to a client: no internal sets."""
+    return {k: v for k, v in actor.items() if k not in ("permissions_set", "grants", "denies")}
+
+
+_V1_AUDIT_RISK = {
+    "balance_changed": "high", "subscription_changed": "high", "message_sent": "medium", "message_failed": "medium",
+    "broadcast_sent": "critical", "prostudio_job_recovered": "medium", "admin_access_changed": "critical",
+    "reference_created": "medium", "reference_updated": "medium", "reference_published": "medium",
+    "reference_unpublished": "medium", "reference_deleted": "medium", "support_reply_sent": "medium",
+}
+
+
+def _admin_audit(cursor, actor, action: str, target_id: int = 0, before=None, after=None, reason: str = "", risk: str = ""):
+    """Appends to admin_audit_events (append-only). `target_id` is the
+    target's users.telegram_id storage key; it is recorded as the target's
+    SYLVEX account."""
+    target_account_id = None
+    if target_id:
+        cursor.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s", (int(target_id),))
+        row = cursor.fetchone()
+        target_account_id = int(row[0]) if row else None
+    admin_auth.audit(cursor, actor if isinstance(actor, dict) else None, action,
+                     risk=risk or _V1_AUDIT_RISK.get(action, "unknown"),
+                     target_account_id=target_account_id,
+                     target_ref=None if target_account_id or not target_id else f"storage_key:{int(target_id)}",
+                     before=before, after=after, reason=reason)
+
+
+def _admin_technical(actor: dict) -> bool:
+    """Technical identifiers (internal storage ids, aliases) are for the
+    Developer/Owner only; every other admin sees the canonical identity."""
+    return (actor or {}).get("role") == "owner"
+
+
+def _admin_resolve_target(cursor, payload: dict):
+    """Storage key of the user an admin action targets, from either an
+    explicit `sylvex_user_id` or the legacy `user_id` (see
+    admin_identity.resolve_target). None when nobody matches."""
+    return admin_identity.resolve_target(
+        cursor, sylvex_user_id=payload.get("sylvex_user_id"), user_id=payload.get("user_id"))
+
+
+# Where an admin balance change came from, recorded in its audit row. Any
+# other value a caller sends is stored as plain "admin_api".
+ADMIN_BALANCE_SOURCES = frozenset({"admin_api", "support_bot", "telegram_bot_addbalance", "admin_console"})
 
 
 @app.post("/api/admin/me")
 async def admin_me(request: Request):
     actor = _admin_actor(await request.json(), request)
-    return {"ok": True, "admin": actor}
+    return {"ok": True, "admin": _public_actor(actor)}
 
 
 @app.post("/api/public/presence")
@@ -10086,18 +10192,25 @@ async def admin_dashboard(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_dashboard")
+        actor = _admin_actor(payload, request, "dashboard.view")
         ensure_admin_tables()
         ensure_payment_tables()
         ensure_prostudio_table()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("""
+            # One row per person: storage rows left behind by an account
+            # merge (no account points at them any more) are not users.
+            cursor.execute("SELECT to_regclass('sylvex_accounts')")
+            ghost_filter = (
+                "WHERE telegram_id < %s OR EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.active_telegram_id = users.telegram_id)"
+                if cursor.fetchone()[0] is not None else "WHERE telegram_id < %s"
+            )
+            cursor.execute(f"""
                 SELECT COUNT(*), COALESCE(SUM(balance),0),
                        COUNT(*) FILTER (WHERE NULLIF(created_at,'')::timestamp >= NOW() - INTERVAL '24 hours')
-                FROM users
-            """)
+                FROM users {ghost_filter}
+            """, (STORAGE_ID_FLOOR,))
             users_count, total_balance, new_users_today = cursor.fetchone()
             cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at,'')::timestamp > NOW()")
             active_subscriptions = cursor.fetchone()[0]
@@ -10111,7 +10224,7 @@ async def admin_dashboard(request: Request):
             generations_today, failed_today, generations_total, active_jobs = cursor.fetchone()
             cursor.execute("SELECT COUNT(*) FROM app_presence WHERE last_seen >= NOW() - INTERVAL '5 minutes'")
             online_count = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM admin_users WHERE active = TRUE")
+            cursor.execute("SELECT COUNT(*) FROM admin_accounts WHERE status = 'active'")
             admins_count = cursor.fetchone()[0]
             cursor.execute("""
                 SELECT COALESCE(NULLIF(mode,''),'unknown'), COUNT(*),
@@ -10129,11 +10242,16 @@ async def admin_dashboard(request: Request):
             generations_success_total, generations_failed_total = cursor.fetchone()
             cursor.execute("""
                 SELECT COUNT(*) FILTER (WHERE status='completed') AS purchases_count,
-                       COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) AS total_revenue,
                        COALESCE(SUM(credits) FILTER (WHERE status='completed'),0) AS total_credits
                 FROM purchases
             """)
-            purchases_count, total_revenue, total_credits_purchased = cursor.fetchone()
+            purchases_count, total_credits_purchased = cursor.fetchone()
+            # Stars, USD cents, crypto... are different units: never summed.
+            cursor.execute("""
+                SELECT COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
+                FROM purchases WHERE status='completed' GROUP BY 1 ORDER BY 1
+            """)
+            revenue_by_currency = {str(r[0]): int(r[1] or 0) for r in cursor.fetchall()}
             cursor.execute("SELECT COUNT(*) FROM subscriptions")
             subscriptions_total = cursor.fetchone()[0]
             cursor.execute("SELECT COUNT(*) FROM prostudio_error_reports")
@@ -10145,6 +10263,7 @@ async def admin_dashboard(request: Request):
             recent_errors = [{"id": row[0], "telegram_id": row[1], "job_id": row[2] or "", "provider": row[3] or "",
                     "model": row[4] or "", "status": row[5] or "", "error": str(row[6] or "")[:300],
                     "created_at": _to_iso(row[7])} for row in cursor.fetchall()]
+            admin_identity.decorate(cursor, recent_errors, technical=_admin_technical(actor))
             return {"ok": True, "stats": {"users": int(users_count or 0), "balance": int(total_balance or 0),
                     "visited": int(visited_count or 0),
                     "subscriptions": int(active_subscriptions or 0), "subscriptions_total": int(subscriptions_total or 0),
@@ -10152,10 +10271,10 @@ async def admin_dashboard(request: Request):
                     "generations_total": int(generations_total or 0), "generations_success": int(generations_success_total or 0),
                     "generations_failed": int(generations_failed_total or 0), "failed_today": int(failed_today or 0),
                     "active_jobs": int(active_jobs or 0),
-                    "purchases_total": int(purchases_count or 0), "revenue_total": int(total_revenue or 0),
+                    "purchases_total": int(purchases_count or 0), "revenue_by_currency": revenue_by_currency,
                     "credits_purchased_total": int(total_credits_purchased or 0), "error_reports": int(error_reports_count or 0),
                     "new_users_today": int(new_users_today or 0), "online": int(online_count or 0),
-                    "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": actor}
+                    "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": _public_actor(actor)}
         finally:
             cursor.close()
             conn.close()
@@ -10165,32 +10284,37 @@ async def admin_dashboard(request: Request):
 
 @app.post("/api/admin/users/search")
 async def admin_users_search(request: Request):
+    """Universal search: SYLVEX ID (incl. retired aliases), Telegram ID,
+    email, username, display name, payment/customer id - one row per
+    person, identified by the canonical identity block."""
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_users")
-        query = str(payload.get("query") or "").strip()[:100]
+        actor = _admin_actor(payload, request, "users.view")
+        technical = _admin_technical(actor)
         limit = max(1, min(int(payload.get("limit") or 30), 100))
-        pattern = f"%{query}%"
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            keys = admin_identity.search_keys(cursor, payload.get("query"), limit=limit, technical=technical)
+            if not keys:
+                return []
             cursor.execute("""
-                SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User'),
-                       COALESCE(u.username, ''), COALESCE(u.balance, 0), COALESCE(u.subscription, 'free'),
-                       u.created_at,
+                SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                       COALESCE(u.username, '') AS username, COALESCE(u.balance, 0) AS balance,
+                       COALESCE(u.subscription, 'free') AS subscription, u.created_at,
                        (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()),
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until,
                        EXISTS(SELECT 1 FROM app_presence ap WHERE ap.telegram_id=u.telegram_id
-                              AND ap.last_seen >= NOW() - INTERVAL '5 minutes')
+                              AND ap.last_seen >= NOW() - INTERVAL '5 minutes') AS online
                 FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
-                WHERE %s = '' OR u.telegram_id::text ILIKE %s OR COALESCE(u.username,'') ILIKE %s
-                      OR COALESCE(p.display_name,u.first_name,'') ILIKE %s
-                ORDER BY NULLIF(u.created_at,'')::timestamp DESC NULLS LAST LIMIT %s
-            """, (query, pattern, pattern, pattern, limit))
-            return [{"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
+                WHERE u.telegram_id = ANY(%s::bigint[])
+            """, (keys,))
+            by_key = {int(r[0]): {"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
                       "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6]),
-                      "online": bool(r[7])} for r in cursor.fetchall()]
+                      "online": bool(r[7])} for r in cursor.fetchall()}
+            items = [by_key[k] for k in keys if k in by_key]
+            return admin_identity.decorate(cursor, items, technical=technical)
         finally:
             cursor.close()
             conn.close()
@@ -10204,21 +10328,36 @@ async def admin_user_balance(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_balance")
+        actor = _admin_actor(payload, request, "users.balance.adjust")
         ensure_admin_tables()
-        target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
+        delta = int(payload.get("delta") or 0)
         reason = str(payload.get("reason") or "Ручная корректировка")[:500]
-        if not target_id or not delta or abs(delta) > 1000000:
+        source = str(payload.get("source") or "admin_api")
+        if source not in ADMIN_BALANCE_SOURCES:
+            source = "admin_api"
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")) or not delta or abs(delta) > 1000000:
             raise HTTPException(status_code=400, detail="invalid_balance_change")
-        ensure_user_exists(target_id)
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = _admin_resolve_target(cursor, payload)
+            if not target_id:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            # A mistyped id must not silently create a fresh user row, and a
+            # debit larger than the balance must not be clamped to 0 - both
+            # would be balance edits nobody asked for and the audit row would
+            # not describe. Refuse instead.
             cursor.execute("SELECT COALESCE(balance,0) FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
-            before = int(cursor.fetchone()[0] or 0)
-            after = max(0, before + delta)
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            before = int(row[0] or 0)
+            after = before + delta
+            if after < 0:
+                raise HTTPException(status_code=409, detail="balance_would_go_negative")
             cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
-            _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before}, {"balance": after}, reason)
+            _admin_audit(cursor, actor, "balance_changed", target_id, {"balance": before},
+                         {"balance": after, "delta": delta, "source": source}, reason)
             conn.commit()
             return after
         except Exception:
@@ -10237,19 +10376,20 @@ async def admin_user_subscription(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_subscriptions")
+        actor = _admin_actor(payload, request, "users.subscription.edit")
         ensure_admin_tables()
-        target_id = int(payload.get("user_id") or 0)
         action = str(payload.get("action") or "extend")
         days = max(1, min(int(payload.get("days") or 30), 730))
         reason = str(payload.get("reason") or "Изменение администратором")[:500]
-        if not target_id or action not in {"extend", "cancel"}:
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")) or action not in {"extend", "cancel"}:
             raise HTTPException(status_code=400, detail="invalid_subscription_change")
-        ensure_user_exists(target_id)
         ensure_payment_tables()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = _admin_resolve_target(cursor, payload)
+            if not target_id:
+                raise HTTPException(status_code=404, detail="user_not_found")
             cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
             before_plan = (cursor.fetchone() or [None])[0]
             cursor.execute("SELECT MAX(NULLIF(expires_at,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
@@ -10270,7 +10410,7 @@ async def admin_user_subscription(request: Request):
                 cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active' AND id<>%s", (target_id, inserted_id))
                 cursor.execute("UPDATE users SET subscription=%s WHERE telegram_id=%s", (plan, target_id))
                 after = {"subscription": plan, "expires_at": _to_iso(expires_at)}
-            _admin_audit(cursor, actor["telegram_id"], "subscription_changed", target_id,
+            _admin_audit(cursor, actor, "subscription_changed", target_id,
                          {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, after, reason)
             conn.commit()
             return after
@@ -10290,14 +10430,26 @@ async def admin_user_message(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "message_users")
+        actor = _admin_actor(payload, request, "messages.send")
         ensure_admin_tables()
-        target_id = int(payload.get("user_id") or 0)
         message = str(payload.get("message") or "").strip()
-        if not target_id or not message or len(message) > 4000:
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")) or not message or len(message) > 4000:
             raise HTTPException(status_code=400, detail="invalid_message")
         if not BOT_TOKEN:
             raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            target_key = _admin_resolve_target(cursor, payload)
+        finally:
+            cursor.close()
+            conn.close()
+        if not target_key:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        # A website-only account has a storage key, not a Telegram chat.
+        target_id = account_identity_service.real_telegram_id(target_key)
+        if not target_id:
+            raise HTTPException(status_code=409, detail="user_has_no_telegram")
         response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                                  json={"chat_id": target_id, "text": message}, timeout=20)
         result = response.json() if response.content else {}
@@ -10307,7 +10459,7 @@ async def admin_user_message(request: Request):
         try:
             cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
                            (actor["telegram_id"], target_id, message, sent))
-            _admin_audit(cursor, actor["telegram_id"], "message_sent" if sent else "message_failed", target_id,
+            _admin_audit(cursor, actor, "message_sent" if sent else "message_failed", target_id,
                          {}, {"length": len(message), "sent": sent}, "")
             conn.commit()
         finally:
@@ -10323,17 +10475,23 @@ async def admin_user_message(request: Request):
 
 @app.post("/api/admin/admins/list")
 async def admin_list(request: Request):
+    """Legacy (Support Bot) view of admin_accounts: telegram_id is the
+    admin's real Telegram id, permissions use the legacy flat names."""
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, owner_only=True)
-        ensure_admin_tables()
+        _admin_actor(payload, request, "admins.view")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT telegram_id,role,permissions,active,granted_by,created_at FROM admin_users ORDER BY role='owner' DESC,created_at")
-            return [{"telegram_id":r[0],"role":r[1],"permissions":r[2] or [],"active":bool(r[3]),
-                    "granted_by":r[4],"created_at":_to_iso(r[5])} for r in cursor.fetchall()]
+            items = []
+            for admin in admin_auth.list_admins(cursor):
+                items.append({"telegram_id": admin["telegram_id"], "sylvex_user_id": str(admin["account_id"]),
+                              "admin_id": admin["admin_id"], "role": admin["role"],
+                              "permissions": ["all"] if admin["role"] == admin_rbac.OWNER
+                              else admin_rbac.legacy_names(admin["permissions_set"]),
+                              "active": admin["status"] == "active", "status": admin["status"]})
+            return items
         finally:
             cursor.close()
             conn.close()
@@ -10344,48 +10502,37 @@ async def admin_list(request: Request):
 
 @app.post("/api/admin/admins/set")
 async def admin_set(request: Request):
+    """Legacy (Support Bot) grant/revoke. Same rules as the console:
+    admins.permissions.edit, no self-edit, only roles below your own, only
+    permissions you hold, never the last owner. A legacy permission list
+    becomes exactly that access (read_only role + grants/denies)."""
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, owner_only=True)
-        ensure_admin_tables()
+        actor = _admin_actor(payload, request, "admins.permissions.edit")
         target_id = int(payload.get("user_id") or 0)
-        # account_id grants a Website-only admin (no Telegram identity at
-        # all). Exactly one of the two identities is required, never both.
         target_account_id = int(payload.get("account_id") or 0)
-        active = bool(payload.get("active", True))
-        permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
-        allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users",
-                   "view_audit", "view_errors", "view_generations", "view_finance", "manage_references"}
-        permissions = [p for p in permissions if p in allowed]
         if not target_id and not target_account_id:
             raise HTTPException(status_code=400, detail="invalid_admin_target")
-        if target_id and target_id == SUPERADMIN_TELEGRAM_ID:
-            raise HTTPException(status_code=400, detail="invalid_admin_target")
+        active = bool(payload.get("active", True))
+        legacy = [p for p in (payload.get("permissions") or ["view_dashboard", "view_users", "message_users"])
+                  if p in admin_rbac.LEGACY_TO_NEW]
+        role, grants, denies = admin_rbac.exact_role_for_legacy(legacy)
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            if target_account_id:
-                cursor.execute("SELECT role,permissions,active FROM admin_users WHERE account_id=%s", (target_account_id,))
-                before_row = cursor.fetchone()
-                cursor.execute("""
-                    INSERT INTO admin_users (account_id,role,permissions,active,granted_by,updated_at)
-                    VALUES (%s,'admin',%s::jsonb,%s,%s,NOW())
-                    ON CONFLICT (account_id) DO UPDATE SET role='admin',permissions=EXCLUDED.permissions,
-                        active=EXCLUDED.active,granted_by=EXCLUDED.granted_by,updated_at=NOW()
-                """, (target_account_id, json.dumps(permissions), active, actor["telegram_id"]))
-            else:
-                cursor.execute("SELECT role,permissions,active FROM admin_users WHERE telegram_id=%s", (target_id,))
-                before_row = cursor.fetchone()
-                cursor.execute("""
-                    INSERT INTO admin_users (telegram_id,role,permissions,active,granted_by,updated_at)
-                    VALUES (%s,'admin',%s::jsonb,%s,%s,NOW())
-                    ON CONFLICT (telegram_id) DO UPDATE SET role='admin',permissions=EXCLUDED.permissions,
-                        active=EXCLUDED.active,granted_by=EXCLUDED.granted_by,updated_at=NOW()
-                """, (target_id, json.dumps(permissions), active, actor["telegram_id"]))
-            _admin_audit(cursor, actor["telegram_id"], "admin_access_changed", target_id or target_account_id,
-                         {"role": before_row[0], "permissions": before_row[1], "active": before_row[2]} if before_row else {},
-                         {"role": "admin", "permissions": permissions, "active": active}, "")
+            account_id = target_account_id or admin_auth.account_for_telegram(cursor, target_id)
+            if not account_id:
+                raise HTTPException(status_code=404, detail="account_not_found")
+            existing = admin_auth.load_admin(cursor, account_id=account_id)
+            try:
+                if existing:
+                    admin_auth.update_admin(cursor, actor, existing["admin_id"], role=role, grants=grants, denies=denies,
+                                            status="active" if active else "revoked", reason="support_bot admins/set")
+                elif active:
+                    admin_auth.create_admin(cursor, actor, account_id, role, grants, denies, reason="support_bot admins/set")
+            except admin_auth.AdminAuthError as exc:
+                raise HTTPException(status_code=exc.status, detail=exc.code)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -10403,14 +10550,15 @@ async def admin_audit(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_audit")
-        ensure_admin_tables()
+        _admin_actor(payload, request, "audit.view")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT id,actor_telegram_id,action,target_telegram_id,reason,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 100")
-            return [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
-                    "reason":r[4] or "","created_at":_to_iso(r[5])} for r in cursor.fetchall()]
+            items, _ = admin_auth.list_audit(cursor, limit=100)
+            return [{"id": i["id"], "actor_id": None, "actor_sylvex_user_id": i["actor_sylvex_user_id"],
+                     "action": i["action"], "risk": i["risk"], "target_id": None,
+                     "target_sylvex_user_id": i["target_sylvex_user_id"], "channel": i["channel"],
+                     "reason": i["reason"], "created_at": i["at"]} for i in items]
         finally:
             cursor.close()
             conn.close()
@@ -10419,12 +10567,505 @@ async def admin_audit(request: Request):
     return {"ok": True, "items": items}
 
 
+# =====================================================
+# Admin Console UI (/admin) - the built React app in admin_console/dist.
+# Opened in a browser or as the Support Bot's "SYLVEX Admin" Mini App; all
+# data comes from /api/admin/* with the admin session. A strict CSP for this
+# page only: its own scripts plus Telegram's Mini App SDK, API calls to this
+# origin only.
+# =====================================================
+ADMIN_CONSOLE_DIST = (BASE_DIR / "admin_console" / "dist").resolve()
+ADMIN_CONSOLE_CSP = ("default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; "
+                     "img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self'; "
+                     "font-src 'self' data:; form-action 'self'; "
+                     # Only Telegram (Mini App iframe on Telegram Web) may frame the
+                     # console - not the public website origins the shared
+                     # middleware CSP allows; browsers enforce both policies.
+                     "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org")
+
+
+def _admin_console_file(path: str):
+    root = ADMIN_CONSOLE_DIST
+    target = (root / path).resolve() if path else root / "index.html"
+    if root not in target.parents or not target.is_file():
+        target = root / "index.html"  # client-side routes fall back to the app shell
+    if not target.is_file():
+        return JSONResponse({"ok": False, "error": "admin_console_not_built"}, status_code=503)
+    response = FileResponse(target)
+    response.headers["Content-Security-Policy"] = ADMIN_CONSOLE_CSP
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    # The shell must always be fresh; hashed assets can be cached forever.
+    response.headers["Cache-Control"] = ("public, max-age=31536000, immutable" if "/assets/" in str(target)
+                                         else "no-store")
+    return response
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_console_root():
+    return RedirectResponse("/admin/", status_code=307)
+
+
+@app.get("/admin/", include_in_schema=False)
+async def admin_console_index():
+    return _admin_console_file("")
+
+
+@app.get("/admin/{path:path}", include_in_schema=False)
+async def admin_console_asset(path: str):
+    return _admin_console_file(path)
+
+
+# =====================================================
+# Admin Console API v2 (/api/admin/v2/*)
+# Session-authenticated (admin_auth): Telegram Mini App or web + TOTP, an
+# HttpOnly SameSite=Strict cookie, CSRF header + Origin check on every
+# state change, permission + risk tier on every route, step-up reauth for
+# Critical actions. The SecurityMiddleware leaves these paths to this guard.
+# =====================================================
+ADMIN_CONSOLE_ORIGINS = tuple(o.strip().rstrip("/") for o in os.getenv(
+    "ADMIN_CONSOLE_ORIGINS", "https://admin.sylvex.ai").split(",") if o.strip())
+
+
+def _admin_telegram_tokens():
+    """initData from the admin Mini App is signed by whichever bot opened it:
+    the main bot(s) or the Support Bot (SUPPORT_BOT_TOKEN), which hosts the
+    "SYLVEX Admin" button."""
+    support = os.getenv("SUPPORT_BOT_TOKEN", "").strip()
+    return tuple(dict.fromkeys(TELEGRAM_AUTH_TOKENS + ((support,) if support else ())))
+
+
+def _admin_json(data, status_code=200):
+    response = JSONResponse(data, status_code=status_code)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _admin_set_session_cookie(response, token):
+    response.set_cookie(admin_auth.SESSION_COOKIE, token, max_age=admin_auth.SESSION_MAX_SECONDS, httponly=True,
+                        secure=True, samesite="strict", path="/")
+
+
+def _admin_clear_session_cookie(response):
+    response.delete_cookie(admin_auth.SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="strict")
+
+
+def _admin_client_ip(request: Request):
+    return request.client.host if request.client else None
+
+
+def _admin_v2_actor(cursor, request: Request, permission: str = "", *, mutation: bool = False):
+    """(actor, session) for a v2 request or HTTPException. Raises before any
+    side effect: session, Origin + CSRF for state changes, permission, and
+    a fresh re-authentication for Critical permissions."""
+    try:
+        admin, session = admin_auth.resolve_session(cursor, _admin_session_token(request))
+    except admin_auth.AdminAuthError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+    if mutation:
+        if not _admin_origin_ok(request):
+            raise HTTPException(status_code=403, detail="origin_not_allowed")
+        presented = request.headers.get(admin_auth.CSRF_HEADER) or ""
+        if not presented or not hmac.compare_digest(presented, session["csrf_token"]):
+            raise HTTPException(status_code=403, detail="csrf_token_invalid")
+    if permission:
+        if permission not in admin_rbac.PERMISSIONS:
+            raise HTTPException(status_code=500, detail="unknown_permission")
+        if permission not in admin["permissions_set"]:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        if admin_rbac.risk_of(permission) == admin_rbac.CRITICAL and not session["reauth_fresh"]:
+            raise HTTPException(status_code=403, detail="reauth_required")
+    actor = dict(admin, channel=session["channel"], session_id=session["session_id"])
+    return actor, session
+
+
+def _admin_v2_run(work):
+    """Runs work(cursor) in one transaction; AdminAuthError -> HTTP error."""
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = work(cursor)
+        conn.commit()
+        return result
+    except admin_auth.AdminAuthError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _admin_v2_ready(request: Optional[Request] = None):
+    """Credentials are checked before anything else, so an anonymous request
+    is always a 401 - never a 5xx that reveals backend state."""
+    if request is not None and not _admin_session_token(request):
+        raise HTTPException(status_code=401, detail="admin_session_required")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_unavailable")
+    ensure_admin_tables()
+
+
+async def _admin_v2_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _admin_session_payload(admin, csrf, channel):
+    return {"ok": True, "admin": admin_auth.public_admin(admin), "csrf_token": csrf,
+            "session": {"channel": channel, "idle_timeout_seconds": admin_auth.SESSION_IDLE_SECONDS,
+                        "max_age_seconds": admin_auth.SESSION_MAX_SECONDS}}
+
+
+@app.post("/api/admin/v2/auth/telegram")
+async def admin_v2_auth_telegram(request: Request):
+    body = await _admin_v2_body(request)
+    try:
+        user = validated_user(str(body.get("initData") or body.get("init_data") or ""), _admin_telegram_tokens())
+    except SecurityError as exc:
+        return _admin_json({"ok": False, "error": exc.code}, 401)
+    _admin_v2_ready()
+
+    def work(cursor):
+        admin = admin_auth.active_admin_for_telegram(cursor, user["id"])
+        if not admin:
+            raise admin_auth.AdminAuthError("admin_access_denied", 403)
+        token, csrf, _ = admin_auth.create_session(cursor, admin, "miniapp", _admin_client_ip(request),
+                                                   request.headers.get("user-agent"))
+        admin_auth.audit(cursor, dict(admin, channel="miniapp"), "admin_login", risk=admin_rbac.LOW,
+                         ip=_admin_client_ip(request))
+        return admin, token, csrf
+
+    admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
+    payload = _admin_session_payload(admin, csrf, "miniapp")
+    if body.get("mode") == "miniapp":
+        # Inside Telegram the console sends this as X-Admin-Session (kept in
+        # memory only); Telegram Web's cross-site iframe drops the cookie.
+        payload["session_token"] = token
+    response = _admin_json(payload)
+    _admin_set_session_cookie(response, token)
+    return response
+
+
+@app.post("/api/admin/v2/auth/web")
+async def admin_v2_auth_web(request: Request):
+    """Browser login: SYLVEX email + password, then a TOTP code.
+
+    - An active admin with TOTP signs in with email + password + code
+      (no code yet -> "totp_required", so the console asks for it).
+    - An admin without TOTP is refused ("totp_enrollment_required"): TOTP
+      is enrolled from a Telegram-verified Mini App session...
+    - ...except the bootstrap owner: the account whose *verified* email is
+      exactly ADMIN_OWNER_EMAIL. It becomes owner on its first sign-in (only
+      if it has no admin record yet) and may set up TOTP right here: the
+      first call returns a QR code, the next one (same email + password +
+      "setup_code") confirms it and signs in.
+    Anyone else is rejected before any QR or 2FA step. The Telegram Mini App
+    login is a separate route and is unaffected."""
+    body = await _admin_v2_body(request)
+    if not (body.get("email") and body.get("password")):
+        return _admin_json({"ok": False, "error": "invalid_credentials"}, 401)
+    _admin_v2_ready()
+    try:
+        account_id = await asyncio.to_thread(account_identity_service.login_email_account, DATABASE_URL,
+                                             body.get("email"), body.get("password"))
+    except AccountError as exc:
+        return _admin_json({"ok": False, "error": exc.code}, exc.status)
+
+    def work(cursor):
+        live_account = admin_auth.canonical_account(cursor, account_id) or account_id
+        bootstrap = admin_auth.is_bootstrap_owner_email(cursor, body.get("email"), account_id)
+        if bootstrap:
+            admin_auth.bootstrap_email_owner(cursor, live_account, body.get("email"))
+        admin = admin_auth.load_admin(cursor, account_id=live_account)
+        if not admin or admin["status"] != "active":
+            raise admin_auth.AdminAuthError("admin_access_denied", 403)
+        if not admin["totp_enabled"]:
+            if not bootstrap:
+                raise admin_auth.AdminAuthError("totp_enrollment_required", 403)
+            if not body.get("setup_code"):
+                secret, uri = admin_auth.begin_totp_enrollment(cursor, admin)
+                admin_auth.audit(cursor, dict(admin, channel="web"), "admin_totp_enrollment_started",
+                                 risk=admin_rbac.HIGH, ip=_admin_client_ip(request))
+                return admin, None, {"secret": secret, "otpauth_uri": uri}
+            admin_auth.confirm_totp_enrollment_limited(cursor, admin, body.get("setup_code"))
+            admin_auth.audit(cursor, dict(admin, channel="web"), "admin_totp_enabled", risk=admin_rbac.HIGH,
+                             ip=_admin_client_ip(request))
+        else:
+            if not body.get("totp"):
+                raise admin_auth.AdminAuthError("totp_required", 401)
+            admin_auth.verify_totp(cursor, admin, body.get("totp"))
+        token, csrf, _ = admin_auth.create_session(cursor, admin, "web", _admin_client_ip(request),
+                                                   request.headers.get("user-agent"))
+        admin_auth.audit(cursor, dict(admin, channel="web"), "admin_login", risk=admin_rbac.LOW,
+                         ip=_admin_client_ip(request))
+        return admin, token, csrf
+
+    try:
+        admin, token, result = await asyncio.to_thread(_admin_v2_run_keep_failures, work)
+    except HTTPException as exc:
+        return _admin_json({"ok": False, "error": exc.detail}, exc.status_code)
+    if token is None:
+        # Bootstrap owner without 2FA yet: `result` is the QR setup, no session.
+        return _admin_json({"ok": True, "totp_setup_required": True, **result})
+    response = _admin_json(_admin_session_payload(admin, result, "web"))
+    _admin_set_session_cookie(response, token)
+    return response
+
+
+def _admin_v2_run_keep_failures(work):
+    """Like _admin_v2_run, but a failed TOTP check still commits its
+    failure counter / lockout (rolling it back would allow unlimited
+    guesses)."""
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = work(cursor)
+        conn.commit()
+        return result
+    except admin_auth.AdminAuthError as exc:
+        if exc.code in ("totp_invalid", "totp_locked"):
+            conn.commit()
+        else:
+            conn.rollback()
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/v2/auth/reauth")
+async def admin_v2_auth_reauth(request: Request):
+    """Step-up re-authentication for Critical actions: a fresh TOTP code, or
+    fresh Mini App initData from the same Telegram user."""
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+    init_data = str(body.get("initData") or body.get("init_data") or "")
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if init_data:
+            try:
+                user = validated_user(init_data, _admin_telegram_tokens())
+            except SecurityError:
+                raise admin_auth.AdminAuthError("reauth_failed", 401)
+            if not actor["telegram_id"] or int(user["id"]) != int(actor["telegram_id"]):
+                raise admin_auth.AdminAuthError("reauth_failed", 401)
+            method = "telegram"
+        else:
+            admin_auth.verify_totp(cursor, actor, body.get("totp"))
+            method = "totp"
+        admin_auth.mark_reauth(cursor, session["session_id"])
+        admin_auth.audit(cursor, actor, "admin_reauth", risk=admin_rbac.LOW, after={"method": method},
+                         ip=_admin_client_ip(request))
+        return {"ok": True, "reauth_valid_seconds": admin_auth.REAUTH_WINDOW_SECONDS}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run_keep_failures, work))
+
+
+@app.post("/api/admin/v2/auth/logout")
+async def admin_v2_auth_logout(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        admin_auth.revoke_session(cursor, session["session_id"])
+        admin_auth.audit(cursor, actor, "admin_logout", risk=admin_rbac.LOW)
+
+    await asyncio.to_thread(_admin_v2_run, work)
+    response = _admin_json({"ok": True})
+    _admin_clear_session_cookie(response)
+    return response
+
+
+@app.post("/api/admin/v2/auth/logout-all")
+async def admin_v2_auth_logout_all(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, mutation=True)
+        count = admin_auth.revoke_all_sessions(cursor, actor["admin_id"])
+        admin_auth.audit(cursor, actor, "admin_logout_all", risk=admin_rbac.MEDIUM, after={"sessions_revoked": count})
+        return count
+
+    count = await asyncio.to_thread(_admin_v2_run, work)
+    response = _admin_json({"ok": True, "sessions_revoked": count})
+    _admin_clear_session_cookie(response)
+    return response
+
+
+@app.get("/api/admin/v2/auth/me")
+async def admin_v2_auth_me(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request)
+        identity = admin_identity.identities_for_keys(cursor, [actor["telegram_id"]] if actor["telegram_id"] else [],
+                                                      technical=False).get(actor["telegram_id"])
+        return {"ok": True, "admin": admin_auth.public_admin(actor), "identity": identity,
+                "csrf_token": session["csrf_token"],
+                "session": {"channel": session["channel"], "reauth_fresh": session["reauth_fresh"]}}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/auth/sessions")
+async def admin_v2_auth_sessions(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request)
+        items = admin_auth.list_sessions(cursor, actor["admin_id"])
+        for item in items:
+            item["current"] = item["session_id"] == session["session_id"]
+        return {"ok": True, "items": items}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/auth/totp/enroll")
+async def admin_v2_totp_enroll(request: Request):
+    """Starts TOTP enrollment. Only from a Telegram-verified Mini App session
+    with a fresh re-authentication, so web access is always anchored to the
+    admin's own Telegram account."""
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if session["channel"] != "miniapp":
+            raise admin_auth.AdminAuthError("totp_enroll_requires_miniapp", 403)
+        if not session["reauth_fresh"]:
+            raise admin_auth.AdminAuthError("reauth_required", 403)
+        secret, uri = admin_auth.begin_totp_enrollment(cursor, actor)
+        admin_auth.audit(cursor, actor, "admin_totp_enrollment_started", risk=admin_rbac.HIGH)
+        return {"ok": True, "secret": secret, "otpauth_uri": uri}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/auth/totp/confirm")
+async def admin_v2_totp_confirm(request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if session["channel"] != "miniapp":
+            raise admin_auth.AdminAuthError("totp_enroll_requires_miniapp", 403)
+        admin_auth.confirm_totp_enrollment(cursor, actor, body.get("code"))
+        admin_auth.audit(cursor, actor, "admin_totp_enabled", risk=admin_rbac.HIGH)
+        return {"ok": True}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/permissions")
+async def admin_v2_permissions(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request)
+        return {"ok": True, "permissions": admin_rbac.PERMISSIONS, "roles": list(admin_rbac.ROLES),
+                "role_defaults": {role: sorted(perms) for role, perms in admin_rbac.ROLE_DEFAULTS.items()}}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+def _admin_v2_admin_row(cursor, admin, identities):
+    identity = identities.get(admin["telegram_id"]) if admin["telegram_id"] else None
+    return dict(admin_auth.public_admin(admin), identity=identity)
+
+
+@app.get("/api/admin/v2/admins")
+async def admin_v2_admins(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request, "admins.view")
+        admins = admin_auth.list_admins(cursor)
+        identities = admin_identity.identities_for_keys(cursor, [a["telegram_id"] for a in admins if a["telegram_id"]])
+        return {"ok": True, "items": [_admin_v2_admin_row(cursor, a, identities) for a in admins]}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+def _admin_v2_reason(body):
+    reason = str(body.get("reason") or "").strip()
+    if not reason:
+        raise admin_auth.AdminAuthError("reason_required", 400)
+    return reason[:500]
+
+
+@app.post("/api/admin/v2/admins")
+async def admin_v2_admin_create(request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "admins.create", mutation=True)
+        reason = _admin_v2_reason(body)
+        if body.get("email") and not body.get("sylvex_user_id"):
+            # By Gmail / email: only a verified address, so an admin can never
+            # be granted to someone who merely typed that email at signup.
+            account_id, verified = admin_auth.account_for_email(cursor, body.get("email"))
+            if account_id and not verified:
+                raise admin_auth.AdminAuthError("email_not_verified", 409)
+        else:
+            account_id = admin_auth.canonical_account(cursor, body.get("sylvex_user_id"))
+        if not account_id:
+            raise admin_auth.AdminAuthError("account_not_found", 404)
+        admin = admin_auth.create_admin(cursor, actor, account_id, str(body.get("role") or ""),
+                                        body.get("grants") or [], body.get("denies") or [], reason)
+        return {"ok": True, "admin": admin_auth.public_admin(admin)}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.patch("/api/admin/v2/admins/{admin_id}")
+async def admin_v2_admin_update(admin_id: int, request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "admins.permissions.edit", mutation=True)
+        reason = _admin_v2_reason(body)
+        admin = admin_auth.update_admin(cursor, actor, admin_id, role=body.get("role"), grants=body.get("grants"),
+                                        denies=body.get("denies"), status=body.get("status"), reason=reason)
+        return {"ok": True, "admin": admin_auth.public_admin(admin)}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/audit")
+async def admin_v2_audit(request: Request, actor_admin_id: Optional[int] = None,
+                         target_sylvex_user_id: Optional[str] = None, action: Optional[str] = None,
+                         risk: Optional[str] = None, before_id: Optional[int] = None, limit: int = 50):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request, "audit.view")
+        target = int(target_sylvex_user_id) if target_sylvex_user_id and target_sylvex_user_id.isdigit() else None
+        items, next_before = admin_auth.list_audit(cursor, actor_admin_id=actor_admin_id, target_account_id=target,
+                                                   action=action, risk=risk, before_id=before_id, limit=limit)
+        return {"ok": True, "items": items, "next_before_id": next_before}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
 @app.post("/api/admin/errors")
 async def admin_errors(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_errors")
+        actor = _admin_actor(payload, request, "errors.view")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
@@ -10433,11 +11074,12 @@ async def admin_errors(request: Request):
                 FROM prostudio_errors
                 ORDER BY created_at DESC LIMIT 100
             """)
-            return [{
+            items = [{
                 "id": row[0], "telegram_id": row[1], "job_id": row[2] or "",
                 "provider": row[3] or "", "model": row[4] or "", "status": row[5] or "",
                 "error": str(row[6] or "")[:1000], "created_at": _to_iso(row[7]),
             } for row in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10454,7 +11096,7 @@ async def admin_error_reports(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_errors")
+        actor = _admin_actor(payload, request, "errors.view")
         ensure_prostudio_table()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -10464,13 +11106,14 @@ async def admin_error_reports(request: Request):
                 FROM prostudio_error_reports
                 ORDER BY created_at DESC LIMIT 100
             """)
-            return [{
+            items = [{
                 "id": row[0], "telegram_id": row[1], "mode": row[2] or "",
                 "provider": row[3] or "", "model": row[4] or "", "job_id": row[5] or "",
                 "prompt": str(row[6] or "")[:500], "error": str(row[7] or "")[:1000],
                 "raw_error": str(row[8] or "")[:2000], "status": row[9] or "open",
                 "created_at": _to_iso(row[10]),
             } for row in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10488,16 +11131,19 @@ async def admin_user_detail(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_users")
+        actor = _admin_actor(payload, request, "users.view")
+        technical = _admin_technical(actor)
         ensure_admin_tables()
         ensure_payment_tables()
         ensure_prostudio_table()
-        target_id = int(payload.get("user_id") or 0)
-        if not target_id:
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")):
             raise HTTPException(status_code=400, detail="user_id_required")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = _admin_resolve_target(cursor, payload)
+            if not target_id:
+                raise HTTPException(status_code=404, detail="user_not_found")
             cursor.execute("""
                 SELECT u.telegram_id, COALESCE(u.username,'') AS username,
                        COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
@@ -10510,16 +11156,22 @@ async def admin_user_detail(request: Request):
             row = cursor.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="user_not_found")
-            cursor.execute("SELECT COUNT(*), COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) FROM purchases WHERE telegram_id=%s", (target_id,))
-            purchases_count, total_spent = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM purchases WHERE telegram_id=%s", (target_id,))
+            purchases_count = cursor.fetchone()[0]
+            cursor.execute("""
+                SELECT COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
+                FROM purchases WHERE telegram_id=%s AND status='completed' GROUP BY 1 ORDER BY 1
+            """, (target_id,))
+            spent_by_currency = {str(r[0]): int(r[1] or 0) for r in cursor.fetchall()}
             cursor.execute("SELECT COUNT(*) FROM prostudio_generation_jobs WHERE telegram_id=%s", (target_id,))
             generations_count = cursor.fetchone()[0]
             cursor.execute("SELECT current_view, platform, last_seen FROM app_presence WHERE telegram_id=%s", (target_id,))
             presence_row = cursor.fetchone()
             account = {"telegram_id": row[0], "username": row[1], "name": row[2], "balance": int(row[3] or 0),
                        "subscription": row[4], "created_at": _to_iso(row[5]), "subscription_until": _to_iso(row[6]),
-                       "total_purchases": int(purchases_count or 0), "total_spent": int(total_spent or 0),
+                       "total_purchases": int(purchases_count or 0), "spent_by_currency": spent_by_currency,
                        "total_generations": int(generations_count or 0)}
+            admin_identity.decorate(cursor, [account], technical=technical)
             cursor.execute("""
                 SELECT id, provider, credits, amount, currency, status, charge_id, created_at
                 FROM purchases WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
@@ -10531,7 +11183,7 @@ async def admin_user_detail(request: Request):
                 SELECT id, subscription_type, payment_method, amount, currency, starts_at, expires_at, status, created_at
                 FROM subscriptions WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
             """, (target_id,))
-            subscription_history = [{"id": r[0], "type": r[1] or "", "payment_method": r[2] or "",
+            subscription_history = [{"id": r[0], "type": r[1] or "", "plan_label": shop_catalog.plan_label(r[1]) if r[1] else "", "payment_method": r[2] or "",
                     "amount": int(r[3] or 0), "currency": r[4], "starts_at": _to_iso(r[5]), "expires_at": _to_iso(r[6]),
                     "status": r[7], "created_at": _to_iso(r[8])} for r in cursor.fetchall()]
             cursor.execute("""
@@ -10568,7 +11220,7 @@ async def admin_users_online(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_users")
+        actor = _admin_actor(payload, request, "users.view")
         ensure_admin_tables()
         limit = max(1, min(int(payload.get("limit") or 50), 200))
         window_minutes = max(1, min(int(payload.get("window_minutes") or 30), 1440))
@@ -10586,9 +11238,10 @@ async def admin_users_online(request: Request):
                 WHERE ap.last_seen >= NOW() - (%s * INTERVAL '1 minute')
                 ORDER BY ap.last_seen DESC LIMIT %s
             """, (window_minutes, limit))
-            return [{"telegram_id": r[0], "name": r[1], "username": r[2], "view": r[3],
+            items = [{"telegram_id": r[0], "name": r[1], "username": r[2], "view": r[3],
                     "platform": r[4], "last_seen": _to_iso(r[5]), "online": bool(r[6])}
                     for r in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10604,24 +11257,28 @@ async def admin_generations(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_generations")
+        actor = _admin_actor(payload, request, "generations.view")
         ensure_prostudio_table()
         mode = str(payload.get("mode") or "").strip().lower()[:20]
         status = str(payload.get("status") or "").strip().lower()[:20]
-        target_id = int(payload.get("user_id") or 0)
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         offset = max(0, int(payload.get("offset") or 0))
-        conditions, params = [], []
-        if mode:
-            conditions.append("mode=%s"); params.append(mode)
-        if status:
-            conditions.append("status=%s"); params.append(status)
-        if target_id:
-            conditions.append("telegram_id=%s"); params.append(target_id)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = None
+            if payload.get("user_id") or payload.get("sylvex_user_id"):
+                target_id = _admin_resolve_target(cursor, payload)
+                if not target_id:
+                    return [], 0
+            conditions, params = [], []
+            if mode:
+                conditions.append("mode=%s"); params.append(mode)
+            if status:
+                conditions.append("status=%s"); params.append(status)
+            if target_id:
+                conditions.append("telegram_id=%s"); params.append(target_id)
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             cursor.execute(f"SELECT COUNT(*) FROM prostudio_generation_jobs {where}", params)
             total = cursor.fetchone()[0]
             cursor.execute(f"""
@@ -10641,6 +11298,7 @@ async def admin_generations(request: Request):
                     "has_result": bool(result_json),
                     "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]),
                 })
+            admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
             return items, int(total or 0)
         finally:
             cursor.close()
@@ -10657,7 +11315,7 @@ async def admin_subscribers(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_finance")
+        actor = _admin_actor(payload, request, "payments.view")
         ensure_payment_tables()
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         offset = max(0, int(payload.get("offset") or 0))
@@ -10676,10 +11334,11 @@ async def admin_subscribers(request: Request):
                 LEFT JOIN user_profiles p ON p.telegram_id=s.telegram_id
                 ORDER BY s.created_at DESC LIMIT %s OFFSET %s
             """, (limit, offset))
-            items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4],
+            items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4], "plan_label": shop_catalog.plan_label(r[4]) if r[4] else "",
                     "amount": int(r[5] or 0), "currency": r[6], "starts_at": _to_iso(r[7]), "expires_at": _to_iso(r[8]),
                     "status": r[9], "created_at": _to_iso(r[10]), "total_subscription_purchases": int(r[11] or 0)}
                     for r in cursor.fetchall()]
+            admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
             return items, int(total or 0)
         finally:
             cursor.close()
@@ -10696,16 +11355,18 @@ async def admin_top_spenders(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_finance")
+        actor = _admin_actor(payload, request, "payments.view")
         ensure_payment_tables()
         limit = max(1, min(int(payload.get("limit") or 20), 100))
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            # Ranked by credits bought - the one unit every payment method
+            # shares. Money is reported per currency, never summed across.
             cursor.execute("""
                 SELECT p.telegram_id, COALESCE(pr.display_name, u.first_name, 'SYLVEX User') AS name,
                        COALESCE(u.username,'') AS username,
-                       COALESCE(SUM(p.amount),0) AS total_spent,
+                       COALESCE(SUM(p.credits),0) AS credits_bought,
                        COUNT(*) FILTER (WHERE s.charge_id IS NOT NULL) AS subscription_purchases,
                        COUNT(*) FILTER (WHERE s.charge_id IS NULL) AS credit_purchases,
                        COUNT(*) AS payments_count
@@ -10715,11 +11376,21 @@ async def admin_top_spenders(request: Request):
                 LEFT JOIN subscriptions s ON s.charge_id=p.charge_id
                 WHERE p.status='completed'
                 GROUP BY p.telegram_id, pr.display_name, u.first_name, u.username
-                ORDER BY total_spent DESC LIMIT %s
+                ORDER BY credits_bought DESC, payments_count DESC LIMIT %s
             """, (limit,))
-            return [{"rank": i + 1, "telegram_id": r[0], "name": r[1], "username": r[2], "total_spent": int(r[3] or 0),
+            items = [{"rank": i + 1, "telegram_id": r[0], "name": r[1], "username": r[2], "credits_bought": int(r[3] or 0),
                     "subscription_purchases": int(r[4] or 0), "credit_purchases": int(r[5] or 0),
-                    "payments_count": int(r[6] or 0)} for i, r in enumerate(cursor.fetchall())]
+                    "payments_count": int(r[6] or 0), "spent_by_currency": {}} for i, r in enumerate(cursor.fetchall())]
+            keys = [item["telegram_id"] for item in items]
+            if keys:
+                cursor.execute("""
+                    SELECT telegram_id, COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
+                    FROM purchases WHERE status='completed' AND telegram_id = ANY(%s::bigint[]) GROUP BY 1, 2
+                """, (keys,))
+                by_key = {item["telegram_id"]: item for item in items}
+                for key, currency, amount in cursor.fetchall():
+                    by_key[key]["spent_by_currency"][str(currency)] = int(amount or 0)
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10736,7 +11407,7 @@ async def admin_messages_broadcast(request: Request):
     payload = await request.json()
 
     def _fetch_targets():
-        actor = _admin_actor(payload, request, "message_users")
+        actor = _admin_actor(payload, request, "broadcast.send")
         ensure_admin_tables()
         message = str(payload.get("message") or "").strip()
         send_to_all = bool(payload.get("all"))
@@ -10746,19 +11417,23 @@ async def admin_messages_broadcast(request: Request):
             raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
+        skipped_no_telegram = 0
         try:
+            # Only real Telegram chats: website-only accounts' storage keys
+            # (>= STORAGE_ID_FLOOR) are not chats and must never be messaged.
             if send_to_all:
-                cursor.execute("SELECT telegram_id FROM users")
+                cursor.execute("SELECT telegram_id FROM users WHERE telegram_id > 0 AND telegram_id < %s", (STORAGE_ID_FLOOR,))
                 targets = [row[0] for row in cursor.fetchall()]
             else:
                 targets = []
-                for raw in (payload.get("user_ids") or []):
-                    try:
-                        tid = int(raw)
-                    except (TypeError, ValueError):
-                        continue
+                requested = [{"user_id": raw} for raw in (payload.get("user_ids") or [])]
+                requested += [{"sylvex_user_id": raw} for raw in (payload.get("sylvex_user_ids") or [])]
+                for ref in requested[:20001]:
+                    tid = account_identity_service.real_telegram_id(_admin_resolve_target(cursor, ref))
                     if tid:
                         targets.append(tid)
+                    else:
+                        skipped_no_telegram += 1
                 targets = list(dict.fromkeys(targets))
         finally:
             cursor.close()
@@ -10767,9 +11442,9 @@ async def admin_messages_broadcast(request: Request):
             raise HTTPException(status_code=400, detail="no_recipients")
         if len(targets) > 20000:
             raise HTTPException(status_code=400, detail="too_many_recipients")
-        return actor, message, targets
+        return actor, message, targets, skipped_no_telegram
 
-    actor, message, targets = await asyncio.to_thread(_fetch_targets)
+    actor, message, targets, skipped_no_telegram = await asyncio.to_thread(_fetch_targets)
 
     def send_one(chat_id):
         try:
@@ -10797,7 +11472,7 @@ async def admin_messages_broadcast(request: Request):
             for tid, ok in results.items():
                 cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
                                (actor["telegram_id"], tid, message, ok))
-            _admin_audit(cursor, actor["telegram_id"], "broadcast_sent", 0, {},
+            _admin_audit(cursor, actor, "broadcast_sent", 0, {},
                          {"recipients": len(targets), "sent": sent_count, "length": len(message)}, "")
             conn.commit()
         finally:
@@ -10805,7 +11480,492 @@ async def admin_messages_broadcast(request: Request):
             conn.close()
 
     await asyncio.to_thread(_record_results)
-    return {"ok": True, "recipients": len(targets), "sent": sent_count}
+    return {"ok": True, "recipients": len(targets), "sent": sent_count, "skipped_no_telegram": skipped_no_telegram}
+
+
+# =====================================================
+# Unified notifications, website visitors and "Contact SYLVEX"
+# (services/notifications.py). Users see every admin message as coming from
+# "SYLVEX Team" in the notification bell of the Mini App and the website -
+# one shared history and read state per SYLVEX account - and Telegram users
+# also get it from the bot, exactly like the existing broadcast. Users write
+# to SYLVEX from an internal popup; admins answer from the console Inbox.
+# =====================================================
+NOTIFICATIONS_SCHEMA_READY = False
+_NOTIFICATION_TASKS = set()
+
+
+def ensure_notification_tables():
+    global NOTIFICATIONS_SCHEMA_READY
+    if NOTIFICATIONS_SCHEMA_READY or not DATABASE_URL:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        notifications_service.ensure_tables(cursor)
+        conn.commit()
+        NOTIFICATIONS_SCHEMA_READY = True
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _notifications_run(work):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_unavailable")
+    ensure_notification_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = work(cursor)
+        conn.commit()
+        return result
+    except notifications_service.NotificationError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _notification_image_url(key):
+    if not key:
+        return None
+    url = storage_object_url(key)
+    return url if url.startswith("http") else f"{WEBAPP_URL.rstrip('/')}{url}"
+
+
+def _request_person(cursor, request):
+    """The signed-in caller (Mini App initData or website session, already
+    verified by SecurityMiddleware) as a notification identity."""
+    user_key = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not user_key:
+        raise HTTPException(status_code=401, detail="auth_required")
+    account_id = notifications_service.account_for_key(cursor, user_key)
+    if account_id:
+        person = notifications_service.resolve_person(cursor, f"a:{account_id}")
+        if person:
+            return person
+    return {"key": f"t:{user_key}", "account_id": None, "user_key": user_key, "visitor_id": None,
+            "telegram_chat": account_identity_service.real_telegram_id(user_key)}
+
+
+def _cookie_web_account(request):
+    """Website session account from the cookie, for the public visitor routes
+    (they run without the middleware's identity step)."""
+    try:
+        from services.security import current_web_session_generation, web_session_account_id_from_cookie_header
+        account_id, generation = web_session_account_id_from_cookie_header(request.headers.get("cookie", ""))
+        if account_id and generation >= current_web_session_generation(account_id):
+            return int(account_id)
+    except Exception:
+        return None
+    return None
+
+
+def _telegram_deliver(chat_id, text, image_url=None, links=None):
+    """Sends one admin message through the main bot: a photo with caption
+    when there is an image, link buttons under it. Returns True on success."""
+    if not BOT_TOKEN or not chat_id:
+        return False
+    markup = None
+    if links:
+        markup = {"inline_keyboard": [[{"text": (l.get("label") or l["url"])[:60], "url": l["url"]}] for l in links]}
+    base = f"https://api.telegram.org/bot{BOT_TOKEN}"
+    try:
+        if image_url:
+            caption_fits = len(text) <= 1024
+            payload = {"chat_id": chat_id, "photo": image_url}
+            if caption_fits:
+                payload["caption"] = text
+                if markup:
+                    payload["reply_markup"] = markup
+            response = requests.post(f"{base}/sendPhoto", json=payload, timeout=30)
+            ok = response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
+            if caption_fits or not ok:
+                return ok
+        payload = {"chat_id": chat_id, "text": text}
+        if markup:
+            payload["reply_markup"] = markup
+        response = requests.post(f"{base}/sendMessage", json=payload, timeout=20)
+        return response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
+    except (requests.RequestException, ValueError):
+        return False
+
+
+async def _telegram_deliver_many(notification_id, chats, text, image_url, links):
+    semaphore = asyncio.Semaphore(20)
+    sent = 0
+
+    async def one(chat):
+        nonlocal sent
+        async with semaphore:
+            if await asyncio.to_thread(_telegram_deliver, chat, text, image_url, links):
+                sent += 1
+
+    await asyncio.gather(*(one(c) for c in chats))
+    if notification_id:
+        def _save(cursor):
+            notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=sent)
+        try:
+            await asyncio.to_thread(_notifications_run, _save)
+        except Exception as exc:
+            print("NOTIFICATIONS_TELEGRAM_COUNT_FAILED:", exc)
+    return sent
+
+
+def _start_background(coro):
+    task = asyncio.create_task(coro)
+    _NOTIFICATION_TASKS.add(task)
+    task.add_done_callback(_NOTIFICATION_TASKS.discard)
+    return task
+
+
+# ---------- users: website visitors ----------
+
+@app.post("/api/public/visitor/ping")
+async def public_visitor_ping(request: Request):
+    """Website visit beacon: issues/keeps the anonymous visitor id and links
+    it to the SYLVEX account when the browser is signed in."""
+    body = await request.json()
+    account_id = await asyncio.to_thread(_cookie_web_account, request)
+    ip_hash = admin_auth.hash_ip(_admin_client_ip(request)) if _admin_client_ip(request) else None
+
+    def work(cursor):
+        return notifications_service.touch_visitor(cursor, body.get("visitor_id"), path=body.get("path"),
+                                                   account_id=account_id, ip_hash=ip_hash)
+
+    visitor_id = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "visitor_id": visitor_id, "signed_in": bool(account_id)}
+
+
+# ---------- users: notification bell ----------
+
+def _surface(value):
+    value = str(value or "").strip().lower()
+    if value not in notifications_service.SURFACES:
+        raise HTTPException(status_code=400, detail="invalid_surface")
+    return value
+
+
+@app.get("/api/public/notifications")
+async def public_notifications(request: Request, surface: str = "miniapp", limit: int = 30):
+    surface = _surface(surface)
+
+    def work(cursor):
+        person = _request_person(cursor, request)
+        return notifications_service.list_for(cursor, surface=surface, account_id=person["account_id"],
+                                              user_key=person["user_key"], limit=limit,
+                                              image_url=_notification_image_url)
+
+    items, unread = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items, "unread": unread, "sender": notifications_service.SENDER_NAME}
+
+
+@app.post("/api/public/notifications/read")
+async def public_notifications_read(request: Request):
+    body = await request.json()
+
+    def work(cursor):
+        person = _request_person(cursor, request)
+        return notifications_service.mark_read(cursor, account_id=person["account_id"], user_key=person["user_key"],
+                                               notification_ids=None if body.get("all") else body.get("ids"))
+
+    marked = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "marked": marked}
+
+
+@app.get("/api/public/visitor/notifications")
+async def public_visitor_notifications(visitor_id: str = "", limit: int = 30):
+    def work(cursor):
+        if not notifications_service.visitor_exists(cursor, visitor_id):
+            return [], 0
+        return notifications_service.list_for(cursor, surface="website", visitor_id=visitor_id, limit=limit,
+                                              image_url=_notification_image_url)
+
+    items, unread = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items, "unread": unread, "sender": notifications_service.SENDER_NAME}
+
+
+@app.post("/api/public/visitor/notifications/read")
+async def public_visitor_notifications_read(request: Request):
+    body = await request.json()
+    visitor_id = str(body.get("visitor_id") or "")
+
+    def work(cursor):
+        if not notifications_service.visitor_exists(cursor, visitor_id):
+            raise notifications_service.NotificationError("visitor_not_found", 404)
+        return notifications_service.mark_read(cursor, visitor_id=visitor_id,
+                                               notification_ids=None if body.get("all") else body.get("ids"))
+
+    marked = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "marked": marked}
+
+
+# ---------- users: Contact SYLVEX ----------
+
+@app.post("/api/public/contact")
+async def public_contact(request: Request):
+    """A signed-in user's message from the internal Contact SYLVEX popup
+    (Mini App or website) -> Admin Console Inbox."""
+    body = await request.json()
+    ip_hash = admin_auth.hash_ip(_admin_client_ip(request)) if _admin_client_ip(request) else None
+
+    def work(cursor):
+        person = _request_person(cursor, request)
+        return notifications_service.submit_contact(cursor, person, message=body.get("message"),
+                                                    topic=body.get("topic"), email=body.get("email"),
+                                                    surface=body.get("surface"), ip_hash=ip_hash)
+
+    thread_id, _ = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "thread_id": thread_id}
+
+
+@app.post("/api/public/visitor/contact")
+async def public_visitor_contact(request: Request):
+    """Same popup for a website visitor who is not signed in: identified by
+    the visitor id the site was issued (replies reach their bell)."""
+    body = await request.json()
+    visitor_id = str(body.get("visitor_id") or "")
+    ip_hash = admin_auth.hash_ip(_admin_client_ip(request)) if _admin_client_ip(request) else None
+
+    def work(cursor):
+        if not notifications_service.visitor_exists(cursor, visitor_id):
+            raise notifications_service.NotificationError("visitor_not_found", 404)
+        person = notifications_service.resolve_person(cursor, f"v:{visitor_id}")
+        return notifications_service.submit_contact(cursor, person, message=body.get("message"),
+                                                    topic=body.get("topic"), email=body.get("email"),
+                                                    surface="website", ip_hash=ip_hash)
+
+    thread_id, _ = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "thread_id": thread_id}
+
+
+# ---------- admins: audience, messages, inbox ----------
+
+def _admin_identity_for(cursor, rows, actor):
+    keys = [r.get("user_key") for r in rows if r.get("user_key")]
+    identities = admin_identity.identities_for_keys(cursor, keys, technical=_admin_technical(actor)) if keys else {}
+    for r in rows:
+        r["identity"] = identities.get(int(r["user_key"])) if r.get("user_key") else None
+    return rows
+
+
+@app.post("/api/admin/audience")
+async def admin_audience(request: Request):
+    payload = await request.json()
+
+    def work(cursor):
+        _admin_actor(payload, request, "users.view")
+        return notifications_service.audience(cursor, source=str(payload.get("source") or ""),
+                                              status=str(payload.get("status") or ""),
+                                              query=payload.get("query"), limit=payload.get("limit") or 50,
+                                              offset=payload.get("offset") or 0)
+
+    items, total = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items, "total": total}
+
+
+@app.post("/api/admin/messages/upload-image")
+async def admin_messages_upload_image(request: Request):
+    payload = await request.json()
+    _admin_actor(payload, request, "messages.send")
+    try:
+        content = base64.b64decode(str(payload.get("content_base64") or ""), validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_base64")
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="invalid_content_size")
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        ext, mime = "png", "image/png"
+    elif content.startswith(b"\xff\xd8\xff"):
+        ext, mime = "jpg", "image/jpeg"
+    elif content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        ext, mime = "webp", "image/webp"
+    elif content[:6] in (b"GIF87a", b"GIF89a"):
+        ext, mime = "gif", "image/gif"
+    else:
+        raise HTTPException(status_code=400, detail="unsupported_image")
+    key = generated_key("messages", f"{uuid4().hex}.{ext}")
+    url = await asyncio.to_thread(storage_put_bytes, content, key, mime)
+    if not url:
+        raise HTTPException(status_code=502, detail="upload_failed")
+    return {"ok": True, "image_key": key, "url": _notification_image_url(key)}
+
+
+@app.post("/api/admin/messages/send")
+async def admin_messages_send(request: Request):
+    """Admin Console -> everyone or selected people -> Telegram (bot message,
+    as the existing broadcast does) + Mini App bell + website bell. No
+    channel selected means everywhere."""
+    payload = await request.json()
+    audience = "all" if payload.get("audience") == "all" else "selected"
+    keys = [str(k) for k in (payload.get("recipients") or [])][:5000]
+    permission = "broadcast.send" if audience == "all" or len(keys) > 1 else "messages.send"
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, permission)
+        text = notifications_service.clean_text(payload.get("text") or payload.get("message"))
+        links = notifications_service.clean_links(payload.get("links"))
+        image_key = notifications_service.clean_image_key(payload.get("image_key"))
+        channels = notifications_service.clean_channels(payload.get("channels"))
+        surfaces = [c for c in channels if c in notifications_service.SURFACES]
+        if audience == "selected":
+            people, seen = [], set()
+            for key in keys:
+                person = notifications_service.resolve_person(cursor, key)
+                if person and person["key"] not in seen:
+                    seen.add(person["key"])
+                    people.append(person)
+            if not people:
+                raise notifications_service.NotificationError("no_recipients")
+            chats = sorted({p["telegram_chat"] for p in people if p.get("telegram_chat")})
+        else:
+            people = None
+            chats = notifications_service.telegram_chats_for_everyone(cursor) if "telegram" in channels else []
+        if "telegram" not in channels:
+            chats = []
+        notification_id = notifications_service.create_notification(
+            cursor, text=text, links=links, image_key=image_key, surfaces=surfaces, channels=channels,
+            audience=audience, admin_id=actor.get("admin_id"))
+        recipients = 0
+        if surfaces:
+            recipients = (notifications_service.add_everyone(cursor, notification_id, surfaces) if people is None
+                          else notifications_service.add_recipients(
+                              cursor, notification_id,
+                              [p for p in people if p.get("account_id") or p.get("user_key")
+                               or ("website" in surfaces and p.get("visitor_id"))]))
+        notifications_service.set_delivery_counts(cursor, notification_id, recipients=recipients,
+                                                  telegram_targets=len(chats))
+        _admin_audit(cursor, actor, "broadcast_sent" if permission == "broadcast.send" else "message_sent", 0, {},
+                     {"notification_id": notification_id, "audience": audience, "channels": channels,
+                      "recipients": recipients, "telegram_targets": len(chats), "length": len(text),
+                      "links": len(links), "image": bool(image_key)}, str(payload.get("reason") or ""))
+        return notification_id, recipients, chats, text, links, image_key, channels
+
+    notification_id, recipients, chats, text, links, image_key, channels = await asyncio.to_thread(
+        _notifications_run, work)
+    if chats:
+        if not BOT_TOKEN:
+            raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
+        _start_background(_telegram_deliver_many(notification_id, chats, text, _notification_image_url(image_key),
+                                                 links))
+    return {"ok": True, "notification_id": notification_id, "channels": channels, "bell_recipients": recipients,
+            "telegram_recipients": len(chats)}
+
+
+@app.post("/api/admin/messages/history")
+async def admin_messages_history(request: Request):
+    payload = await request.json()
+
+    def work(cursor):
+        _admin_actor(payload, request, "messages.send")
+        return notifications_service.history(cursor, payload.get("limit") or 30, payload.get("offset") or 0)
+
+    items, total = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items, "total": total}
+
+
+def _thread_person_view(cursor, thread, actor):
+    person = notifications_service.thread_person(cursor, thread["id"])
+    row = {"user_key": person.get("user_key")}
+    _admin_identity_for(cursor, [row], actor)
+    return {"key": person["key"], "sylvex_user_id": str(person["account_id"]) if person.get("account_id") else None,
+            "telegram_id": person.get("telegram_chat"), "visitor_id": person.get("visitor_id"),
+            "identity": row["identity"]}
+
+
+@app.post("/api/admin/inbox/list")
+async def admin_inbox_list(request: Request):
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        items, total, unread = notifications_service.list_threads(cursor, status=str(payload.get("status") or ""),
+                                                                   limit=payload.get("limit") or 50,
+                                                                   offset=payload.get("offset") or 0)
+        _admin_identity_for(cursor, items, actor)
+        for item in items:
+            item["sylvex_user_id"] = str(item["account_id"]) if item.get("account_id") else None
+            item["telegram_id"] = account_identity_service.real_telegram_id(item.get("user_key"))
+            item.pop("user_key", None)
+        return items, total, unread
+
+    items, total, unread = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items, "total": total, "unread": unread}
+
+
+@app.post("/api/admin/inbox/thread")
+async def admin_inbox_thread(request: Request):
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        thread, messages = notifications_service.thread_detail(cursor, int(payload.get("thread_id") or 0),
+                                                               image_url=_notification_image_url)
+        thread["person"] = _thread_person_view(cursor, thread, actor)
+        thread.pop("user_key", None)
+        return thread, messages
+
+    thread, messages = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "thread": thread, "messages": messages}
+
+
+@app.post("/api/admin/inbox/reply")
+async def admin_inbox_reply(request: Request):
+    """Personal reply: shown to the user as SYLVEX Team in their bell
+    (Mini App + website) and, when they have Telegram, sent by the bot."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        thread_id = int(payload.get("thread_id") or 0)
+        text = notifications_service.clean_text(payload.get("text"))
+        links = notifications_service.clean_links(payload.get("links"))
+        image_key = notifications_service.clean_image_key(payload.get("image_key"))
+        person = notifications_service.thread_person(cursor, thread_id)
+        notification_id = notifications_service.create_notification(
+            cursor, text=text, links=links, image_key=image_key, surfaces=list(notifications_service.SURFACES),
+            channels=list(notifications_service.CHANNELS), audience="reply", admin_id=actor.get("admin_id"),
+            kind="reply", thread_id=thread_id)
+        notifications_service.add_recipients(cursor, notification_id, [person])
+        chat = person.get("telegram_chat")
+        notifications_service.set_delivery_counts(cursor, notification_id, recipients=1, telegram_targets=1 if chat else 0)
+        message_id = notifications_service.record_reply(cursor, thread_id, text=text, links=links, image_key=image_key,
+                                                        admin_id=actor.get("admin_id"), notification_id=notification_id)
+        _admin_audit(cursor, actor, "support_reply_sent", person.get("user_key") or 0, {},
+                     {"thread_id": thread_id, "notification_id": notification_id, "telegram": bool(chat),
+                      "length": len(text)}, "")
+        return notification_id, message_id, chat, text, links, image_key
+
+    notification_id, message_id, chat, text, links, image_key = await asyncio.to_thread(_notifications_run, work)
+    telegram_sent = False
+    if chat:
+        telegram_sent = await asyncio.to_thread(
+            _telegram_deliver, chat, f"💬 {notifications_service.SENDER_NAME}\n\n{text}",
+            _notification_image_url(image_key), links)
+
+        def _save(cursor):
+            notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=1 if telegram_sent else 0)
+        await asyncio.to_thread(_notifications_run, _save)
+    return {"ok": True, "message_id": message_id, "notification_id": notification_id,
+            "telegram": bool(chat), "telegram_sent": telegram_sent}
+
+
+@app.post("/api/admin/inbox/status")
+async def admin_inbox_status(request: Request):
+    payload = await request.json()
+
+    def work(cursor):
+        _admin_actor(payload, request, "messages.send")
+        notifications_service.set_thread_status(cursor, int(payload.get("thread_id") or 0),
+                                                str(payload.get("status") or ""))
+
+    await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True}
 
 
 REFERENCES_SCHEMA_READY = False
@@ -10865,7 +12025,7 @@ async def admin_references_list(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "manage_references")
+        _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         category = str(payload.get("category") or "").strip()[:80]
         kind = str(payload.get("kind") or "").strip().lower()[:20]
@@ -10904,7 +12064,7 @@ async def admin_references_create(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         category = str(payload.get("category") or "").strip()[:80]
         kind = str(payload.get("kind") or "").strip().lower()[:20]
@@ -10930,7 +12090,7 @@ async def admin_references_create(request: Request):
             """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
                   published, sort_order, actor["telegram_id"]))
             created = _reference_row_to_dict(cursor.fetchone())
-            _admin_audit(cursor, actor["telegram_id"], "reference_created", 0, {}, created, "")
+            _admin_audit(cursor, actor, "reference_created", 0, {}, created, "")
             conn.commit()
             return created
         except Exception:
@@ -10949,7 +12109,7 @@ async def admin_references_update(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         if not reference_id:
@@ -10986,7 +12146,7 @@ async def admin_references_update(request: Request):
                 RETURNING {_REFERENCE_COLUMNS}
             """, list(updates.values()) + [reference_id])
             after = _reference_row_to_dict(cursor.fetchone())
-            _admin_audit(cursor, actor["telegram_id"], "reference_updated", 0, before, after, "")
+            _admin_audit(cursor, actor, "reference_updated", 0, before, after, "")
             conn.commit()
             return after
         except HTTPException:
@@ -11008,7 +12168,7 @@ async def admin_references_publish(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         published = bool(payload.get("published", True))
@@ -11022,7 +12182,7 @@ async def admin_references_publish(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
-            _admin_audit(cursor, actor["telegram_id"], "reference_published" if published else "reference_unpublished",
+            _admin_audit(cursor, actor, "reference_published" if published else "reference_unpublished",
                          0, {"published": bool(before_row[0])}, {"published": published}, "")
             conn.commit()
             return reference_id, published
@@ -11045,7 +12205,7 @@ async def admin_references_delete(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         if not reference_id:
@@ -11058,7 +12218,7 @@ async def admin_references_delete(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
-            _admin_audit(cursor, actor["telegram_id"], "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
+            _admin_audit(cursor, actor, "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
             conn.commit()
         except HTTPException:
             conn.rollback()
@@ -11081,7 +12241,7 @@ async def admin_references_upload_media(request: Request):
     no R2 credentials of its own - mirrors materialize_data_image_url's
     approach but supports video too and returns a plain URL."""
     payload = await request.json()
-    _admin_actor(payload, request, "manage_references")
+    _admin_actor(payload, request, "content.references.manage")
     content_b64 = str(payload.get("content_base64") or "")
     slot = str(payload.get("slot") or "preview").strip().lower()
     if slot not in {"preview", "source"}:
@@ -11778,6 +12938,835 @@ async def public_lemonsqueezy_webhook(request: Request):
     return {"ok": True, "created": created}
 
 
+
+# =====================================================
+# STORE ORDERS (Telegram Mini App)
+# The Store sells the catalog in services/shop_catalog.py through the
+# existing Telegram Stars and Crypto Pay integrations. Each purchase is a
+# server-side order (services/shop_orders.py): the invoice carries only
+# "sylvex_order:<id>", the polling bot (Stars) or the Crypto Pay poller
+# below verifies the payment against the order, and the order grants its
+# own snapshot of credits/subscription exactly once.
+# =====================================================
+SHOP_STARS_ORDER_TTL_SECONDS = 3600
+SHOP_CRYPTO_INVOICE_TTL_SECONDS = 1800
+_SHOP_ORDERS_READY = False
+_SHOP_ORDERS_LOCK = threading.Lock()
+_STORE_EXAMPLES_CACHE = {"value": None, "expires_at": 0.0}
+STORE_EXAMPLES_TTL_SECONDS = 600
+
+
+def shop_db():
+    return db_connect(DATABASE_URL)
+
+
+def ensure_shop_orders():
+    global _SHOP_ORDERS_READY
+    if _SHOP_ORDERS_READY:
+        return
+    with _SHOP_ORDERS_LOCK:
+        if _SHOP_ORDERS_READY:
+            return
+        ensure_payment_tables()
+        shop_orders.ensure_order_tables(shop_db)
+        payment_inbox.ensure_inbox_tables(shop_db)
+        _SHOP_ORDERS_READY = True
+
+
+def shop_provider_configured(provider: str) -> bool:
+    if provider == shop_catalog.PROVIDER_STARS:
+        return bool(BOT_TOKEN)
+    if provider == shop_catalog.PROVIDER_CRYPTO:
+        return bool(CRYPTO_API_KEY)
+    return False
+
+
+def _cheapest_example(candidates, payload_for):
+    best = None
+    for model_id, label in candidates:
+        for payload in payload_for(model_id):
+            try:
+                estimate = calculate_generation_price(payload)
+            except Exception:
+                continue
+            credits = int(estimate.get("credits") or 0)
+            if not estimate.get("pricing_available", bool(credits)) or credits <= 0:
+                continue
+            if best is None or credits < best["credits"]:
+                best = {"credits": credits, "model": model_id, "label": label, "payload": payload}
+    return best
+
+
+def store_generation_examples() -> dict:
+    """Cheapest user-selectable generation per category at live retail prices."""
+    now = time.time()
+    if _STORE_EXAMPLES_CACHE["value"] is not None and now < _STORE_EXAMPLES_CACHE["expires_at"]:
+        return _STORE_EXAMPLES_CACHE["value"]
+    c = shop_catalog
+    examples = {}
+
+    image = _cheapest_example(c.EXAMPLE_IMAGE_MODELS, lambda mid: [{
+        "mode": "image", "model": mid, "prompt": "example",
+        "image_options": {"model": mid, "modelId": mid, "count": 1, "size": "auto"},
+    }])
+
+    def video_payloads(mid):
+        cap = model_capabilities_service.MODEL_CAPABILITIES.get(mid)
+        if not cap or cap.avatar or not ({"text_to_video", "image_to_video"} & set(cap.modes or ())):
+            return []
+        if cap.durations and c.EXAMPLE_VIDEO_SECONDS not in cap.durations:
+            return []
+        return [{"mode": "video", "model": mid, "prompt": "example",
+                 "video_options": {"model": mid, "duration": c.EXAMPLE_VIDEO_SECONDS, **({"resolution": res} if res else {})}}
+                for res in (cap.resolutions or (None,))]
+    video = _cheapest_example(c.EXAMPLE_VIDEO_MODELS, video_payloads)
+
+    music = _cheapest_example(c.EXAMPLE_MUSIC_MODELS, lambda mid: [{
+        "mode": "music", "model": mid, "prompt": "example", "music_options": {"model": mid},
+    }])
+    voice = _cheapest_example([m for m in c.EXAMPLE_VOICE_MODELS if m[0] not in c.EXAMPLE_VOICE_EXCLUDED], lambda mid: [{
+        "mode": "voice", "model": mid, "prompt": "x" * c.EXAMPLE_VOICE_CHARS, "voice_options": {"model": mid},
+    }])
+
+    text = None
+    for model_id, label in c.EXAMPLE_TEXT_MODELS:
+        rates = text_token_rates(model_id)
+        if not rates:
+            continue
+        credits = text_tokens_credits(model_id, c.EXAMPLE_TEXT_INPUT_TOKENS, c.EXAMPLE_TEXT_OUTPUT_TOKENS)
+        exact = (Decimal(c.EXAMPLE_TEXT_INPUT_TOKENS) * rates[0] + Decimal(c.EXAMPLE_TEXT_OUTPUT_TOKENS) * rates[1])
+        if credits > 0 and (text is None or (credits, exact) < (text["credits"], text["_exact"])):
+            markup = Decimal(150) / Decimal(1_000_000)
+            text = {
+                "credits": credits, "model": model_id, "label": label, "_exact": exact,
+                "input_tokens": c.EXAMPLE_TEXT_INPUT_TOKENS, "output_tokens": c.EXAMPLE_TEXT_OUTPUT_TOKENS,
+                "input_credits": float((Decimal(c.EXAMPLE_TEXT_INPUT_TOKENS) * rates[0] * markup).normalize()),
+                "output_credits": float((Decimal(c.EXAMPLE_TEXT_OUTPUT_TOKENS) * rates[1] * markup).normalize()),
+            }
+
+    for key, found in (("photo", image), ("video", video), ("music", music), ("voice", voice), ("text", text)):
+        if not found:
+            continue
+        entry = {key2: value for key2, value in found.items() if key2 not in {"payload", "_exact"}}
+        if key == "video":
+            entry["seconds"] = c.EXAMPLE_VIDEO_SECONDS
+            entry["resolution"] = (found["payload"]["video_options"] or {}).get("resolution")
+        if key == "music":
+            entry["seconds"] = c.EXAMPLE_MUSIC_SECONDS.get(found["model"])
+        if key == "voice":
+            entry["characters"] = c.EXAMPLE_VOICE_CHARS
+        examples[key] = entry
+    _STORE_EXAMPLES_CACHE.update(value=examples, expires_at=now + STORE_EXAMPLES_TTL_SECONDS)
+    return examples
+
+
+def store_order_public(order: dict) -> dict:
+    if not order:
+        return {}
+    return {
+        "order_id": order["order_id"],
+        "product_id": order["product_id"],
+        "kind": order["kind"],
+        "title": order["title"],
+        "usd_cents": order["usd_cents"],
+        "credits": order["credits"],
+        "plan_key": order["plan_key"],
+        "provider": order["provider"],
+        "stars": order["stars"],
+        "status": order["status"],
+    }
+
+
+def create_store_stars_invoice_link(order: dict) -> str:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+    # Monthly plans are Telegram Stars subscriptions (subscription_period,
+    # at most 10,000 Stars); everything else is a one-time invoice bounded by
+    # the one-time limit, never by the recurring cap.
+    period = int(order.get("subscription_period") or 0) or None
+    stars = telegram_catalog.check_invoice_amount(int(order["stars"]), period)
+    invoice = {
+        "title": order["title"][:32],
+        "description": f"Оплата {order['title']} в SYLVEX.",
+        "payload": shop_orders.order_payload(order["order_id"]),
+        "currency": "XTR",
+        "prices": [{"label": order["title"][:32], "amount": stars}],
+    }
+    if period:
+        invoice["subscription_period"] = period
+        invoice["description"] = (f"Подписка {order['title']}: {stars} ⭐ каждые 30 дней. "
+                                  "Автоматически продлевается каждые 30 дней. Отменить можно в любой момент.")
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
+        json=invoice,
+        timeout=30,
+    )
+    data = response.json() if response.content else {}
+    if response.status_code >= 400 or not data.get("ok"):
+        prostudio_debug("STORE_STARS_INVOICE_FAILED", order_id=order["order_id"], status=response.status_code,
+                        telegram_error=data.get("description") or data.get("error_code") or "unknown")
+        raise RuntimeError("stars_invoice_failed")
+    return data["result"]
+
+
+def telegram_bot_api(method: str, params: dict):
+    """(ok, error_description) for a Bot API call. The token never leaves the server."""
+    if not BOT_TOKEN:
+        return False, "bot_token_not_configured"
+    try:
+        response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/{method}", json=params, timeout=20)
+        data = response.json() if response.content else {}
+    except Exception as exc:
+        return False, f"network_error:{type(exc).__name__}"
+    if response.status_code < 400 and data.get("ok"):
+        return True, None
+    return False, str(data.get("description") or f"http_{response.status_code}")[:200]
+
+
+def cancel_replaced_star_renewals(result: dict):
+    """A newer plan replaced renewing Telegram subscriptions: stop them."""
+    if not result.get("cancel_renewals"):
+        return []
+    outcomes = shop_orders.stop_renewals(shop_db, result["cancel_renewals"], telegram_bot_api)
+    for agreement_id, stopped, error in outcomes:
+        prostudio_debug("STORE_REPLACED_RENEWAL_STOP", agreement_id=agreement_id, stopped=stopped,
+                        telegram_error=error or "")
+    return outcomes
+
+
+def send_subscription_renewed_message(telegram_id: int, order: dict, period_end) -> bool:
+    if not BOT_TOKEN:
+        return False
+    until = period_end.strftime("%d.%m.%Y") if period_end else "—"
+    ok, error = telegram_bot_api("sendMessage", {
+        "chat_id": int(telegram_id),
+        "parse_mode": "HTML",
+        "text": (f"🔁 <b>Подписка {html.escape(shop_catalog.plan_product_name(order.get('plan_key')))} продлена</b>\n\n"
+                 f"Оплачено: <b>{int(order.get('stars') or 0)} ⭐</b>\n"
+                 f"Начислено: <b>{int(order.get('credits') or 0)} ⚡</b>\n"
+                 f"Следующее продление: <b>{until}</b>\n\n"
+                 "Автоматически продлевается каждые 30 дней. Отменить можно в любой момент."),
+    })
+    if not ok:
+        prostudio_debug("SUBSCRIPTION_RENEWED_MESSAGE_FAILED", telegram_id=telegram_id, telegram_error=error or "")
+    return ok
+
+
+def finalize_store_order(order_id: str, provider: str, currency: str, amount, charge_id: str, payer_id=None, notify: bool = True,
+                         recurring: dict = None) -> dict:
+    ensure_shop_orders()
+    try:
+        result = shop_orders.finalize_order(shop_db, order_id, provider, currency, amount, charge_id, payer_id=payer_id,
+                                            recurring=recurring)
+    except Exception as exc:
+        # Nothing was granted (the transaction rolled back). Report it; the
+        # caller fails the request so the provider retries the delivery.
+        shop_orders.record_event_now(shop_db, f"paymenterror:{charge_id}:{type(exc).__name__}", "payment_error",
+                                     int(payer_id or 0) or None, status="finalize_failed", currency=currency,
+                                     reference=charge_id, details=f"order={order_id} error={type(exc).__name__}")
+        raise
+    order = result.get("order") or {}
+    if result["status"] == "rejected" and provider == shop_catalog.PROVIDER_STARS:
+        # A Telegram Stars payment that cannot be matched: money may have been
+        # taken, so the administration has to look at it.
+        shop_orders.record_event_now(shop_db, f"paymentrejected:{charge_id}", "payment_error",
+                                     int(payer_id or 0) or (order.get("telegram_id") if order else None),
+                                     plan_key=order.get("plan_key") if order else None, amount=None, currency=currency,
+                                     status=result.get("reason"), reference=charge_id,
+                                     details=f"order={order_id} amount={amount}")
+    prostudio_debug("STORE_ORDER_FINALIZE", order_id=order_id, provider=provider, status=result["status"],
+                    reason=result.get("reason") or "", charge_id=charge_id, payment_kind=result.get("payment_kind") or "")
+    if result["status"] != "granted":
+        return result
+    try:
+        cancel_replaced_star_renewals(result)
+    except Exception as exc:
+        prostudio_error("STORE_REPLACED_RENEWAL_CANCEL_FAILED", exc, order_id=order_id)
+    if result.get("payment_kind") == "renewal":
+        try:
+            telegram_id = int(order["telegram_id"])
+            log_user_event(
+                telegram_id=telegram_id, source="payment", event_type="subscription_renewed",
+                event_name=f"renew_{order['plan_key']}",
+                payload={"subscription_type": order["plan_key"], "order_id": order_id, "charge_id": charge_id,
+                         "credits": int(order["credits"]), "stars": int(order.get("stars") or 0)},
+            )
+            if notify:
+                send_subscription_renewed_message(telegram_id, order, result.get("period_end"))
+        except Exception as exc:
+            print("STORE RENEWAL POST-COMMIT NOTIFICATION FAILED:", type(exc).__name__)
+        return result
+    try:
+        telegram_id = int(order["telegram_id"])
+        log_user_event(
+            telegram_id=telegram_id, source="payment", event_type="payment_success", event_name="payment_success",
+            payload={"provider": provider, "pack_id": order["product_id"], "order_id": order_id,
+                     "amount": str(amount), "currency": currency, "charge_id": charge_id},
+        )
+        log_user_event(
+            telegram_id=telegram_id, source="payment", event_type="credits_added",
+            event_name="plan_credits" if order["kind"] == "subscription" else "credits_purchase",
+            payload={"credits": int(order["credits"]), "order_id": order_id, "charge_id": charge_id},
+        )
+        if order["kind"] == "subscription":
+            log_user_event(
+                telegram_id=telegram_id, source="payment", event_type="subscription_activated",
+                event_name=f"activate_{order['plan_key']}",
+                payload={"subscription_type": order["plan_key"], "expires_in_days": order["days"], "charge_id": charge_id},
+            )
+            if notify:
+                send_subscription_congratulations(telegram_id, {"plan_key": order["plan_key"], "days": order["days"]}, provider)
+    except Exception as exc:
+        print("STORE ORDER POST-COMMIT NOTIFICATION FAILED:", type(exc).__name__)
+    return result
+
+
+def sync_crypto_order(order: dict) -> dict:
+    """Check a pending Crypto Pay order with the provider and settle it."""
+    if not order or order["provider"] != shop_catalog.PROVIDER_CRYPTO or order["status"] != shop_orders.STATUS_PENDING:
+        return order
+    if not order.get("provider_invoice_id"):
+        return order
+    invoice = get_crypto_invoice(int(order["provider_invoice_id"]))
+    if not invoice:
+        return order
+    status = str(invoice.get("status") or "")
+    if status == "paid":
+        if str(invoice.get("payload") or "") != shop_orders.order_payload(order["order_id"]):
+            prostudio_debug("STORE_CRYPTO_PAYLOAD_MISMATCH", order_id=order["order_id"])
+            return order
+        finalize_store_order(order["order_id"], shop_catalog.PROVIDER_CRYPTO, str(invoice.get("asset") or ""),
+                             str(invoice.get("amount") or ""), f"crypto_invoice_{order['provider_invoice_id']}")
+    elif status == "expired":
+        shop_orders.mark_order(shop_db, order["order_id"], shop_orders.STATUS_EXPIRED, "invoice_expired")
+    return shop_orders.get_order(shop_db, order["order_id"])
+
+
+async def poll_crypto_order(order_id: str):
+    for _ in range(SHOP_CRYPTO_INVOICE_TTL_SECONDS // 20 + 6):
+        await asyncio.sleep(20)
+        try:
+            order = await asyncio.to_thread(shop_orders.get_order, shop_db, order_id)
+            if not order or order["status"] != shop_orders.STATUS_PENDING:
+                return
+            order = await asyncio.to_thread(sync_crypto_order, order)
+            if not order or order["status"] != shop_orders.STATUS_PENDING:
+                return
+        except Exception as exc:
+            prostudio_error("STORE_CRYPTO_POLL_ERROR", exc, order_id=order_id)
+            return
+
+
+def _store_product_from_request(data: dict, provider: str):
+    try:
+        product = shop_catalog.resolve_product(data.get("product_id"), data.get("usd"))
+    except shop_catalog.CatalogError as exc:
+        return None, JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    availability = shop_catalog.provider_availability(product)[provider]
+    if not availability["available"]:
+        return None, JSONResponse({"ok": False, "error": availability["reason"]}, status_code=400)
+    if not shop_provider_configured(provider):
+        return None, JSONResponse({"ok": False, "error": "stars_not_configured" if provider == shop_catalog.PROVIDER_STARS else "crypto_not_configured"}, status_code=503)
+    return product, None
+
+
+def _telegram_product_from_request(data: dict):
+    """The Telegram catalog product for a Stars purchase, or an error."""
+    try:
+        product = telegram_catalog.resolve(data.get("product_id"), data.get("credits"))
+    except telegram_catalog.CatalogError as exc:
+        return None, JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    if not shop_provider_configured(shop_catalog.PROVIDER_STARS):
+        return None, JSONResponse({"ok": False, "error": "stars_not_configured"}, status_code=503)
+    return product, None
+
+
+import datetime as _datetime_module  # noqa: E402
+
+
+def _json_dates(value):
+    if isinstance(value, dict):
+        return {key: _json_dates(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_dates(item) for item in value]
+    if isinstance(value, _datetime_module.datetime):
+        return _to_iso(value)
+    return value
+
+
+def _subscription_public(summary):
+    """shop_orders.subscription_summary() / conflict details for the Mini App:
+    ISO dates, plan names and labels."""
+    if not summary:
+        return None
+    out = _json_dates(summary)
+    for item in [out] + [out.get("primary") or {}, out.get("renewal") or {}] + list(out.get("entitlements") or []):
+        if item and item.get("plan_key"):
+            item["plan_label"] = shop_catalog.plan_label(item["plan_key"])
+            item["plan_name"] = shop_catalog.plan_product_name(item["plan_key"])
+    pending = out.get("pending_plan_key")
+    pending_product = telegram_catalog.monthly_plan_product(pending) if pending else None
+    out["pending_plan_label"] = shop_catalog.plan_label(pending) if pending else None
+    out["pending_product_id"] = pending_product["product_id"] if pending_product else None
+    out["pending_price_stars"] = pending_product["stars"] if pending_product else None
+    return out
+
+
+async def store_stars_invoice(data: dict, telegram_id: int):
+    product, error = _telegram_product_from_request(data)
+    if error:
+        return error
+    await asyncio.to_thread(ensure_shop_orders)
+    # Buying a plan next to another valid paid plan needs the user's explicit
+    # confirmation of the full price and what changes (never a second
+    # renewal of the same monthly plan).
+    confirmed = data.get("confirm_change") is True
+    conflict = await asyncio.to_thread(shop_orders.subscription_conflict, shop_db, telegram_id, product, confirmed)
+    if conflict:
+        return JSONResponse({"ok": False, "error": conflict["error"],
+                             "subscription": _subscription_public(conflict["subscription"]),
+                             "change": _subscription_public(conflict["change"])}, status_code=409)
+    order = await asyncio.to_thread(shop_orders.create_order, shop_db, telegram_id, product,
+                                    shop_catalog.PROVIDER_STARS, SHOP_STARS_ORDER_TTL_SECONDS, confirmed)
+    try:
+        invoice_url = await asyncio.to_thread(create_store_stars_invoice_link, order)
+    except Exception as exc:
+        await asyncio.to_thread(shop_orders.mark_order, shop_db, order["order_id"], shop_orders.STATUS_FAILED, "invoice_failed")
+        prostudio_error("STORE_STARS_INVOICE_ERROR", exc, telegram_id=telegram_id, order_id=order["order_id"])
+        return JSONResponse({"ok": False, "error": "stars_invoice_failed"}, status_code=502)
+    log_user_event(telegram_id=telegram_id, source="mini_app", event_type="payment_invoice_created",
+                   event_name="stars_invoice_created", payload={"pack_id": product["product_id"], "order_id": order["order_id"]})
+    return {"ok": True, "invoice_url": invoice_url, "order": store_order_public(order), "order_id": order["order_id"]}
+
+
+async def store_crypto_invoice(data: dict, telegram_id: int):
+    product, error = _store_product_from_request(data, shop_catalog.PROVIDER_CRYPTO)
+    if error:
+        return error
+    await asyncio.to_thread(ensure_shop_orders)
+    order = await asyncio.to_thread(shop_orders.create_order, shop_db, telegram_id, product,
+                                    shop_catalog.PROVIDER_CRYPTO, SHOP_CRYPTO_INVOICE_TTL_SECONDS + 300)
+    try:
+        invoice = await asyncio.to_thread(crypto_pay_request, "createInvoice", {
+            "asset": "USDT",
+            "amount": f"{order['usd_cents'] / 100:.2f}",
+            "description": f"SYLVEX {order['title']}",
+            "payload": shop_orders.order_payload(order["order_id"]),
+            "expires_in": SHOP_CRYPTO_INVOICE_TTL_SECONDS,
+        })
+        url = crypto_invoice_url(invoice)
+        if not url or not invoice.get("invoice_id"):
+            raise RuntimeError("Crypto Pay did not return an invoice")
+    except Exception as exc:
+        await asyncio.to_thread(shop_orders.mark_order, shop_db, order["order_id"], shop_orders.STATUS_FAILED, "invoice_failed")
+        prostudio_error("STORE_CRYPTO_INVOICE_ERROR", exc, telegram_id=telegram_id, order_id=order["order_id"])
+        return JSONResponse({"ok": False, "error": "crypto_invoice_failed"}, status_code=502)
+    await asyncio.to_thread(shop_orders.set_provider_invoice, shop_db, order["order_id"], invoice["invoice_id"])
+    asyncio.create_task(poll_crypto_order(order["order_id"]))
+    log_user_event(telegram_id=telegram_id, source="mini_app", event_type="payment_invoice_created",
+                   event_name="crypto_invoice_created", payload={"pack_id": product["product_id"], "order_id": order["order_id"],
+                                                                 "invoice_id": invoice["invoice_id"]})
+    return {"ok": True, "url": url, "invoice_id": invoice["invoice_id"], "order": store_order_public(order), "order_id": order["order_id"]}
+
+
+@app.get("/api/public/shop/catalog")
+async def public_shop_catalog():
+    # The Mini App sells only the Telegram catalog, for Telegram Stars only.
+    data = telegram_catalog.public_catalog()
+    data["ok"] = True
+    data["examples"] = await asyncio.to_thread(store_generation_examples)
+    data["providers"] = {
+        shop_catalog.PROVIDER_STARS: shop_provider_configured(shop_catalog.PROVIDER_STARS),
+    }
+    if STORE_COMPARE_PRICES_ENABLED:
+        # Mini App "Compare prices": the public Website price list, with no
+        # purchase, cart or session attached. Off by default - Telegram
+        # requires digital goods in Mini Apps to be sold for Stars and does
+        # not except links to outside checkouts; enable only after review.
+        data["compare_prices_url"] = f"{WEBSITE_URL.rstrip('/')}/store.html"
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.post("/api/public/payments/orders/status")
+async def public_store_order_status(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    order_id = str(data.get("order_id") or "")
+    if not telegram_id:
+        return telegram_id_required_response()
+    if not shop_orders.parse_order_payload(shop_orders.order_payload(order_id)):
+        return JSONResponse({"ok": False, "error": "invalid_order_id"}, status_code=400)
+    await asyncio.to_thread(ensure_shop_orders)
+    order = await asyncio.to_thread(shop_orders.get_order, shop_db, order_id)
+    if not order or int(order["telegram_id"]) != telegram_id:
+        return JSONResponse({"ok": False, "error": "order_not_found"}, status_code=404)
+    if order["provider"] == shop_catalog.PROVIDER_CRYPTO and order["status"] == shop_orders.STATUS_PENDING:
+        try:
+            order = await asyncio.to_thread(sync_crypto_order, order)
+        except Exception as exc:
+            prostudio_error("STORE_CRYPTO_STATUS_ERROR", exc, order_id=order_id)
+    user = None
+    if order and order["status"] == shop_orders.STATUS_PAID:
+        user = await asyncio.to_thread(get_user_state, telegram_id)
+    return {"ok": True, "order": store_order_public(order), "user": user}
+
+
+# ---------------------------------------------------------------------------
+# Telegram Stars subscriptions: status, cancel / re-enable renewal, and plan
+# changes. Renewal state changes only after Telegram's editUserStarSubscription
+# confirms; the response always says whether it did. Paid access always runs
+# to the confirmed expiration date.
+# ---------------------------------------------------------------------------
+SUBSCRIPTION_MANAGE_ERRORS = {
+    "no_recurring_subscription": 404,
+    "another_subscription_renewing": 409,
+    "reactivation_unavailable": 502,
+    "same_plan": 400,
+    "unknown_plan": 400,
+    "confirmation_required": 400,
+    "telegram_refused": 502,
+}
+
+
+async def _subscription_request(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if telegram_id:
+        await asyncio.to_thread(ensure_shop_orders)
+    return data, telegram_id
+
+
+def _subscription_manage_response(result: dict, telegram_id: int, action: str):
+    prostudio_debug("STARS_SUBSCRIPTION_MANAGE", telegram_id=telegram_id, action=action, ok=bool(result.get("ok")),
+                    status=result.get("status") or "", error=result.get("error") or "",
+                    telegram_error=result.get("telegram_error") or "")
+    body = {"ok": bool(result.get("ok")), "status": result.get("status"), "error": result.get("error"),
+            "subscription": _subscription_public(result.get("subscription"))}
+    if result.get("telegram_error"):
+        body["telegram_error"] = result["telegram_error"]
+    if result.get("ok"):
+        return body
+    return JSONResponse(body, status_code=SUBSCRIPTION_MANAGE_ERRORS.get(result.get("error"), 400))
+
+
+@app.post("/api/public/subscription/status")
+async def public_subscription_status(request: Request):
+    _, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    summary = await asyncio.to_thread(shop_orders.subscription_summary, shop_db, telegram_id)
+    return {"ok": True, "subscription": _subscription_public(summary)}
+
+
+@app.post("/api/public/subscription/cancel")
+async def public_subscription_cancel(request: Request):
+    """Stop future renewals; access stays until the paid period ends."""
+    _, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    result = await asyncio.to_thread(shop_orders.set_auto_renew, shop_db, telegram_id, True, telegram_bot_api)
+    return _subscription_manage_response(result, telegram_id, "cancel")
+
+
+@app.post("/api/public/subscription/reactivate")
+async def public_subscription_reactivate(request: Request):
+    """Re-enable the renewal of a subscription cancelled through SYLVEX
+    (also drops a scheduled plan change)."""
+    _, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    result = await asyncio.to_thread(shop_orders.set_auto_renew, shop_db, telegram_id, False, telegram_bot_api)
+    return _subscription_manage_response(result, telegram_id, "reactivate")
+
+
+@app.post("/api/public/subscription/change")
+async def public_subscription_change(request: Request):
+    """Switch to another monthly plan at the end of the paid period: the
+    current renewal is cancelled now (nothing is charged), and the new plan is
+    offered for purchase once the current period ends."""
+    data, telegram_id = await _subscription_request(request)
+    if not telegram_id:
+        return telegram_id_required_response()
+    plan_key = str(data.get("plan_key") or "").strip().lower()
+    if not telegram_catalog.monthly_plan_product(plan_key):
+        return _subscription_manage_response({"ok": False, "error": "unknown_plan"}, telegram_id, "change")
+    if data.get("confirm") is not True:
+        return _subscription_manage_response({"ok": False, "error": "confirmation_required"}, telegram_id, "change")
+    result = await asyncio.to_thread(shop_orders.schedule_plan_change, shop_db, telegram_id, plan_key, telegram_bot_api)
+    return _subscription_manage_response(result, telegram_id, "change")
+
+# ---------------------------------------------------------------------------
+# Stripe: Website card payments for the same Store products and orders.
+#
+# Website-only: inside Telegram, digital goods must be sold for Telegram
+# Stars, so requests carrying Telegram initData are refused. Orders,
+# grants and duplicate protection are the shared shop_orders ones; Stripe
+# products/prices are created or reused automatically (stripe_billing).
+# ---------------------------------------------------------------------------
+_STRIPE_LOCK = threading.Lock()
+_STRIPE_STATE = {"client": None, "tables": False, "catalog": None}
+
+
+class StripeCheckoutRefused(Exception):
+    def __init__(self, code: str, status: int = 409):
+        super().__init__(code)
+        self.code = code
+        self.status = status
+
+
+def stripe_key_allowed() -> bool:
+    return bool(STRIPE_SECRET_KEY) and not (STRIPE_TEST_MODE_ONLY and stripe_billing.key_livemode(STRIPE_SECRET_KEY))
+
+
+def stripe_enabled() -> bool:
+    return bool(stripe_key_allowed() and STRIPE_WEBHOOK_SECRET and DATABASE_URL)
+
+
+def create_test_clock_customer(client, telegram_id: int):
+    """Test mode only: a customer on its own test clock, so a renewal can be
+    produced by advancing that clock (Dashboard > Billing > Test clocks)."""
+    clock = client.request("POST", "/test_helpers/test_clocks",
+                           {"frozen_time": int(time.time()), "name": f"SYLVEX user {int(telegram_id)}"})
+    customer = client.request("POST", "/customers", {
+        "test_clock": clock["id"],
+        "description": f"SYLVEX user {int(telegram_id)} (test clock)",
+        "metadata": {"sylvex_uid": str(int(telegram_id))},
+    })
+    stripe_billing.save_customer(shop_db, telegram_id, customer["id"], False)
+    prostudio_debug("STRIPE_TEST_CLOCK_CUSTOMER", telegram_id=telegram_id, customer_id=customer["id"], test_clock=clock["id"])
+    return customer["id"]
+
+
+def stripe_client() -> "stripe_billing.StripeClient":
+    if _STRIPE_STATE["client"] is None:
+        _STRIPE_STATE["client"] = stripe_billing.StripeClient(STRIPE_SECRET_KEY)
+    return _STRIPE_STATE["client"]
+
+
+def ensure_stripe_tables():
+    if _STRIPE_STATE["tables"]:
+        return
+    ensure_shop_orders()
+    stripe_billing.ensure_tables(shop_db)
+    _STRIPE_STATE["tables"] = True
+
+
+def ensure_stripe_catalog(force: bool = False) -> dict:
+    """Stripe product/price ids for every Store product, synced on demand."""
+    with _STRIPE_LOCK:
+        ensure_stripe_tables()
+        client = stripe_client()
+        mapping = None if force else _STRIPE_STATE["catalog"]
+        if mapping is None and not force:
+            mapping = stripe_billing.load_catalog(shop_db, client.livemode)
+        if force or not stripe_billing.catalog_complete(mapping or {}):
+            mapping = stripe_billing.sync_catalog(client)
+            stripe_billing.save_catalog(shop_db, mapping, client.livemode)
+            statuses = [entry.get("price_status") for entry in mapping.values()]
+            prostudio_debug("STRIPE_CATALOG_SYNCED", livemode=client.livemode,
+                            created=statuses.count("created"), replaced=statuses.count("replaced"),
+                            reused=statuses.count("reused"), unavailable=statuses.count("product_inactive"))
+        _STRIPE_STATE["catalog"] = mapping
+        return mapping
+
+
+def create_stripe_checkout(telegram_id: int, product: dict) -> dict:
+    ensure_stripe_tables()
+    if product["kind"] == "subscription" and stripe_billing.has_live_subscription(shop_db, telegram_id, stripe_client().livemode):
+        raise StripeCheckoutRefused("stripe_subscription_active")
+    mapping = ensure_stripe_catalog()
+    order = shop_orders.create_order(shop_db, telegram_id, product, shop_catalog.PROVIDER_STRIPE,
+                                     stripe_billing.CHECKOUT_TTL_SECONDS + 300)
+    store_url = f"{WEBSITE_URL.rstrip('/')}/store.html"
+    success_url = f"{store_url}?payment=success&provider=stripe&order_id={order['order_id']}"
+    cancel_url = f"{store_url}?payment=cancelled&provider=stripe&order_id={order['order_id']}"
+    client = stripe_client()
+    customer_id = stripe_billing.get_customer(shop_db, telegram_id, client.livemode)
+    if not customer_id and STRIPE_TEST_CLOCKS and not client.livemode:
+        customer_id = create_test_clock_customer(client, telegram_id)
+
+    def session_params(catalog: dict, customer):
+        custom = catalog.get(stripe_billing.lookup_key(shop_catalog.CUSTOM_PRODUCT_ID)) or {}
+        price_id = None
+        if product["product_id"] != shop_catalog.CUSTOM_PRODUCT_ID:
+            price_id = (catalog.get(stripe_billing.lookup_key(product["product_id"])) or {}).get("stripe_price_id")
+            if not price_id:
+                raise StripeCheckoutRefused("stripe_product_unavailable", 503)
+        return stripe_billing.checkout_session_params(order, price_id, custom.get("stripe_product_id"),
+                                                      success_url, cancel_url, customer)
+
+    try:
+        session = client.request("POST", "/checkout/sessions", session_params(mapping, customer_id),
+                                 idempotency_key=f"sylvex-checkout-{order['order_id']}")
+    except stripe_billing.StripeError as exc:
+        if exc.status not in {400, 404}:
+            raise
+        # A price archived or a customer deleted in the Dashboard: resync the
+        # catalog and retry once without the stored customer.
+        prostudio_debug("STRIPE_CHECKOUT_RETRY", order_id=order["order_id"], code=exc.code or "", status=exc.status)
+        session = client.request("POST", "/checkout/sessions", session_params(ensure_stripe_catalog(force=True), None),
+                                 idempotency_key=f"sylvex-checkout-{order['order_id']}-retry")
+    if not session.get("id") or not session.get("url"):
+        raise RuntimeError("stripe_checkout_url_missing")
+    shop_orders.set_provider_invoice(shop_db, order["order_id"], session["id"])
+    log_user_event(
+        telegram_id=telegram_id, source="website", event_type="payment_invoice_created",
+        event_name="stripe_checkout_created",
+        payload={"product_id": product["product_id"], "order_id": order["order_id"], "usd_cents": product["usd_cents"]},
+    )
+    return {"url": session["url"], "order_id": order["order_id"]}
+
+
+def process_stripe_event(event: dict) -> dict:
+    ensure_stripe_tables()
+    if stripe_billing.event_processed(shop_db, event["id"]):
+        return {"outcome": "duplicate_event"}
+    client = stripe_client()
+    if "livemode" in event and bool(event["livemode"]) != client.livemode:
+        # A test-mode event reaching a live deployment (or the reverse).
+        stripe_billing.record_event(shop_db, event, "ignored_mode_mismatch")
+        return {"outcome": "ignored", "reason": "mode_mismatch"}
+
+    def finalize(order_id, currency, amount, charge_id):
+        return finalize_store_order(order_id, shop_catalog.PROVIDER_STRIPE, currency, amount, charge_id)
+
+    result = stripe_billing.handle_event(shop_db, client, event, finalize)
+    prostudio_debug("STRIPE_EVENT", event_id=event["id"], type=event["type"], outcome=result.get("outcome"),
+                    reason=result.get("reason") or "")
+    try:
+        uid = int(result.get("telegram_id") or 0)
+        if result.get("renewal") and result.get("outcome") == "granted" and uid:
+            log_user_event(telegram_id=uid, source="payment", event_type="payment_success", event_name="payment_success",
+                           payload={"provider": "stripe", "plan_key": result.get("plan_key"), "renewal": True})
+            log_user_event(telegram_id=uid, source="payment", event_type="credits_added", event_name="plan_credits",
+                           payload={"credits": result.get("credits"), "plan_key": result.get("plan_key"), "renewal": True})
+        elif result.get("outcome") == "payment_failed" and uid:
+            log_user_event(telegram_id=uid, source="payment", event_type="payment_failed", event_name="stripe_invoice_failed",
+                           payload={"plan_key": result.get("plan_key"), "billing_reason": result.get("billing_reason")})
+    except Exception as exc:
+        print("STRIPE EVENT LOGGING FAILED:", type(exc).__name__)
+    stripe_billing.record_event(shop_db, event, str(result.get("outcome")))
+    return result
+
+
+def sync_stripe_catalog_in_background():
+    if not stripe_enabled():
+        return
+    try:
+        ensure_stripe_catalog()
+    except Exception as exc:
+        prostudio_error("STRIPE_CATALOG_SYNC_FAILED", exc)
+
+
+@app.get("/api/public/payments/stripe/status")
+async def public_stripe_status():
+    """Deployment check without secrets: mode, webhook readiness and the
+    product/price sync state for the configured key's mode."""
+    status = {
+        "ok": True,
+        "enabled": stripe_enabled(),
+        "key_configured": bool(STRIPE_SECRET_KEY),
+        "key_refused": bool(STRIPE_SECRET_KEY) and not stripe_key_allowed(),
+        "mode": ("live" if stripe_billing.key_livemode(STRIPE_SECRET_KEY) else "test") if STRIPE_SECRET_KEY else None,
+        "webhook_secret_configured": bool(STRIPE_WEBHOOK_SECRET),
+        "test_clocks": bool(STRIPE_TEST_CLOCKS and STRIPE_SECRET_KEY and not stripe_billing.key_livemode(STRIPE_SECRET_KEY)),
+        "webhook_path": "/api/public/payments/stripe/webhook",
+        "catalog": None,
+    }
+    if stripe_key_allowed() and DATABASE_URL:
+        def catalog_state():
+            ensure_stripe_tables()
+            mapping = stripe_billing.load_catalog(shop_db, stripe_billing.key_livemode(STRIPE_SECRET_KEY))
+            statuses = [entry.get("price_status") for entry in mapping.values()]
+            return {
+                "complete": stripe_billing.catalog_complete(mapping),
+                "products": len({entry.get("stripe_product_id") for entry in mapping.values() if entry.get("stripe_product_id")}),
+                "prices": sum(1 for entry in mapping.values() if entry.get("stripe_price_id")),
+                "unavailable": statuses.count("product_inactive"),
+            }
+        try:
+            status["catalog"] = await asyncio.to_thread(catalog_state)
+        except Exception as exc:
+            prostudio_error("STRIPE_STATUS_FAILED", exc)
+            status["catalog"] = {"error": "unavailable"}
+    return JSONResponse(status, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/public/payments/stripe/checkout")
+async def public_stripe_checkout(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if not telegram_id:
+        return telegram_id_required_response()
+    if getattr(request.state, "telegram_init_data", ""):
+        # Telegram requires Stars for digital goods inside its apps.
+        return JSONResponse({"ok": False, "error": "stripe_not_available_in_telegram"}, status_code=403)
+    if not stripe_enabled():
+        return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
+    try:
+        product = shop_catalog.resolve_product(data.get("product_id"), data.get("usd"))
+    except shop_catalog.CatalogError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=400)
+    try:
+        result = await asyncio.to_thread(create_stripe_checkout, telegram_id, product)
+    except StripeCheckoutRefused as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    except Exception as exc:
+        prostudio_error("STRIPE_CHECKOUT_FAILED", exc, product_id=product["product_id"])
+        return JSONResponse({"ok": False, "error": "stripe_checkout_failed"}, status_code=502)
+    return {"ok": True, **result}
+
+
+@app.post("/api/public/payments/stripe/portal")
+async def public_stripe_portal(request: Request):
+    """Stripe Customer Portal: update the card or cancel auto-renewal."""
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if not telegram_id:
+        return telegram_id_required_response()
+    if getattr(request.state, "telegram_init_data", ""):
+        return JSONResponse({"ok": False, "error": "stripe_not_available_in_telegram"}, status_code=403)
+    if not stripe_enabled():
+        return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
+
+    def portal():
+        ensure_stripe_tables()
+        client = stripe_client()
+        customer_id = stripe_billing.get_customer(shop_db, telegram_id, client.livemode)
+        if not customer_id:
+            return None
+        return client.request("POST", "/billing_portal/sessions",
+                              {"customer": customer_id, "return_url": f"{WEBSITE_URL.rstrip('/')}/store.html"})
+
+    try:
+        session = await asyncio.to_thread(portal)
+    except Exception as exc:
+        prostudio_error("STRIPE_PORTAL_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "stripe_portal_failed"}, status_code=502)
+    if not session:
+        return JSONResponse({"ok": False, "error": "no_stripe_customer"}, status_code=404)
+    return {"ok": True, "url": session.get("url")}
+
+
+@app.post("/api/public/payments/stripe/webhook")
+async def public_stripe_webhook(request: Request):
+    if not (stripe_key_allowed() and STRIPE_WEBHOOK_SECRET):
+        return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
+    payload = await request.body()
+    try:
+        event = stripe_billing.verify_webhook(payload, request.headers.get("stripe-signature", ""), STRIPE_WEBHOOK_SECRET)
+    except stripe_billing.SignatureError as exc:
+        prostudio_debug("STRIPE_WEBHOOK_REJECTED", reason=str(exc))
+        return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=400)
+    try:
+        result = await asyncio.to_thread(process_stripe_event, event)
+    except Exception as exc:
+        # Non-2xx makes Stripe retry; every grant is idempotent.
+        prostudio_error("STRIPE_WEBHOOK_FAILED", exc, event_id=event.get("id"), type=event.get("type"))
+        return JSONResponse({"ok": False, "error": "processing_failed"}, status_code=500)
+    return {"ok": True, "outcome": result.get("outcome")}
+
+
 # =====================================================
 # API ENDPOINT: public_stars_invoice
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -11787,42 +13776,16 @@ async def public_lemonsqueezy_webhook(request: Request):
 @app.post("/api/public/payments/stars/invoice")
 async def public_stars_invoice(request: Request):
     data = await request.json()
-    pack_id = data.get("pack_id") or ""
-    item = shop_item(pack_id)
     telegram_id = int(data.get("telegram_id") or 0)
-
-    if not item:
-        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
     if not telegram_id:
         return telegram_id_required_response()
-
-    charge_id = f"stars_{uuid4().hex}"
-    try:
-        invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item, charge_id)
-    except Exception as exc:
-        # Do not return str(exc) here: on a network-level failure it can embed
-        # the full Telegram Bot API URL, which contains BOT_TOKEN.
-        prostudio_error("STARS_INVOICE_ERROR", exc, telegram_id=telegram_id, pack_id=pack_id, charge_id=charge_id)
-        return JSONResponse({"ok": False, "error": "stars_invoice_failed"}, status_code=502)
-
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="payment_invoice_created",
-        event_name="stars_invoice_created",
-        payload={
-            "pack_id": pack_id,
-            "charge_id": charge_id,
-            "invoice_url": invoice_url,
-        },
-    )
-
-    return {
-        "ok": True,
-        "invoice_url": invoice_url,
-        "pack_id": pack_id,
-        "charge_id": charge_id,
-    }
+    product_id = data.get("product_id")
+    if not product_id and data.get("pack_id"):
+        # Older Mini App builds send a legacy pack_id: the same Telegram
+        # catalog product is sold through an order at the catalog price.
+        # Legacy subscriptions (sub_month/sub_year) are no longer sold.
+        product_id = data.get("pack_id")
+    return await store_stars_invoice(dict(data, product_id=product_id), telegram_id)
 
 
 def _stars_item_from_payment_payload(payload: str):
@@ -11848,6 +13811,12 @@ def _answer_stars_pre_checkout(query_id: str, ok: bool, error_message: str = "")
     return response.status_code < 400 and bool(data.get("ok"))
 
 
+STARS_PRE_CHECKOUT_MESSAGES = {
+    "already_subscribed": "Этот тариф уже оформлен и продлевается автоматически.",
+    "subscription_change_confirmation_required": "Сначала подтвердите смену тарифа в магазине SYLVEX, затем оплатите новый счёт.",
+}
+
+
 @app.post("/api/public/payments/stars/webhook")
 async def public_stars_webhook(request: Request):
     if not TELEGRAM_PAYMENT_WEBHOOK_SECRET:
@@ -11859,6 +13828,20 @@ async def public_stars_webhook(request: Request):
 
     update = await request.json()
     pre_checkout = update.get("pre_checkout_query") or {}
+    if pre_checkout and shop_orders.parse_order_payload(pre_checkout.get("invoice_payload")):
+        order_id = shop_orders.parse_order_payload(pre_checkout.get("invoice_payload"))
+        await asyncio.to_thread(ensure_shop_orders)
+        valid, reason = await asyncio.to_thread(
+            shop_orders.checkout_check, shop_db, order_id, int((pre_checkout.get("from") or {}).get("id") or 0),
+            shop_catalog.PROVIDER_STARS, pre_checkout.get("currency"), pre_checkout.get("total_amount"),
+        )
+        answered = _answer_stars_pre_checkout(
+            str(pre_checkout.get("id") or ""), valid,
+            STARS_PRE_CHECKOUT_MESSAGES.get(reason) or
+            "Счёт устарел или уже оплачен. Вернитесь в магазин и создайте новый счёт.",
+        )
+        prostudio_debug("STORE_STARS_PRE_CHECKOUT", order_id=order_id, approved=valid, reason=reason or "", answered=answered)
+        return {"ok": answered, "approved": valid}
     if pre_checkout:
         payload = str(pre_checkout.get("invoice_payload") or "")
         parsed = parse_shop_payload(payload)
@@ -11866,8 +13849,12 @@ async def public_stars_webhook(request: Request):
         telegram_id = int(parsed.get("telegram_id") or 0)
         payer_id = int((pre_checkout.get("from") or {}).get("id") or 0)
         expected_amount = int(item.get("stars") or 0) if item else 0
+        # Legacy payloads are only honored for packages the Telegram catalog
+        # still sells, at its price; legacy subscriptions are refused.
+        still_sold = bool(item and item.get("kind") == "credits"
+                          and telegram_catalog.pack_stars(item.get("credits") or 0) == expected_amount)
         valid = bool(
-            item and telegram_id and telegram_id == payer_id
+            item and still_sold and telegram_id and telegram_id == payer_id
             and pre_checkout.get("currency") == "XTR"
             and int(pre_checkout.get("total_amount") or 0) == expected_amount
         )
@@ -11896,37 +13883,91 @@ async def public_stars_webhook(request: Request):
     payment = message.get("successful_payment") or {}
     if not payment:
         return {"ok": True, "ignored": True}
+    payer_id = int((message.get("from") or {}).get("id") or 0)
+    record = payment_inbox.payment_record(payer_id, payment, paid_at=message.get("date"), raw=message)
+    if record is None:
+        return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
+    # Durable before acknowledged: a confirmed payment is stored (database
+    # inbox, or the on-disk spool if the database is down) before Telegram
+    # gets a 2xx. If neither works, 503 makes Telegram deliver it again.
+    stored = await asyncio.to_thread(payment_inbox.record_durably, shop_db, record, "webhook", PAYMENT_SPOOL)
+    if not stored:
+        prostudio_debug("STARS_PAYMENT_NOT_RECORDED", charge_id=record["charge_id"], telegram_id=payer_id)
+        return JSONResponse({"ok": False, "error": "payment_not_recorded"}, status_code=503)
+    if stored == "spool":
+        prostudio_debug("STARS_PAYMENT_SPOOLED", charge_id=record["charge_id"], telegram_id=payer_id)
+        return {"ok": True, "status": "spooled", "charge_id": record["charge_id"]}
+    result = await asyncio.to_thread(payment_inbox.process, shop_db, record, process_star_payment_record)
+    status = result.get("status")
+    if status == "rejected" and not record["order_id"]:
+        return JSONResponse({"ok": False, "error": result.get("reason") or "invalid_successful_payment"}, status_code=400)
+    # "error": the payment is in the inbox and is replayed automatically.
+    return {"ok": status != "rejected", "status": "queued" if status == "error" else status,
+            "reason": result.get("reason"), "charge_id": record["charge_id"]}
 
-    payload = str(payment.get("invoice_payload") or "")
+
+PAYMENT_SPOOL = payment_inbox.Spool(os.getenv("PAYMENT_SPOOL_DIR", ""))
+PAYMENT_REPLAY_INTERVAL_SECONDS = int(os.getenv("PAYMENT_REPLAY_INTERVAL_SECONDS", "30") or 30)
+PAYMENT_RECONCILE_INTERVAL_SECONDS = int(os.getenv("PAYMENT_RECONCILE_INTERVAL_SECONDS", "600") or 600)
+
+
+def process_star_payment_record(record: dict) -> dict:
+    """Process one stored Telegram Stars payment (live webhook delivery or
+    replay). Idempotent by charge id."""
+    if record.get("order_id"):
+        ensure_shop_orders()
+        return finalize_store_order(record["order_id"], shop_catalog.PROVIDER_STARS, record["currency"], record["amount"],
+                                    record["charge_id"], record.get("telegram_id"), True,
+                                    payment_inbox.recurring_fields(record))
+    return process_legacy_star_payment(record)
+
+
+def process_legacy_star_payment(record: dict) -> dict:
+    """Legacy sylvex_stars:/sylvex_sub: invoices (still payable from old chat
+    messages): granted only for packages the Telegram catalog still sells."""
+    payload = str(record.get("invoice_payload") or "")
     parsed = parse_shop_payload(payload)
     item = _stars_item_from_payment_payload(payload)
     telegram_id = int(parsed.get("telegram_id") or 0)
-    payer_id = int((message.get("from") or {}).get("id") or 0)
     expected_amount = int(item.get("stars") or 0) if item else 0
-    if not item or not telegram_id or telegram_id != payer_id or payment.get("currency") != "XTR" or int(payment.get("total_amount") or 0) != expected_amount:
-        return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
-
-    charge_id = str(payment.get("telegram_payment_charge_id") or parsed.get("charge_id") or "")
-    prostudio_debug(
-        "STARS_SUCCESSFUL_PAYMENT_RECEIVED",
-        telegram_id=telegram_id,
-        kind=parsed.get("kind") or "",
-        plan_key=parsed.get("plan_key") or "",
-        amount=expected_amount,
-        charge_id=charge_id,
-        payload_parts=len(payload.split(":")),
-    )
-    created = finalize_shop_payment(
-        telegram_id=telegram_id,
-        provider="telegram_stars",
-        item=item,
-        amount=expected_amount,
-        currency="XTR",
-        payload=payload,
-        charge_id=charge_id,
-    )
+    if (not item or not telegram_id or telegram_id != int(record.get("telegram_id") or 0)
+            or record.get("currency") != "XTR" or int(record.get("amount") or 0) != expected_amount):
+        shop_orders.record_event_now(shop_db, f"paymentrejected:{record['charge_id']}", "payment_error",
+                                     record.get("telegram_id"), currency=record.get("currency"),
+                                     status="invalid_successful_payment", reference=record["charge_id"],
+                                     details=f"legacy payload amount={record.get('amount')}")
+        return {"status": "rejected", "reason": "invalid_successful_payment"}
+    charge_id = record["charge_id"]
+    prostudio_debug("STARS_SUCCESSFUL_PAYMENT_RECEIVED", telegram_id=telegram_id, kind=parsed.get("kind") or "",
+                    plan_key=parsed.get("plan_key") or "", amount=expected_amount, charge_id=charge_id,
+                    payload_parts=len(payload.split(":")))
+    created = finalize_shop_payment(telegram_id=telegram_id, provider="telegram_stars", item=item, amount=expected_amount,
+                                    currency="XTR", payload=payload, charge_id=charge_id)
     prostudio_debug("STARS_SUCCESSFUL_PAYMENT_FINALIZED", telegram_id=telegram_id, charge_id=charge_id, created=created)
-    return {"ok": True, "created": created, "charge_id": charge_id}
+    return {"status": "granted" if created else "duplicate", "created": created}
+
+
+def fetch_star_transactions(offset: int, limit: int) -> list:
+    """Telegram's own Star transaction history (getStarTransactions)."""
+    response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/getStarTransactions",
+                             json={"offset": int(offset), "limit": int(limit)}, timeout=30)
+    data = response.json() if response.content else {}
+    if response.status_code >= 400 or not data.get("ok"):
+        raise RuntimeError(f"getStarTransactions failed: {data.get('description') or response.status_code}")
+    return list((data.get("result") or {}).get("transactions") or [])
+
+
+def replay_star_payments() -> dict:
+    """Recover confirmed payments stored but not yet processed (spool first).
+    Order payments from any source; legacy payloads this service received."""
+    return payment_inbox.replay(shop_db, process_star_payment_record, PAYMENT_SPOOL,
+                                legacy_sources=("webhook", "webhook+spool", "reconcile"))
+
+
+def reconcile_star_payments() -> dict:
+    ensure_shop_orders()
+    return payment_inbox.reconcile_star_transactions(shop_db, fetch_star_transactions)
+
 
 # =====================================================
 # API ENDPOINT: public_stars_confirm
@@ -12101,8 +14142,12 @@ async def public_dev_reset(request: Request):
 async def public_crypto_invoice(request: Request):
     data = await request.json()
     pack_id = data.get("pack_id") or ""
-    item = shop_item(pack_id)
     telegram_id = int(data.get("telegram_id") or 0)
+    if data.get("product_id"):
+        if not telegram_id:
+            return telegram_id_required_response()
+        return await store_crypto_invoice(data, telegram_id)
+    item = shop_item(pack_id)
 
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
@@ -13188,13 +15233,10 @@ async def web_account_delete(request: Request):
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    # COOKIE-2: explicit revocation attempt on top of the row itself
-    # already being gone (defense in depth - the UPDATE here affects zero
-    # rows since delete_account() already deleted it, so this is a no-op;
-    # current_web_session_generation() would likewise find no row and
-    # treat the account as generation 0, but every other lookup on a
-    # deleted account_id also comes up empty, so this never grants access
-    # to anything real either way).
+    # COOKIE-2: revoke every session of this account. When the account is
+    # still used through Telegram its row (and SYLVEX ID) stays, so this
+    # bumps its generation; when the row was removed it is a no-op, and
+    # every lookup on the deleted account_id comes up empty anyway.
     await asyncio.to_thread(revoke_web_sessions, account_id)
     response = JSONResponse({"ok": True})
     response.delete_cookie(
@@ -13247,8 +15289,8 @@ async def web_account_telegram_preview(request: Request):
 @app.post("/api/web/account/telegram/confirm")
 async def web_account_telegram_confirm(request: Request):
     # Step 2: the deliberate, one-time, permanent merge (spec requirements
-    # #9-#11). account_id/the session cookie never change - only the
-    # account's underlying business data moves onto the real telegram_id.
+    # #9-#11). The business data moves onto the real telegram_id; the older
+    # of the two accounts keeps its SYLVEX ID (see account_identity).
     account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
@@ -13272,8 +15314,15 @@ async def web_account_telegram_confirm(request: Request):
         if error == "telegram_already_linked":
             return JSONResponse({"ok": False, "error": error, "conflict": True}, status_code=status)
         return JSONResponse({"ok": False, "error": error}, status_code=status)
-    body = await asyncio.to_thread(_web_session_payload, account_id)
-    return {"ok": True, "merge_result": result, **body}
+    # When the Telegram user's account was the older one, it keeps its
+    # SYLVEX ID and this website account became its alias (its sessions
+    # were revoked by the merge) - continue this browser as the survivor.
+    survivor_id = int(result.get("sylvex_user_id") or account_id)
+    body = await asyncio.to_thread(_web_session_payload, survivor_id)
+    response = JSONResponse({"ok": True, "merge_result": result, **body})
+    if survivor_id != account_id:
+        await _set_web_session_cookie(response, survivor_id)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -13963,11 +16012,65 @@ def is_replace_character_request(payload: dict) -> bool:
 # entry), to avoid any collision with either.
 # =====================================================
 ENHANCE_PHOTO_TOOL_KEY = "enhance_photo"
+SYLVEX_RESTORE_MODEL_KEY = sylvex_restore_service.MODEL_KEY
+# Sylvex Restore is a product contract, not a configurable provider alias.
+# Keep it pinned to OpenAI's quality-first GPT Image model so an environment
+# variable can never silently route restoration to another image model.
+SYLVEX_RESTORE_PROVIDER_MODEL = "gpt-image-2.5-sunburst"
+SYLVEX_RESTORE_PROVIDER_QUALITY = "high"
 
 
 def is_enhance_photo_request(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
     return str(opts.get("tool") or "").strip().lower() == ENHANCE_PHOTO_TOOL_KEY
+
+
+def is_sylvex_restore_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    selected = str(opts.get("enhancePhotoModel") or payload.get("model") or "topaz").strip().lower()
+    return is_enhance_photo_request(payload) and selected == SYLVEX_RESTORE_MODEL_KEY
+
+
+def is_edit_workspace_sylvex_restore(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    upscale = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else {}
+    # The model selected inside Edit Upscale is authoritative. Older saved
+    # sessions may still carry a stale enhancePhotoModel="topaz" alongside
+    # editWorkspaceUpscale.model="sylvex_sr"; that stale value must never
+    # divert an explicitly selected Sylvex Restore request to Topaz.
+    selected = str(
+        upscale.get("model")
+        or opts.get("enhancePhotoModel")
+        or payload.get("model")
+        or "topaz"
+    ).strip().lower()
+    return (
+        is_edit_workspace_request(payload)
+        and str(opts.get("editWorkspaceMode") or "").strip().lower() == "upscale"
+        and selected == SYLVEX_RESTORE_MODEL_KEY
+    )
+
+
+def sylvex_restore_cost_info(opts: dict) -> dict:
+    count = sylvex_restore_service.actionable_region_count(
+        opts.get("sylvexRestoreRegions") or [],
+        opts.get("sylvexRestoreRetryRegionIds"),
+        bool(opts.get("sylvexRestoreFinalOnly")),
+    )
+    # Sylvex Restore now makes one controlled GPT Image edit for the whole
+    # photo. Manual regions and up to four mapped references are guidance for
+    # that single pass, rather than separate paid generations.
+    detail = openai_image_cost_info("gpt_image_2_5_sunburst", SYLVEX_RESTORE_PROVIDER_MODEL, SYLVEX_RESTORE_PROVIDER_QUALITY, 1)
+    credits = int(detail.get("cost_credits") or 0)
+    return {
+        "credits": credits,
+        "cost_credits": credits,
+        "cost_usd": detail.get("cost_usd"),
+        "generation_cost": f"{credits} ⚡",
+        "pricing_available": True,
+        "operation": SYLVEX_RESTORE_MODEL_KEY,
+        "region_count": count,
+    }
 
 
 FLUX_2_MAX_ENDPOINT = "https://api.bfl.ai/v1/flux-2-max"
@@ -14272,11 +16375,25 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
     Topaz's download URL is temporary, so it is downloaded and persisted to
     durable SYLVEX storage synchronously, inside this function, before it
     ever returns - the result never carries Topaz's own temporary URL."""
+    opts = payload.get("image_options") or {}
+    if is_sylvex_restore_request(payload) or is_edit_workspace_sylvex_restore(payload):
+        # Defense in depth: Topaz is a separate product route. The central
+        # dispatcher and Edit adapter call generate_sylvex_restore_image()
+        # directly; reaching this function with sylvex_sr is a routing bug,
+        # never an invitation to forward or fall back.
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Sylvex Restore was incorrectly routed to the Topaz adapter.",
+            "raw_error": "sylvex_restore_misrouted_to_topaz",
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
+
     headers = topaz_headers()
     if not headers:
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
 
-    opts = payload.get("image_options") or {}
     source_url = str(opts.get("enhancePhotoSourceUrl") or "").strip()
     if not source_url:
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
@@ -15796,6 +17913,188 @@ def build_gpt_image_removal_mask(source_bytes: bytes, mask_bytes: bytes) -> byte
     return output.getvalue()
 
 
+# =====================================================
+# Sylvex Restore: one manual, explicitly mapped GPT Image restore pass.
+# =====================================================
+class SylvexRestoreProviderError(RuntimeError):
+    """A real GPT Image failure that must reach the failed job unchanged."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", str(message or "GPT Image restoration failed")).strip()
+        super().__init__(cleaned[:2000] or "GPT Image restoration failed")
+        self.status_code = status_code
+
+
+def _sylvex_sr_provider_restore(source_png: bytes, regions: list[dict], references: list[tuple[str, bytes]], upscale_factor: int) -> bytes:
+    model = SYLVEX_RESTORE_PROVIDER_MODEL
+    endpoint = f"{OPENAI_API_BASE}/images/edits"
+    from PIL import Image
+    import io
+    with Image.open(io.BytesIO(source_png)) as image:
+        source_size = image.size
+    files = [("image[]", ("source.png", source_png, "image/png"))]
+    mapped_reference_ids = []
+    for region_id, reference_bytes in references:
+        reference_png, _ = normalize_gpt_image_source(reference_bytes)
+        files.append(("image[]", (f"{region_id}-reference.png", reference_png, "image/png")))
+        mapped_reference_ids.append(region_id)
+    request_data = {
+        "model": model,
+        "prompt": sylvex_restore_service.restore_prompt(regions, *source_size, upscale_factor),
+        "size": "auto",
+        "quality": SYLVEX_RESTORE_PROVIDER_QUALITY,
+        "n": "1",
+        "output_format": "png",
+    }
+    prostudio_debug("SYLVEX_SR_RESTORE_REQUEST", endpoint=endpoint, provider="openai", provider_model=model,
+                    quality=request_data["quality"], output_scale=upscale_factor,
+                    region_count=len(regions), reference_count=len(references),
+                    mapped_reference_region_ids=mapped_reference_ids,
+                    prompt_length=len(request_data["prompt"]))
+    try:
+        response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files,
+                                 timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+    except Exception as exc:
+        raise SylvexRestoreProviderError(f"OpenAI GPT Image request failed: {exc}") from exc
+    prostudio_debug("SYLVEX_SR_RESTORE_RESPONSE", endpoint=endpoint, provider_model=model, status_code=response.status_code)
+    data = safe_provider_json(response, "openai", endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        provider_message = raw_error_text(data, "")
+        if not provider_message:
+            provider_message = raw_error_text(getattr(response, "text", ""), "GPT Image restoration failed")
+        raise SylvexRestoreProviderError(
+            f"OpenAI GPT Image error (HTTP {response.status_code}): {provider_message}",
+            response.status_code,
+        )
+    images = normalize_image_response(data)
+    if not images:
+        raise SylvexRestoreProviderError("OpenAI GPT Image returned no image", response.status_code)
+    generated = _read_image_bytes_for_generation(images[0])
+    if not generated:
+        raise SylvexRestoreProviderError("OpenAI GPT Image returned an unreadable image", response.status_code)
+    generated_png, _ = normalize_gpt_image_source(generated)
+    with Image.open(io.BytesIO(generated_png)) as generated_image:
+        restored = generated_image.convert("RGBA").resize(source_size, Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        restored.save(output, "PNG")
+        return output.getvalue()
+
+
+async def generate_sylvex_restore_image(payload: dict) -> dict:
+    if not (is_sylvex_restore_request(payload) or is_edit_workspace_sylvex_restore(payload)):
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Sylvex Restore routing mismatch: the request did not select sylvex_sr.",
+            "raw_error": "sylvex_restore_route_mismatch",
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
+    if not OPENAI_API_KEY:
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Sylvex Restore cannot call GPT Image because OPENAI_API_KEY is not configured.",
+            "raw_error": "openai_api_key_not_configured",
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
+    opts = payload.get("image_options") or {}
+    source_url = str(opts.get("enhancePhotoSourceUrl") or "").strip()
+    if not source_url:
+        return {"ok": False, "type": "image", "error": "Upload a source image first."}
+    source_raw = await asyncio.to_thread(_read_image_bytes_for_generation, source_url)
+    if not source_raw:
+        return {"ok": False, "type": "image", "error": "Could not read the source image."}
+    try:
+        source_png, source_size = await asyncio.to_thread(normalize_gpt_image_source, source_raw)
+        regions = sylvex_restore_service.validate_regions(opts.get("sylvexRestoreRegions") or [], *source_size)
+        final_settings = sylvex_restore_service.normalize_final_enhance(opts.get("sylvexRestoreFinalEnhance"))
+    except (ValueError, OSError) as exc:
+        return {"ok": False, "type": "image", "error": str(exc)}
+    references = []
+    reference_urls = []
+    hard_regions = [row for row in regions if row["user_action"] == "protect_region" and row["protection_mode"] == "hard"]
+    for region in regions:
+        reference_url = str(region.get("reference_asset_id") or "").strip()
+        if not reference_url:
+            continue
+        reference_bytes = await asyncio.to_thread(_read_image_bytes_for_generation, reference_url)
+        if not reference_bytes:
+            return {"ok": False, "type": "image", "error": f"Could not read the reference for {region['region_id']}."}
+        references.append((region["region_id"], reference_bytes))
+        reference_urls.append(reference_url)
+    execution = [row["region_id"] for row in regions]
+    prostudio_debug("SYLVEX_SR_RESTORE_PLAN", job_id=str(payload.get("job_id") or ""),
+                    source_image_asset_id=source_url,
+                    region_actions=[{"region_id": row["region_id"], "action": row["user_action"], "has_reference": bool(row.get("reference_asset_id")), "has_instruction": bool(row.get("text_instruction"))} for row in regions],
+                    execution_order=execution)
+    try:
+        restored_png = await asyncio.to_thread(_sylvex_sr_provider_restore, source_png, regions, references, final_settings["upscale_factor"])
+        final_png = await asyncio.to_thread(sylvex_restore_service.final_enhance, source_png, restored_png, final_settings, hard_regions)
+        image_url = await asyncio.to_thread(storage_put_bytes, final_png, generated_key("images", f"sylvex_sr_{uuid4().hex}.png"), "image/png")
+        if not image_url:
+            raise RuntimeError("the restored image could not be persisted")
+    except SylvexRestoreProviderError as exc:
+        prostudio_error("SYLVEX_SR_RESTORE_FAILED", exc, job_id=str(payload.get("job_id") or ""))
+        return {
+            "ok": False,
+            "type": "image",
+            "error": str(exc),
+            "message": str(exc),
+            "raw_error": str(exc),
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+            "status_code": exc.status_code,
+        }
+    except Exception as exc:
+        prostudio_error("SYLVEX_SR_POSTPROCESS_FAILED", exc, job_id=str(payload.get("job_id") or ""))
+        return {
+            "ok": False,
+            "type": "image",
+            "error": f"Sylvex Restore failed after GPT Image: {exc}",
+            "raw_error": str(exc),
+            "provider": "openai",
+            "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        }
+    price = sylvex_restore_cost_info({**opts, "sylvexRestoreRegions": regions})
+    extra = {
+        "provider": "openai",
+        "model": SYLVEX_RESTORE_MODEL_KEY,
+        "provider_model": SYLVEX_RESTORE_PROVIDER_MODEL,
+        "tool": ENHANCE_PHOTO_TOOL_KEY,
+        "photo_tool": ENHANCE_PHOTO_TOOL_KEY,
+        "enhance_model": SYLVEX_RESTORE_MODEL_KEY,
+        "source_image_asset_id": source_url,
+        "reference_images": [source_url, *reference_urls],
+        "restore_status": "completed",
+        "failed_region_ids": [],
+        "region_results": [{"region_id": row["region_id"], "status": "completed"} for row in regions],
+        "pipeline_execution_order": execution,
+        "final_enhance": final_settings,
+        "output_asset_id": image_url,
+        "intermediate_outputs": [],
+        "cost_credits": price["credits"],
+        "cost_usd": price["cost_usd"],
+        "generation_cost": price["generation_cost"],
+    }
+    result = {**_build_image_result_without_thumbnails([image_url]), **extra}
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, [image_url]))
+    else:
+        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": image_url, "images": [image_url], **extra})
+    telegram_id = int(payload.get("telegram_id") or 0)
+    if telegram_id and not payload.get("skip_telegram"):
+        try:
+            result["sent_to_telegram"] = await asyncio.to_thread(send_generated_images_to_telegram, telegram_id, [image_url], "Sylvex Restore complete ✅")
+        except Exception as exc:
+            prostudio_error("SYLVEX_SR_TELEGRAM_SEND_FAILED", exc, job_id=job_id)
+    prostudio_debug("SYLVEX_SR_RESTORE_COMPLETE", job_id=job_id, status="completed",
+                    output_asset_id=image_url, region_count=len(regions), reference_count=len(references))
+    return result
+
+
 def expand_remove_object_locator_region(source_bytes: bytes, mark_bytes: bytes) -> bytes:
     """Expand a brush mark into a broad inpaint region around the target.
 
@@ -16245,13 +18544,17 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     if not source_url:
         return {"ok": False, "type": "image", "error": "Загрузите исходное изображение."}
     if mode == "upscale":
-        topaz_payload = dict(payload)
-        topaz_options = dict(opts)
-        topaz_options.update({"tool": "edit_workspace", "editWorkspaceMode": mode, "enhancePhotoSourceUrl": source_url})
-        topaz_payload["image_options"] = topaz_options
-        result = await generate_enhance_photo_image(topaz_payload)
+        upscale_payload = dict(payload)
+        upscale_options = dict(opts)
+        upscale_options.update({"tool": "edit_workspace", "editWorkspaceMode": mode, "enhancePhotoSourceUrl": source_url})
+        upscale_payload["image_options"] = upscale_options
+        sylvex_restore = is_edit_workspace_sylvex_restore(upscale_payload)
+        result = await generate_sylvex_restore_image(upscale_payload) if sylvex_restore else await generate_enhance_photo_image(upscale_payload)
         if result.get("ok"):
-            result.update({"tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": "upscale", "source_image_url": source_url, "reference_images": [source_url]})
+            result.update({"tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": "upscale", "source_image_url": source_url})
+            result.setdefault("reference_images", [source_url])
+            if sylvex_restore:
+                result.update({"enhance_model": SYLVEX_RESTORE_MODEL_KEY, "model": SYLVEX_RESTORE_MODEL_KEY, "provider": "openai"})
         return result
     source_raw = _read_image_bytes_for_generation(source_url)
     if not source_raw:
@@ -16295,8 +18598,11 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         prompt = lighting_instruction = edit_workspace_service.lighting_prompt(light)
     else:
         prompt = edit_workspace_service.instruction({**opts, "editWorkspaceMode": mode})
-    preserve_transparency = edit_workspace_service.has_transparency(source_png) and not (
-        mode == "background" and opts.get("editWorkspaceBackgroundMode") == "replace")
+    background_mode = opts.get("editWorkspaceBackgroundMode")
+    background_settings = opts.get("editWorkspaceBackground") or {}
+    background_png = None
+    background_cutout = mode == "background" and background_mode in {"transparent", "color", "image"}
+    preserve_transparency = edit_workspace_service.has_transparency(source_png) and mode != "background"
     if preserve_transparency:
         prompt += ("\nThe source has a transparent background. Keep the edited subject isolated on true alpha transparency. "
                    "Preserve translucent details and fine edges. Do not add a backdrop, floor, solid color, or checkerboard. "
@@ -16304,7 +18610,12 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     edit_source = source_png
     api_mask = b""
     try:
-        if mode == "retouch":
+        if mode == "background" and background_mode == "image":
+            background_raw = _read_image_bytes_for_generation(str(background_settings["url"]).strip())
+            if not background_raw:
+                raise ValueError("Не удалось прочитать новый фон.")
+            background_png, _ = edit_workspace_service.normalize_source(background_raw)
+        elif mode == "retouch":
             mask_raw = _read_image_bytes_for_generation(str(opts.get("editWorkspaceMaskUrl") or ""))
             if not mask_raw:
                 raise ValueError("Не удалось прочитать выделенную область.")
@@ -16324,7 +18635,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         files.append(("mask", ("mask.png", api_mask, "image/png")))
     request_data = {"model": model, "prompt": prompt, "size": edit_workspace_service.output_size(output_dimensions),
                     "quality": "high", "n": "1", "output_format": "png"}
-    if preserve_transparency or (mode == "background" and opts.get("editWorkspaceBackgroundMode") == "transparent"):
+    if preserve_transparency or background_cutout:
         request_data["background"] = "transparent"
     if mode == "camera":
         prostudio_debug("OPENAI_CAMERA_REQUEST", endpoint=endpoint, provider_model=model, camera=camera)
@@ -16347,12 +18658,19 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     if not provider_urls:
         return image_error_response(provider, "edit_workspace", model, endpoint, "Provider returned no image", provider_response, response_data)
     try:
-        if mode in {"retouch", "expand"}:
+        if mode in {"retouch", "expand", "background"}:
             generated = _read_image_bytes_for_generation(provider_urls[0])
             if not generated:
                 raise ValueError("Could not read edited image")
-            final_png = (composite_replace_object_inside_mask(source_png, generated, mask_raw) if mode == "retouch"
-                         else edit_workspace_service.composite_expansion(source_png, generated, output_dimensions, expansion))
+            if mode == "background":
+                try:
+                    final_png = edit_workspace_service.composite_background(
+                        source_png, generated, background_mode, background_settings, background_png)
+                except ValueError as exc:
+                    return {"ok": False, "type": "image", "error": str(exc)}
+            else:
+                final_png = (composite_replace_object_inside_mask(source_png, generated, mask_raw) if mode == "retouch"
+                             else edit_workspace_service.composite_expansion(source_png, generated, output_dimensions, expansion))
             image_url = storage_put_bytes(final_png, generated_key("images", f"edit_{uuid4().hex}.png"), "image/png")
         else:
             image_url = _persist_remote_media_url(provider_urls[0], "images", provider=provider)
@@ -19388,6 +21706,8 @@ def estimate_generation_cost(payload: dict) -> dict:
             "operation": tool,
         }
     if tool == ENHANCE_PHOTO_TOOL_KEY:
+        if str(opts.get("enhancePhotoModel") or "topaz").strip().lower() == SYLVEX_RESTORE_MODEL_KEY:
+            return sylvex_restore_cost_info(opts)
         # Enhance Photo is a flat 1-Topaz-credit-per-request cost (unlike
         # Character Replace's per-image formula above) - always the same
         # 15 credits, computed from the named, adjustable
@@ -19532,9 +21852,12 @@ def calculate_generation_price(payload: dict) -> dict:
         opts = payload.get("image_options") or {}
         operation = str(opts.get("editWorkspaceMode") or "edit").lower()
         if operation == "upscale":
-            settings = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else {}
-            settings = edit_workspace_service.upscale_parameters(settings)
-            estimate = edit_upscale_cost_info(settings['width'], settings['height'])
+            if is_edit_workspace_sylvex_restore(payload):
+                estimate = sylvex_restore_cost_info(opts)
+            else:
+                settings = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else {}
+                settings = edit_workspace_service.upscale_parameters(settings)
+                estimate = edit_upscale_cost_info(settings['width'], settings['height'])
         elif operation == "resize":
             estimate = {"credits": 0, "cost_credits": 0, "cost_usd": 0, "generation_cost": "0 ⚡", "pricing_available": True, "model_label": "Resize"}
         else:
@@ -20999,6 +23322,11 @@ async def public_prostudio_generate(request: Request):
         # Store the actual route in new jobs as well as enforcing it at dispatch.
         selected_provider = payload["provider"] = "openai"
         selected_model = payload["model"] = "gpt_image_2_5_sunburst"
+    elif mode == "image" and is_edit_workspace_sylvex_restore(payload):
+        # Restored Edit sessions may still carry the former Topaz selection.
+        # Persist the real route in the queued job as well as at dispatch.
+        selected_provider = payload["provider"] = "openai"
+        selected_model = payload["model"] = SYLVEX_RESTORE_MODEL_KEY
     video_options = payload.get("video_options") or {}
     voice_options = payload.get("voice_options") or {}
     reference_images = (
@@ -21355,7 +23683,7 @@ def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit").lower()
         if edit_mode == "upscale":
-            return "TOPAZ"
+            return "OPENAI" if is_edit_workspace_sylvex_restore(payload) else "TOPAZ"
         return "OPENAI"
     candidate = selected_provider
     if mode == "image":
@@ -21407,7 +23735,7 @@ async def dispatch_prostudio_provider_request(
     result = None
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit")
-        edit_provider = "topaz" if edit_mode == "upscale" else "openai"
+        edit_provider = "openai" if is_edit_workspace_sylvex_restore(payload) else "topaz" if edit_mode == "upscale" else "openai"
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=edit_provider, model=selected_model, route="generate_edit_workspace_image", edit_mode=edit_mode)
         result = await run_provider_coroutine_off_loop(lambda: generate_edit_workspace_image(payload))
     elif mode == "image" and is_watermark_removal_request(payload):
@@ -21441,11 +23769,17 @@ async def dispatch_prostudio_provider_request(
         # image_options.characterReferences/objectReferences/style.
         result = await run_provider_coroutine_off_loop(lambda: generate_character_replace_image(payload))
     elif mode == "image" and is_enhance_photo_request(payload):
-        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="topaz", model=selected_model, route="generate_enhance_photo_image")
+        sylvex_restore = is_sylvex_restore_request(payload)
+        enhance_provider = "openai" if sylvex_restore else "topaz"
+        enhance_route = "generate_sylvex_restore_image" if sylvex_restore else "generate_enhance_photo_image"
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=enhance_provider, model=selected_model, route=enhance_route)
         # Isolated Quick Tool flow - never falls through to the normal
         # Seedream/image_generation dispatch below, which would read
         # image_options.characterReferences/objectReferences/style.
-        result = await run_provider_coroutine_off_loop(lambda: generate_enhance_photo_image(payload))
+        if sylvex_restore:
+            result = await run_provider_coroutine_off_loop(lambda: generate_sylvex_restore_image(payload))
+        else:
+            result = await run_provider_coroutine_off_loop(lambda: generate_enhance_photo_image(payload))
     elif mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
         # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.
@@ -22346,6 +24680,8 @@ def process_subscription_reminders() -> dict:
     if not DATABASE_URL or not BOT_TOKEN:
         return {"checked": 0, "sent": 0}
     ensure_payment_tables()
+    ensure_stripe_tables()
+    ensure_shop_orders()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -22363,6 +24699,14 @@ def process_subscription_reminders() -> dict:
             WHERE s.status = 'active'
               AND s.expires_at::timestamp > NOW()
               AND s.expires_at::timestamp <= NOW() + INTERVAL '8 days'
+              -- A Stripe plan that renews automatically needs no reminder.
+              AND NOT """ + stripe_billing.renews_automatically_sql(
+                  "s", stripe_billing.key_livemode(STRIPE_SECRET_KEY) if STRIPE_SECRET_KEY else True) + """
+              -- Neither does a Telegram Stars subscription that renews automatically.
+              AND NOT EXISTS (
+                  SELECT 1 FROM subscription_agreements agreement
+                  WHERE agreement.id = s.agreement_id AND agreement.renewal_status = 'auto'
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM subscriptions newer
@@ -22406,9 +24750,9 @@ def process_subscription_reminders() -> dict:
             continue
 
         day_word = "день" if days_before == 1 else ("дня" if days_before in {2, 3, 4} else "дней")
-        plan_label = "1 год" if str(plan or "").lower() == "year" else "1 месяц"
+        plan_label = shop_catalog.plan_label(plan)
         text = (
-            "⏳ <b>Подписка SYLVEX Pro скоро закончится</b>\n\n"
+            f"⏳ <b>Подписка {html.escape(shop_catalog.plan_product_name(plan))} скоро закончится</b>\n\n"
             f"До окончания осталось: <b>{days_before} {day_word}</b>\n"
             f"Текущий план: <b>{plan_label}</b>\n"
             f"Дата окончания: <b>{expires_at.strftime('%d.%m.%Y %H:%M')}</b>\n\n"
@@ -22466,6 +24810,140 @@ def process_subscription_reminders() -> dict:
     return {"checked": checked, "sent": sent}
 
 
+# ---------------------------------------------------------------------------
+# Subscription administration notifications and the expiry sweep.
+#
+# Payment code queues events in shop_orders' subscription_events outbox inside
+# the payment transaction (webapp webhook and polling bot alike); this worker
+# delivers them to the administration chat with retries, so a notification
+# failure never affects a payment. Messages carry identifiers only: SYLVEX ID,
+# Telegram ID, plan, amount, status, time and the Telegram charge reference -
+# never tokens, secrets, names or usernames.
+# ---------------------------------------------------------------------------
+SUBSCRIPTION_ADMIN_CHAT_ID = int(os.getenv("SUBSCRIPTION_ADMIN_CHAT_ID", str(PROSTUDIO_ADMIN_ID)) or PROSTUDIO_ADMIN_ID)
+SUBSCRIPTION_EVENTS_WORKER_ENABLED = os.getenv("SUBSCRIPTION_EVENTS_WORKER_ENABLED", "1") == "1"
+SUBSCRIPTION_EVENTS_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_EVENTS_INTERVAL_SECONDS", "30") or 30)
+SUBSCRIPTION_SWEEP_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_SWEEP_INTERVAL_SECONDS", "600") or 600)
+
+SUBSCRIPTION_EVENT_TITLES = {
+    "subscription_purchased": "🟢 Новая подписка",
+    "subscription_renewed": "🔁 Подписка продлена",
+    "renewal_canceled": "⏹ Автопродление отменено через SYLVEX",
+    "renewal_reactivated": "▶️ Автопродление возобновлено",
+    "subscription_expired": "⌛ Подписка закончилась",
+    "primary_changed": "🔀 Сменился основной тариф",
+    "payment_error": "⚠️ Ошибка обработки платежа",
+    "payment_attention": "⚠️ Платёж требует внимания",
+    "management_error": "⚠️ Ошибка управления подпиской",
+}
+
+
+def sylvex_account_id_for(telegram_id):
+    if not telegram_id or not DATABASE_URL:
+        return None
+    try:
+        conn = db_connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass('public.sylvex_accounts')")
+                if not cur.fetchone()[0]:
+                    return None
+                cur.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s LIMIT 1", (int(telegram_id),))
+                row = cur.fetchone()
+                return int(row[0]) if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def format_subscription_event(event: dict, sylvex_id=None) -> str:
+    lines = [SUBSCRIPTION_EVENT_TITLES.get(event["event_type"], event["event_type"])]
+    lines.append(f"SYLVEX ID: {sylvex_id if sylvex_id else '—'}")
+    lines.append(f"Telegram ID: {event['telegram_id'] or '—'}")
+    if event.get("plan_key"):
+        lines.append(f"Тариф: {shop_catalog.plan_product_name(event['plan_key'])} · {shop_catalog.plan_label(event['plan_key'])}")
+    if event.get("amount") is not None:
+        lines.append(f"Сумма: {event['amount']} {event.get('currency') or ''}".rstrip())
+    if event.get("status"):
+        lines.append(f"Статус: {event['status']}")
+    created = event.get("created_at")
+    lines.append(f"Время: {created.strftime('%Y-%m-%d %H:%M:%S') if created else '—'}")
+    if event.get("reference"):
+        lines.append(f"Транзакция: {event['reference']}")
+    if event.get("details"):
+        lines.append(f"Детали: {event['details']}")
+    return "\n".join(lines)
+
+
+def deliver_subscription_events(limit: int = 20) -> dict:
+    ensure_shop_orders()
+    sent = failed = 0
+    for event in shop_orders.claim_events(shop_db, limit):
+        ok, error = telegram_bot_api("sendMessage", {
+            "chat_id": SUBSCRIPTION_ADMIN_CHAT_ID,
+            "text": format_subscription_event(event, sylvex_account_id_for(event.get("telegram_id"))),
+            "disable_web_page_preview": True,
+        })
+        if ok:
+            shop_orders.mark_event_sent(shop_db, event["id"])
+            sent += 1
+        else:
+            shop_orders.mark_event_failed(shop_db, event["id"], error)
+            failed += 1
+    return {"sent": sent, "failed": failed}
+
+
+def run_subscription_sweep() -> dict:
+    """Record ended subscriptions (and fall back to still-valid plans), then
+    retry stopping replaced renewals Telegram has not confirmed yet."""
+    ensure_shop_orders()
+    result = shop_orders.sweep_subscriptions(shop_db)
+    if result["stop_pending"]:
+        result["stopped"] = shop_orders.stop_renewals(shop_db, result["stop_pending"], telegram_bot_api)
+    return result
+
+
+async def subscription_events_worker_loop():
+    print("SUBSCRIPTION EVENTS WORKER STARTED")
+    last_sweep = 0.0
+    while True:
+        try:
+            if time.monotonic() - last_sweep >= SUBSCRIPTION_SWEEP_INTERVAL_SECONDS:
+                last_sweep = time.monotonic()
+                swept = await asyncio.to_thread(run_subscription_sweep)
+                if swept.get("expired") or swept.get("stop_pending"):
+                    prostudio_debug("SUBSCRIPTION_SWEEP", expired=swept.get("expired"),
+                                    stop_pending=len(swept.get("stop_pending") or []))
+            delivered = await asyncio.to_thread(deliver_subscription_events)
+            if delivered["sent"] or delivered["failed"]:
+                prostudio_debug("SUBSCRIPTION_EVENTS_DELIVERED", **delivered)
+        except Exception as exc:
+            prostudio_error("SUBSCRIPTION_EVENTS_WORKER_FAILED", exc)
+        await asyncio.sleep(max(5, SUBSCRIPTION_EVENTS_INTERVAL_SECONDS))
+
+
+async def payment_recovery_worker_loop():
+    """Always on (independent of notifications): replay confirmed Telegram
+    Stars payments that are stored but unprocessed - after an outage, crash or
+    restart - and reconcile with Telegram's Star transaction history."""
+    print("PAYMENT RECOVERY WORKER STARTED")
+    last_reconcile = 0.0
+    while True:
+        try:
+            replayed = await asyncio.to_thread(replay_star_payments)
+            if replayed.get("spooled") or replayed.get("processed") or replayed.get("rejected") or replayed.get("error"):
+                prostudio_debug("STARS_PAYMENTS_REPLAYED", **replayed)
+            if time.monotonic() - last_reconcile >= PAYMENT_RECONCILE_INTERVAL_SECONDS:
+                reconciled = await asyncio.to_thread(reconcile_star_payments)
+                last_reconcile = time.monotonic()
+                if reconciled.get("ingested"):
+                    prostudio_debug("STARS_PAYMENTS_RECONCILED", **reconciled)
+        except Exception as exc:
+            prostudio_error("STARS_PAYMENT_RECOVERY_FAILED", exc)
+        await asyncio.sleep(max(5, PAYMENT_REPLAY_INTERVAL_SECONDS))
+
+
 async def subscription_reminder_worker_loop():
     if not SUBSCRIPTION_REMINDER_WORKER_ENABLED:
         print("SUBSCRIPTION REMINDER WORKER DISABLED")
@@ -22508,11 +24986,25 @@ async def start_prostudio_generation_worker():
         await asyncio.to_thread(ensure_user_events_table)
         await asyncio.to_thread(ensure_generations_index)
         await asyncio.to_thread(account_identity_service.ensure_account_tables, DATABASE_URL)
+        try:
+            # Payment inbox and order tables before the first payment arrives.
+            await asyncio.to_thread(ensure_shop_orders)
+        except Exception as exc:
+            prostudio_error("SHOP_ORDER_TABLES_STARTUP_FAILED", exc)
         db_pool_status()
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
+    if SUBSCRIPTION_EVENTS_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
+        app.state.background_tasks.append(asyncio.create_task(subscription_events_worker_loop()))
+    if (DATABASE_URL or PAYMENT_SPOOL.enabled) and BOT_TOKEN:
+        app.state.background_tasks.append(asyncio.create_task(payment_recovery_worker_loop()))
+    if STRIPE_SECRET_KEY and not stripe_key_allowed():
+        print("STRIPE DISABLED: a live key is configured but STRIPE_TEST_MODE_ONLY=1")
+    if stripe_enabled():
+        # Create or reuse the Stripe products/prices without blocking startup.
+        app.state.background_tasks.append(asyncio.create_task(asyncio.to_thread(sync_stripe_catalog_in_background)))
 
 
 @app.on_event("shutdown")

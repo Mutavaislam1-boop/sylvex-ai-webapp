@@ -25,6 +25,50 @@ def test_canvas_roundtrip_keeps_layout_and_camera():
     assert json.loads(history.validate_session(state['sessionId'], state)) == state
 
 
+def drawing():
+    return {'version': 1, 'width': 1024, 'height': 768, 'background': '#ffffff', 'items': [
+        {'type': 'pen', 'x': 10, 'y': 20, 'sx': 1, 'sy': 1, 'rotation': 0, 'size': 6,
+         'color': '#112233', 'fill': '#ffffff', 'opacity': 1, 'points': [[0, 0, .5], [20, 10, .8]]}]}
+
+
+def test_edit_history_keeps_drawings_before_the_first_generation_and_after_clearing():
+    state = canvas()
+    state.update(chain=[], activeNodeId='', sourceUrl='', mode='sketch', sketch=drawing())
+    assert json.loads(history.validate_session(state['sessionId'], state)) == state
+    state['sketch']['items'] = []
+    assert json.loads(history.validate_session(state['sessionId'], state))['sketch']['items'] == []
+    del state['sketch']
+    with pytest.raises(ValueError):
+        history.validate_session(state['sessionId'], state)
+
+
+@pytest.mark.parametrize('change', [
+    lambda d: d.update(width=100000), lambda d: d.update(height=512.5),
+    lambda d: d.update(background='url(javascript:alert(1))'),
+    lambda d: d.update(items=[d['items'][0]] * 501),
+    lambda d: d['items'][0].update(type='script'),
+    lambda d: d['items'][0].update(sx=0),
+    lambda d: d['items'][0].update(points=[[0, 0, 1]] * 4097),
+    lambda d: d['items'][0].update(points=[[float('inf'), 0, 1]]),
+    lambda d: d['items'][0].update(points=[[0, 0, 2]]),
+])
+def test_invalid_drawing_cannot_enter_saved_history(change):
+    state = canvas();state['sketch'] = drawing();change(state['sketch'])
+    with pytest.raises(ValueError):
+        history.validate_session(state['sessionId'], state)
+
+
+def test_background_settings_roundtrip_and_uploaded_backdrop_url_is_refreshed(monkeypatch):
+    state = canvas()
+    state.update(backgroundMode='image', background={'url': 'https://cdn.example/background.png', 'name': 'Background.png', 'color': '#abcdef'})
+    assert json.loads(history.validate_session(state['sessionId'], state)) == state
+    monkeypatch.setattr(history, 'sign_media_url', lambda url: url + '?fresh=1' if url else '')
+    assert history.refresh_media(state)['background'] == {**state['background'], 'url': 'https://cdn.example/background.png?fresh=1'}
+    state['background']['url'] = 'javascript:alert(1)'
+    with pytest.raises(ValueError):
+        history.validate_session(state['sessionId'], state)
+
+
 @pytest.mark.parametrize('change', [
     lambda s: s.update(sessionId='another'),
     lambda s: s.update(activeNodeId='missing'),
