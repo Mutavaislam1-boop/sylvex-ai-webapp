@@ -167,14 +167,17 @@ def _migrate_legacy_negative_id_accounts(cur):
     cur.execute("ALTER TABLE account_emails ADD PRIMARY KEY (account_id)")
 
 
-def ensure_account_tables(database_url):
+def ensure_account_tables(database_url, connect=None):
+    """`connect` lets a caller that already owns a connection factory (e.g.
+    main.db_connect) reuse it; defaults to this module's own pool."""
     global _ACCOUNT_TABLES_READY
     if _ACCOUNT_TABLES_READY or not database_url:
         return
+    connect = connect or db_connect
     with _ACCOUNT_TABLES_LOCK:
         if _ACCOUNT_TABLES_READY:
             return
-        conn = db_connect(database_url)
+        conn = connect(database_url)
         cur = conn.cursor()
         try:
             cur.execute("CREATE SEQUENCE IF NOT EXISTS sylvex_account_id_seq START 10000")
@@ -275,7 +278,7 @@ def ensure_account_tables(database_url):
         finally:
             cur.close()
             conn.close()
-        _ensure_telegram_account_trigger(database_url)
+        _ensure_telegram_account_trigger(database_url, connect)
         _ACCOUNT_TABLES_READY = True
 
 
@@ -376,13 +379,13 @@ def _ensure_canonical_identity_schema(cur):
     """)
 
 
-def _ensure_telegram_account_trigger(database_url):
+def _ensure_telegram_account_trigger(database_url, connect=None):
     """AFTER INSERT trigger on `users` (shared with the Telegram bot, which
     writes it directly) so every new Telegram user gets a SYLVEX ID no
     matter which service created them. Created once; the existence check
     avoids taking a lock on `users` on every start, and a short
     lock_timeout means a busy table only postpones it to the next start."""
-    conn = db_connect(database_url)
+    conn = (connect or db_connect)(database_url)
     cur = conn.cursor()
     try:
         cur.execute("SELECT to_regclass('users')")

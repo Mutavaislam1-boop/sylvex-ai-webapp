@@ -672,6 +672,10 @@ class SecurityMiddleware:
     await send(message)
    return await self.app(scope,receive,unprotected_send)
   is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS))) or (method=='POST' and path in PUBLIC_POSTS)
+  # Admin Console v2: never Telegram initData or the bot service token -
+  # every route authenticates its own admin session (cookie + CSRF + Origin,
+  # see main._admin_v2_actor), so the Telegram identity step is skipped here.
+  is_public=is_public or path.startswith('/api/admin/v2/')
   is_webhook=path in WEBHOOKS
   # CSRF guard: every /api/web/* route authenticates off the sylvex_web_session
   # cookie (SameSite=None, required for the cross-origin Pro Studio iframe

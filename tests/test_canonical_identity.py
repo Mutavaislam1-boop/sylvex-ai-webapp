@@ -515,8 +515,10 @@ def api(people, database, monkeypatch):
     monkeypatch.setattr(main, "_PAYMENT_SCHEMA_READY", False)
     monkeypatch.setattr(main, "_PROSTUDIO_SCHEMA_READY", False)
     main.ensure_admin_tables()
-    q(database, "INSERT INTO admin_users (telegram_id, role, permissions, active) VALUES "
-                "(%s, 'admin', '[\"view_users\",\"message_users\",\"view_finance\"]'::jsonb, TRUE)", (SUPPORT_ID,))
+    from admin_fixtures import make_admin
+    conn = database.connect()
+    make_admin(conn.cursor(), SUPPORT_ID, legacy=["view_users", "message_users", "view_finance"])
+    conn.commit()
     main.app.middleware_stack = None
     for mw in main.app.user_middleware:
         if mw.cls is SecurityMiddleware:
@@ -586,7 +588,8 @@ async def test_broadcast_all_skips_storage_keys(api, people, monkeypatch):
         return response
 
     monkeypatch.setattr(api.requests, "post", fake_post)
-    r = await _post(api, "/api/admin/messages/broadcast", {"telegram_id": SUPPORT_ID, "message": "hello", "all": True})
+    # Broadcast is Critical: on the bot channel only the owner may send it.
+    r = await _post(api, "/api/admin/messages/broadcast", {"telegram_id": OWNER_ID, "message": "hello", "all": True})
     assert r.status_code == 200, r.text
     assert sorted(sent) == [7000000001, 7000000002]
     assert all(chat < FLOOR for chat in sent)
@@ -604,11 +607,20 @@ async def test_broadcast_to_selected_resolves_sylvex_ids(api, people, monkeypatc
 
     monkeypatch.setattr(api.requests, "post", fake_post)
     r = await _post(api, "/api/admin/messages/broadcast", {
-        "telegram_id": SUPPORT_ID, "message": "hello",
+        "telegram_id": OWNER_ID, "message": "hello",
         "user_ids": ["110626990001", str(people["web_only"])], "sylvex_user_ids": [str(people["merged_alias"])]})
     assert r.status_code == 200, r.text
     assert sorted(sent) == [7000000001, 7000000002]
     assert r.json()["skipped_no_telegram"] == 1
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cannot_broadcast_through_the_bot_channel(api, people, monkeypatch):
+    post = MagicMock()
+    monkeypatch.setattr(api.requests, "post", post)
+    r = await _post(api, "/api/admin/messages/broadcast", {"telegram_id": SUPPORT_ID, "message": "hello", "all": True})
+    assert r.status_code == 403 and r.json()["detail"] == "console_required_for_critical_action"
+    post.assert_not_called()
 
 
 @pytest.mark.asyncio

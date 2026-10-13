@@ -53,9 +53,9 @@ def db(monkeypatch):
     cur.execute("INSERT INTO users (telegram_id, balance) VALUES (1001, 50)")
     conn.commit()
     main.ensure_admin_tables()
-    cur.execute("""INSERT INTO admin_users (telegram_id, role, permissions, active)
-                   VALUES (%s,'admin','["manage_balance"]'::jsonb,TRUE), (%s,'admin','["view_users"]'::jsonb,TRUE)""",
-                (FINANCE_ID, VIEWER_ID))
+    from admin_fixtures import make_admin
+    make_admin(cur, FINANCE_ID, legacy=["manage_balance"])
+    make_admin(cur, VIEWER_ID, legacy=["view_users"])
     conn.commit()
     main.app.middleware_stack = None
     for mw in main.app.user_middleware:
@@ -76,8 +76,13 @@ def _balance(cur, uid):
 
 
 def _audit_rows(cur):
-    cur.execute("SELECT actor_telegram_id, action, target_telegram_id, before_data, after_data, reason FROM admin_audit_log ORDER BY id")
-    return cur.fetchall()
+    from admin_fixtures import audit_rows
+    return [r for r in audit_rows(cur) if r["action"] == "balance_changed"]
+
+
+def _account(cur, telegram_id):
+    cur.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s", (telegram_id,))
+    return cur.fetchone()[0]
 
 
 @pytest.mark.asyncio
@@ -87,12 +92,13 @@ async def test_credit_is_applied_and_audited_with_delta_and_source(db):
     assert r.status_code == 200, r.text
     assert r.json()["balance"] == 75
     assert _balance(cur, 1001) == 75
-    (actor, action, target, before, after, reason), = _audit_rows(cur)
-    after = after if isinstance(after, dict) else json.loads(after)
-    before = before if isinstance(before, dict) else json.loads(before)
-    assert (actor, action, target, reason) == (FINANCE_ID, "balance_changed", 1001, "goodwill")
-    assert before == {"balance": 50}
-    assert after == {"balance": 75, "delta": 25, "source": "telegram_bot_addbalance"}
+    row, = _audit_rows(cur)
+    assert row["actor_account_id"] == _account(cur, FINANCE_ID)
+    assert (row["action"], row["reason"], row["risk"], row["channel"]) == ("balance_changed", "goodwill", "high", "bot")
+    # user 1001 predates the identity trigger and was never backfilled here
+    assert row["target_account_id"] is None and row["target_ref"] == "storage_key:1001"
+    assert row["before"] == {"balance": 50}
+    assert row["after"] == {"balance": 75, "delta": 25, "source": "telegram_bot_addbalance"}
 
 
 @pytest.mark.asyncio
@@ -100,9 +106,7 @@ async def test_unknown_source_is_recorded_as_admin_api(db):
     main, cur = db
     r = await _post(main, {"telegram_id": FINANCE_ID, "user_id": 1001, "delta": 1, "source": "anything-else"})
     assert r.status_code == 200
-    after = _audit_rows(cur)[0][4]
-    after = after if isinstance(after, dict) else json.loads(after)
-    assert after["source"] == "admin_api"
+    assert _audit_rows(cur)[0]["after"]["source"] == "admin_api"
 
 
 @pytest.mark.asyncio

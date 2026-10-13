@@ -53,6 +53,12 @@ def app(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "TELEGRAM_AUTH_TOKENS", (TOKEN,))
     monkeypatch.setattr(main, "BOT_TOKEN", TOKEN)
     monkeypatch.setattr(main, "SUPERADMIN_TELEGRAM_ID", OWNER_ID)
+    # Admin authority now needs a database-backed admin record; this file is
+    # about upload content-type handling, so the admin check is stubbed to
+    # the owner (auth itself is covered by the admin_* test files).
+    monkeypatch.setattr(main, "_admin_actor", lambda payload, request=None, permission="", owner_only=False: {
+        "telegram_id": OWNER_ID, "role": "owner", "permissions": ["all"], "admin_id": 1, "account_id": 1,
+        "channel": "miniapp_legacy"})
 
     # storage.put_bytes needs R2 or falls back to local disk; force local
     # disk (into an isolated tmp dir) so uploads don't need real R2
