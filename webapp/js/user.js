@@ -174,7 +174,11 @@
       || [merged.first_name, merged.last_name].filter(Boolean).join(' ')
       || merged.username || 'Guest';
     const handle = merged.username ? '@' + merged.username : '@user';
-    const idStr = merged.telegram_id ? String(merged.telegram_id) : '—';
+    // Browser / website session: the shared SYLVEX ID, never the internal
+    // storage key behind it. Telegram keeps showing the Telegram id.
+    const webSession = !!(S.usesWebSessionAuth && S.usesWebSessionAuth());
+    const idStr = webSession && merged.sylvex_user_id ? String(merged.sylvex_user_id)
+      : (merged.telegram_id ? String(merged.telegram_id) : '—');
     const ini = initials(merged.first_name, merged.last_name, merged.username);
     const avatarUrl = merged.custom_avatar_url || merged.photo_url;
 
@@ -328,6 +332,9 @@
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   async function syncUser(options) {
+    // No Telegram identity (browser / website session): refresh from the
+    // SYLVEX web session instead of the Telegram sync endpoint.
+    if (!(S.tg && S.tg.initData) && S.usesWebSessionAuth && S.usesWebSessionAuth()) return syncWebSession();
     const force = !!(options && options.force);
     const now = Date.now();
     if (syncPromise) return syncPromise;
@@ -402,7 +409,19 @@
       if (!res.ok) return null;
       const json = await res.json();
       if (!json || !json.authenticated) return null;
-      renderUserState(json);
+      // storage_id is the account's internal storage key; API calls send it
+      // as telegram_id, which the server checks against this same cookie.
+      const identity = {
+        telegram_id: json.storage_id || undefined,
+        sylvex_user_id: json.sylvex_user_id,
+        email: json.email || undefined,
+        display_name: json.display_name || undefined,
+        first_name: json.first_name || undefined,
+        username: json.username || undefined,
+        custom_avatar_url: json.avatar_url || undefined,
+      };
+      renderUserState(Object.assign({}, json, { telegram_id: identity.telegram_id }));
+      renderIdentity(identity);
       return S.user;
     } catch { return null; }
   }

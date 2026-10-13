@@ -23455,6 +23455,13 @@ async function waitGeneration(jobId, options) {
     note.hidden = !text;
   }
   function openStoreProduct(productId, credits) {
+    // Browser: the same product ids are sold through the website's Stripe
+    // checkout (a custom amount is chosen on the Store cards in USD).
+    if (isBrowserApp()) {
+      if (productId !== 'credits_custom' && browserStripeEnabled) openBrowserStoreProduct(productId);
+      else switchView('shop');
+      return;
+    }
     const isCustom = productId === 'credits_custom';
     const product = isCustom ? storeCustomProduct(credits) : storeProduct(productId);
     if (!product) { toast(STORE_ERRORS.unknown_product); return; }
@@ -23527,7 +23534,7 @@ async function waitGeneration(jobId, options) {
       const order = result && result.order;
       if (order && order.status === 'paid') {
         delete storeOrderWatchers[orderId];
-        if (result.user && S.renderUser) S.renderUser(result.user);
+        if (result.user && S.renderUser && !isBrowserApp()) S.renderUser(result.user);
         if (S.syncUser) S.syncUser({ force: true });
         if (order.kind === 'subscription') showSubscriptionCelebration(result.user || S.user || {}, order.plan_key);
         else toast('Зачислено ' + Number(order.credits).toLocaleString('ru-RU') + ' ⚡');
@@ -24129,6 +24136,8 @@ async function waitGeneration(jobId, options) {
     const result = document.getElementById('saResult');
     if (result) { result.hidden = true; result.textContent = ''; }
     renderSubActiveDetails();
+    const portal = document.getElementById('saStripePortal');
+    if (portal) portal.hidden = !isBrowserApp();
     document.getElementById('subActiveModal').classList.add('show');
     pendingPack = isStorePlanKey(plan) ? 'plan_' + plan : 'sub_' + plan;
     // Refresh from the server so renewal state is never stale.
@@ -24540,6 +24549,14 @@ async function waitGeneration(jobId, options) {
   function signOut() {
     if (!window.confirm('Выйти из аккаунта SYLVEX?')) return;
     try { localStorage.removeItem('sylvex-theme-id'); } catch {}
+    if (isBrowserApp()) {
+      // Browser: end the SYLVEX web session (sylvex.ai too), then reload to
+      // the sign-in screen.
+      fetch('/api/web/auth/logout', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .catch(() => null)
+        .finally(() => window.location.reload());
+      return;
+    }
     if (S.tg && S.tg.close) S.tg.close();
   }
   // Contact administrator / sales: an internal popup that sends the message
@@ -24575,6 +24592,7 @@ async function waitGeneration(jobId, options) {
   // with Stars (payStoreProduct); the legacy PayPal/Crypto/pack_id flows that
   // used to live here are gone and the backend refuses them anyway.
   async function payWith(method) {
+    if (isBrowserApp()) { if (pendingBrowserProduct) payBrowserProduct(); return; }
     if (pendingStoreProduct) return payStoreProduct(method);
     openStoreFor(pendingPack || '');
   }
@@ -24851,6 +24869,7 @@ async function waitGeneration(jobId, options) {
     else window.open(url, '_blank', 'noopener');
   }
   function mountStoreCards() {
+    if (isBrowserApp()) { mountBrowserStoreCards(); return; }
     syncComparePrices();
     const cards = window.SylvexStoreCards;
     if (!cards) return;
@@ -24888,6 +24907,179 @@ async function waitGeneration(jobId, options) {
       mountStoreCards.bound = true;
       window.addEventListener('sylvex:languagechange', mountStoreCards);
     }
+  }
+  // =====================================================
+  // МАГАЗИН В БРАУЗЕРЕ (Mini App открыт не в Telegram): каталог, цены и
+  // Stripe Checkout сайта sylvex.ai - те же product_id, что на сайте; сервер
+  // сам считает цену и начисляет покупку тому же SYLVEX-аккаунту (сессия
+  // сайта). Внутри Telegram этот код не работает - там только Stars.
+  // =====================================================
+  let browserStripeEnabled = null; // null: /api/public/config ещё не ответил
+  let browserStoreConfigLoading = null;
+  let pendingBrowserProduct = null;
+  let browserCheckoutBusy = false;
+  const BROWSER_STRIPE_ERRORS = {
+    stripe_not_configured: 'Оплата картой пока недоступна — попробуйте позже.',
+    stripe_subscription_active: 'У вас уже есть подписка по карте с автопродлением. Чтобы выбрать другой тариф, сначала отключите продление в «Управление подпиской по карте».',
+    stripe_product_unavailable: 'Этот товар временно недоступен. Попробуйте позже.',
+    stripe_checkout_failed: 'Не удалось открыть оплату. Попробуйте ещё раз.',
+    amount_out_of_range: 'Введите сумму от $1 до $1 000.',
+    invalid_amount: 'Введите сумму в долларах, например 25 или 12.50.',
+    unknown_product: 'Этот товар сейчас недоступен',
+  };
+  function loadBrowserStoreConfig() {
+    if (browserStoreConfigLoading) return browserStoreConfigLoading;
+    browserStoreConfigLoading = fetch('/api/public/config', { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((config) => { browserStripeEnabled = !!(config && config.stripe_enabled); })
+      .catch(() => { browserStripeEnabled = false; browserStoreConfigLoading = null; })
+      .then(() => mountStoreCards());
+    return browserStoreConfigLoading;
+  }
+  function mountBrowserStoreCards() {
+    const cards = window.SylvexStoreCards;
+    if (!cards) return;
+    const stripe = browserStripeEnabled === true;
+    // Same options as sylvex.ai/store.html: USD prices, Stripe renews plans.
+    const options = { t: window.t, locale: (S.getLang && S.getLang()) || 'en' };
+    const plans = document.getElementById('storePlanCards');
+    const credits = document.getElementById('storeCreditCards');
+    if (plans) cards.renderPlans(plans, Object.assign({
+      renewal: stripe ? 'auto' : undefined,
+      isPlanAvailable: () => stripe,
+      onSelectPlan: (plan, period) => openBrowserStoreProduct('plan_' + plan + '_' + period),
+      onContactSales: () => openSupport('sales'),
+    }, options));
+    if (credits) cards.renderCredits(credits, Object.assign({
+      packIdForUsd: (usd) => (stripe ? 'pack_' + usd * 100 : null),
+      onContinue: (packId) => openBrowserStoreProduct(packId),
+      selectOpensCheckout: true,
+      customPurchase: stripe,
+      onContinueCustom: (usd) => openBrowserStoreProduct('credits_custom', usd),
+    }, options));
+    const compare = document.getElementById('payComparePrices');
+    if (compare) compare.hidden = true;
+    if (browserStripeEnabled === null) loadBrowserStoreConfig();
+    if (!mountStoreCards.bound) {
+      mountStoreCards.bound = true;
+      window.addEventListener('sylvex:languagechange', mountStoreCards);
+    }
+  }
+  // Title, price and terms shown on the pay screen (the server re-derives the
+  // real price from product_id / usd).
+  function browserStoreSummary(productId, usd) {
+    const cards = window.SylvexStoreCards;
+    const fmtUsd = (value) => '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: Number(value) % 1 ? 2 : 0, maximumFractionDigits: 2 });
+    const plan = /^plan_([a-z]+)_(month|year)$/.exec(productId);
+    if (plan && cards) {
+      const def = (cards.PLANS || []).find((p) => p.id === plan[1]);
+      if (!def) return null;
+      const price = cards.planPricing(def, plan[2]);
+      return {
+        title: 'SYLVEX ' + def.name + ' · ' + Number(price.credits).toLocaleString('ru-RU') + ' ⚡',
+        price: plan[2] === 'year' ? fmtUsd(price.totalUsd) + ' / год' : fmtUsd(price.displayUsd) + ' / месяц',
+        note: (plan[2] === 'year' ? 'Продлевается автоматически каждый год' : 'Продлевается автоматически каждый месяц')
+          + ', пока вы не отключите продление. ⚡ начисляются после каждой оплаты.',
+      };
+    }
+    const dollars = productId === 'credits_custom' ? Number(usd) : Number((/^pack_(\d+)$/.exec(productId) || [])[1]) / 100;
+    if (!(dollars > 0)) return null;
+    return {
+      title: Math.round(dollars * 100).toLocaleString('ru-RU') + ' ⚡ SYLVEX',
+      price: fmtUsd(dollars),
+      note: '⚡ начисляются сразу после подтверждения оплаты.',
+    };
+  }
+  function setBrowserPayMethods() {
+    document.querySelectorAll('[data-pay-method]').forEach((button) => { button.hidden = true; });
+    document.querySelectorAll('[data-browser-pay]').forEach((button) => {
+      button.hidden = false;
+      button.disabled = browserCheckoutBusy;
+      const sub = button.querySelector('[data-pm-sub]');
+      if (sub) sub.textContent = browserCheckoutBusy ? 'Открываем безопасную оплату…' : sub.dataset.pmDefault;
+    });
+  }
+  function openBrowserStoreProduct(productId, usd) {
+    const summary = browserStoreSummary(productId, usd);
+    if (!summary) { toast(BROWSER_STRIPE_ERRORS.unknown_product); return; }
+    pendingBrowserProduct = { productId, usd: productId === 'credits_custom' ? String(usd) : null };
+    pendingStoreProduct = null;
+    pendingPack = null;
+    browserCheckoutBusy = false;
+    setBrowserPayMethods();
+    const note = document.getElementById('payStoreNote');
+    if (note) { note.textContent = summary.note; note.hidden = false; }
+    showPayView(summary.title, summary.price);
+  }
+  async function payBrowserProduct() {
+    const selected = pendingBrowserProduct;
+    if (!selected || browserCheckoutBusy) return;
+    browserCheckoutBusy = true;
+    setBrowserPayMethods();
+    let response, data;
+    try {
+      response = await fetch('/api/public/payments/stripe/checkout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: getTelegramId() || undefined, product_id: selected.productId, usd: selected.usd, return_to: 'miniapp' }),
+      });
+      data = await response.json().catch(() => ({}));
+    } catch {
+      data = null;
+    }
+    if (response && response.ok && data && data.ok && data.url) {
+      window.location.href = data.url; // Stripe Checkout; it returns here
+      return;
+    }
+    browserCheckoutBusy = false;
+    setBrowserPayMethods();
+    if (response && (response.status === 401 || (data && data.error === 'invalid_init_data'))) {
+      if (S.openWebAuthGate) S.openWebAuthGate();
+      return;
+    }
+    toast(!response ? 'Сетевая ошибка' : (BROWSER_STRIPE_ERRORS[data && data.error] || 'Не удалось открыть оплату. Попробуйте ещё раз.'));
+  }
+  // Back from Stripe Checkout with the browser's Back button: the page can
+  // be restored as it was left (still "opening checkout"), so make the pay
+  // screen usable again.
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted || !isBrowserApp()) return;
+    browserCheckoutBusy = false;
+    if (pendingBrowserProduct) setBrowserPayMethods();
+  });
+  // Return from Stripe Checkout (success / cancel URL of this Mini App).
+  function handleBrowserStripeReturn(params) {
+    const status = (params.get('payment') || '').toLowerCase();
+    const orderId = params.get('order_id') || '';
+    try {
+      const clean = new URLSearchParams(window.location.search || '');
+      ['payment', 'provider', 'order_id'].forEach((key) => clean.delete(key));
+      const query = clean.toString();
+      window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
+    } catch {}
+    if (status === 'cancelled') { toast('Оплата отменена — деньги не списаны'); return; }
+    if (status !== 'success' || !/^[0-9a-f]{32}$/.test(orderId)) return;
+    toast('Оплата получена, начисляем…');
+    watchStoreOrder(orderId, 3 * 60 * 1000);
+  }
+  // Card subscription bought in the browser: Stripe's own page to change the
+  // card or turn off auto-renewal; it returns to this Mini App.
+  async function openBrowserBillingPortal() {
+    let response, data;
+    try {
+      response = await fetch('/api/public/payments/stripe/portal', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: getTelegramId() || undefined, return_to: 'miniapp' }),
+      });
+      data = await response.json().catch(() => ({}));
+    } catch {
+      data = null;
+    }
+    if (data && data.ok && data.url) { window.location.href = data.url; return; }
+    toast(data && data.error === 'no_stripe_customer' ? 'На этом аккаунте нет подписки по карте.' : 'Не удалось открыть управление подпиской. Попробуйте ещё раз.');
   }
   // =====================================================
   // МАГАЗИН: мягкое центрирование карточек тарифов и пакетов токенов.
@@ -25301,6 +25493,13 @@ async function waitGeneration(jobId, options) {
   function usesWebSessionAuth() {
     return isWebEmbed() || !hasTelegramContext();
   }
+  // The Mini App opened directly in Safari/Chrome/... (not inside Telegram,
+  // not the website's Pro Studio embed): signs in with the SYLVEX web
+  // account and pays with the website's Stripe checkout.
+  function isBrowserApp() {
+    return !isWebEmbed() && !hasTelegramContext();
+  }
+  S.isBrowserApp = isBrowserApp;
   S.hasTelegramContext = hasTelegramContext;
   S.usesWebSessionAuth = usesWebSessionAuth;
   S.isWebEmbed = isWebEmbed;
@@ -25374,6 +25573,7 @@ async function waitGeneration(jobId, options) {
 
   function handlePaymentReturnFromUrl() {
     const params = new URLSearchParams(window.location.search || '');
+    if ((params.get('provider') || '').toLowerCase() === 'stripe' && isBrowserApp()) { handleBrowserStripeReturn(params); return; }
     if ((params.get('provider') || '').toLowerCase() !== 'paypal') return;
 
     const status = (params.get('payment') || '').toLowerCase();
@@ -27047,9 +27247,24 @@ async function waitGeneration(jobId, options) {
     // identity to authenticate with (spec requirement #24/#26): use the
     // SYLVEX web session cookie instead of Telegram initData, and show the
     // login/register gate if nothing is signed in yet.
+    // Account data loaders below need the account id. With a web session it
+    // is known only once /api/web/session/me answers (or after sign-in), so
+    // they run again then if they had nothing to load at startup.
+    const loadedWithoutAccount = !getTelegramId();
+    const loadAccountData = () => {
+      if (!loadedWithoutAccount || !getTelegramId() || loadAccountData.done) return;
+      loadAccountData.done = true;
+      loadConversations();
+      loadProStudioSync();
+      restoreActiveProStudioJob();
+      restorePendingCharacterCreationJobs();
+      restorePendingObjectCreationJobs();
+    };
+    S.onWebSignedIn = loadAccountData;
     if (usesWebSessionAuth() && S.syncWebSession) {
       Promise.resolve(S.syncWebSession()).then((user) => {
         if (!user && S.ensureWebAuthGate) S.ensureWebAuthGate();
+        if (user) loadAccountData();
       }).finally(() => {
         renderSubscription();
       });
@@ -27079,7 +27294,7 @@ async function waitGeneration(jobId, options) {
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
-    openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
+    openBuy, closeBuy, payWith, openBrowserBillingPortal, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, toggleNotifications, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,

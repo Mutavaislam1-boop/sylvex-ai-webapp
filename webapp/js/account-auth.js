@@ -31,7 +31,7 @@
     stylesInjected = true;
     const style = document.createElement('style');
     style.textContent = `
-      .sylvexAuth-overlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);padding:16px;}
+      .sylvexAuth-overlay{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);padding:16px;}
       .sylvexAuth-card{position:relative;width:100%;max-width:380px;max-height:88vh;overflow:auto;background:var(--st-bg-2,#1c1c1e);color:var(--st-text,#f2f2f2);border:1px solid var(--st-border,rgba(255,255,255,.12));border-radius:16px;padding:22px 20px 20px;box-shadow:0 20px 60px rgba(0,0,0,.4);font-family:inherit;}
       .sylvexAuth-close{position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:50%;border:none;background:var(--st-bg-3,rgba(255,255,255,.08));color:var(--st-text,#f2f2f2);font-size:18px;line-height:1;cursor:pointer;}
       .sylvexAuth-title{font-size:17px;font-weight:700;margin:4px 0 14px;padding-right:20px;}
@@ -51,6 +51,8 @@
       .sylvexAuth-warn{background:rgba(255,180,60,.1);border:1px solid rgba(255,180,60,.35);color:#ffb43c;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px;line-height:1.5;}
       .sylvexAuth-perm{font-size:12px;color:var(--st-mute,#6f6f78);text-align:center;margin-top:8px;line-height:1.5;}
       #sylvexTelegramWidgetHost{display:flex;justify-content:center;margin:6px 0 12px;}
+      .sylvexAuth-gbtn{display:flex;justify-content:center;margin:-2px 0 10px;}
+      .sylvexAuth-gbtn:empty{display:none;}
     `;
     document.head.appendChild(style);
   }
@@ -136,7 +138,28 @@
     return appleReady;
   }
 
-  async function signInWithGoogle() {
+  // The page ships an empty <meta name="sylvex-google-client-id">; like the
+  // website (js/oauth-buttons.js) it is filled from GET /api/web/auth/config,
+  // the public GOOGLE_OAUTH_CLIENT_ID the backend verifies tokens against.
+  let authConfigReady = null;
+  function loadAuthConfig() {
+    if (authConfigReady) return authConfigReady;
+    authConfigReady = apiFetch('/api/web/auth/config').then((res) => {
+      const config = res.json || {};
+      if (config.google_enabled && config.google_client_id) {
+        const meta = document.querySelector('meta[name="sylvex-google-client-id"]');
+        if (meta && !meta.getAttribute('content')) meta.setAttribute('content', config.google_client_id);
+      }
+    }).catch(() => {});
+    return authConfigReady;
+  }
+  S.loadAuthConfig = loadAuthConfig;
+
+  // Same Google flow as the website (One Tap prompt). When the browser does
+  // not show the prompt (blocked, dismissed recently, Safari), the official
+  // Google button is rendered into `fallbackHost`; the promise resolves when
+  // either one returns a credential.
+  async function signInWithGoogle(fallbackHost) {
     const clientId = metaContent('sylvex-google-client-id');
     if (!clientId) { toast('Google sign-in is not configured yet'); return null; }
     const ok = await loadGoogleSdk();
@@ -147,7 +170,13 @@
         callback: (resp) => resolve(resp && resp.credential ? resp.credential : null),
       });
       window.google.accounts.id.prompt((notification) => {
-        if (notification && (notification.isNotDisplayed() || notification.isSkippedMoment())) resolve(null);
+        if (!notification || !(notification.isNotDisplayed() || notification.isSkippedMoment())) return;
+        if (fallbackHost && window.google.accounts.id.renderButton) {
+          fallbackHost.innerHTML = '';
+          window.google.accounts.id.renderButton(fallbackHost, { type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', width: 300 });
+        } else {
+          resolve(null);
+        }
       });
     });
   }
@@ -192,12 +221,14 @@
       const hasApple = !!(metaContent('sylvex-apple-client-id') && metaContent('sylvex-apple-redirect-uri'));
       setBody(overlay,
         `<div class="sylvexAuth-title">${isLogin ? 'Sign in to SYLVEX' : 'Create your SYLVEX account'}</div>
-         <div class="sylvexAuth-sub">${isLogin ? 'Use your SYLVEX website account, or Telegram if it has already been connected.' : 'This creates your SYLVEX account and SYLVEX ID automatically.'}</div>
+         <div class="sylvexAuth-sub">${isLogin ? 'Use your SYLVEX account from sylvex.ai, or Telegram if it has already been connected.' : 'One SYLVEX account for sylvex.ai and the SYLVEX app.'}</div>
          <div class="sylvexAuth-error" id="saErr"></div>
+         ${isLogin ? '' : '<input class="sylvexAuth-field" type="text" id="saName" placeholder="Display name" autocomplete="name">'}
          <input class="sylvexAuth-field" type="email" id="saEmail" placeholder="Email" autocomplete="email">
          <input class="sylvexAuth-field" type="password" id="saPass" placeholder="Password" autocomplete="${isLogin ? 'current-password' : 'new-password'}">
-         <button class="sylvexAuth-btn" id="saSubmit">${isLogin ? 'Sign in' : 'Register'}</button>
-         ${hasGoogle ? '<button class="sylvexAuth-btn secondary" id="saGoogle">Continue with Google</button>' : ''}
+         ${isLogin ? '' : '<input class="sylvexAuth-field" type="password" id="saConfirm" placeholder="Confirm password" autocomplete="new-password">'}
+         <button class="sylvexAuth-btn" id="saSubmit">${isLogin ? 'Sign in' : 'Create Account'}</button>
+         ${hasGoogle ? '<button class="sylvexAuth-btn secondary" id="saGoogle">Continue with Google</button><div class="sylvexAuth-gbtn" id="saGoogleHost"></div>' : ''}
          ${hasApple ? '<button class="sylvexAuth-btn secondary" id="saApple">Sign in with Apple</button>' : ''}
          <div id="saTgHost"></div>
          <div class="sylvexAuth-link" id="saToggle">${isLogin ? 'New to SYLVEX? Create an account' : 'Already have an account? Sign in'}</div>
@@ -221,24 +252,29 @@
 
     async function oauthFlow(provider) {
       showErr('');
-      const idToken = provider === 'google' ? await signInWithGoogle() : await signInWithApple();
+      const idToken = provider === 'google' ? await signInWithGoogle(q(overlay, '#saGoogleHost')) : await signInWithApple();
       if (!idToken) return;
       const res = await apiFetch(`/api/web/auth/${provider}`, { method: 'POST', body: JSON.stringify({ id_token: idToken }) });
-      if (!res.ok) { showErr(res.json.error || 'Sign-in failed'); return; }
+      if (!res.ok) { showErr(friendlyAuthError(res.json.error, res.status)); return; }
       await onAuthenticated();
     }
 
+    // Same checks and messages as the website (sylvex-website/js/auth-forms.js).
     async function submit(isLogin) {
       showErr('');
       const email = q(overlay, '#saEmail').value.trim();
       const password = q(overlay, '#saPass').value;
-      if (!email || !password) { showErr('Enter your email and password'); return; }
+      if (!EMAIL_RE.test(email)) { showErr('Enter a valid email address.'); return; }
+      if (isLogin && !password) { showErr('Enter your password.'); return; }
+      if (!isLogin && password.length < 8) { showErr('Password must be at least 8 characters.'); return; }
+      if (!isLogin && password !== q(overlay, '#saConfirm').value) { showErr('Passwords do not match.'); return; }
       const btn = q(overlay, '#saSubmit'); btn.disabled = true;
+      const body = isLogin ? { email, password } : { email, password, display_name: q(overlay, '#saName').value.trim() };
       const res = await apiFetch(isLogin ? '/api/web/auth/login' : '/api/web/auth/register', {
-        method: 'POST', body: JSON.stringify({ email, password }),
+        method: 'POST', body: JSON.stringify(body),
       });
       btn.disabled = false;
-      if (!res.ok) { showErr(friendlyAuthError(res.json.error)); return; }
+      if (!res.ok) { showErr(friendlyAuthError(res.json.error, res.status)); return; }
       await onAuthenticated();
     }
 
@@ -247,23 +283,37 @@
       closeOverlay(overlay);
       if (S.syncWebSession) await S.syncWebSession();
       if (S.renderSubscription) S.renderSubscription();
+      if (S.onWebSignedIn) S.onWebSignedIn();
       refreshLinkedStatusBadge();
       toast('Signed in');
     }
 
+    // Render at once, then again when the Google client id has loaded.
     render();
+    loadAuthConfig().then(() => { if (authGateOpen && metaContent('sylvex-google-client-id') && !q(overlay, '#saGoogle')) render(); });
   }
   S.ensureWebAuthGate = ensureWebAuthGate;
   S.openWebAuthGate = openWebAuthGate;
 
-  function friendlyAuthError(code) {
-    return ({
-      invalid_email: 'Enter a valid email address',
-      password_too_short: 'Password must be at least 8 characters',
-      email_already_registered: 'An account with this email already exists',
-      invalid_credentials: 'Incorrect email or password',
-      accounts_not_configured: 'Accounts are not available right now',
-    })[code] || 'Something went wrong, please try again';
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  // The website's messages for the same server errors.
+  function friendlyAuthError(code, status) {
+    const text = ({
+      invalid_credentials: 'Incorrect email or password.',
+      email_already_registered: 'An account with this email already exists. Sign in or reset your password instead.',
+      invalid_email: 'Enter a valid email address.',
+      password_too_short: 'Password must be at least 8 characters.',
+      telegram_not_linked: 'This Telegram account isn’t connected to a SYLVEX account yet. Log in or register with email/Google, then connect Telegram from Linked accounts.',
+      invalid_google_token: 'Sign-in failed. Please try again.',
+      invalid_apple_token: 'Sign-in failed. Please try again.',
+      google_oauth_not_configured: 'This sign-in method isn’t available yet.',
+      apple_oauth_not_configured: 'This sign-in method isn’t available yet.',
+      email_unsupported_for_id_format: 'This email address isn’t supported yet - please try a different one.',
+      origin_not_allowed: 'Sign-in isn’t available on this address. Please open SYLVEX from sylvex.ai.',
+    })[code];
+    if (text) return text;
+    if (status === 503) return 'Accounts aren’t available on this server right now. Please try again later.';
+    return 'Something went wrong. Please try again.';
   }
 
   function openForgotPassword(parentOverlay) {

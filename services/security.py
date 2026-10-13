@@ -209,6 +209,15 @@ def security_response_headers():
   result.append((b'strict-transport-security',b'max-age=63072000; includeSubDomains'))
  return result
 
+def same_origin_request(headers,source):
+ """True when `source` (an Origin or Referer value) names this very host,
+ over https in production."""
+ host=headers.get(b'host',b'').decode().strip().lower()
+ if not host or not source: return False
+ parsed=urlsplit(source)
+ if not parsed.netloc or parsed.netloc.lower()!=host: return False
+ return parsed.scheme=='https' or (parsed.scheme=='http' and not is_production())
+
 def origin_allowed(headers):
  """CSRF guard for the cookie-authenticated website-session surface: the
  sylvex_web_session cookie is necessarily SameSite=None (the Pro Studio
@@ -232,11 +241,17 @@ def origin_allowed(headers):
  never sets WEBSITE_ORIGINS - see tests/conftest.py's APP_ENV='test') an
  unset WEBSITE_ORIGINS still no-ops, since there the real website origin
  is unknowable to configure in the first place."""
+ origin=headers.get(b'origin',b'').decode().strip().rstrip('/')
+ referer=headers.get(b'referer',b'').decode().strip()
+ # Same-origin requests are never cross-site: the browser itself sets both
+ # Origin and Host, so a page on another site can't make them match. This
+ # is the Mini App opened directly in a browser (no Telegram) - its pages
+ # and this API share one origin, which need not be listed in
+ # WEBSITE_ORIGINS.
+ if same_origin_request(headers,origin or referer): return True
  allowed=website_origins()
  if not allowed: return not is_production()
- origin=headers.get(b'origin',b'').decode().strip().rstrip('/')
  if origin: return origin in allowed
- referer=headers.get(b'referer',b'').decode().strip()
  if referer:
   parsed=urlsplit(referer)
   if parsed.scheme and parsed.netloc: return f'{parsed.scheme}://{parsed.netloc}' in allowed

@@ -64,6 +64,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
+from services.runtime_checks import is_production as runtime_is_production
 from services.security import (
     SecurityMiddleware, SecurityError, validated_user, actor_id, actor_init_data,
     WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
@@ -13560,16 +13561,37 @@ def ensure_stripe_catalog(force: bool = False) -> dict:
         return mapping
 
 
-def create_stripe_checkout(telegram_id: int, product: dict) -> dict:
+def miniapp_return_base(request: Request):
+    """The Mini App's own origin when it is the caller (opened in a plain
+    browser, same origin as this API), else None. Origin must name this very
+    host, so a return URL can never point anywhere else."""
+    origin = (request.headers.get("origin") or "").strip().rstrip("/")
+    host = (request.headers.get("host") or "").strip().lower()
+    parsed = urllib.parse.urlsplit(origin)
+    if not origin or not host or parsed.netloc.lower() != host or parsed.scheme not in {"https", "http"}:
+        return None
+    if parsed.scheme == "http" and runtime_is_production():
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def stripe_return_urls(order_id: str, miniapp_base=None):
+    if miniapp_base:
+        base = f"{miniapp_base}/webapp/index.html?view=shop&provider=stripe&order_id={order_id}&payment="
+        return base + "success", base + "cancelled"
+    store_url = f"{WEBSITE_URL.rstrip('/')}/store.html"
+    return (f"{store_url}?payment=success&provider=stripe&order_id={order_id}",
+            f"{store_url}?payment=cancelled&provider=stripe&order_id={order_id}")
+
+
+def create_stripe_checkout(telegram_id: int, product: dict, miniapp_base=None) -> dict:
     ensure_stripe_tables()
     if product["kind"] == "subscription" and stripe_billing.has_live_subscription(shop_db, telegram_id, stripe_client().livemode):
         raise StripeCheckoutRefused("stripe_subscription_active")
     mapping = ensure_stripe_catalog()
     order = shop_orders.create_order(shop_db, telegram_id, product, shop_catalog.PROVIDER_STRIPE,
                                      stripe_billing.CHECKOUT_TTL_SECONDS + 300)
-    store_url = f"{WEBSITE_URL.rstrip('/')}/store.html"
-    success_url = f"{store_url}?payment=success&provider=stripe&order_id={order['order_id']}"
-    cancel_url = f"{store_url}?payment=cancelled&provider=stripe&order_id={order['order_id']}"
+    success_url, cancel_url = stripe_return_urls(order["order_id"], miniapp_base)
     client = stripe_client()
     customer_id = stripe_billing.get_customer(shop_db, telegram_id, client.livemode)
     if not customer_id and STRIPE_TEST_CLOCKS and not client.livemode:
@@ -13698,7 +13720,8 @@ async def public_stripe_checkout(request: Request):
     except shop_catalog.CatalogError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=400)
     try:
-        result = await asyncio.to_thread(create_stripe_checkout, telegram_id, product)
+        miniapp_base = miniapp_return_base(request) if data.get("return_to") == "miniapp" else None
+        result = await asyncio.to_thread(create_stripe_checkout, telegram_id, product, miniapp_base)
     except StripeCheckoutRefused as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     except Exception as exc:
@@ -13718,6 +13741,8 @@ async def public_stripe_portal(request: Request):
         return JSONResponse({"ok": False, "error": "stripe_not_available_in_telegram"}, status_code=403)
     if not stripe_enabled():
         return JSONResponse({"ok": False, "error": "stripe_not_configured"}, status_code=503)
+    miniapp_base = miniapp_return_base(request) if data.get("return_to") == "miniapp" else None
+    return_url = f"{miniapp_base}/webapp/index.html?view=shop" if miniapp_base else f"{WEBSITE_URL.rstrip('/')}/store.html"
 
     def portal():
         ensure_stripe_tables()
@@ -13726,7 +13751,7 @@ async def public_stripe_portal(request: Request):
         if not customer_id:
             return None
         return client.request("POST", "/billing_portal/sessions",
-                              {"customer": customer_id, "return_url": f"{WEBSITE_URL.rstrip('/')}/store.html"})
+                              {"customer": customer_id, "return_url": return_url})
 
     try:
         session = await asyncio.to_thread(portal)
@@ -14303,6 +14328,12 @@ def _web_session_payload(account_id: int) -> dict:
     return {
         "authenticated": True,
         "sylvex_user_id": int(account_id),
+        # The account's internal storage key - the id SecurityMiddleware
+        # already resolves this cookie to for every protected route. The
+        # Mini App opened in a plain browser sends it as telegram_id (any
+        # other value is rejected as user_mismatch), exactly like the
+        # Telegram path sends the real Telegram id.
+        "storage_id": int(summary["active_telegram_id"]) if summary.get("active_telegram_id") else None,
         "display_name": state.get("display_name") or state.get("first_name"),
         "first_name": state.get("first_name"),
         "username": state.get("username"),
