@@ -676,6 +676,13 @@ class SecurityMiddleware:
   # every route authenticates its own admin session (cookie + CSRF + Origin,
   # see main._admin_v2_actor), so the Telegram identity step is skipped here.
   is_public=is_public or path.startswith('/api/admin/v2/')
+  # Admin Console calling a v1 /api/admin/* route with its admin session
+  # (cookie or X-Admin-Session) and no Telegram/service credential: the
+  # route's _admin_actor() validates that session (Origin + CSRF + RBAC).
+  if path.startswith('/api/admin/') and not headers.get(b'x-telegram-init-data') \
+     and not headers.get(b'x-admin-service-token') and not headers.get(b'authorization') \
+     and (headers.get(b'x-admin-session') or b'__Host-sylvex_admin=' in headers.get(b'cookie',b'')):
+   is_public=True
   is_webhook=path in WEBHOOKS
   # CSRF guard: every /api/web/* route authenticates off the sylvex_web_session
   # cookie (SameSite=None, required for the cross-origin Pro Studio iframe

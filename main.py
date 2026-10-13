@@ -9951,6 +9951,76 @@ def _admin_service_token_from_headers(request: Optional[Request]) -> str:
     return str(request.headers.get("x-admin-service-token") or "").strip()
 
 
+ADMIN_SESSION_HEADER = "x-admin-session"
+
+
+def _admin_session_token(request: Optional[Request]) -> str:
+    """The admin session token: the __Host- cookie (browser), or the
+    X-Admin-Session header (the Telegram Mini App, where Telegram Web runs
+    it in a cross-site iframe that never receives a SameSite=Strict cookie;
+    the Mini App keeps the token in memory only)."""
+    if request is None:
+        return ""
+    return (request.cookies.get(admin_auth.SESSION_COOKIE) or request.headers.get(ADMIN_SESSION_HEADER) or "").strip()
+
+
+def _admin_origin_ok(request: Request) -> bool:
+    """A state change must come from the console itself: a configured
+    console origin, or the same host that serves this API (the console at
+    /admin on the API domain)."""
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    if not origin:
+        return False
+    if origin in ADMIN_CONSOLE_ORIGINS:
+        return True
+    from urllib.parse import urlparse
+    host = (request.headers.get("host") or "").lower()
+    return bool(host) and urlparse(origin).netloc.lower() == host
+
+
+def _admin_actor_from_session(token: str, request: Request, permission: str, owner_only: bool) -> dict:
+    """v1 routes called by the Admin Console with an admin session: the same
+    checks as v2 (Origin + CSRF on every call - all v1 routes are POST -,
+    permission, and fresh re-authentication for Critical permissions)."""
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_unavailable")
+    ensure_admin_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        try:
+            admin, session = admin_auth.resolve_session(cursor, token)
+        except admin_auth.AdminAuthError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.code)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+    if not _admin_origin_ok(request):
+        raise HTTPException(status_code=403, detail="origin_not_allowed")
+    presented = request.headers.get(admin_auth.CSRF_HEADER) or ""
+    if not presented or not hmac.compare_digest(presented, session["csrf_token"]):
+        raise HTTPException(status_code=403, detail="csrf_token_invalid")
+    is_owner = admin["role"] == admin_rbac.OWNER
+    if owner_only and not is_owner:
+        raise HTTPException(status_code=403, detail="owner_access_required")
+    if permission:
+        if permission not in admin_rbac.PERMISSIONS:
+            raise HTTPException(status_code=500, detail="unknown_permission")
+        if permission not in admin["permissions_set"]:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        if admin_rbac.risk_of(permission) == admin_rbac.CRITICAL and not session["reauth_fresh"]:
+            raise HTTPException(status_code=403, detail="reauth_required")
+    return {
+        "telegram_id": admin["telegram_id"], "role": admin["role"],
+        "permissions": ["all"] if is_owner else admin_rbac.legacy_names(admin["permissions_set"]),
+        "effective_permissions": sorted(admin["permissions_set"]),
+        "admin_id": admin["admin_id"], "account_id": admin["account_id"], "sylvex_user_id": str(admin["account_id"]),
+        "channel": session["channel"], "session_id": session["session_id"], "permissions_set": admin["permissions_set"],
+        "grants": admin["grants"], "denies": admin["denies"],
+    }
+
+
 def _admin_actor(payload: dict, request: Optional[Request] = None, permission: str = "", owner_only: bool = False) -> dict:
     """The admin behind a v1 /api/admin/* request, or HTTP 403.
 
@@ -9967,6 +10037,9 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
     payload = payload or {}
     service_token = _admin_service_token_from_headers(request)
     service_authenticated = bool(ADMIN_SERVICE_TOKEN) and bool(service_token) and hmac.compare_digest(service_token, ADMIN_SERVICE_TOKEN)
+    session_token = "" if service_authenticated else _admin_session_token(request)
+    if session_token:
+        return _admin_actor_from_session(session_token, request, permission, owner_only)
     if service_authenticated:
         channel = "bot"
         telegram_id = int(payload.get("telegram_id") or 0)
@@ -10484,6 +10557,55 @@ async def admin_audit(request: Request):
 
 
 # =====================================================
+# Admin Console UI (/admin) - the built React app in admin_console/dist.
+# Opened in a browser or as the Support Bot's "SYLVEX Admin" Mini App; all
+# data comes from /api/admin/* with the admin session. A strict CSP for this
+# page only: its own scripts plus Telegram's Mini App SDK, API calls to this
+# origin only.
+# =====================================================
+ADMIN_CONSOLE_DIST = (BASE_DIR / "admin_console" / "dist").resolve()
+ADMIN_CONSOLE_CSP = ("default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; "
+                     "img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self'; "
+                     "font-src 'self' data:; form-action 'self'; "
+                     # Only Telegram (Mini App iframe on Telegram Web) may frame the
+                     # console - not the public website origins the shared
+                     # middleware CSP allows; browsers enforce both policies.
+                     "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org")
+
+
+def _admin_console_file(path: str):
+    root = ADMIN_CONSOLE_DIST
+    target = (root / path).resolve() if path else root / "index.html"
+    if root not in target.parents or not target.is_file():
+        target = root / "index.html"  # client-side routes fall back to the app shell
+    if not target.is_file():
+        return JSONResponse({"ok": False, "error": "admin_console_not_built"}, status_code=503)
+    response = FileResponse(target)
+    response.headers["Content-Security-Policy"] = ADMIN_CONSOLE_CSP
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    # The shell must always be fresh; hashed assets can be cached forever.
+    response.headers["Cache-Control"] = ("public, max-age=31536000, immutable" if "/assets/" in str(target)
+                                         else "no-store")
+    return response
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_console_root():
+    return RedirectResponse("/admin/", status_code=307)
+
+
+@app.get("/admin/", include_in_schema=False)
+async def admin_console_index():
+    return _admin_console_file("")
+
+
+@app.get("/admin/{path:path}", include_in_schema=False)
+async def admin_console_asset(path: str):
+    return _admin_console_file(path)
+
+
+# =====================================================
 # Admin Console API v2 (/api/admin/v2/*)
 # Session-authenticated (admin_auth): Telegram Mini App or web + TOTP, an
 # HttpOnly SameSite=Strict cookie, CSRF header + Origin check on every
@@ -10526,12 +10648,11 @@ def _admin_v2_actor(cursor, request: Request, permission: str = "", *, mutation:
     side effect: session, Origin + CSRF for state changes, permission, and
     a fresh re-authentication for Critical permissions."""
     try:
-        admin, session = admin_auth.resolve_session(cursor, request.cookies.get(admin_auth.SESSION_COOKIE))
+        admin, session = admin_auth.resolve_session(cursor, _admin_session_token(request))
     except admin_auth.AdminAuthError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.code)
     if mutation:
-        origin = (request.headers.get("origin") or "").rstrip("/")
-        if origin not in ADMIN_CONSOLE_ORIGINS:
+        if not _admin_origin_ok(request):
             raise HTTPException(status_code=403, detail="origin_not_allowed")
         presented = request.headers.get(admin_auth.CSRF_HEADER) or ""
         if not presented or not hmac.compare_digest(presented, session["csrf_token"]):
@@ -10569,7 +10690,7 @@ def _admin_v2_run(work):
 def _admin_v2_ready(request: Optional[Request] = None):
     """Credentials are checked before anything else, so an anonymous request
     is always a 401 - never a 5xx that reveals backend state."""
-    if request is not None and not request.cookies.get(admin_auth.SESSION_COOKIE):
+    if request is not None and not _admin_session_token(request):
         raise HTTPException(status_code=401, detail="admin_session_required")
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_unavailable")
@@ -10610,7 +10731,12 @@ async def admin_v2_auth_telegram(request: Request):
         return admin, token, csrf
 
     admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
-    response = _admin_json(_admin_session_payload(admin, csrf, "miniapp"))
+    payload = _admin_session_payload(admin, csrf, "miniapp")
+    if body.get("mode") == "miniapp":
+        # Inside Telegram the console sends this as X-Admin-Session (kept in
+        # memory only); Telegram Web's cross-site iframe drops the cookie.
+        payload["session_token"] = token
+    response = _admin_json(payload)
     _admin_set_session_cookie(response, token)
     return response
 
