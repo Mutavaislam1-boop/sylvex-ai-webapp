@@ -627,3 +627,116 @@ async def test_console_served_from_the_api_host_is_an_allowed_origin(ready, monk
     assert r.status_code == 200, r.text
     r = await call(env, "POST", "/api/admin/me", cookie=token, csrf=csrf, origin="https://other.test", json_body={})
     assert r.status_code == 403
+
+
+# --- Browser bootstrap owner (ADMIN_OWNER_EMAIL) ---------------------------------
+
+DEV_EMAIL = "developer@gmail.com"
+DEV_PASSWORD = "correcthorsebattery"
+
+
+def _web_account(env, email, verified=True, password=DEV_PASSWORD):
+    account_id = env.ai.register_email_account("pglite://test", email, password)
+    if verified:
+        q(env, "UPDATE account_emails SET email_verified = TRUE WHERE account_id = %s", (account_id,))
+    return account_id
+
+
+async def _web(env, **body):
+    return await call(env, "POST", "/api/admin/v2/auth/web", json_body=body)
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_owner_sets_up_2fa_in_the_browser_then_needs_the_code(ready, monkeypatch):
+    env = ready
+    monkeypatch.setenv("ADMIN_OWNER_EMAIL", DEV_EMAIL)
+    account_id = _web_account(env, DEV_EMAIL)
+    # Step 1: email + password -> QR (no session yet), owner record created once.
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["totp_setup_required"] and data["otpauth_uri"].startswith("otpauth://totp/") and _cookie(r)[0] is None
+    assert q(env, "SELECT role, status FROM admin_accounts WHERE account_id = %s", (account_id,)) == [["owner", "active"]]
+    assert q(env, "SELECT COUNT(*) FROM admin_audit_events WHERE action = 'owner_bootstrapped_from_email'") == [[1]]
+    # Step 2: a wrong code is refused, the right one turns 2FA on and signs in.
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD, setup_code="000000")
+    assert r.status_code == 401 and _cookie(r)[0] is None
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD, setup_code=_totp(data["secret"]))
+    assert r.status_code == 200, r.text
+    assert r.json()["admin"]["role"] == "owner" and r.json()["session"]["channel"] == "web" and _cookie(r)[0]
+    # From now on: no QR, the 6-digit code is required.
+    q(env, "UPDATE admin_accounts SET totp_last_step = NULL")
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD)
+    assert r.status_code == 401 and r.json()["error"] == "totp_required" and "secret" not in r.text
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD, setup_code=_totp(data["secret"]))
+    assert r.status_code == 401
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD, totp=_totp(data["secret"]))
+    assert r.status_code == 200, r.text
+    # Signing in again never re-creates or re-promotes anything.
+    assert q(env, "SELECT COUNT(*) FROM admin_audit_events WHERE action = 'owner_bootstrapped_from_email'") == [[1]]
+
+
+@pytest.mark.asyncio
+async def test_other_users_are_rejected_before_any_qr(ready, monkeypatch):
+    env = ready
+    monkeypatch.setenv("ADMIN_OWNER_EMAIL", DEV_EMAIL)
+    _web_account(env, "someone@gmail.com")
+    r = await _web(env, email="someone@gmail.com", password=DEV_PASSWORD)
+    assert r.status_code == 403 and r.json()["error"] == "admin_access_denied" and "secret" not in r.text
+    # An existing admin without 2FA gets no browser QR either (Mini App only, as before).
+    _add_password(env, ADMIN_TG)
+    r = await _web(env, email="admin@test.com", password="correcthorsebattery")
+    assert r.status_code == 403 and r.json()["error"] == "totp_enrollment_required" and "secret" not in r.text
+    assert q(env, "SELECT COUNT(*) FROM admin_accounts WHERE role = 'owner'") == [[1]]  # only the Telegram owner
+
+
+@pytest.mark.asyncio
+async def test_owner_email_must_be_verified_and_configured(ready, monkeypatch):
+    env = ready
+    account_id = _web_account(env, DEV_EMAIL, verified=False)
+    monkeypatch.setenv("ADMIN_OWNER_EMAIL", DEV_EMAIL)
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD)
+    assert r.status_code == 403 and "secret" not in r.text
+    q(env, "UPDATE account_emails SET email_verified = TRUE WHERE account_id = %s", (account_id,))
+    monkeypatch.setenv("ADMIN_OWNER_EMAIL", "")
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD)
+    assert r.status_code == 403
+    monkeypatch.setenv("ADMIN_OWNER_EMAIL", "other.dev@gmail.com")
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD)
+    assert r.status_code == 403
+    r = await _web(env, email=DEV_EMAIL, password="wrong-password-123")
+    assert r.status_code == 401
+    assert q(env, "SELECT COUNT(*) FROM admin_accounts WHERE account_id = %s", (account_id,)) == [[0]]
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_never_revives_a_suspended_owner_and_setup_codes_lock_out(ready, monkeypatch):
+    env = ready
+    monkeypatch.setenv("ADMIN_OWNER_EMAIL", DEV_EMAIL)
+    account_id = _web_account(env, DEV_EMAIL)
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD)
+    secret = r.json()["secret"]
+    for _ in range(5):
+        assert (await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD, setup_code="000000")).status_code == 401
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD, setup_code=_totp(secret))
+    assert r.status_code == 429 and r.json()["error"] == "totp_locked"
+    q(env, "UPDATE admin_accounts SET status = 'suspended' WHERE account_id = %s", (account_id,))
+    r = await _web(env, email=DEV_EMAIL, password=DEV_PASSWORD)
+    assert r.status_code == 403 and r.json()["error"] == "admin_access_denied"
+    assert q(env, "SELECT status FROM admin_accounts WHERE account_id = %s", (account_id,)) == [["suspended"]]
+
+
+@pytest.mark.asyncio
+async def test_owner_adds_an_admin_by_verified_email(ready):
+    env = ready
+    token, csrf = await login(env, OWNER_TG)
+    verified = _web_account(env, "helper@gmail.com")
+    _web_account(env, "unverified@gmail.com", verified=False)
+    body = {"role": "support", "reason": "new support teammate"}
+    r = await call(env, "POST", "/api/admin/v2/admins", cookie=token, csrf=csrf, json_body={**body, "email": "unverified@gmail.com"})
+    assert r.status_code == 409 and r.json()["detail"] == "email_not_verified"
+    r = await call(env, "POST", "/api/admin/v2/admins", cookie=token, csrf=csrf, json_body={**body, "email": "nobody@gmail.com"})
+    assert r.status_code == 404
+    r = await call(env, "POST", "/api/admin/v2/admins", cookie=token, csrf=csrf, json_body={**body, "email": " Helper@Gmail.com "})
+    assert r.status_code == 200, r.text
+    assert r.json()["admin"]["sylvex_user_id"] == str(verified) and r.json()["admin"]["role"] == "support"

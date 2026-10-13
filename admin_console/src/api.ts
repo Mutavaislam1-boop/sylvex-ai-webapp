@@ -85,7 +85,7 @@ const MESSAGES: Record<string, string> = {
   reauth_failed: "Re-authentication failed.",
   totp_invalid: "That code is not valid. Use the current code from your authenticator.",
   totp_locked: "Too many wrong codes. Try again in 15 minutes.",
-  totp_enrollment_required: "Set up two-factor authentication from the Telegram Mini App first.",
+  totp_enrollment_required: "Two-factor authentication is not set up for this admin. Set it up from the Telegram Mini App first.",
   invalid_credentials: "Email or password is incorrect.",
   too_many_attempts: "Too many attempts. Try again later.",
   user_not_found: "User not found.",
@@ -119,6 +119,9 @@ const MESSAGES: Record<string, string> = {
   database_unavailable: "The database is unavailable.",
   rate_limited: "Too many requests. Wait a minute and try again.",
   request_too_large: "The request is too large.",
+  totp_required: "Enter your 6-digit 2FA code.",
+  totp_enrollment_not_started: "Two-factor setup expired. Sign in again to get a new QR code.",
+  email_not_verified: "This email is not verified yet. The person must confirm it first.",
 };
 
 export function errorText(err: unknown): string {
