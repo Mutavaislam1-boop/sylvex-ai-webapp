@@ -11863,7 +11863,11 @@ function removeVisualCreatePhoto(e, index) {
 // a job_id - callers must poll it with pollCharacterCreationJob().
 async function createCharacterCreationJob(name, photos, gender, description) {
   const tg = getTelegramId();
-  if (!tg) throw new Error('telegram_id_required');
+  if (!tg) {
+    // Browser guest: creating needs a SYLVEX account - offer sign-in.
+    if (S.isBrowserApp && S.isBrowserApp() && S.openWebAuthGate) S.openWebAuthGate();
+    throw new Error('telegram_id_required');
+  }
   const res = await fetch('/api/public/prostudio/character', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -12352,7 +12356,11 @@ async function restorePendingCharacterCreationJobs() {
 // running server-side even if this browser disconnects.
 async function createObjectCreationJob(name, photos, description) {
   const tg = getTelegramId();
-  if (!tg) throw new Error('telegram_id_required');
+  if (!tg) {
+    // Browser guest: creating needs a SYLVEX account - offer sign-in.
+    if (S.isBrowserApp && S.isBrowserApp() && S.openWebAuthGate) S.openWebAuthGate();
+    throw new Error('telegram_id_required');
+  }
   const res = await fetch('/api/public/prostudio/object', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -25500,6 +25508,43 @@ async function waitGeneration(jobId, options) {
     return !isWebEmbed() && !hasTelegramContext();
   }
   S.isBrowserApp = isBrowserApp;
+  // Browser guest (not signed in): the home user card shows Log in / Sign up
+  // instead of account details (see .user-guest in cabinet.html).
+  function setBrowserGuest(on) {
+    document.documentElement.classList.toggle('browser-guest', !!on && isBrowserApp());
+  }
+  function isBrowserGuest() {
+    return document.documentElement.classList.contains('browser-guest');
+  }
+  // A guest who taps something that needs an account (generate, create,
+  // pay, ...) gets the sign-in window instead of a bare error: an action
+  // (non-GET) API call refused for lack of an account right after a tap or
+  // key press opens it. Loading a section (GET) or background requests never
+  // do, so a guest can browse freely.
+  function initBrowserGuestPrompts() {
+    if (!isBrowserApp() || initBrowserGuestPrompts.done) return;
+    initBrowserGuestPrompts.done = true;
+    let lastInteraction = 0;
+    const mark = () => { lastInteraction = Date.now(); };
+    ['pointerdown', 'keydown'].forEach((type) => document.addEventListener(type, mark, true));
+    const originalFetch = window.fetch;
+    window.fetch = function (input, init) {
+      return originalFetch.call(this, input, init).then((response) => {
+        try {
+          const method = String((init && init.method) || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+          if (response.status === 401 && method !== 'GET' && isBrowserGuest() && Date.now() - lastInteraction < 4000) {
+            const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+            if (url.origin === window.location.origin && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/web/auth/')) {
+              response.clone().json().then((body) => {
+                if (body && ['invalid_init_data', 'telegram_user_missing'].includes(body.error) && S.openWebAuthGate) S.openWebAuthGate();
+              }).catch(() => {});
+            }
+          }
+        } catch {}
+        return response;
+      });
+    };
+  }
   S.hasTelegramContext = hasTelegramContext;
   S.usesWebSessionAuth = usesWebSessionAuth;
   S.isWebEmbed = isWebEmbed;
@@ -27200,6 +27245,9 @@ async function waitGeneration(jobId, options) {
     // difference below (hiding Telegram-specific controls, Website desktop
     // layout, ...) instead of scattering isWebEmbed() checks through markup.
     document.documentElement.classList.toggle('web-embed', isWebEmbed());
+    // Mini App opened directly in a browser (never inside Telegram).
+    document.documentElement.classList.toggle('browser-app', isBrowserApp());
+    initBrowserGuestPrompts();
 
     // Restore saved theme.
     restoreAppTheme();
@@ -27260,9 +27308,11 @@ async function waitGeneration(jobId, options) {
       restorePendingCharacterCreationJobs();
       restorePendingObjectCreationJobs();
     };
-    S.onWebSignedIn = loadAccountData;
+    S.onWebSignedIn = () => { setBrowserGuest(false); loadAccountData(); };
     if (usesWebSessionAuth() && S.syncWebSession) {
       Promise.resolve(S.syncWebSession()).then((user) => {
+        // Browser: signing in is optional - a guest can explore the app.
+        setBrowserGuest(!user);
         if (!user && S.ensureWebAuthGate) S.ensureWebAuthGate();
         if (user) loadAccountData();
       }).finally(() => {

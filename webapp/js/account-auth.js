@@ -42,6 +42,7 @@
       .sylvexAuth-btn.danger{background:transparent;color:#ff6b6b;border:1px solid rgba(255,107,107,.4);}
       .sylvexAuth-btn[disabled]{opacity:.5;cursor:not-allowed;}
       .sylvexAuth-link{display:block;text-align:center;font-size:13px;color:var(--st-accent,#5b8dff);cursor:pointer;margin-top:2px;padding:6px 0;}
+      .sylvexAuth-guest{color:var(--st-dim,#9a9aa2);margin-top:6px;}
       .sylvexAuth-error{font-size:13px;color:#ff6b6b;margin:-4px 0 10px;min-height:1em;}
       .sylvexAuth-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--st-line,rgba(255,255,255,.08));font-size:14px;}
       .sylvexAuth-row:last-child{border-bottom:none;}
@@ -202,18 +203,31 @@
   // to fall back on (standalone browser, or the website's own embed).
   // ---------------------------------------------------------------------
   let authGateOpen = false;
+  // A guest who closed the window is not asked again on every reload in this
+  // browser tab; account actions still open it when they need an account.
+  const GATE_DISMISSED_KEY = 'sylvex-auth-gate-dismissed';
+  function gateDismissed() {
+    try { return sessionStorage.getItem(GATE_DISMISSED_KEY) === '1'; } catch { return false; }
+  }
 
   function ensureWebAuthGate() {
-    if (authGateOpen) return;
+    if (authGateOpen || gateDismissed()) return;
     if (S.usesWebSessionAuth && !S.usesWebSessionAuth()) return;
     openWebAuthGate();
   }
 
+  // Optional sign-in: the window can be closed (×, outside, "Continue as
+  // guest") and the app stays usable as a guest.
   function openWebAuthGate() {
     if (authGateOpen) return;
     authGateOpen = true;
     let mode = 'login';
-    const overlay = openOverlay('', { persistent: true });
+    const overlay = openOverlay('', {
+      onClose: () => {
+        authGateOpen = false;
+        try { sessionStorage.setItem(GATE_DISMISSED_KEY, '1'); } catch {}
+      },
+    });
 
     function render() {
       const isLogin = mode === 'login';
@@ -232,8 +246,10 @@
          ${hasApple ? '<button class="sylvexAuth-btn secondary" id="saApple">Sign in with Apple</button>' : ''}
          <div id="saTgHost"></div>
          <div class="sylvexAuth-link" id="saToggle">${isLogin ? 'New to SYLVEX? Create an account' : 'Already have an account? Sign in'}</div>
-         ${isLogin ? '<div class="sylvexAuth-link" id="saForgot">Forgot password?</div>' : ''}`
+         ${isLogin ? '<div class="sylvexAuth-link" id="saForgot">Forgot password?</div>' : ''}
+         <div class="sylvexAuth-link sylvexAuth-guest" id="saGuest">Continue as guest</div>`
       );
+      q(overlay, '#saGuest').onclick = () => q(overlay, '.sylvexAuth-close').click();
       q(overlay, '#saToggle').onclick = () => { mode = isLogin ? 'register' : 'login'; render(); };
       if (isLogin) q(overlay, '#saForgot').onclick = () => openForgotPassword(overlay);
       q(overlay, '#saSubmit').onclick = () => submit(isLogin);
