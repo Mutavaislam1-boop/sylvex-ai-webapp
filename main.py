@@ -14140,13 +14140,10 @@ async def web_account_delete(request: Request):
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    # COOKIE-2: explicit revocation attempt on top of the row itself
-    # already being gone (defense in depth - the UPDATE here affects zero
-    # rows since delete_account() already deleted it, so this is a no-op;
-    # current_web_session_generation() would likewise find no row and
-    # treat the account as generation 0, but every other lookup on a
-    # deleted account_id also comes up empty, so this never grants access
-    # to anything real either way).
+    # COOKIE-2: revoke every session of this account. When the account is
+    # still used through Telegram its row (and SYLVEX ID) stays, so this
+    # bumps its generation; when the row was removed it is a no-op, and
+    # every lookup on the deleted account_id comes up empty anyway.
     await asyncio.to_thread(revoke_web_sessions, account_id)
     response = JSONResponse({"ok": True})
     response.delete_cookie(
@@ -14199,8 +14196,8 @@ async def web_account_telegram_preview(request: Request):
 @app.post("/api/web/account/telegram/confirm")
 async def web_account_telegram_confirm(request: Request):
     # Step 2: the deliberate, one-time, permanent merge (spec requirements
-    # #9-#11). account_id/the session cookie never change - only the
-    # account's underlying business data moves onto the real telegram_id.
+    # #9-#11). The business data moves onto the real telegram_id; the older
+    # of the two accounts keeps its SYLVEX ID (see account_identity).
     account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
@@ -14224,8 +14221,15 @@ async def web_account_telegram_confirm(request: Request):
         if error == "telegram_already_linked":
             return JSONResponse({"ok": False, "error": error, "conflict": True}, status_code=status)
         return JSONResponse({"ok": False, "error": error}, status_code=status)
-    body = await asyncio.to_thread(_web_session_payload, account_id)
-    return {"ok": True, "merge_result": result, **body}
+    # When the Telegram user's account was the older one, it keeps its
+    # SYLVEX ID and this website account became its alias (its sessions
+    # were revoked by the merge) - continue this browser as the survivor.
+    survivor_id = int(result.get("sylvex_user_id") or account_id)
+    body = await asyncio.to_thread(_web_session_payload, survivor_id)
+    response = JSONResponse({"ok": True, "merge_result": result, **body})
+    if survivor_id != account_id:
+        await _set_web_session_cookie(response, survivor_id)
+    return response
 
 
 # ---------------------------------------------------------------------------

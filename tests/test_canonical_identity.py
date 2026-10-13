@@ -2,9 +2,10 @@
 
 - Every Telegram user gets a SYLVEX ID with CC=99 (SS 0626 99 NNNN), from a
   users trigger for new users and a batch backfill for existing ones.
-- Website SYLVEX IDs never change; a merge keeps the website ID canonical
-  and retires the Telegram-origin ID into a permanent alias, which is
-  reactivated (never reissued) if the website identity is deleted.
+- A SYLVEX ID never changes when another identity is linked. Merging two
+  accounts that both have an ID keeps the OLDER one; the other becomes a
+  permanent alias (still resolves, never reused), and deleting a login
+  never changes or flips the canonical ID.
 - Admin APIs present the canonical identity block and never a 900... storage
   key outside the owner-only `technical` section.
 
@@ -214,31 +215,133 @@ def test_backfill_script_refuses_before_schema_is_deployed(database):
 
 # --- merge, link status, deletion ----------------------------------------
 
-def test_merge_keeps_website_id_and_retires_telegram_id_into_alias(ai, database, monkeypatch):
+def set_created(database, account_id, when):
+    q(database, "UPDATE sylvex_accounts SET created_at = %s::timestamp WHERE account_id = %s", (when, account_id))
+
+
+def alias_row(database, account_id):
+    return q(database, "SELECT active_telegram_id, merged_into_account_id, merged_telegram_id FROM sylvex_accounts "
+                       "WHERE account_id = %s", (account_id,))[0]
+
+
+def no_email(monkeypatch, ai):
+    monkeypatch.setattr(ai, "send_verification_email", lambda *a, **k: None)
+
+
+def test_telegram_account_later_adds_email_keeps_its_id(ai, database, monkeypatch):
+    no_email(monkeypatch, ai)
+    add_user(database, 7000000001)
+    tg_id = account_of(database, 7000000001)[0]
+    ai.set_email_for_account("pglite://test", tg_id, "late@test.com", "correcthorsebattery")
+    assert account_of(database, 7000000001) == (tg_id, "telegram")
+    assert q(database, "SELECT account_id FROM account_emails WHERE email = 'late@test.com'") == [[tg_id]]
+    assert ai.get_link_status_for_telegram("pglite://test", 7000000001)["sylvex_user_id"] == str(tg_id)
+    assert ai.login_via_telegram_widget("pglite://test", 7000000001) == tg_id
+
+
+def test_website_account_later_adds_new_telegram_keeps_its_id(ai, database):
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    result = ai._do_merge("pglite://test", web_id, 7000000077, None, "New", False)
+    assert result["sylvex_user_id"] == str(web_id) and result["retired_sylvex_user_id"] is None
+    assert account_of(database, 7000000077) == (web_id, "website")
+    # No Telegram-origin ID was minted for a Telegram id that only ever
+    # existed as part of this account.
+    assert q(database, "SELECT COUNT(*) FROM sylvex_accounts") == [[1]]
+    assert ai.allocate_telegram_sylvex_user_id(database.connect().cursor()) == 110626990001
+
+
+def test_website_account_adds_telegram_user_whose_account_is_newer(ai, database):
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    set_created(database, web_id, "2025-01-01 00:00:00")
+    add_user(database, 7000000001)
+    tg_id = account_of(database, 7000000001)[0]
+    set_created(database, tg_id, "2026-06-01 00:00:00")
+    preview = ai.preview_merge("pglite://test", web_id, 7000000001)
+    assert (preview["surviving_sylvex_user_id"], preview["retired_sylvex_user_id"]) == (str(web_id), str(tg_id))
+    ai._do_merge("pglite://test", web_id, 7000000001, None, None, False)
+    assert account_of(database, 7000000001) == (web_id, "website")
+    assert alias_row(database, tg_id) == [None, web_id, 7000000001]
+
+
+def test_merge_two_existing_accounts_older_id_survives(ai, database):
     add_user(database, 7000000001, balance=10)
-    tg_account = account_of(database, 7000000001)[0]
-    web_account, storage = new_website_account(database, ai, "zed@test.com")
-    assert ai.preview_merge("pglite://test", web_account, 7000000001)["status"] == "ok"
-    ai._do_merge("pglite://test", web_account, 7000000001, None, None, False)
-    assert account_of(database, 7000000001) == (web_account, "website")
-    alias = q(database, "SELECT active_telegram_id, merged_into_account_id, merged_telegram_id FROM sylvex_accounts WHERE account_id = %s",
-              (tg_account,))[0]
-    assert alias == [None, web_account, 7000000001]
-    # (the summary lookup itself is covered elsewhere; PGlite returns
-    # timestamps as strings, which its isoformat() call does not expect)
-    monkeypatch.setattr(ai, "get_account_summary", lambda *a: {"email": "zed@test.com", "email_verified": True})
+    tg_id = account_of(database, 7000000001)[0]
+    set_created(database, tg_id, "2024-03-01 00:00:00")
+    web_id, storage = new_website_account(database, ai, "zed@test.com")
+    q(database, "UPDATE users SET balance = 5 WHERE telegram_id = %s", (storage,))
+    q(database, "UPDATE sylvex_accounts SET session_generation = 3 WHERE account_id = %s", (web_id,))
+    result = ai._do_merge("pglite://test", web_id, 7000000001, None, None, False)
+    assert (result["sylvex_user_id"], result["retired_sylvex_user_id"]) == (str(tg_id), str(web_id))
+    # The older (Telegram) ID survives, unchanged; the website ID is a
+    # permanent alias whose login moved to the survivor.
+    assert account_of(database, 7000000001) == (tg_id, "telegram")
+    assert alias_row(database, web_id) == [None, tg_id, 7000000001]
+    assert q(database, "SELECT account_id FROM account_emails WHERE email = 'zed@test.com'") == [[tg_id]]
+    assert ai.login_via_telegram_widget("pglite://test", 7000000001) == tg_id
+    # The alias's web sessions are revoked; business data is consolidated.
+    assert q(database, "SELECT session_generation FROM sylvex_accounts WHERE account_id = %s", (web_id,)) == [[4]]
+    assert q(database, "SELECT balance FROM users WHERE telegram_id = 7000000001") == [[15]]
+    assert q(database, "SELECT storage_telegram_id FROM sylvex_accounts WHERE account_id = %s", (tg_id,)) == [[storage]]
+
+
+def test_search_by_retired_alias_resolves_to_the_same_final_user(ai, database):
+    from services import admin_identity
+    add_user(database, 7000000001)
+    tg_id = account_of(database, 7000000001)[0]
+    set_created(database, tg_id, "2024-03-01 00:00:00")
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    ai._do_merge("pglite://test", web_id, 7000000001, None, None, False)
+    cur = _cur(database)
+    for query in (str(tg_id), str(web_id), "zed@test.com", "7000000001"):
+        assert admin_identity.search_keys(cur, query)[:1] == [7000000001], query
+    assert admin_identity.resolve_target(cur, sylvex_user_id=str(web_id)) == 7000000001
+    identity = admin_identity.identities_for_keys(cur, [7000000001], technical=True)[7000000001]
+    assert identity["sylvex_user_id"] == str(tg_id)
+    assert identity["technical"]["alias_sylvex_user_ids"] == [str(web_id)]
+
+
+@pytest.mark.parametrize("telegram_is_older", [True, False])
+def test_deleting_the_website_login_never_changes_the_canonical_id(ai, database, telegram_is_older):
+    add_user(database, 7000000001)
+    tg_id = account_of(database, 7000000001)[0]
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    set_created(database, tg_id, "2024-01-01 00:00:00" if telegram_is_older else "2026-06-01 00:00:00")
+    set_created(database, web_id, "2025-01-01 00:00:00")
+    ai._do_merge("pglite://test", web_id, 7000000001, None, None, False)
+    canonical, alias = (tg_id, web_id) if telegram_is_older else (web_id, tg_id)
+    assert account_of(database, 7000000001)[0] == canonical
+
+    ai.delete_account("pglite://test", canonical)
+    # Website login gone; the same ID keeps serving Telegram; alias stays retired.
+    assert account_of(database, 7000000001)[0] == canonical
+    assert q(database, "SELECT COUNT(*) FROM account_emails") == [[0]]
+    assert alias_row(database, alias)[:2] == [None, canonical]
     status = ai.get_link_status_for_telegram("pglite://test", 7000000001)
-    assert status["connected"] is True and status["sylvex_user_id"] == str(web_account)
-    stored = q(database, "SELECT storage_telegram_id FROM sylvex_accounts WHERE account_id = %s", (web_account,))[0][0]
-    assert stored == storage
-    assert ai.login_via_telegram_widget("pglite://test", 7000000001) == web_account
+    assert status == {"connected": False, "sylvex_user_id": str(canonical)}
+    with pytest.raises(ai.AccountError):
+        ai.login_via_telegram_widget("pglite://test", 7000000001)
+
+    # Connecting a fresh website account later does not flip it back either:
+    # the surviving account is older, so the new website ID is the alias.
+    new_web, _ = new_website_account(database, ai, "again@test.com")
+    ai._do_merge("pglite://test", new_web, 7000000001, None, None, False)
+    assert account_of(database, 7000000001)[0] == canonical
+    assert alias_row(database, new_web)[:2] == [None, canonical]
+    assert alias_row(database, alias)[:2] == [None, canonical]
 
 
-def test_merge_for_telegram_id_with_no_users_row_yet(ai, database):
-    web_account, _ = new_website_account(database, ai, "zed@test.com")
-    ai._do_merge("pglite://test", web_account, 7000000077, None, "New", False)
-    assert account_of(database, 7000000077) == (web_account, "website")
-    assert q(database, "SELECT COUNT(*) FROM sylvex_accounts WHERE merged_into_account_id = %s", (web_account,))[0][0] == 1
+def test_retired_alias_cannot_be_merged_or_reused(ai, database):
+    add_user(database, 7000000001)
+    tg_id = account_of(database, 7000000001)[0]
+    set_created(database, tg_id, "2024-01-01 00:00:00")
+    web_id, _ = new_website_account(database, ai, "zed@test.com")
+    ai._do_merge("pglite://test", web_id, 7000000001, None, None, False)
+    with pytest.raises(ai.AccountError) as exc:
+        ai._do_merge("pglite://test", web_id, 7000000099, None, None, False)
+    assert exc.value.code == "account_already_merged"
+    assert ai.preview_merge("pglite://test", web_id, 7000000099) == {"status": "conflict"}
+    add_user(database, 7000000002)
+    assert account_of(database, 7000000002)[0] not in (tg_id, web_id)
 
 
 def test_telegram_only_user_is_not_linked_but_has_an_id(ai, database):
@@ -249,28 +352,36 @@ def test_telegram_only_user_is_not_linked_but_has_an_id(ai, database):
     assert exc.value.code == "telegram_not_linked"
 
 
-def test_second_website_account_still_conflicts_with_a_merged_one(ai, database):
+def test_telegram_user_with_a_website_login_conflicts_with_another_website_account(ai, database):
     add_user(database, 7000000001)
     first, _ = new_website_account(database, ai, "zed@test.com")
     second, _ = new_website_account(database, ai, "amy@test.com")
     ai._do_merge("pglite://test", first, 7000000001, None, None, False)
     assert ai.preview_merge("pglite://test", second, 7000000001)["status"] == "conflict"
+    with pytest.raises(ai.AccountError) as exc:
+        ai._do_merge("pglite://test", second, 7000000001, None, None, False)
+    assert exc.value.code == "telegram_already_linked"
 
 
-def test_deleting_merged_website_identity_reactivates_original_telegram_id(ai, database):
-    add_user(database, 7000000001)
-    tg_account = account_of(database, 7000000001)[0]
-    web_account, _ = new_website_account(database, ai, "zed@test.com")
-    ai._do_merge("pglite://test", web_account, 7000000001, None, None, False)
-    ai.delete_account("pglite://test", web_account)
-    assert account_of(database, 7000000001) == (tg_account, "telegram")
-    assert q(database, "SELECT merged_into_account_id FROM sylvex_accounts WHERE account_id = %s", (tg_account,))[0][0] is None
-
-
-def test_deleting_unmerged_website_account_creates_nothing(ai, database):
+def test_deleting_unlinked_website_account_creates_nothing(ai, database):
     web_account, _ = new_website_account(database, ai, "zed@test.com")
     ai.delete_account("pglite://test", web_account)
     assert q(database, "SELECT COUNT(*) FROM sylvex_accounts")[0][0] == 0
+
+
+def test_backfilled_accounts_are_dated_from_the_users_first_seen_time(database):
+    from services import account_identity as ai
+    conn = database.connect()
+    cur = conn.cursor()
+    _create_users(cur)
+    cur.execute("INSERT INTO users (telegram_id, first_name, created_at) VALUES "
+                "(7000000001, 'old', '2024-02-03 04:05:06'), (7000000002, 'odd', 'not a date')")
+    conn.commit()
+    ai.ensure_account_tables("pglite://test")
+    ai.backfill_telegram_accounts(database.connect().cursor())
+    rows = dict(q(database, "SELECT active_telegram_id, created_at::date::text FROM sylvex_accounts"))
+    assert rows[7000000001] == "2024-02-03"
+    assert rows[7000000002] is not None  # unreadable -> backfill time, never an error
 
 
 # --- admin identity resolver ---------------------------------------------
@@ -282,8 +393,10 @@ def people(ai, database):
     add_user(database, 7000000001, username="tguser", first_name="Tele Gram", balance=5)
     web_only, web_storage = new_website_account(database, ai, "webby@test.com")
     add_user(database, 7000000002, username="merged", first_name="Merged Person")
-    merged_tg_alias = account_of(database, 7000000002)[0]
+    merged_canonical = account_of(database, 7000000002)[0]
+    set_created(database, merged_canonical, "2024-01-01 00:00:00")
     merged_web, merged_storage = new_website_account(database, ai, "merged@test.com")
+    # Telegram account is older: it keeps its ID, the website ID is retired.
     ai._do_merge("pglite://test", merged_web, 7000000002, None, None, False)
     q(database, "CREATE TABLE purchases (id SERIAL PRIMARY KEY, telegram_id BIGINT, provider TEXT, credits INTEGER, "
                 "amount INTEGER, currency TEXT, payload TEXT, charge_id TEXT UNIQUE, status TEXT, created_at TIMESTAMP DEFAULT NOW())")
@@ -291,7 +404,7 @@ def people(ai, database):
                 "(%s, 'stars', 100, 50, 'XTR', 'stars_charge_abc123', 'completed'), "
                 "(%s, 'paypal', 500, 500, 'USD', 'pp_capture_xyz789', 'completed')", (7000000001, web_storage))
     return {"tg": 7000000001, "tg_id": 110626990001, "web_only": web_only, "web_storage": web_storage,
-            "merged_web": merged_web, "merged_storage": merged_storage, "merged_alias": merged_tg_alias}
+            "merged_canonical": merged_canonical, "merged_storage": merged_storage, "merged_alias": merged_web}
 
 
 def _cur(database):
@@ -308,7 +421,7 @@ def test_identity_block_for_each_kind_of_user(people, database):
     assert web["sylvex_user_id"] == str(people["web_only"]) and web["telegram_id"] is None
     assert web["email"] == "webby@test.com" and web["linked"]["telegram"] is False
     merged = ids[7000000002]
-    assert merged["sylvex_user_id"] == str(people["merged_web"]) and merged["telegram_id"] == 7000000002
+    assert merged["sylvex_user_id"] == str(people["merged_canonical"]) and merged["telegram_id"] == 7000000002
     assert merged["linked"] == {"telegram": True, "email": True, "google": False, "apple": False}
     assert all("technical" not in v for v in ids.values())
     blocks = json.dumps(list(ids.values()))  # the map's keys are internal lookup keys
@@ -337,7 +450,7 @@ def test_ghost_storage_row_is_flagged_and_never_searchable(people, database):
 
 
 @pytest.mark.parametrize("query_key,expected_key", [
-    ("tg_id", "tg"), ("web_only", "web_storage"), ("merged_web", "merged_tg"), ("merged_alias", "merged_tg"),
+    ("tg_id", "tg"), ("web_only", "web_storage"), ("merged_canonical", "merged_tg"), ("merged_alias", "merged_tg"),
 ])
 def test_search_by_sylvex_id_incl_retired_alias(people, database, query_key, expected_key):
     from services import admin_identity
@@ -492,7 +605,7 @@ async def test_broadcast_to_selected_resolves_sylvex_ids(api, people, monkeypatc
     monkeypatch.setattr(api.requests, "post", fake_post)
     r = await _post(api, "/api/admin/messages/broadcast", {
         "telegram_id": SUPPORT_ID, "message": "hello",
-        "user_ids": ["110626990001", str(people["web_only"])], "sylvex_user_ids": [str(people["merged_web"])]})
+        "user_ids": ["110626990001", str(people["web_only"])], "sylvex_user_ids": [str(people["merged_alias"])]})
     assert r.status_code == 200, r.text
     assert sorted(sent) == [7000000001, 7000000002]
     assert r.json()["skipped_no_telegram"] == 1
