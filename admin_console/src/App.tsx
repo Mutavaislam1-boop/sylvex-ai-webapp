@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, clearSession, errorText, get, onReauthRequired, onUnauthorized, post, setSession } from "./api";
 import { initData, inTelegram, haptic } from "./telegram";
+import { t, useLang } from "./i18n";
 import { AppProvider, Me } from "./state";
 import { Loading, Modal, useRoute } from "./ui";
 import Layout from "./Layout";
@@ -9,6 +10,8 @@ import Login from "./pages/Login";
 type Phase = "booting" | "signed_out" | "ready";
 
 export default function App() {
+  // Subscribing here re-renders the whole tree when the language changes.
+  useLang();
   const [phase, setPhase] = useState<Phase>("booting");
   const [me, setMe] = useState<Me | null>(null);
   const [bootError, setBootError] = useState("");
@@ -53,7 +56,7 @@ export default function App() {
     onReauthRequired(() => new Promise<boolean>((resolve) => setReauth(() => resolve)));
   }, []);
 
-  if (phase === "booting") return <div className="login"><Loading label="Signing in…" /></div>;
+  if (phase === "booting") return <div className="login"><Loading label={t("Signing in…")} /></div>;
   if (phase === "signed_out" || !me) {
     return <Login telegramError={bootError} onSignedIn={refreshMe} onTelegramRetry={inTelegram() ? telegramLogin : undefined} />;
   }
@@ -80,26 +83,26 @@ function ReauthDialog({ totpEnabled, onDone }: { totpEnabled: boolean; onDone: (
       onDone(true);
     } catch (e) {
       setError(e instanceof ApiError && e.code === "reauth_failed" && inTelegram()
-        ? "Telegram confirmation expired. Close and reopen the Mini App, or use your 2FA code."
+        ? t("Telegram confirmation expired. Close and reopen the Mini App, or use your 2FA code.")
         : errorText(e));
     } finally {
       setBusy(false);
     }
   };
   return (
-    <Modal title="Confirm it's you" onClose={() => onDone(false)} actions={<button className="btn" onClick={() => onDone(false)}>Cancel</button>}>
+    <Modal title={t("Confirm it's you")} onClose={() => onDone(false)} actions={<button className="btn" onClick={() => onDone(false)}>{t("Cancel")}</button>}>
       <div className="stack">
-        <div className="muted">This is a Critical action. Confirm your identity to continue (valid for 5 minutes).</div>
+        <div className="muted">{t("This is a Critical action. Confirm your identity to continue (valid for 5 minutes).")}</div>
         {inTelegram() && (
-          <button className="btn primary" disabled={busy} onClick={() => run({ initData: initData() })}>Confirm with Telegram</button>
+          <button className="btn primary" disabled={busy} onClick={() => run({ initData: initData() })}>{t("Confirm with Telegram")}</button>
         )}
         {totpEnabled && (
           <div className="row">
-            <input inputMode="numeric" maxLength={6} placeholder="6-digit 2FA code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
-            <button className="btn primary" disabled={busy || code.length !== 6} onClick={() => run({ totp: code })}>Confirm</button>
+            <input inputMode="numeric" maxLength={6} placeholder={t("6-digit 2FA code")} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+            <button className="btn primary" disabled={busy || code.length !== 6} onClick={() => run({ totp: code })}>{t("Confirm")}</button>
           </div>
         )}
-        {!inTelegram() && !totpEnabled && <div className="notice warn">Set up 2FA from the Telegram Mini App to confirm Critical actions in a browser.</div>}
+        {!inTelegram() && !totpEnabled && <div className="notice warn">{t("Set up 2FA from the Telegram Mini App to confirm Critical actions in a browser.")}</div>}
         {error && <div className="notice bad">{error}</div>}
       </div>
     </Modal>

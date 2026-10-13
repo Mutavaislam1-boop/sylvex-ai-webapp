@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { post } from "../api";
 import { useApp } from "../state";
+import { channelLabel, locale, roleLabel, t } from "../i18n";
 import { ErrorNotice, fmtNum, Kpi, Loading, useAsync } from "../ui";
 
 type Stats = {
@@ -34,36 +35,36 @@ export default function System() {
   return (
     <div className="stack">
       <div className="row between">
-        <span className="muted small">Checked {checkedAt.toLocaleTimeString()}</span>
-        <button className="btn small" onClick={refresh}>↻ Re-check</button>
+        <span className="muted small">{t("Checked at {time}", { time: checkedAt.toLocaleTimeString(locale()) })}</span>
+        <button className="btn small" onClick={refresh}>↻ {t("Re-check")}</button>
       </div>
       <div className="grid kpis">
         {health.data ? <>
-          <Kpi label="API" value={health.data.live.ok ? <span className="badge good">up</span> : <span className="badge bad">down</span>} sub={`${health.data.live.ms} ms`} />
-          <Kpi label="Database" value={health.data.ready.ok ? <span className="badge good">ready</span> : <span className="badge bad">not ready</span>} sub={`${health.data.ready.ms} ms`} />
+          <Kpi label="API" value={health.data.live.ok ? <span className="badge good">{t("up")}</span> : <span className="badge bad">{t("down")}</span>} sub={t("{n} ms", { n: health.data.live.ms })} />
+          <Kpi label={t("Database")} value={health.data.ready.ok ? <span className="badge good">{t("ready")}</span> : <span className="badge bad">{t("not ready")}</span>} sub={t("{n} ms", { n: health.data.ready.ms })} />
         </> : <Loading />}
         {s && <>
-          <Kpi label="Jobs running" value={fmtNum(s.active_jobs)} sub="queued + processing" />
-          <Kpi label="Failed today" value={fmtNum(s.failed_today)} sub={`of ${fmtNum(s.generations_today)} today`} />
-          <Kpi label="All-time failure rate" value={`${failRate}%`} sub={`${fmtNum(s.generations_failed)} failed`} />
-          <Kpi label="Open error reports" value={fmtNum(s.error_reports)} />
-          <Kpi label="Users online" value={fmtNum(s.online)} sub="last 5 minutes" />
-          <Kpi label="Active admins" value={fmtNum(s.admins)} />
+          <Kpi label={t("Jobs running")} value={fmtNum(s.active_jobs)} sub={t("queued + processing")} />
+          <Kpi label={t("Failed today")} value={fmtNum(s.failed_today)} sub={t("of {n} today", { n: fmtNum(s.generations_today) })} />
+          <Kpi label={t("All-time failure rate")} value={`${failRate}%`} sub={t("failed: {n}", { n: fmtNum(s.generations_failed) })} />
+          <Kpi label={t("Error reports")} value={fmtNum(s.error_reports)} />
+          <Kpi label={t("Users online")} value={fmtNum(s.online)} sub={t("last 5 minutes")} />
+          <Kpi label={t("Active admins")} value={fmtNum(s.admins)} />
         </>}
       </div>
       {stats.error && <ErrorNotice message={stats.error} onRetry={stats.reload} />}
       <div className="card">
-        <h3>Your session</h3>
+        <h3>{t("Your session")}</h3>
         <div className="idgrid">
-          <div><div className="k">Role</div><div className="v">{me.admin.role}</div></div>
-          <div><div className="k">Signed in via</div><div className="v">{me.session.channel === "web" ? "Browser" : "Telegram Mini App"}</div></div>
-          <div><div className="k">Two-factor</div><div className="v">{me.admin.totp_enabled ? "enabled" : "not set up"}</div></div>
-          <div><div className="k">Permissions</div><div className="v">{me.admin.role === "owner" ? "all" : me.admin.permissions.length}</div></div>
+          <div><div className="k">{t("Role")}</div><div className="v">{roleLabel(me.admin.role)}</div></div>
+          <div><div className="k">{t("Signed in via")}</div><div className="v">{channelLabel(me.session.channel)}</div></div>
+          <div><div className="k">{t("Two-factor")}</div><div className="v">{me.admin.totp_enabled ? t("enabled") : t("not set up")}</div></div>
+          <div><div className="k">{t("Permissions")}</div><div className="v">{me.admin.role === "owner" ? t("all") : me.admin.permissions.length}</div></div>
         </div>
       </div>
       <div className="row">
-        <button className="btn" onClick={() => go("errors")}>Error log →</button>
-        <button className="btn" onClick={() => go("generations")}>Generations →</button>
+        <button className="btn" onClick={() => go("errors")}>{t("Error log")} →</button>
+        <button className="btn" onClick={() => go("generations")}>{t("Generations")} →</button>
       </div>
     </div>
   );

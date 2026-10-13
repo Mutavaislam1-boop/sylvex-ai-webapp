@@ -4,6 +4,8 @@
 // never receives the SameSite=Strict cookie). Every request carries the
 // CSRF token; a Critical action answered with "reauth_required" asks the
 // admin to re-authenticate once and is then retried.
+import { t } from "./i18n";
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string) {
     super(code);
@@ -102,10 +104,25 @@ const MESSAGES: Record<string, string> = {
   already_admin: "This account is already an admin.",
   telegram_send_failed: "Telegram did not accept the message.",
   no_recipients: "No recipients selected.",
+  totp_enroll_requires_miniapp: "Two-factor setup is only available inside the Telegram Mini App.",
+  admin_not_found: "Admin not found.",
+  invalid_status: "Invalid status.",
+  invalid_balance_change: "Enter a whole, non-zero number of credits.",
+  invalid_subscription_change: "Invalid subscription change.",
+  invalid_message: "The message is empty or longer than 4000 characters.",
+  telegram_bot_unavailable: "The Telegram bot is not configured on the server.",
+  too_many_recipients: "Too many recipients (limit 20,000).",
+  invalid_reference: "Name, category and kind (photo/video) are required.",
+  upload_failed: "Upload failed.",
+  invalid_content_size: "The file is empty or too large.",
+  owner_access_required: "Only the owner can do this.",
+  database_unavailable: "The database is unavailable.",
+  rate_limited: "Too many requests. Wait a minute and try again.",
+  request_too_large: "The request is too large.",
 };
 
 export function errorText(err: unknown): string {
-  if (err instanceof ApiError) return MESSAGES[err.code] || `Error: ${err.code}`;
-  if (err instanceof Error) return err.message;
-  return "Unexpected error";
+  if (err instanceof ApiError) return MESSAGES[err.code] ? t(MESSAGES[err.code]) : t("Error: {code}", { code: err.code });
+  if (err instanceof Error) return t(err.message);
+  return t("Unexpected error");
 }
