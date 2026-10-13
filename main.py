@@ -41,6 +41,8 @@ from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
 from services import admin_identity
+from services import admin_auth
+from services import admin_rbac
 from services import video_probe
 from services import payment_inbox, shop_catalog, shop_orders, stripe_billing, telegram_catalog
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
@@ -9674,7 +9676,7 @@ async def admin_recover_prostudio_job(job_id: str, request: Request):
     # single configured admin (in practice the project owner) could ever
     # call it.
     data = await request.json()
-    actor = _admin_actor(data, request, owner_only=True)
+    actor = _admin_actor(data, request, "generations.recover")
     force = bool(data.get("force", False))
     try:
         recovery = await asyncio.to_thread(
@@ -9698,7 +9700,7 @@ async def admin_recover_prostudio_job(job_id: str, request: Request):
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            _admin_audit(cursor, actor["telegram_id"], "prostudio_job_recovered", 0,
+            _admin_audit(cursor, actor, "prostudio_job_recovered", 0,
                          {}, {"job_id": job_id, "force": force, "recovery": recovery}, "")
             conn.commit()
         except Exception:
@@ -9834,6 +9836,9 @@ def ensure_admin_tables():
     with ADMIN_SCHEMA_LOCK:
         if ADMIN_SCHEMA_READY:
             return
+        # Admins are SYLVEX accounts: the account tables (and the
+        # Telegram-account allocator the migration uses) come first.
+        account_identity_service.ensure_account_tables(DATABASE_URL, connect=db_connect)
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
@@ -9915,12 +9920,15 @@ def ensure_admin_tables():
             )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_app_presence_last_seen ON app_presence(last_seen DESC)")
-            cursor.execute("""
-            INSERT INTO admin_users (telegram_id, role, permissions, active, granted_by, updated_at)
-            VALUES (%s, 'owner', '["all"]'::jsonb, TRUE, %s, NOW())
-            ON CONFLICT (telegram_id) DO UPDATE
-            SET role = 'owner', permissions = '["all"]'::jsonb, active = TRUE, updated_at = NOW()
-            """, (SUPERADMIN_TELEGRAM_ID, SUPERADMIN_TELEGRAM_ID))
+            # Admin authority lives in admin_accounts (keyed by SYLVEX
+            # account) from here on; admin_users is kept read-only for the
+            # one-time migration. The owner is bootstrapped only when no
+            # active owner exists - never re-seeded over a later change.
+            admin_auth.ensure_schema(cursor)
+            admin_auth.copy_legacy_audit(cursor)
+            admin_auth.migrate_legacy_admins(cursor)
+            admin_auth.bootstrap_owner(cursor, owner_account_id=os.getenv("OWNER_SYLVEX_ID", "").strip() or None,
+                                       owner_telegram_id=SUPERADMIN_TELEGRAM_ID)
             conn.commit()
             ADMIN_SCHEMA_READY = True
         except Exception:
@@ -9944,23 +9952,28 @@ def _admin_service_token_from_headers(request: Optional[Request]) -> str:
 
 
 def _admin_actor(payload: dict, request: Optional[Request] = None, permission: str = "", owner_only: bool = False) -> dict:
+    """The admin behind a v1 /api/admin/* request, or HTTP 403.
+
+    Two callers, one permission system (services/admin_rbac.py):
+    - the Support Bot / main bot: ADMIN_SERVICE_TOKEN header + the sender's
+      Telegram id (channel "bot");
+    - the legacy Mini App admin: verified Telegram initData (channel
+      "miniapp_legacy").
+    Either way the Telegram id must belong to a SYLVEX account with an
+    active admin_accounts row - no id is an admin by itself (the old
+    SUPERADMIN_TELEGRAM_ID shortcut is gone; the owner is a real row,
+    bootstrapped once). On the bot channel only the owner may perform
+    Critical actions."""
     payload = payload or {}
     service_token = _admin_service_token_from_headers(request)
     service_authenticated = bool(ADMIN_SERVICE_TOKEN) and bool(service_token) and hmac.compare_digest(service_token, ADMIN_SERVICE_TOKEN)
     if service_authenticated:
-        # The Support Bot already verified the Telegram user calling it is
-        # one of ITS admins before ever making this request; this call still
-        # goes through the exact same admin_users role/permission check
-        # below as any Mini App request would. Unlike the initData path
-        # just below, a service-authenticated caller is NEVER granted the
-        # owner shortcut just for naming SUPERADMIN_TELEGRAM_ID - it must
-        # hold a real, active admin_users row (the owner's own row is
-        # auto-seeded there too), so revoking that row also revokes bot
-        # access for the owner's own id.
+        channel = "bot"
         telegram_id = int(payload.get("telegram_id") or 0)
         if not telegram_id:
             raise HTTPException(status_code=403, detail="telegram_user_missing")
     else:
+        channel = "miniapp_legacy"
         init_data = str(payload.get("initData") or payload.get("init_data") or "")
         if not init_data:
             raise HTTPException(status_code=403, detail="telegram_init_data_missing")
@@ -9971,37 +9984,69 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
         telegram_id = _telegram_id_from_init_data(init_data)
         if not telegram_id:
             raise HTTPException(status_code=403, detail="telegram_user_missing")
-        # The project owner is defined by the signed Telegram user id. Do
-        # not make first access depend on an admin_users row that may not
-        # exist yet. This shortcut is exclusive to the Mini App's own
-        # signed-initData path - see the service-authenticated branch above.
-        if telegram_id == SUPERADMIN_TELEGRAM_ID:
-            return {"telegram_id": telegram_id, "role": "owner", "permissions": ["all"]}
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_unavailable")
     ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT role, permissions, active FROM admin_users WHERE telegram_id = %s", (telegram_id,))
-        row = cursor.fetchone()
+        admin = admin_auth.active_admin_for_telegram(cursor, telegram_id)
+        if admin:
+            cursor.execute("UPDATE admin_accounts SET last_activity_at = NOW() WHERE id = %s", (admin["admin_id"],))
+            conn.commit()
     finally:
         cursor.close()
         conn.close()
-    if not row or not row[2]:
+    if not admin:
         raise HTTPException(status_code=403, detail="admin_access_denied")
-    permissions = row[1] or []
-    if isinstance(permissions, str):
-        try:
-            permissions = json.loads(permissions)
-        except Exception:
-            permissions = []
-    actor = {"telegram_id": telegram_id, "role": row[0], "permissions": permissions}
-    if owner_only and actor["role"] != "owner":
+    is_owner = admin["role"] == admin_rbac.OWNER
+    if owner_only and not is_owner:
         raise HTTPException(status_code=403, detail="owner_access_required")
-    if permission and actor["role"] != "owner" and "all" not in permissions and permission not in permissions:
-        raise HTTPException(status_code=403, detail="admin_permission_denied")
-    return actor
+    if permission:
+        if permission not in admin_rbac.PERMISSIONS:
+            raise HTTPException(status_code=500, detail="unknown_permission")
+        if permission not in admin["permissions_set"]:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        if (channel == "bot" and not is_owner
+                and admin_rbac.RISK_ORDER[admin_rbac.risk_of(permission)] > admin_rbac.RISK_ORDER[admin_rbac.BOT_CHANNEL_MAX_RISK_NON_OWNER]):
+            raise HTTPException(status_code=403, detail="console_required_for_critical_action")
+    return {
+        "telegram_id": telegram_id, "role": admin["role"],
+        # Legacy flat names for the bots' UI gating (the server re-checks).
+        "permissions": ["all"] if is_owner else admin_rbac.legacy_names(admin["permissions_set"]),
+        "effective_permissions": sorted(admin["permissions_set"]),
+        "admin_id": admin["admin_id"], "account_id": admin["account_id"], "sylvex_user_id": str(admin["account_id"]),
+        "channel": channel, "permissions_set": admin["permissions_set"], "grants": admin["grants"], "denies": admin["denies"],
+    }
+
+
+def _public_actor(actor: dict) -> dict:
+    """The actor as returned to a client: no internal sets."""
+    return {k: v for k, v in actor.items() if k not in ("permissions_set", "grants", "denies")}
+
+
+_V1_AUDIT_RISK = {
+    "balance_changed": "high", "subscription_changed": "high", "message_sent": "medium", "message_failed": "medium",
+    "broadcast_sent": "critical", "prostudio_job_recovered": "medium", "admin_access_changed": "critical",
+    "reference_created": "medium", "reference_updated": "medium", "reference_published": "medium",
+    "reference_unpublished": "medium", "reference_deleted": "medium",
+}
+
+
+def _admin_audit(cursor, actor, action: str, target_id: int = 0, before=None, after=None, reason: str = "", risk: str = ""):
+    """Appends to admin_audit_events (append-only). `target_id` is the
+    target's users.telegram_id storage key; it is recorded as the target's
+    SYLVEX account."""
+    target_account_id = None
+    if target_id:
+        cursor.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s", (int(target_id),))
+        row = cursor.fetchone()
+        target_account_id = int(row[0]) if row else None
+    admin_auth.audit(cursor, actor if isinstance(actor, dict) else None, action,
+                     risk=risk or _V1_AUDIT_RISK.get(action, "unknown"),
+                     target_account_id=target_account_id,
+                     target_ref=None if target_account_id or not target_id else f"storage_key:{int(target_id)}",
+                     before=before, after=after, reason=reason)
 
 
 def _admin_technical(actor: dict) -> bool:
@@ -10023,19 +10068,10 @@ def _admin_resolve_target(cursor, payload: dict):
 ADMIN_BALANCE_SOURCES = frozenset({"admin_api", "support_bot", "telegram_bot_addbalance", "admin_console"})
 
 
-def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=None, after=None, reason: str = ""):
-    cursor.execute("""
-        INSERT INTO admin_audit_log
-            (actor_telegram_id, action, target_telegram_id, before_data, after_data, reason)
-        VALUES (%s, %s, NULLIF(%s, 0), %s::jsonb, %s::jsonb, %s)
-    """, (actor_id, action, int(target_id or 0), json.dumps(before or {}, default=str),
-          json.dumps(after or {}, default=str), str(reason or "")[:500]))
-
-
 @app.post("/api/admin/me")
 async def admin_me(request: Request):
     actor = _admin_actor(await request.json(), request)
-    return {"ok": True, "admin": actor}
+    return {"ok": True, "admin": _public_actor(actor)}
 
 
 @app.post("/api/public/presence")
@@ -10072,7 +10108,7 @@ async def admin_dashboard(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_dashboard")
+        actor = _admin_actor(payload, request, "dashboard.view")
         ensure_admin_tables()
         ensure_payment_tables()
         ensure_prostudio_table()
@@ -10104,7 +10140,7 @@ async def admin_dashboard(request: Request):
             generations_today, failed_today, generations_total, active_jobs = cursor.fetchone()
             cursor.execute("SELECT COUNT(*) FROM app_presence WHERE last_seen >= NOW() - INTERVAL '5 minutes'")
             online_count = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM admin_users WHERE active = TRUE")
+            cursor.execute("SELECT COUNT(*) FROM admin_accounts WHERE status = 'active'")
             admins_count = cursor.fetchone()[0]
             cursor.execute("""
                 SELECT COALESCE(NULLIF(mode,''),'unknown'), COUNT(*),
@@ -10154,7 +10190,7 @@ async def admin_dashboard(request: Request):
                     "purchases_total": int(purchases_count or 0), "revenue_by_currency": revenue_by_currency,
                     "credits_purchased_total": int(total_credits_purchased or 0), "error_reports": int(error_reports_count or 0),
                     "new_users_today": int(new_users_today or 0), "online": int(online_count or 0),
-                    "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": actor}
+                    "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": _public_actor(actor)}
         finally:
             cursor.close()
             conn.close()
@@ -10170,7 +10206,7 @@ async def admin_users_search(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_users")
+        actor = _admin_actor(payload, request, "users.view")
         technical = _admin_technical(actor)
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         conn = db_connect(DATABASE_URL)
@@ -10208,7 +10244,7 @@ async def admin_user_balance(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_balance")
+        actor = _admin_actor(payload, request, "users.balance.adjust")
         ensure_admin_tables()
         delta = int(payload.get("delta") or 0)
         reason = str(payload.get("reason") or "Ручная корректировка")[:500]
@@ -10236,7 +10272,7 @@ async def admin_user_balance(request: Request):
             if after < 0:
                 raise HTTPException(status_code=409, detail="balance_would_go_negative")
             cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
-            _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before},
+            _admin_audit(cursor, actor, "balance_changed", target_id, {"balance": before},
                          {"balance": after, "delta": delta, "source": source}, reason)
             conn.commit()
             return after
@@ -10256,7 +10292,7 @@ async def admin_user_subscription(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_subscriptions")
+        actor = _admin_actor(payload, request, "users.subscription.edit")
         ensure_admin_tables()
         action = str(payload.get("action") or "extend")
         days = max(1, min(int(payload.get("days") or 30), 730))
@@ -10290,7 +10326,7 @@ async def admin_user_subscription(request: Request):
                 cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active' AND id<>%s", (target_id, inserted_id))
                 cursor.execute("UPDATE users SET subscription=%s WHERE telegram_id=%s", (plan, target_id))
                 after = {"subscription": plan, "expires_at": _to_iso(expires_at)}
-            _admin_audit(cursor, actor["telegram_id"], "subscription_changed", target_id,
+            _admin_audit(cursor, actor, "subscription_changed", target_id,
                          {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, after, reason)
             conn.commit()
             return after
@@ -10310,7 +10346,7 @@ async def admin_user_message(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "message_users")
+        actor = _admin_actor(payload, request, "messages.send")
         ensure_admin_tables()
         message = str(payload.get("message") or "").strip()
         if not (payload.get("user_id") or payload.get("sylvex_user_id")) or not message or len(message) > 4000:
@@ -10339,7 +10375,7 @@ async def admin_user_message(request: Request):
         try:
             cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
                            (actor["telegram_id"], target_id, message, sent))
-            _admin_audit(cursor, actor["telegram_id"], "message_sent" if sent else "message_failed", target_id,
+            _admin_audit(cursor, actor, "message_sent" if sent else "message_failed", target_id,
                          {}, {"length": len(message), "sent": sent}, "")
             conn.commit()
         finally:
@@ -10355,18 +10391,23 @@ async def admin_user_message(request: Request):
 
 @app.post("/api/admin/admins/list")
 async def admin_list(request: Request):
+    """Legacy (Support Bot) view of admin_accounts: telegram_id is the
+    admin's real Telegram id, permissions use the legacy flat names."""
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, owner_only=True)
-        ensure_admin_tables()
+        _admin_actor(payload, request, "admins.view")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT telegram_id,role,permissions,active,granted_by,created_at FROM admin_users ORDER BY role='owner' DESC,created_at")
-            items = [{"telegram_id":r[0],"role":r[1],"permissions":r[2] or [],"active":bool(r[3]),
-                    "granted_by":r[4],"created_at":_to_iso(r[5])} for r in cursor.fetchall()]
-            return admin_identity.decorate(cursor, items, technical=True)
+            items = []
+            for admin in admin_auth.list_admins(cursor):
+                items.append({"telegram_id": admin["telegram_id"], "sylvex_user_id": str(admin["account_id"]),
+                              "admin_id": admin["admin_id"], "role": admin["role"],
+                              "permissions": ["all"] if admin["role"] == admin_rbac.OWNER
+                              else admin_rbac.legacy_names(admin["permissions_set"]),
+                              "active": admin["status"] == "active", "status": admin["status"]})
+            return items
         finally:
             cursor.close()
             conn.close()
@@ -10377,48 +10418,37 @@ async def admin_list(request: Request):
 
 @app.post("/api/admin/admins/set")
 async def admin_set(request: Request):
+    """Legacy (Support Bot) grant/revoke. Same rules as the console:
+    admins.permissions.edit, no self-edit, only roles below your own, only
+    permissions you hold, never the last owner. A legacy permission list
+    becomes exactly that access (read_only role + grants/denies)."""
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, owner_only=True)
-        ensure_admin_tables()
+        actor = _admin_actor(payload, request, "admins.permissions.edit")
         target_id = int(payload.get("user_id") or 0)
-        # account_id grants a Website-only admin (no Telegram identity at
-        # all). Exactly one of the two identities is required, never both.
         target_account_id = int(payload.get("account_id") or 0)
-        active = bool(payload.get("active", True))
-        permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
-        allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users",
-                   "view_audit", "view_errors", "view_generations", "view_finance", "manage_references"}
-        permissions = [p for p in permissions if p in allowed]
         if not target_id and not target_account_id:
             raise HTTPException(status_code=400, detail="invalid_admin_target")
-        if target_id and target_id == SUPERADMIN_TELEGRAM_ID:
-            raise HTTPException(status_code=400, detail="invalid_admin_target")
+        active = bool(payload.get("active", True))
+        legacy = [p for p in (payload.get("permissions") or ["view_dashboard", "view_users", "message_users"])
+                  if p in admin_rbac.LEGACY_TO_NEW]
+        role, grants, denies = admin_rbac.exact_role_for_legacy(legacy)
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            if target_account_id:
-                cursor.execute("SELECT role,permissions,active FROM admin_users WHERE account_id=%s", (target_account_id,))
-                before_row = cursor.fetchone()
-                cursor.execute("""
-                    INSERT INTO admin_users (account_id,role,permissions,active,granted_by,updated_at)
-                    VALUES (%s,'admin',%s::jsonb,%s,%s,NOW())
-                    ON CONFLICT (account_id) DO UPDATE SET role='admin',permissions=EXCLUDED.permissions,
-                        active=EXCLUDED.active,granted_by=EXCLUDED.granted_by,updated_at=NOW()
-                """, (target_account_id, json.dumps(permissions), active, actor["telegram_id"]))
-            else:
-                cursor.execute("SELECT role,permissions,active FROM admin_users WHERE telegram_id=%s", (target_id,))
-                before_row = cursor.fetchone()
-                cursor.execute("""
-                    INSERT INTO admin_users (telegram_id,role,permissions,active,granted_by,updated_at)
-                    VALUES (%s,'admin',%s::jsonb,%s,%s,NOW())
-                    ON CONFLICT (telegram_id) DO UPDATE SET role='admin',permissions=EXCLUDED.permissions,
-                        active=EXCLUDED.active,granted_by=EXCLUDED.granted_by,updated_at=NOW()
-                """, (target_id, json.dumps(permissions), active, actor["telegram_id"]))
-            _admin_audit(cursor, actor["telegram_id"], "admin_access_changed", target_id or target_account_id,
-                         {"role": before_row[0], "permissions": before_row[1], "active": before_row[2]} if before_row else {},
-                         {"role": "admin", "permissions": permissions, "active": active}, "")
+            account_id = target_account_id or admin_auth.account_for_telegram(cursor, target_id)
+            if not account_id:
+                raise HTTPException(status_code=404, detail="account_not_found")
+            existing = admin_auth.load_admin(cursor, account_id=account_id)
+            try:
+                if existing:
+                    admin_auth.update_admin(cursor, actor, existing["admin_id"], role=role, grants=grants, denies=denies,
+                                            status="active" if active else "revoked", reason="support_bot admins/set")
+                elif active:
+                    admin_auth.create_admin(cursor, actor, account_id, role, grants, denies, reason="support_bot admins/set")
+            except admin_auth.AdminAuthError as exc:
+                raise HTTPException(status_code=exc.status, detail=exc.code)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -10436,15 +10466,15 @@ async def admin_audit(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_audit")
-        ensure_admin_tables()
+        _admin_actor(payload, request, "audit.view")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT id,actor_telegram_id,action,target_telegram_id,reason,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 100")
-            items = [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
-                    "reason":r[4] or "","created_at":_to_iso(r[5])} for r in cursor.fetchall()]
-            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor), fields=("actor_id", "target_id"))
+            items, _ = admin_auth.list_audit(cursor, limit=100)
+            return [{"id": i["id"], "actor_id": None, "actor_sylvex_user_id": i["actor_sylvex_user_id"],
+                     "action": i["action"], "risk": i["risk"], "target_id": None,
+                     "target_sylvex_user_id": i["target_sylvex_user_id"], "channel": i["channel"],
+                     "reason": i["reason"], "created_at": i["at"]} for i in items]
         finally:
             cursor.close()
             conn.close()
@@ -10453,12 +10483,413 @@ async def admin_audit(request: Request):
     return {"ok": True, "items": items}
 
 
+# =====================================================
+# Admin Console API v2 (/api/admin/v2/*)
+# Session-authenticated (admin_auth): Telegram Mini App or web + TOTP, an
+# HttpOnly SameSite=Strict cookie, CSRF header + Origin check on every
+# state change, permission + risk tier on every route, step-up reauth for
+# Critical actions. The SecurityMiddleware leaves these paths to this guard.
+# =====================================================
+ADMIN_CONSOLE_ORIGINS = tuple(o.strip().rstrip("/") for o in os.getenv(
+    "ADMIN_CONSOLE_ORIGINS", "https://admin.sylvex.ai").split(",") if o.strip())
+
+
+def _admin_telegram_tokens():
+    """initData from the admin Mini App is signed by whichever bot opened it:
+    the main bot(s) or the Support Bot (SUPPORT_BOT_TOKEN), which hosts the
+    "SYLVEX Admin" button."""
+    support = os.getenv("SUPPORT_BOT_TOKEN", "").strip()
+    return tuple(dict.fromkeys(TELEGRAM_AUTH_TOKENS + ((support,) if support else ())))
+
+
+def _admin_json(data, status_code=200):
+    response = JSONResponse(data, status_code=status_code)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _admin_set_session_cookie(response, token):
+    response.set_cookie(admin_auth.SESSION_COOKIE, token, max_age=admin_auth.SESSION_MAX_SECONDS, httponly=True,
+                        secure=True, samesite="strict", path="/")
+
+
+def _admin_clear_session_cookie(response):
+    response.delete_cookie(admin_auth.SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="strict")
+
+
+def _admin_client_ip(request: Request):
+    return request.client.host if request.client else None
+
+
+def _admin_v2_actor(cursor, request: Request, permission: str = "", *, mutation: bool = False):
+    """(actor, session) for a v2 request or HTTPException. Raises before any
+    side effect: session, Origin + CSRF for state changes, permission, and
+    a fresh re-authentication for Critical permissions."""
+    try:
+        admin, session = admin_auth.resolve_session(cursor, request.cookies.get(admin_auth.SESSION_COOKIE))
+    except admin_auth.AdminAuthError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+    if mutation:
+        origin = (request.headers.get("origin") or "").rstrip("/")
+        if origin not in ADMIN_CONSOLE_ORIGINS:
+            raise HTTPException(status_code=403, detail="origin_not_allowed")
+        presented = request.headers.get(admin_auth.CSRF_HEADER) or ""
+        if not presented or not hmac.compare_digest(presented, session["csrf_token"]):
+            raise HTTPException(status_code=403, detail="csrf_token_invalid")
+    if permission:
+        if permission not in admin_rbac.PERMISSIONS:
+            raise HTTPException(status_code=500, detail="unknown_permission")
+        if permission not in admin["permissions_set"]:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        if admin_rbac.risk_of(permission) == admin_rbac.CRITICAL and not session["reauth_fresh"]:
+            raise HTTPException(status_code=403, detail="reauth_required")
+    actor = dict(admin, channel=session["channel"], session_id=session["session_id"])
+    return actor, session
+
+
+def _admin_v2_run(work):
+    """Runs work(cursor) in one transaction; AdminAuthError -> HTTP error."""
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = work(cursor)
+        conn.commit()
+        return result
+    except admin_auth.AdminAuthError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _admin_v2_ready(request: Optional[Request] = None):
+    """Credentials are checked before anything else, so an anonymous request
+    is always a 401 - never a 5xx that reveals backend state."""
+    if request is not None and not request.cookies.get(admin_auth.SESSION_COOKIE):
+        raise HTTPException(status_code=401, detail="admin_session_required")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_unavailable")
+    ensure_admin_tables()
+
+
+async def _admin_v2_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _admin_session_payload(admin, csrf, channel):
+    return {"ok": True, "admin": admin_auth.public_admin(admin), "csrf_token": csrf,
+            "session": {"channel": channel, "idle_timeout_seconds": admin_auth.SESSION_IDLE_SECONDS,
+                        "max_age_seconds": admin_auth.SESSION_MAX_SECONDS}}
+
+
+@app.post("/api/admin/v2/auth/telegram")
+async def admin_v2_auth_telegram(request: Request):
+    body = await _admin_v2_body(request)
+    try:
+        user = validated_user(str(body.get("initData") or body.get("init_data") or ""), _admin_telegram_tokens())
+    except SecurityError as exc:
+        return _admin_json({"ok": False, "error": exc.code}, 401)
+    _admin_v2_ready()
+
+    def work(cursor):
+        admin = admin_auth.active_admin_for_telegram(cursor, user["id"])
+        if not admin:
+            raise admin_auth.AdminAuthError("admin_access_denied", 403)
+        token, csrf, _ = admin_auth.create_session(cursor, admin, "miniapp", _admin_client_ip(request),
+                                                   request.headers.get("user-agent"))
+        admin_auth.audit(cursor, dict(admin, channel="miniapp"), "admin_login", risk=admin_rbac.LOW,
+                         ip=_admin_client_ip(request))
+        return admin, token, csrf
+
+    admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
+    response = _admin_json(_admin_session_payload(admin, csrf, "miniapp"))
+    _admin_set_session_cookie(response, token)
+    return response
+
+
+@app.post("/api/admin/v2/auth/web")
+async def admin_v2_auth_web(request: Request):
+    """Web login: email + password + TOTP (required). TOTP is enrolled from
+    a Telegram-verified Mini App session, never from the web."""
+    body = await _admin_v2_body(request)
+    if not (body.get("email") and body.get("password") and body.get("totp")):
+        return _admin_json({"ok": False, "error": "invalid_credentials"}, 401)
+    _admin_v2_ready()
+    try:
+        account_id = await asyncio.to_thread(account_identity_service.login_email_account, DATABASE_URL,
+                                             body.get("email"), body.get("password"))
+    except AccountError as exc:
+        return _admin_json({"ok": False, "error": exc.code}, exc.status)
+
+    def work(cursor):
+        admin = admin_auth.load_admin(cursor, account_id=account_id)
+        if not admin or admin["status"] != "active":
+            raise admin_auth.AdminAuthError("admin_access_denied", 403)
+        admin_auth.verify_totp(cursor, admin, body.get("totp"))
+        token, csrf, _ = admin_auth.create_session(cursor, admin, "web", _admin_client_ip(request),
+                                                   request.headers.get("user-agent"))
+        admin_auth.audit(cursor, dict(admin, channel="web"), "admin_login", risk=admin_rbac.LOW,
+                         ip=_admin_client_ip(request))
+        return admin, token, csrf
+
+    try:
+        admin, token, csrf = await asyncio.to_thread(_admin_v2_run_keep_failures, work)
+    except HTTPException as exc:
+        return _admin_json({"ok": False, "error": exc.detail}, exc.status_code)
+    response = _admin_json(_admin_session_payload(admin, csrf, "web"))
+    _admin_set_session_cookie(response, token)
+    return response
+
+
+def _admin_v2_run_keep_failures(work):
+    """Like _admin_v2_run, but a failed TOTP check still commits its
+    failure counter / lockout (rolling it back would allow unlimited
+    guesses)."""
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = work(cursor)
+        conn.commit()
+        return result
+    except admin_auth.AdminAuthError as exc:
+        if exc.code in ("totp_invalid", "totp_locked"):
+            conn.commit()
+        else:
+            conn.rollback()
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/v2/auth/reauth")
+async def admin_v2_auth_reauth(request: Request):
+    """Step-up re-authentication for Critical actions: a fresh TOTP code, or
+    fresh Mini App initData from the same Telegram user."""
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+    init_data = str(body.get("initData") or body.get("init_data") or "")
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if init_data:
+            try:
+                user = validated_user(init_data, _admin_telegram_tokens())
+            except SecurityError:
+                raise admin_auth.AdminAuthError("reauth_failed", 401)
+            if not actor["telegram_id"] or int(user["id"]) != int(actor["telegram_id"]):
+                raise admin_auth.AdminAuthError("reauth_failed", 401)
+            method = "telegram"
+        else:
+            admin_auth.verify_totp(cursor, actor, body.get("totp"))
+            method = "totp"
+        admin_auth.mark_reauth(cursor, session["session_id"])
+        admin_auth.audit(cursor, actor, "admin_reauth", risk=admin_rbac.LOW, after={"method": method},
+                         ip=_admin_client_ip(request))
+        return {"ok": True, "reauth_valid_seconds": admin_auth.REAUTH_WINDOW_SECONDS}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run_keep_failures, work))
+
+
+@app.post("/api/admin/v2/auth/logout")
+async def admin_v2_auth_logout(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        admin_auth.revoke_session(cursor, session["session_id"])
+        admin_auth.audit(cursor, actor, "admin_logout", risk=admin_rbac.LOW)
+
+    await asyncio.to_thread(_admin_v2_run, work)
+    response = _admin_json({"ok": True})
+    _admin_clear_session_cookie(response)
+    return response
+
+
+@app.post("/api/admin/v2/auth/logout-all")
+async def admin_v2_auth_logout_all(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, mutation=True)
+        count = admin_auth.revoke_all_sessions(cursor, actor["admin_id"])
+        admin_auth.audit(cursor, actor, "admin_logout_all", risk=admin_rbac.MEDIUM, after={"sessions_revoked": count})
+        return count
+
+    count = await asyncio.to_thread(_admin_v2_run, work)
+    response = _admin_json({"ok": True, "sessions_revoked": count})
+    _admin_clear_session_cookie(response)
+    return response
+
+
+@app.get("/api/admin/v2/auth/me")
+async def admin_v2_auth_me(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request)
+        identity = admin_identity.identities_for_keys(cursor, [actor["telegram_id"]] if actor["telegram_id"] else [],
+                                                      technical=False).get(actor["telegram_id"])
+        return {"ok": True, "admin": admin_auth.public_admin(actor), "identity": identity,
+                "csrf_token": session["csrf_token"],
+                "session": {"channel": session["channel"], "reauth_fresh": session["reauth_fresh"]}}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/auth/sessions")
+async def admin_v2_auth_sessions(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request)
+        items = admin_auth.list_sessions(cursor, actor["admin_id"])
+        for item in items:
+            item["current"] = item["session_id"] == session["session_id"]
+        return {"ok": True, "items": items}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/auth/totp/enroll")
+async def admin_v2_totp_enroll(request: Request):
+    """Starts TOTP enrollment. Only from a Telegram-verified Mini App session
+    with a fresh re-authentication, so web access is always anchored to the
+    admin's own Telegram account."""
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if session["channel"] != "miniapp":
+            raise admin_auth.AdminAuthError("totp_enroll_requires_miniapp", 403)
+        if not session["reauth_fresh"]:
+            raise admin_auth.AdminAuthError("reauth_required", 403)
+        secret, uri = admin_auth.begin_totp_enrollment(cursor, actor)
+        admin_auth.audit(cursor, actor, "admin_totp_enrollment_started", risk=admin_rbac.HIGH)
+        return {"ok": True, "secret": secret, "otpauth_uri": uri}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/auth/totp/confirm")
+async def admin_v2_totp_confirm(request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if session["channel"] != "miniapp":
+            raise admin_auth.AdminAuthError("totp_enroll_requires_miniapp", 403)
+        admin_auth.confirm_totp_enrollment(cursor, actor, body.get("code"))
+        admin_auth.audit(cursor, actor, "admin_totp_enabled", risk=admin_rbac.HIGH)
+        return {"ok": True}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/permissions")
+async def admin_v2_permissions(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request)
+        return {"ok": True, "permissions": admin_rbac.PERMISSIONS, "roles": list(admin_rbac.ROLES),
+                "role_defaults": {role: sorted(perms) for role, perms in admin_rbac.ROLE_DEFAULTS.items()}}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+def _admin_v2_admin_row(cursor, admin, identities):
+    identity = identities.get(admin["telegram_id"]) if admin["telegram_id"] else None
+    return dict(admin_auth.public_admin(admin), identity=identity)
+
+
+@app.get("/api/admin/v2/admins")
+async def admin_v2_admins(request: Request):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request, "admins.view")
+        admins = admin_auth.list_admins(cursor)
+        identities = admin_identity.identities_for_keys(cursor, [a["telegram_id"] for a in admins if a["telegram_id"]])
+        return {"ok": True, "items": [_admin_v2_admin_row(cursor, a, identities) for a in admins]}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+def _admin_v2_reason(body):
+    reason = str(body.get("reason") or "").strip()
+    if not reason:
+        raise admin_auth.AdminAuthError("reason_required", 400)
+    return reason[:500]
+
+
+@app.post("/api/admin/v2/admins")
+async def admin_v2_admin_create(request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "admins.create", mutation=True)
+        reason = _admin_v2_reason(body)
+        account_id = admin_auth.canonical_account(cursor, body.get("sylvex_user_id"))
+        if not account_id:
+            raise admin_auth.AdminAuthError("account_not_found", 404)
+        admin = admin_auth.create_admin(cursor, actor, account_id, str(body.get("role") or ""),
+                                        body.get("grants") or [], body.get("denies") or [], reason)
+        return {"ok": True, "admin": admin_auth.public_admin(admin)}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.patch("/api/admin/v2/admins/{admin_id}")
+async def admin_v2_admin_update(admin_id: int, request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "admins.permissions.edit", mutation=True)
+        reason = _admin_v2_reason(body)
+        admin = admin_auth.update_admin(cursor, actor, admin_id, role=body.get("role"), grants=body.get("grants"),
+                                        denies=body.get("denies"), status=body.get("status"), reason=reason)
+        return {"ok": True, "admin": admin_auth.public_admin(admin)}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/audit")
+async def admin_v2_audit(request: Request, actor_admin_id: Optional[int] = None,
+                         target_sylvex_user_id: Optional[str] = None, action: Optional[str] = None,
+                         risk: Optional[str] = None, before_id: Optional[int] = None, limit: int = 50):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request, "audit.view")
+        target = int(target_sylvex_user_id) if target_sylvex_user_id and target_sylvex_user_id.isdigit() else None
+        items, next_before = admin_auth.list_audit(cursor, actor_admin_id=actor_admin_id, target_account_id=target,
+                                                   action=action, risk=risk, before_id=before_id, limit=limit)
+        return {"ok": True, "items": items, "next_before_id": next_before}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
 @app.post("/api/admin/errors")
 async def admin_errors(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_errors")
+        actor = _admin_actor(payload, request, "errors.view")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
@@ -10489,7 +10920,7 @@ async def admin_error_reports(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_errors")
+        actor = _admin_actor(payload, request, "errors.view")
         ensure_prostudio_table()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -10524,7 +10955,7 @@ async def admin_user_detail(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_users")
+        actor = _admin_actor(payload, request, "users.view")
         technical = _admin_technical(actor)
         ensure_admin_tables()
         ensure_payment_tables()
@@ -10613,7 +11044,7 @@ async def admin_users_online(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_users")
+        actor = _admin_actor(payload, request, "users.view")
         ensure_admin_tables()
         limit = max(1, min(int(payload.get("limit") or 50), 200))
         window_minutes = max(1, min(int(payload.get("window_minutes") or 30), 1440))
@@ -10650,7 +11081,7 @@ async def admin_generations(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_generations")
+        actor = _admin_actor(payload, request, "generations.view")
         ensure_prostudio_table()
         mode = str(payload.get("mode") or "").strip().lower()[:20]
         status = str(payload.get("status") or "").strip().lower()[:20]
@@ -10708,7 +11139,7 @@ async def admin_subscribers(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_finance")
+        actor = _admin_actor(payload, request, "payments.view")
         ensure_payment_tables()
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         offset = max(0, int(payload.get("offset") or 0))
@@ -10748,7 +11179,7 @@ async def admin_top_spenders(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "view_finance")
+        actor = _admin_actor(payload, request, "payments.view")
         ensure_payment_tables()
         limit = max(1, min(int(payload.get("limit") or 20), 100))
         conn = db_connect(DATABASE_URL)
@@ -10800,7 +11231,7 @@ async def admin_messages_broadcast(request: Request):
     payload = await request.json()
 
     def _fetch_targets():
-        actor = _admin_actor(payload, request, "message_users")
+        actor = _admin_actor(payload, request, "broadcast.send")
         ensure_admin_tables()
         message = str(payload.get("message") or "").strip()
         send_to_all = bool(payload.get("all"))
@@ -10865,7 +11296,7 @@ async def admin_messages_broadcast(request: Request):
             for tid, ok in results.items():
                 cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
                                (actor["telegram_id"], tid, message, ok))
-            _admin_audit(cursor, actor["telegram_id"], "broadcast_sent", 0, {},
+            _admin_audit(cursor, actor, "broadcast_sent", 0, {},
                          {"recipients": len(targets), "sent": sent_count, "length": len(message)}, "")
             conn.commit()
         finally:
@@ -10933,7 +11364,7 @@ async def admin_references_list(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "manage_references")
+        _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         category = str(payload.get("category") or "").strip()[:80]
         kind = str(payload.get("kind") or "").strip().lower()[:20]
@@ -10972,7 +11403,7 @@ async def admin_references_create(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         category = str(payload.get("category") or "").strip()[:80]
         kind = str(payload.get("kind") or "").strip().lower()[:20]
@@ -10998,7 +11429,7 @@ async def admin_references_create(request: Request):
             """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
                   published, sort_order, actor["telegram_id"]))
             created = _reference_row_to_dict(cursor.fetchone())
-            _admin_audit(cursor, actor["telegram_id"], "reference_created", 0, {}, created, "")
+            _admin_audit(cursor, actor, "reference_created", 0, {}, created, "")
             conn.commit()
             return created
         except Exception:
@@ -11017,7 +11448,7 @@ async def admin_references_update(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         if not reference_id:
@@ -11054,7 +11485,7 @@ async def admin_references_update(request: Request):
                 RETURNING {_REFERENCE_COLUMNS}
             """, list(updates.values()) + [reference_id])
             after = _reference_row_to_dict(cursor.fetchone())
-            _admin_audit(cursor, actor["telegram_id"], "reference_updated", 0, before, after, "")
+            _admin_audit(cursor, actor, "reference_updated", 0, before, after, "")
             conn.commit()
             return after
         except HTTPException:
@@ -11076,7 +11507,7 @@ async def admin_references_publish(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         published = bool(payload.get("published", True))
@@ -11090,7 +11521,7 @@ async def admin_references_publish(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
-            _admin_audit(cursor, actor["telegram_id"], "reference_published" if published else "reference_unpublished",
+            _admin_audit(cursor, actor, "reference_published" if published else "reference_unpublished",
                          0, {"published": bool(before_row[0])}, {"published": published}, "")
             conn.commit()
             return reference_id, published
@@ -11113,7 +11544,7 @@ async def admin_references_delete(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "manage_references")
+        actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         if not reference_id:
@@ -11126,7 +11557,7 @@ async def admin_references_delete(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
-            _admin_audit(cursor, actor["telegram_id"], "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
+            _admin_audit(cursor, actor, "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
             conn.commit()
         except HTTPException:
             conn.rollback()
@@ -11149,7 +11580,7 @@ async def admin_references_upload_media(request: Request):
     no R2 credentials of its own - mirrors materialize_data_image_url's
     approach but supports video too and returns a plain URL."""
     payload = await request.json()
-    _admin_actor(payload, request, "manage_references")
+    _admin_actor(payload, request, "content.references.manage")
     content_b64 = str(payload.get("content_base64") or "")
     slot = str(payload.get("slot") or "preview").strip().lower()
     if slot not in {"preview", "source"}:

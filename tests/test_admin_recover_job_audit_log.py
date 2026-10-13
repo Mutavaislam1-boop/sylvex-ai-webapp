@@ -83,17 +83,19 @@ def client(db):
 
 
 def _audit_rows(database, action="prostudio_job_recovered"):
+    """(actor Telegram id, action, target account, after) from the
+    append-only admin_audit_events table."""
     with database.connect() as conn:
         with conn.cursor() as cur:
             # A rejected/failed call never reaches ensure_admin_tables() at
-            # all (auth is checked, or the recovery call raises, before any
-            # DB table is touched) - the table may simply not exist yet,
-            # which is itself proof no audit entry was ever written.
-            cur.execute("SELECT to_regclass('admin_audit_log')")
+            # all - the table may not exist yet, which itself proves no
+            # audit entry was written.
+            cur.execute("SELECT to_regclass('admin_audit_events')")
             if cur.fetchone()[0] is None:
                 return []
             cur.execute(
-                "SELECT actor_telegram_id, action, target_telegram_id, after_data FROM admin_audit_log WHERE action = %s ORDER BY id",
+                "SELECT s.active_telegram_id, e.action, e.target_account_id, e.after FROM admin_audit_events e "
+                "LEFT JOIN sylvex_accounts s ON s.account_id = e.actor_account_id WHERE e.action = %s ORDER BY e.id",
                 (action,),
             )
             return cur.fetchall()

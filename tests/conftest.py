@@ -27,3 +27,14 @@ def _billed_job_scope(request):
     from services.billing_safety import billing_scope
     with billing_scope("test-billed-job", 1):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _fresh_account_schema_cache():
+    """Each real-SQL test gets its own empty database; the account schema's
+    process-wide "already ensured" flag must not leak between them (admin
+    setup now ensures the account tables first)."""
+    from services import account_identity
+    account_identity._ACCOUNT_TABLES_READY = False
+    yield
+    account_identity._ACCOUNT_TABLES_READY = False
