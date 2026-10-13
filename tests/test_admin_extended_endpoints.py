@@ -50,6 +50,7 @@ def app(monkeypatch):
     monkeypatch.setattr(main, "db_connect", lambda *a, **k: database.connect())
     monkeypatch.setattr(main, "ADMIN_SCHEMA_READY", False)
     monkeypatch.setattr(main, "_PROSTUDIO_SCHEMA_READY", False)
+    monkeypatch.setattr(main, "_PAYMENT_SCHEMA_READY", False)
 
     conn = database.connect()
     cursor = conn.cursor()
@@ -159,7 +160,9 @@ async def test_dashboard_reports_purchase_and_generation_totals(app, client):
     assert stats["generations_success"] == 1
     assert stats["generations_failed"] == 1
     assert stats["purchases_total"] == 1
-    assert stats["revenue_total"] == 1500
+    # Never one total across currencies (Stars, USD cents, ...).
+    assert stats["revenue_by_currency"] == {"USD": 1500}
+    assert "revenue_total" not in stats
     assert stats["credits_purchased_total"] == 500
     assert stats["error_reports"] == 0
     assert response.json()["recent_errors"] == []
@@ -184,7 +187,7 @@ async def test_user_detail_returns_full_profile(app, client):
     assert data["account"]["name"] == "Bob"
     assert data["account"]["balance"] == 50
     assert data["account"]["subscription"] == "free"
-    assert data["account"]["total_spent"] == 500
+    assert data["account"]["spent_by_currency"] == {"USD": 500}
     assert len(data["purchases"]) == 1
     assert data["purchases"][0]["charge_id"] == "charge-1"
 
@@ -284,7 +287,8 @@ async def test_top_spenders_ranks_and_breaks_down_subscription_vs_credit(app, cl
     items = response.json()["items"]
     assert items[0]["telegram_id"] == 606
     assert items[0]["username"] == "eve"
-    assert items[0]["total_spent"] == 1200
+    assert items[0]["spent_by_currency"] == {"USD": 1200}
+    assert items[0]["credits_bought"] == 500
     assert items[0]["subscription_purchases"] == 1
     assert items[0]["credit_purchases"] == 1
     assert items[0]["rank"] == 1

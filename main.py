@@ -40,6 +40,7 @@ from services import edit_sessions as edit_sessions_service
 from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
+from services import admin_identity
 from services import video_probe
 from services import payment_inbox, shop_catalog, shop_orders, stripe_billing, telegram_catalog
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
@@ -68,6 +69,7 @@ from services.security import (
     current_web_session_generation, revoke_web_sessions, website_origins,
 )
 from services import account_identity as account_identity_service
+STORAGE_ID_FLOOR = account_identity_service.STORAGE_ID_FLOOR
 from services.account_identity import AccountError
 from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
@@ -10002,6 +10004,25 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
     return actor
 
 
+def _admin_technical(actor: dict) -> bool:
+    """Technical identifiers (internal storage ids, aliases) are for the
+    Developer/Owner only; every other admin sees the canonical identity."""
+    return (actor or {}).get("role") == "owner"
+
+
+def _admin_resolve_target(cursor, payload: dict):
+    """Storage key of the user an admin action targets, from either an
+    explicit `sylvex_user_id` or the legacy `user_id` (see
+    admin_identity.resolve_target). None when nobody matches."""
+    return admin_identity.resolve_target(
+        cursor, sylvex_user_id=payload.get("sylvex_user_id"), user_id=payload.get("user_id"))
+
+
+# Where an admin balance change came from, recorded in its audit row. Any
+# other value a caller sends is stored as plain "admin_api".
+ADMIN_BALANCE_SOURCES = frozenset({"admin_api", "support_bot", "telegram_bot_addbalance", "admin_console"})
+
+
 def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=None, after=None, reason: str = ""):
     cursor.execute("""
         INSERT INTO admin_audit_log
@@ -10058,11 +10079,18 @@ async def admin_dashboard(request: Request):
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("""
+            # One row per person: storage rows left behind by an account
+            # merge (no account points at them any more) are not users.
+            cursor.execute("SELECT to_regclass('sylvex_accounts')")
+            ghost_filter = (
+                "WHERE telegram_id < %s OR EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.active_telegram_id = users.telegram_id)"
+                if cursor.fetchone()[0] is not None else "WHERE telegram_id < %s"
+            )
+            cursor.execute(f"""
                 SELECT COUNT(*), COALESCE(SUM(balance),0),
                        COUNT(*) FILTER (WHERE NULLIF(created_at,'')::timestamp >= NOW() - INTERVAL '24 hours')
-                FROM users
-            """)
+                FROM users {ghost_filter}
+            """, (STORAGE_ID_FLOOR,))
             users_count, total_balance, new_users_today = cursor.fetchone()
             cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at,'')::timestamp > NOW()")
             active_subscriptions = cursor.fetchone()[0]
@@ -10094,11 +10122,16 @@ async def admin_dashboard(request: Request):
             generations_success_total, generations_failed_total = cursor.fetchone()
             cursor.execute("""
                 SELECT COUNT(*) FILTER (WHERE status='completed') AS purchases_count,
-                       COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) AS total_revenue,
                        COALESCE(SUM(credits) FILTER (WHERE status='completed'),0) AS total_credits
                 FROM purchases
             """)
-            purchases_count, total_revenue, total_credits_purchased = cursor.fetchone()
+            purchases_count, total_credits_purchased = cursor.fetchone()
+            # Stars, USD cents, crypto... are different units: never summed.
+            cursor.execute("""
+                SELECT COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
+                FROM purchases WHERE status='completed' GROUP BY 1 ORDER BY 1
+            """)
+            revenue_by_currency = {str(r[0]): int(r[1] or 0) for r in cursor.fetchall()}
             cursor.execute("SELECT COUNT(*) FROM subscriptions")
             subscriptions_total = cursor.fetchone()[0]
             cursor.execute("SELECT COUNT(*) FROM prostudio_error_reports")
@@ -10110,6 +10143,7 @@ async def admin_dashboard(request: Request):
             recent_errors = [{"id": row[0], "telegram_id": row[1], "job_id": row[2] or "", "provider": row[3] or "",
                     "model": row[4] or "", "status": row[5] or "", "error": str(row[6] or "")[:300],
                     "created_at": _to_iso(row[7])} for row in cursor.fetchall()]
+            admin_identity.decorate(cursor, recent_errors, technical=_admin_technical(actor))
             return {"ok": True, "stats": {"users": int(users_count or 0), "balance": int(total_balance or 0),
                     "visited": int(visited_count or 0),
                     "subscriptions": int(active_subscriptions or 0), "subscriptions_total": int(subscriptions_total or 0),
@@ -10117,7 +10151,7 @@ async def admin_dashboard(request: Request):
                     "generations_total": int(generations_total or 0), "generations_success": int(generations_success_total or 0),
                     "generations_failed": int(generations_failed_total or 0), "failed_today": int(failed_today or 0),
                     "active_jobs": int(active_jobs or 0),
-                    "purchases_total": int(purchases_count or 0), "revenue_total": int(total_revenue or 0),
+                    "purchases_total": int(purchases_count or 0), "revenue_by_currency": revenue_by_currency,
                     "credits_purchased_total": int(total_credits_purchased or 0), "error_reports": int(error_reports_count or 0),
                     "new_users_today": int(new_users_today or 0), "online": int(online_count or 0),
                     "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": actor}
@@ -10130,32 +10164,37 @@ async def admin_dashboard(request: Request):
 
 @app.post("/api/admin/users/search")
 async def admin_users_search(request: Request):
+    """Universal search: SYLVEX ID (incl. retired aliases), Telegram ID,
+    email, username, display name, payment/customer id - one row per
+    person, identified by the canonical identity block."""
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_users")
-        query = str(payload.get("query") or "").strip()[:100]
+        actor = _admin_actor(payload, request, "view_users")
+        technical = _admin_technical(actor)
         limit = max(1, min(int(payload.get("limit") or 30), 100))
-        pattern = f"%{query}%"
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            keys = admin_identity.search_keys(cursor, payload.get("query"), limit=limit, technical=technical)
+            if not keys:
+                return []
             cursor.execute("""
-                SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User'),
-                       COALESCE(u.username, ''), COALESCE(u.balance, 0), COALESCE(u.subscription, 'free'),
-                       u.created_at,
+                SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                       COALESCE(u.username, '') AS username, COALESCE(u.balance, 0) AS balance,
+                       COALESCE(u.subscription, 'free') AS subscription, u.created_at,
                        (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()),
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until,
                        EXISTS(SELECT 1 FROM app_presence ap WHERE ap.telegram_id=u.telegram_id
-                              AND ap.last_seen >= NOW() - INTERVAL '5 minutes')
+                              AND ap.last_seen >= NOW() - INTERVAL '5 minutes') AS online
                 FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
-                WHERE %s = '' OR u.telegram_id::text ILIKE %s OR COALESCE(u.username,'') ILIKE %s
-                      OR COALESCE(p.display_name,u.first_name,'') ILIKE %s
-                ORDER BY NULLIF(u.created_at,'')::timestamp DESC NULLS LAST LIMIT %s
-            """, (query, pattern, pattern, pattern, limit))
-            return [{"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
+                WHERE u.telegram_id = ANY(%s::bigint[])
+            """, (keys,))
+            by_key = {int(r[0]): {"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
                       "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6]),
-                      "online": bool(r[7])} for r in cursor.fetchall()]
+                      "online": bool(r[7])} for r in cursor.fetchall()}
+            items = [by_key[k] for k in keys if k in by_key]
+            return admin_identity.decorate(cursor, items, technical=technical)
         finally:
             cursor.close()
             conn.close()
@@ -10171,19 +10210,34 @@ async def admin_user_balance(request: Request):
     def _sync():
         actor = _admin_actor(payload, request, "manage_balance")
         ensure_admin_tables()
-        target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
+        delta = int(payload.get("delta") or 0)
         reason = str(payload.get("reason") or "Ручная корректировка")[:500]
-        if not target_id or not delta or abs(delta) > 1000000:
+        source = str(payload.get("source") or "admin_api")
+        if source not in ADMIN_BALANCE_SOURCES:
+            source = "admin_api"
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")) or not delta or abs(delta) > 1000000:
             raise HTTPException(status_code=400, detail="invalid_balance_change")
-        ensure_user_exists(target_id)
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = _admin_resolve_target(cursor, payload)
+            if not target_id:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            # A mistyped id must not silently create a fresh user row, and a
+            # debit larger than the balance must not be clamped to 0 - both
+            # would be balance edits nobody asked for and the audit row would
+            # not describe. Refuse instead.
             cursor.execute("SELECT COALESCE(balance,0) FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
-            before = int(cursor.fetchone()[0] or 0)
-            after = max(0, before + delta)
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            before = int(row[0] or 0)
+            after = before + delta
+            if after < 0:
+                raise HTTPException(status_code=409, detail="balance_would_go_negative")
             cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
-            _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before}, {"balance": after}, reason)
+            _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before},
+                         {"balance": after, "delta": delta, "source": source}, reason)
             conn.commit()
             return after
         except Exception:
@@ -10204,17 +10258,18 @@ async def admin_user_subscription(request: Request):
     def _sync():
         actor = _admin_actor(payload, request, "manage_subscriptions")
         ensure_admin_tables()
-        target_id = int(payload.get("user_id") or 0)
         action = str(payload.get("action") or "extend")
         days = max(1, min(int(payload.get("days") or 30), 730))
         reason = str(payload.get("reason") or "Изменение администратором")[:500]
-        if not target_id or action not in {"extend", "cancel"}:
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")) or action not in {"extend", "cancel"}:
             raise HTTPException(status_code=400, detail="invalid_subscription_change")
-        ensure_user_exists(target_id)
         ensure_payment_tables()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = _admin_resolve_target(cursor, payload)
+            if not target_id:
+                raise HTTPException(status_code=404, detail="user_not_found")
             cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
             before_plan = (cursor.fetchone() or [None])[0]
             cursor.execute("SELECT MAX(NULLIF(expires_at,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
@@ -10257,12 +10312,24 @@ async def admin_user_message(request: Request):
     def _sync():
         actor = _admin_actor(payload, request, "message_users")
         ensure_admin_tables()
-        target_id = int(payload.get("user_id") or 0)
         message = str(payload.get("message") or "").strip()
-        if not target_id or not message or len(message) > 4000:
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")) or not message or len(message) > 4000:
             raise HTTPException(status_code=400, detail="invalid_message")
         if not BOT_TOKEN:
             raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            target_key = _admin_resolve_target(cursor, payload)
+        finally:
+            cursor.close()
+            conn.close()
+        if not target_key:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        # A website-only account has a storage key, not a Telegram chat.
+        target_id = account_identity_service.real_telegram_id(target_key)
+        if not target_id:
+            raise HTTPException(status_code=409, detail="user_has_no_telegram")
         response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                                  json={"chat_id": target_id, "text": message}, timeout=20)
         result = response.json() if response.content else {}
@@ -10297,8 +10364,9 @@ async def admin_list(request: Request):
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT telegram_id,role,permissions,active,granted_by,created_at FROM admin_users ORDER BY role='owner' DESC,created_at")
-            return [{"telegram_id":r[0],"role":r[1],"permissions":r[2] or [],"active":bool(r[3]),
+            items = [{"telegram_id":r[0],"role":r[1],"permissions":r[2] or [],"active":bool(r[3]),
                     "granted_by":r[4],"created_at":_to_iso(r[5])} for r in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=True)
         finally:
             cursor.close()
             conn.close()
@@ -10368,14 +10436,15 @@ async def admin_audit(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_audit")
+        actor = _admin_actor(payload, request, "view_audit")
         ensure_admin_tables()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT id,actor_telegram_id,action,target_telegram_id,reason,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 100")
-            return [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
+            items = [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
                     "reason":r[4] or "","created_at":_to_iso(r[5])} for r in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor), fields=("actor_id", "target_id"))
         finally:
             cursor.close()
             conn.close()
@@ -10389,7 +10458,7 @@ async def admin_errors(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_errors")
+        actor = _admin_actor(payload, request, "view_errors")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
@@ -10398,11 +10467,12 @@ async def admin_errors(request: Request):
                 FROM prostudio_errors
                 ORDER BY created_at DESC LIMIT 100
             """)
-            return [{
+            items = [{
                 "id": row[0], "telegram_id": row[1], "job_id": row[2] or "",
                 "provider": row[3] or "", "model": row[4] or "", "status": row[5] or "",
                 "error": str(row[6] or "")[:1000], "created_at": _to_iso(row[7]),
             } for row in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10419,7 +10489,7 @@ async def admin_error_reports(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_errors")
+        actor = _admin_actor(payload, request, "view_errors")
         ensure_prostudio_table()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -10429,13 +10499,14 @@ async def admin_error_reports(request: Request):
                 FROM prostudio_error_reports
                 ORDER BY created_at DESC LIMIT 100
             """)
-            return [{
+            items = [{
                 "id": row[0], "telegram_id": row[1], "mode": row[2] or "",
                 "provider": row[3] or "", "model": row[4] or "", "job_id": row[5] or "",
                 "prompt": str(row[6] or "")[:500], "error": str(row[7] or "")[:1000],
                 "raw_error": str(row[8] or "")[:2000], "status": row[9] or "open",
                 "created_at": _to_iso(row[10]),
             } for row in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10453,16 +10524,19 @@ async def admin_user_detail(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_users")
+        actor = _admin_actor(payload, request, "view_users")
+        technical = _admin_technical(actor)
         ensure_admin_tables()
         ensure_payment_tables()
         ensure_prostudio_table()
-        target_id = int(payload.get("user_id") or 0)
-        if not target_id:
+        if not (payload.get("user_id") or payload.get("sylvex_user_id")):
             raise HTTPException(status_code=400, detail="user_id_required")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = _admin_resolve_target(cursor, payload)
+            if not target_id:
+                raise HTTPException(status_code=404, detail="user_not_found")
             cursor.execute("""
                 SELECT u.telegram_id, COALESCE(u.username,'') AS username,
                        COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
@@ -10475,16 +10549,22 @@ async def admin_user_detail(request: Request):
             row = cursor.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="user_not_found")
-            cursor.execute("SELECT COUNT(*), COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) FROM purchases WHERE telegram_id=%s", (target_id,))
-            purchases_count, total_spent = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM purchases WHERE telegram_id=%s", (target_id,))
+            purchases_count = cursor.fetchone()[0]
+            cursor.execute("""
+                SELECT COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
+                FROM purchases WHERE telegram_id=%s AND status='completed' GROUP BY 1 ORDER BY 1
+            """, (target_id,))
+            spent_by_currency = {str(r[0]): int(r[1] or 0) for r in cursor.fetchall()}
             cursor.execute("SELECT COUNT(*) FROM prostudio_generation_jobs WHERE telegram_id=%s", (target_id,))
             generations_count = cursor.fetchone()[0]
             cursor.execute("SELECT current_view, platform, last_seen FROM app_presence WHERE telegram_id=%s", (target_id,))
             presence_row = cursor.fetchone()
             account = {"telegram_id": row[0], "username": row[1], "name": row[2], "balance": int(row[3] or 0),
                        "subscription": row[4], "created_at": _to_iso(row[5]), "subscription_until": _to_iso(row[6]),
-                       "total_purchases": int(purchases_count or 0), "total_spent": int(total_spent or 0),
+                       "total_purchases": int(purchases_count or 0), "spent_by_currency": spent_by_currency,
                        "total_generations": int(generations_count or 0)}
+            admin_identity.decorate(cursor, [account], technical=technical)
             cursor.execute("""
                 SELECT id, provider, credits, amount, currency, status, charge_id, created_at
                 FROM purchases WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
@@ -10533,7 +10613,7 @@ async def admin_users_online(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_users")
+        actor = _admin_actor(payload, request, "view_users")
         ensure_admin_tables()
         limit = max(1, min(int(payload.get("limit") or 50), 200))
         window_minutes = max(1, min(int(payload.get("window_minutes") or 30), 1440))
@@ -10551,9 +10631,10 @@ async def admin_users_online(request: Request):
                 WHERE ap.last_seen >= NOW() - (%s * INTERVAL '1 minute')
                 ORDER BY ap.last_seen DESC LIMIT %s
             """, (window_minutes, limit))
-            return [{"telegram_id": r[0], "name": r[1], "username": r[2], "view": r[3],
+            items = [{"telegram_id": r[0], "name": r[1], "username": r[2], "view": r[3],
                     "platform": r[4], "last_seen": _to_iso(r[5]), "online": bool(r[6])}
                     for r in cursor.fetchall()]
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10569,24 +10650,28 @@ async def admin_generations(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_generations")
+        actor = _admin_actor(payload, request, "view_generations")
         ensure_prostudio_table()
         mode = str(payload.get("mode") or "").strip().lower()[:20]
         status = str(payload.get("status") or "").strip().lower()[:20]
-        target_id = int(payload.get("user_id") or 0)
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         offset = max(0, int(payload.get("offset") or 0))
-        conditions, params = [], []
-        if mode:
-            conditions.append("mode=%s"); params.append(mode)
-        if status:
-            conditions.append("status=%s"); params.append(status)
-        if target_id:
-            conditions.append("telegram_id=%s"); params.append(target_id)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            target_id = None
+            if payload.get("user_id") or payload.get("sylvex_user_id"):
+                target_id = _admin_resolve_target(cursor, payload)
+                if not target_id:
+                    return [], 0
+            conditions, params = [], []
+            if mode:
+                conditions.append("mode=%s"); params.append(mode)
+            if status:
+                conditions.append("status=%s"); params.append(status)
+            if target_id:
+                conditions.append("telegram_id=%s"); params.append(target_id)
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             cursor.execute(f"SELECT COUNT(*) FROM prostudio_generation_jobs {where}", params)
             total = cursor.fetchone()[0]
             cursor.execute(f"""
@@ -10606,6 +10691,7 @@ async def admin_generations(request: Request):
                     "has_result": bool(result_json),
                     "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]),
                 })
+            admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
             return items, int(total or 0)
         finally:
             cursor.close()
@@ -10622,7 +10708,7 @@ async def admin_subscribers(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_finance")
+        actor = _admin_actor(payload, request, "view_finance")
         ensure_payment_tables()
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         offset = max(0, int(payload.get("offset") or 0))
@@ -10645,6 +10731,7 @@ async def admin_subscribers(request: Request):
                     "amount": int(r[5] or 0), "currency": r[6], "starts_at": _to_iso(r[7]), "expires_at": _to_iso(r[8]),
                     "status": r[9], "created_at": _to_iso(r[10]), "total_subscription_purchases": int(r[11] or 0)}
                     for r in cursor.fetchall()]
+            admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
             return items, int(total or 0)
         finally:
             cursor.close()
@@ -10661,16 +10748,18 @@ async def admin_top_spenders(request: Request):
     payload = await request.json()
 
     def _sync():
-        _admin_actor(payload, request, "view_finance")
+        actor = _admin_actor(payload, request, "view_finance")
         ensure_payment_tables()
         limit = max(1, min(int(payload.get("limit") or 20), 100))
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            # Ranked by credits bought - the one unit every payment method
+            # shares. Money is reported per currency, never summed across.
             cursor.execute("""
                 SELECT p.telegram_id, COALESCE(pr.display_name, u.first_name, 'SYLVEX User') AS name,
                        COALESCE(u.username,'') AS username,
-                       COALESCE(SUM(p.amount),0) AS total_spent,
+                       COALESCE(SUM(p.credits),0) AS credits_bought,
                        COUNT(*) FILTER (WHERE s.charge_id IS NOT NULL) AS subscription_purchases,
                        COUNT(*) FILTER (WHERE s.charge_id IS NULL) AS credit_purchases,
                        COUNT(*) AS payments_count
@@ -10680,11 +10769,21 @@ async def admin_top_spenders(request: Request):
                 LEFT JOIN subscriptions s ON s.charge_id=p.charge_id
                 WHERE p.status='completed'
                 GROUP BY p.telegram_id, pr.display_name, u.first_name, u.username
-                ORDER BY total_spent DESC LIMIT %s
+                ORDER BY credits_bought DESC, payments_count DESC LIMIT %s
             """, (limit,))
-            return [{"rank": i + 1, "telegram_id": r[0], "name": r[1], "username": r[2], "total_spent": int(r[3] or 0),
+            items = [{"rank": i + 1, "telegram_id": r[0], "name": r[1], "username": r[2], "credits_bought": int(r[3] or 0),
                     "subscription_purchases": int(r[4] or 0), "credit_purchases": int(r[5] or 0),
-                    "payments_count": int(r[6] or 0)} for i, r in enumerate(cursor.fetchall())]
+                    "payments_count": int(r[6] or 0), "spent_by_currency": {}} for i, r in enumerate(cursor.fetchall())]
+            keys = [item["telegram_id"] for item in items]
+            if keys:
+                cursor.execute("""
+                    SELECT telegram_id, COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
+                    FROM purchases WHERE status='completed' AND telegram_id = ANY(%s::bigint[]) GROUP BY 1, 2
+                """, (keys,))
+                by_key = {item["telegram_id"]: item for item in items}
+                for key, currency, amount in cursor.fetchall():
+                    by_key[key]["spent_by_currency"][str(currency)] = int(amount or 0)
+            return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
             conn.close()
@@ -10711,19 +10810,23 @@ async def admin_messages_broadcast(request: Request):
             raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
+        skipped_no_telegram = 0
         try:
+            # Only real Telegram chats: website-only accounts' storage keys
+            # (>= STORAGE_ID_FLOOR) are not chats and must never be messaged.
             if send_to_all:
-                cursor.execute("SELECT telegram_id FROM users")
+                cursor.execute("SELECT telegram_id FROM users WHERE telegram_id > 0 AND telegram_id < %s", (STORAGE_ID_FLOOR,))
                 targets = [row[0] for row in cursor.fetchall()]
             else:
                 targets = []
-                for raw in (payload.get("user_ids") or []):
-                    try:
-                        tid = int(raw)
-                    except (TypeError, ValueError):
-                        continue
+                requested = [{"user_id": raw} for raw in (payload.get("user_ids") or [])]
+                requested += [{"sylvex_user_id": raw} for raw in (payload.get("sylvex_user_ids") or [])]
+                for ref in requested[:20001]:
+                    tid = account_identity_service.real_telegram_id(_admin_resolve_target(cursor, ref))
                     if tid:
                         targets.append(tid)
+                    else:
+                        skipped_no_telegram += 1
                 targets = list(dict.fromkeys(targets))
         finally:
             cursor.close()
@@ -10732,9 +10835,9 @@ async def admin_messages_broadcast(request: Request):
             raise HTTPException(status_code=400, detail="no_recipients")
         if len(targets) > 20000:
             raise HTTPException(status_code=400, detail="too_many_recipients")
-        return actor, message, targets
+        return actor, message, targets, skipped_no_telegram
 
-    actor, message, targets = await asyncio.to_thread(_fetch_targets)
+    actor, message, targets, skipped_no_telegram = await asyncio.to_thread(_fetch_targets)
 
     def send_one(chat_id):
         try:
@@ -10770,7 +10873,7 @@ async def admin_messages_broadcast(request: Request):
             conn.close()
 
     await asyncio.to_thread(_record_results)
-    return {"ok": True, "recipients": len(targets), "sent": sent_count}
+    return {"ok": True, "recipients": len(targets), "sent": sent_count, "skipped_no_telegram": skipped_no_telegram}
 
 
 REFERENCES_SCHEMA_READY = False
@@ -14038,13 +14141,10 @@ async def web_account_delete(request: Request):
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    # COOKIE-2: explicit revocation attempt on top of the row itself
-    # already being gone (defense in depth - the UPDATE here affects zero
-    # rows since delete_account() already deleted it, so this is a no-op;
-    # current_web_session_generation() would likewise find no row and
-    # treat the account as generation 0, but every other lookup on a
-    # deleted account_id also comes up empty, so this never grants access
-    # to anything real either way).
+    # COOKIE-2: revoke every session of this account. When the account is
+    # still used through Telegram its row (and SYLVEX ID) stays, so this
+    # bumps its generation; when the row was removed it is a no-op, and
+    # every lookup on the deleted account_id comes up empty anyway.
     await asyncio.to_thread(revoke_web_sessions, account_id)
     response = JSONResponse({"ok": True})
     response.delete_cookie(
@@ -14097,8 +14197,8 @@ async def web_account_telegram_preview(request: Request):
 @app.post("/api/web/account/telegram/confirm")
 async def web_account_telegram_confirm(request: Request):
     # Step 2: the deliberate, one-time, permanent merge (spec requirements
-    # #9-#11). account_id/the session cookie never change - only the
-    # account's underlying business data moves onto the real telegram_id.
+    # #9-#11). The business data moves onto the real telegram_id; the older
+    # of the two accounts keeps its SYLVEX ID (see account_identity).
     account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
@@ -14122,8 +14222,15 @@ async def web_account_telegram_confirm(request: Request):
         if error == "telegram_already_linked":
             return JSONResponse({"ok": False, "error": error, "conflict": True}, status_code=status)
         return JSONResponse({"ok": False, "error": error}, status_code=status)
-    body = await asyncio.to_thread(_web_session_payload, account_id)
-    return {"ok": True, "merge_result": result, **body}
+    # When the Telegram user's account was the older one, it keeps its
+    # SYLVEX ID and this website account became its alias (its sessions
+    # were revoked by the merge) - continue this browser as the survivor.
+    survivor_id = int(result.get("sylvex_user_id") or account_id)
+    body = await asyncio.to_thread(_web_session_payload, survivor_id)
+    response = JSONResponse({"ok": True, "merge_result": result, **body})
+    if survivor_id != account_id:
+        await _set_web_session_cookie(response, survivor_id)
+    return response
 
 
 # ---------------------------------------------------------------------------
