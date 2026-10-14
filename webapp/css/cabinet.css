@@ -10114,3 +10114,14 @@ html.browser-guest .user-guest{display:flex;flex-direction:column;align-items:fl
 .user-guest-title{font-size:18px;font-weight:700;color:var(--text)}
 .user-guest-sub{font-size:13px;line-height:1.45;color:var(--text-dim);max-width:320px}
 .user-guest-btn{margin-top:8px}
+/* Mobile browser (html.browser-app only; --bvh is set from the visible
+   browser viewport in cabinet.js): Pro Studio fills exactly the visible area
+   between the browser bars and the device's safe areas, so its whole bottom
+   control block stays above the browser controls. */
+html.browser-app .view[data-view="tools"].active .studio{
+  height:calc(var(--bvh,1vh) * 100 - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))
+}
+@media(max-width:680px){
+  html.browser-app .photo-tool-modal{padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}
+  html.browser-app .photo-tool-dialog{max-height:calc(var(--bvh,1vh) * 100 - 20px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
+}
