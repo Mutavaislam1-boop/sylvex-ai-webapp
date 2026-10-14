@@ -10135,3 +10135,12 @@ html.browser-app :is(body.device-mobile,body.device-tablet) .view[data-view="too
   top:var(--vv-top,0px)!important;bottom:auto!important;
   height:var(--vv-h,100dvh)!important;max-height:var(--vv-h,100dvh)!important
 }
+/* Browser Mini App only: Pro Studio's workspace background is plain - no
+   dot/grid pattern (classic and Grid Mode, idle or generating). Only the
+   pattern layer goes; the background color, nodes, connections and every
+   control stay as they are. Telegram keeps the pattern. */
+html.browser-app body .view[data-view="tools"].active .studio.studio.studio.studio,
+html.browser-app body .view[data-view="tools"].active .chat-area.chat-area,
+html.browser-app body .view[data-view="tools"].active .studio-grid-canvas.studio-grid-canvas{
+  background-image:none!important
+}

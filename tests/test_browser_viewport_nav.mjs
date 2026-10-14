@@ -53,3 +53,9 @@ test('browser keyboard: no close button, window fits the visible area, browser c
   // Telegram path untouched: the keyboard layout check still uses the device.
   assert.match(between(cabinet, 'function usesVirtualKeyboardLayout() {', 'function dismissGenerationInputUi'), /^function usesVirtualKeyboardLayout\(\) \{\s*return Boolean\(S\.device && S\.device\.usesVirtualKeyboard\);/);
 });
+
+test('browser app Pro Studio workspace has no dot/grid background (Telegram keeps it)', () => {
+  assert.match(css, /html\.browser-app body \.view\[data-view="tools"\]\.active \.studio\.studio\.studio\.studio,\s*html\.browser-app body \.view\[data-view="tools"\]\.active \.chat-area\.chat-area,\s*html\.browser-app body \.view\[data-view="tools"\]\.active \.studio-grid-canvas\.studio-grid-canvas\{\s*background-image:none!important\s*\}/);
+  // The original dotted backdrop is still defined for Telegram.
+  assert.match(css, /radial-gradient\(circle, var\(--st-grid-line\) 1px, transparent 1\.3px\)/);
+});
