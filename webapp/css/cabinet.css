@@ -10125,3 +10125,6 @@ html.browser-app .view[data-view="tools"].active .studio{
   html.browser-app .photo-tool-modal{padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}
   html.browser-app .photo-tool-dialog{max-height:calc(var(--bvh,1vh) * 100 - 20px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
 }
+/* Browser Mini App: the keyboard is left to the browser - no keyboard-close
+   button in the Pro Studio prompt (Telegram keeps it). */
+html.browser-app .mobile-keyboard-close{display:none!important}

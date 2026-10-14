@@ -41,3 +41,10 @@ test('Photo Tools list and tool are separate history steps', () => {
   assert.match(cabinet, /browserNav\.push\(navKey, \{\s*open: \(\) => openPhotoToolModal\(null, kind\)/);
   assert.equal((cabinet.match(/window\.SYLVEX\.browserNav\.closed\(navKey\)/g) || []).length, 2);
 });
+
+test('browser app has no custom keyboard lift or keyboard-close button', () => {
+  const fn = between(cabinet, 'function usesVirtualKeyboardLayout() {', 'function dismissGenerationInputUi');
+  assert.match(fn, /if \(S\.isBrowserApp && S\.isBrowserApp\(\)\) return false;/);
+  assert.match(fn, /return Boolean\(S\.device && S\.device\.usesVirtualKeyboard\);/);
+  assert.match(css, /html\.browser-app \.mobile-keyboard-close\{display:none!important\}/);
+});
