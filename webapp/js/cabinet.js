@@ -3800,6 +3800,74 @@ function hideMobileKeyboard(event) {
   document.getElementById('studioComposer')?.classList.remove('composer-input-window');
 }
 
+// =====================================================
+// BROWSER MINI APP KEYBOARD (Safari/Chrome, never Telegram). The Pro Studio
+// input window from the Telegram flow stays, without its keyboard-close
+// button:
+// - it is placed in the part of the screen the keyboard leaves visible
+//   (visualViewport), so the whole block sits under the browser's address
+//   bar and right above the keyboard;
+// - closing the keyboard with the browser's own control (iOS Done/checkmark,
+//   Android keyboard hide) puts the block back down, exactly like the old
+//   button did; so does switching Pro Studio mode.
+// =====================================================
+const BROWSER_KB_OVERLAYS = '#modelPop.show,.modal-overlay.show,.sheet-overlay.show,#imageStylePanel.show,#uploadPanel.show,#visualPickerModal.show,'
+  + '#visualCreateModal.show,.photo-tool-modal.show,#plusSheet.show,#voiceAddonDrawer:not([hidden]),.video-templates-overlay,#videoTemplateModal';
+function browserComposerWindowOpen() {
+  const composer = document.getElementById('studioComposer');
+  return !!(composer && composer.classList.contains('composer-input-window'));
+}
+function editableIsFocused() {
+  const active = document.activeElement;
+  return Boolean(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable));
+}
+function initBrowserKeyboard(vv, chatInput) {
+  if (!(S.isBrowserApp && S.isBrowserApp()) || !vv || !chatInput || initBrowserKeyboard.done) return;
+  initBrowserKeyboard.done = true;
+  const root = document.documentElement;
+  let keyboardSeen = false, restoreTimer = 0, lastBlockTap = 0;
+  const keyboardHeight = () => Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  // Back down when the keyboard is gone, nothing is being typed into and no
+  // picker/menu opened from the block is still showing.
+  const restoreIfKeyboardClosed = (delay) => {
+    clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(() => {
+      if (!browserComposerWindowOpen() || editableIsFocused() || document.querySelector(BROWSER_KB_OVERLAYS)) return;
+      keyboardSeen = false;
+      hideMobileKeyboard();
+    }, delay);
+  };
+  const place = () => {
+    root.style.setProperty('--vv-top', Math.round(vv.offsetTop) + 'px');
+    root.style.setProperty('--vv-h', Math.round(vv.height) + 'px');
+    if (!browserComposerWindowOpen()) return;
+    const kb = keyboardHeight();
+    if (kb > 80) keyboardSeen = true;
+    else if (keyboardSeen && document.activeElement === chatInput) {
+      // Android hides the keyboard without blurring the field.
+      keyboardSeen = false;
+      hideMobileKeyboard();
+    }
+  };
+  vv.addEventListener('resize', place);
+  vv.addEventListener('scroll', place);
+  window.addEventListener('resize', place);
+  place();
+  // A tap on a control inside the block also blurs the field; that one
+  // settles on its click below, so the block never moves under the finger.
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (!target || !target.closest || !target.closest('#studioComposer')) return;
+    if (target.closest('textarea,input,[contenteditable="true"]')) return;
+    lastBlockTap = Date.now();
+  }, true);
+  // iOS Done / checkmark (and tapping outside) blur the field.
+  chatInput.addEventListener('blur', () => restoreIfKeyboardClosed(Date.now() - lastBlockTap > 700 ? 150 : 900));
+  // A control in the block was used while the keyboard was down (or a menu
+  // it opened has closed): settle back once nothing is open.
+  document.addEventListener('click', () => { if (browserComposerWindowOpen() && !editableIsFocused()) restoreIfKeyboardClosed(300); });
+}
+
 function usesVirtualKeyboardLayout() {
   return Boolean(S.device && S.device.usesVirtualKeyboard);
 }
@@ -20996,6 +21064,9 @@ function maybeShowVideoTemplateIntro(force) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
       return;
     }
+    // Browser Mini App: switching mode (Photo -> Video -> Music, ...) closes
+    // the keyboard and puts the Pro Studio block back down.
+    if (requestedMode !== currentChatType() && S.isBrowserApp && S.isBrowserApp() && browserComposerWindowOpen()) hideMobileKeyboard();
     if (!restoringChatSpace) rememberCurrentChatSpace();
     const isVideoSection = kind === 'video' || kind === 'edit' || kind === 'motion';
     studioMode = isVideoSection ? 'video' : kind;
@@ -25483,6 +25554,7 @@ async function waitGeneration(jobId, options) {
         setTimeout(updateKb, 260);
       });
       document.addEventListener('focusout', () => setTimeout(updateKb, 80));
+      initBrowserKeyboard(vv, chatInput);
       updateKb();
     }
   }
