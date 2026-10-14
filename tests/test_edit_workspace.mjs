@@ -41,7 +41,7 @@ test('Sketch works without a photo, uploads its PNG as the isolated source and r
  h.context.setEditWorkspaceMode(null,'lighting');h.context.setEditWorkspaceDimensions(1024,1024);await h.context.generateEditWorkspace();
  assert.equal(h.requests[1][2][0],'https://cdn.example/result.png');assert.equal(h.state.chain.length,3);
 });
-test('Sketch paints on the active Edit photo and keeps the flattened upload out of the visible chain',async()=>{
+test('Sketch keeps the existing Edit chain and retains the annotated photo as the generated result parent',async()=>{
  const h=harness();h.context.ensureEditWorkspaceChain();h.context.setEditWorkspaceMode(null,'sketch');
  assert.equal(h.state.sketch.referenceUrl,'https://cdn.example/source.png');
  assert.equal(h.state.sketch.referencePreview,'https://cdn.example/source.png');
@@ -53,13 +53,28 @@ test('Sketch paints on the active Edit photo and keeps the flattened upload out 
  await h.context.generateEditWorkspace();
  assert.equal(h.requests[0][2][0],'https://cdn.example/flattened.png');
  assert.equal(h.requests[0][4].imageOptions.editWorkspaceSourceUrl,'https://cdn.example/flattened.png');
- assert.equal(h.state.chain.length,2,'only the original photo and generated result are visible');
+ assert.equal(h.state.chain.length,3,'the original, annotated photo and generated result are all retained');
  assert.equal(h.state.chain[0].url,'https://cdn.example/source.png');
+ assert.equal(h.state.chain[1].mode,'sketch-source');
+ assert.equal(h.state.chain[1].url,'https://cdn.example/flattened.png');
  assert.equal(h.state.chain[1].parentId,h.state.chain[0].id);
- assert.equal(h.state.chain.some(node=>node.url==='https://cdn.example/flattened.png'),false);
+ assert.equal(h.state.chain[2].parentId,h.state.chain[1].id);
+ assert.deepEqual(h.state.sketch.items,[{type:'pen',x:30,y:40,size:6,color:'#112233',fill:'#ffffff',opacity:1,sx:1,sy:1,rotation:0,points:[[0,0,.5],[20,30,.8]]}], 'editable drawing remains after Generate');
  h.context.toggleEditSketch();
  assert.equal(h.state.sketch.referenceUrl,'https://cdn.example/result.png','the current result becomes the next drawing background');
  assert.equal(h.state.sketch.items.length,0,'old strokes are not duplicated over a new active result');
+});
+test('Sketch continues an existing multi-tool chain without replacing any earlier image',async()=>{
+ const h=harness();await h.context.generateEditWorkspace();
+ h.context.setEditWorkspaceDimensions(1200,800);h.context.setEditWorkspaceMode(null,'camera');await h.context.generateEditWorkspace();
+ h.context.setEditWorkspaceDimensions(1200,800);const retained=h.state.chain.map(node=>({id:node.id,parentId:node.parentId,url:node.url}));
+ h.context.setEditWorkspaceMode(null,'sketch');assert.deepEqual(h.state.chain.map(node=>({id:node.id,parentId:node.parentId,url:node.url})),retained);
+ const drawnParent=h.state.activeNodeId;h.state.sketch.items=[{type:'pen',x:5,y:6,size:4,color:'#112233',fill:'#ffffff',opacity:1,sx:1,sy:1,rotation:0,points:[[0,0,.5],[10,10,.8]]}];
+ h.context.SYLVEXSketch.exportPNG=async()=>new Blob(['annotated'],{type:'image/png'});h.context.uploadProStudioMediaFile=async()=> 'https://cdn.example/annotated-later.png';
+ await h.context.generateEditWorkspace();
+ assert.deepEqual(h.state.chain.slice(0,retained.length).map(node=>({id:node.id,parentId:node.parentId,url:node.url})),retained);
+ const annotated=h.state.chain.at(-2),result=h.state.chain.at(-1);
+ assert.equal(annotated.parentId,drawnParent);assert.equal(annotated.url,'https://cdn.example/annotated-later.png');assert.equal(result.parentId,annotated.id);
 });
 test('Sketch upload and generation failures keep the draft, retries reuse a single immutable source and result slot',async()=>{
  const h=sketchHarness();h.failUpload();await h.context.generateEditWorkspace();

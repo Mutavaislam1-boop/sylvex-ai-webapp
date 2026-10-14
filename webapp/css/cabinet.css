@@ -10008,9 +10008,13 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
 .edit-sketch-workbench{position:absolute;z-index:1;inset:0;color:var(--edit-text);overflow:hidden}
 .edit-workspace[data-sidebar="true"] .edit-sketch-workbench{left:240px}
 .edit-workspace[data-shared-sidebar="true"] .edit-sketch-workbench{left:var(--sx-sidebar-w,256px)}
-.edit-workspace[data-drawing="true"] .edit-workspace-stage{visibility:hidden;pointer-events:none}
+/* Keep the complete Edit chain visible while drawing. The sketch paper is a
+   transparent interaction layer above it; the active photo is still rendered
+   inside the paper so strokes remain pixel-accurate. */
+.edit-workspace[data-drawing="true"] .edit-workspace-stage{visibility:visible;pointer-events:none}
 .edit-workspace[data-drawing="true"] .edit-workspace-canvas-actions{display:none}
 .edit-workspace[data-drawing="true"] .edit-workspace-status{visibility:hidden}
+.edit-workspace[data-drawing="true"] .edit-sketch-paper-area{background-color:transparent;background-image:none}
 .edit-sketch-tools{position:absolute;z-index:5;box-sizing:border-box;top:70px;right:22px;bottom:215px;width:270px;min-height:0;overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid var(--edit-border);border-radius:16px;background:color-mix(in srgb,var(--edit-surface) 92%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:var(--st-depth-2)}
 .edit-sketch-tools>*{flex-shrink:0}.edit-sketch-tools h3{font-size:15px;margin:0}.edit-sketch-tools p{font-size:11px;line-height:1.5;margin:0;color:var(--edit-muted)}
 .edit-sketch-workbench button{font:inherit;font-size:11px;color:var(--edit-text);background:var(--edit-surface-raised);border:1px solid var(--edit-border);border-radius:8px;cursor:pointer;min-height:30px;padding:6px 8px}

@@ -7169,8 +7169,14 @@ function syncEditWorkspaceChain(root) {
     const label=editWorkspaceChainLabel(node,index);card.setAttribute('aria-label',label+(node.status==='pending'?' — generating':node.status==='failed'?' — generation failed':''));card.querySelector('.edit-chain-caption').textContent=label;
     const frame=card.querySelector('.edit-workspace-frame');
     let img=frame.querySelector('.edit-workspace-image');
+    const mediaUrl=node.preview||node.url;
     if(node.status==='ready'&&!img){
-      img=document.createElement('img');img.className='edit-workspace-image';img.alt=label;img.draggable=false;card.dataset.media='loading';frame.appendChild(img);img.src=node.preview||node.url;
+      img=document.createElement('img');img.className='edit-workspace-image';img.alt=label;img.draggable=false;card.dataset.media='loading';frame.appendChild(img);img.dataset.source=mediaUrl;img.src=mediaUrl;
+    }else if(node.status==='ready'&&img&&img.dataset.source!==mediaUrl){
+      // Sketch sources are editable. Refresh the retained card when a new
+      // flattened revision replaces its pixels, without recreating the node
+      // or breaking either of its connection lines.
+      card.dataset.media='loading';img.dataset.source=mediaUrl;img.src=mediaUrl;
     }
     const restore=s.upscale?.sylvex||{},showRestoreRegions=node.id===s.activeNodeId&&node.status==='ready'&&s.mode==='upscale'&&s.upscale.model==='sylvex_sr'&&!s.showBefore&&!s.busy&&!restore.guidesHidden;
     let restoreOverlay=frame.querySelector('.edit-sr-overlay');
@@ -8054,7 +8060,13 @@ function syncEditSketchSource(s=editWorkspaceState){
   const url=String(s.sourceUrl||''),preview=String(s.sourcePreview||url),key=url?String(active?.id||url):'';
   const bindingChanged=d.referenceKey!==key,urlChanged=d.referenceUrl!==url;
   if(bindingChanged&&d.referenceKey&&d.items.length){d.items=[];d.revision++;}
-  if(bindingChanged||urlChanged){d.flattenedUrl='';d.flattenedRevision=-1;d.flattenedReferenceKey='';}
+  if(bindingChanged||urlChanged){
+    d.flattenedUrl='';d.flattenedRevision=-1;d.flattenedReferenceKey='';
+    // A flattened drawing belongs to exactly one chain source. Moving to a
+    // different photo must create a new connected drawing node instead of
+    // rewriting the earlier annotated photo in the history.
+    d.sourceNodeId='';d.sourceRevision=-1;
+  }
   d.referenceUrl=url;d.referencePreview=preview;d.referenceKey=key;d.referenceNodeId=active?.id||'';
   if(url&&bindingChanged&&s.width&&s.height){
     const size=editSketchSourceSize(s.width,s.height),sx=size.width/d.width,sy=size.height/d.height;
@@ -8078,16 +8090,21 @@ async function prepareEditSketchReference(){
       d.flattenedUrl=url;d.flattenedRevision=d.revision;d.flattenedReferenceKey=d.referenceKey;d.sourceRevision=d.revision;
     }finally{s.uploading=false;}
   }
-  if(!hasPhoto){
-    let node=s.chain.find(n=>n.id===d.sourceNodeId&&n.mode==='sketch-source');
-    if(!node){
-      const size=editWorkspacePreviewSize(d.width,d.height,s.zoom),right=s.chain.length?Math.max(...s.chain.map(n=>n.x+n.slotWidth/2)):null;
-      node={id:'edit-node-'+(++s.nodeSequence),parentId:'',status:'ready',mode:'sketch-source',url:d.flattenedUrl,preview:d.flattenedUrl,jobId:'',width:d.width,height:d.height,x:right===null?0:right+72/(s.zoom/100)+size.slotWidth/2,y:0,...size};
-      s.chain.push(node);d.sourceNodeId=node.id;
-    }else Object.assign(node,{status:'ready',url:d.flattenedUrl,preview:d.flattenedUrl,width:d.width,height:d.height});
-    Object.assign(s,{sourceUrl:d.flattenedUrl,sourcePreview:d.flattenedUrl,activeNodeId:node.id,showBefore:false,maskStrokes:[],maskRedo:[],beforeUrl:'',viewNeedsFit:true});
-    setEditWorkspaceDimensions(d.width,d.height);
-  }
+  // The flattened photo is a real, retained step of the Edit chain. This is
+  // what keeps the user's marks visible after Generate and makes the AI
+  // result branch from the exact annotated pixels it received.
+  const parent=hasPhoto?s.chain.find(n=>n.id===d.referenceNodeId&&n.status==='ready'&&n.url):null,parentId=parent?.id||'';
+  let node=s.chain.find(n=>n.id===d.sourceNodeId&&n.mode==='sketch-source'&&n.parentId===parentId);
+  if(!node){
+    const base=editWorkspacePreviewSize(d.width,d.height,s.zoom),inherited=parent?Math.max(parent.slotWidth,parent.slotHeight):240;
+    const size={slotWidth:base.slotWidth*inherited/240,slotHeight:base.slotHeight*inherited/240};
+    const right=s.chain.length?Math.max(...s.chain.map(n=>n.x+n.slotWidth/2)):null,scale=s.zoom/100;
+    node={id:'edit-node-'+(++s.nodeSequence),parentId,status:'ready',mode:'sketch-source',url:d.flattenedUrl,preview:d.flattenedUrl,jobId:'',width:d.width,height:d.height,
+      x:right===null?0:right+72/scale+size.slotWidth/2,y:parent?.y||0,...size};
+    s.chain.push(node);d.sourceNodeId=node.id;
+  }else Object.assign(node,{status:'ready',url:d.flattenedUrl,preview:d.flattenedUrl,width:d.width,height:d.height});
+  Object.assign(s,{sourceUrl:d.flattenedUrl,sourcePreview:d.flattenedUrl,resultUrl:parentId?d.flattenedUrl:'',jobId:'',activeNodeId:node.id,showBefore:false,maskStrokes:[],maskRedo:[],beforeUrl:parent?.preview||parent?.url||'',viewNeedsFit:true});
+  setEditWorkspaceDimensions(d.width,d.height);
   d.editing=false;return d.flattenedUrl;
 }
 function setEditCameraPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation()}updateEditCamera({horizontal:h,vertical:v},true);}
