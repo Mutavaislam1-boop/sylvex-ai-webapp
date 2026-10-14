@@ -25751,7 +25751,7 @@ async function waitGeneration(jobId, options) {
     'Запустить цепочку':'Run workflow', 'Новый':'New', 'Расставить':'Arrange', 'Запустить':'Run',
     'Задача':'Task', 'Текст':'Text', 'Фото':'Image', 'Видео':'Video', 'Музыка':'Music', 'Голос':'Voice',
     'Проекты сетки':'Grid projects', 'Автокомпоновка':'Auto layout', 'РЕДАКТОР БЛОКА':'NODE EDITOR',
-    'Редактирование текста':'Edit text', 'Отмена':'Cancel', 'Сохранить':'Save',
+    'Редактирование текста':'Edit text', 'Отмена':'Cancel', 'Сохранить':'Save', 'Закрыть':'Close',
     'Генератор музыки':'Music generator', 'Генерация озвучки':'Voice generation', 'Диалоги':'Dialogue',
     'Генерация текста':'Text generation', 'Создать изображение':'Create image', 'Фото инструменты':'Image tools',
     'Создать видео':'Create video', 'Редактировать видео':'Edit video', 'Управление движением':'Motion control',
@@ -25766,6 +25766,9 @@ async function waitGeneration(jobId, options) {
     'Звук выкл':'Sound off', 'Звук вкл':'Sound on', 'Звук OFF':'Sound OFF', 'Звук ON':'Sound ON',
     'Создать текст с AI':'Create text with AI', 'Общие настройки':'General settings',
     'Шаблоны текста':'Text templates', 'Сгенерировать':'Generate', 'Отправить':'Send',
+    'Копировать':'Copy', 'Сообщить об ошибке':'Report issue', 'Поделиться генерацией':'Share generation',
+    'Изображение готово':'Image ready',
+    'Не удалось создать изображение. Попробуйте ещё раз.':'Could not create the image. Please try again.',
     'Выберите модель':'Choose a model', 'Формат видео':'Video format', 'Длительность':'Duration',
     'Разрешение':'Resolution', 'Режим видео':'Video mode', 'Качество':'Quality', 'Движение':'Motion',
     'Соотношение сторон':'Aspect ratio', 'Функции Recraft':'Recraft tools',
@@ -25807,6 +25810,7 @@ async function waitGeneration(jobId, options) {
     'Строим…':'Building…', 'Повторить':'Retry', 'Остановить цепочку':'Stop workflow',
     'Стоп':'Stop', 'Действия':'Actions', 'Результат появится здесь':'The result will appear here',
     'Прикрепить файл':'Attach file', 'Закрыть клавиатуру':'Close keyboard',
+    'Меню проектов сетки':'Grid projects menu', 'Название проекта':'Project name',
     'Голосовой набор':'Voice input', 'Добавить фото или видео':'Add image or video',
     'Добавить персонажа':'Add character', 'Добавить объект':'Add object', 'Убрать видео':'Remove video',
     'Скоро':'Coming soon'
@@ -25822,6 +25826,7 @@ async function waitGeneration(jobId, options) {
     translated = translated.replace(/^Диктор\s+(\d+)$/i, 'Speaker $1');
     translated = translated.replace(/^Диктор\s+(\d+)\s+·\s+выберите новый голос$/i, 'Speaker $1 · choose a new voice');
     translated = translated.replace(/^(\d+)\s+диктор(?:а|ов)?$/i, '$1 speakers');
+    translated = translated.replace(/^Референсы:\s*(\d+)$/i, 'References: $1');
     translated = translated.replace(/\s+·\s+недоступно$/i, ' · unavailable');
     if (translated === trimmed) return raw;
     return raw.replace(trimmed, translated);
@@ -25852,7 +25857,7 @@ async function waitGeneration(jobId, options) {
     while ((node = walker.nextNode())) {
       const parent = node.parentElement;
       if (!isWebsiteStudioUiElement(parent)) continue;
-      if (parent.closest('#chatArea, textarea, input, [contenteditable="true"], script, style')) continue;
+      if (parent.closest('textarea, input, [contenteditable="true"], script, style')) continue;
       const translated = websiteStudioEnglishValue(node.nodeValue);
       if (translated !== node.nodeValue) node.nodeValue = translated;
     }
