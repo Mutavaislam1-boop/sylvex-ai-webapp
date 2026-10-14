@@ -9708,6 +9708,14 @@ function openPhotoToolModal(e, kind) {
   document.body.appendChild(modal); // keep on top of any modal stacked under it
   modal.classList.add('show');
   renderPhotoToolModal();
+  // Browser Back/Forward: Photo Tools list -> tool are separate steps.
+  const navKey = 'photo:' + (activePhotoTool || 'list');
+  const browserNav = typeof window !== 'undefined' && window.SYLVEX && window.SYLVEX.browserNav;
+  if (browserNav) browserNav.push(navKey, {
+    open: () => openPhotoToolModal(null, kind),
+    close: () => closePhotoToolModal(),
+    isOpen: () => modal.classList.contains('show') && 'photo:' + (activePhotoTool || 'list') === navKey,
+  });
   loadPhotoToolDemos().then(() => {
     if (modal.classList.contains('show') && activePhotoTool === kind) renderPhotoToolModal();
   });
@@ -9719,6 +9727,7 @@ function closePhotoToolModal(e) {
     e.stopPropagation();
   }
   const modal = document.getElementById('photoToolModal');
+  const navKey = 'photo:' + (activePhotoTool || 'list');
   const photoToolGenerationActive = !!(activePhotoTool && ((photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating) || (activePhotoTool === 'hair_beard' && hairBeardState.generatingReference) || (activePhotoTool === 'tattoo' && tattooState.generatingReference)));
   // BUG-2: closing was already correctly blocked while a generation is in
   // progress, but silently - the user got no feedback for why the close
@@ -9787,9 +9796,11 @@ function closePhotoToolModal(e) {
       // replaced it, instead of resetting to the top.
       const dialog = modal.querySelector('.photo-tool-dialog');
       if (dialog) dialog.scrollTop = photoToolListScrollTop;
+      if (typeof window !== 'undefined' && window.SYLVEX && window.SYLVEX.browserNav) window.SYLVEX.browserNav.closed(navKey);
       return;
     }
     modal.classList.remove('show');
+    if (typeof window !== 'undefined' && window.SYLVEX && window.SYLVEX.browserNav) window.SYLVEX.browserNav.closed(navKey);
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
     // into image mode even when it was opened from Home or another mode -
     // that switch must not persist after the tool closes, or the next
@@ -25508,6 +25519,251 @@ async function waitGeneration(jobId, options) {
     return !isWebEmbed() && !hasTelegramContext();
   }
   S.isBrowserApp = isBrowserApp;
+
+  // =====================================================
+  // MOBILE BROWSER VIEWPORT (Mini App opened in Safari/Chrome, never inside
+  // Telegram). `vh` is the height with the browser bars collapsed, so with
+  // the address bar / bottom controls showing, anything sized in vh (the
+  // app, Pro Studio and its tool panels) runs under them. --bvh is 1% of the
+  // height that is actually visible right now and follows the bars as they
+  // expand/collapse, rotation and resizes (the on-screen keyboard keeps its
+  // own --kb handling). Every stylesheet rule that sizes something in vh gets
+  // a twin right after it, scoped to html.browser-app, with vh replaced by
+  // --bvh - same specificity and cascade position, so only the unit changes.
+  // =====================================================
+  function initBrowserViewport() {
+    if (!isBrowserApp() || initBrowserViewport.done) return;
+    initBrowserViewport.done = true;
+    const root = document.documentElement;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const height = window.innerHeight || (window.visualViewport && window.visualViewport.height) || 0;
+      if (height > 0) root.style.setProperty('--bvh', (height / 100) + 'px');
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', () => { schedule(); setTimeout(update, 300); });
+    window.addEventListener('pageshow', update);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', schedule);
+    addBrowserViewportRules();
+  }
+  const VH_VALUE_RE = /(\d*\.?\d+)vh\b/g;
+  function browserVhValue(value) {
+    return value.replace(VH_VALUE_RE, (_, n) => 'calc(var(--bvh, 1vh) * ' + n + ')');
+  }
+  function splitSelectorList(list) {
+    const out = [];
+    let depth = 0, start = 0;
+    for (let i = 0; i < list.length; i += 1) {
+      const c = list[i];
+      if (c === '(' || c === '[') depth += 1;
+      else if (c === ')' || c === ']') depth -= 1;
+      else if (c === ',' && depth === 0) { out.push(list.slice(start, i)); start = i + 1; }
+    }
+    out.push(list.slice(start));
+    return out.map((sel) => sel.trim()).filter(Boolean);
+  }
+  function browserScopedSelector(selectorText) {
+    return splitSelectorList(selectorText).map((sel) => {
+      if (/^html(?![\w-])/.test(sel)) return 'html:where(.browser-app)' + sel.slice(4);
+      if (/^:root(?![\w-])/.test(sel)) return ':root:where(.browser-app)' + sel.slice(5);
+      return ':where(html.browser-app) ' + sel;
+    }).join(',');
+  }
+  function addBrowserViewportRulesTo(list) {
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const rule = list[i];
+      if (rule.cssRules && !rule.selectorText) {
+        // @media / @supports / @layer: same treatment inside.
+        if (!/keyframes/i.test(rule.constructor && rule.constructor.name)) addBrowserViewportRulesTo(rule.cssRules);
+        continue;
+      }
+      if (!rule.selectorText || !rule.style || rule.style.cssText.indexOf('vh') < 0) continue;
+      const decls = [];
+      for (let k = 0; k < rule.style.length; k += 1) {
+        const prop = rule.style[k];
+        const value = rule.style.getPropertyValue(prop);
+        VH_VALUE_RE.lastIndex = 0;
+        if (!VH_VALUE_RE.test(value)) continue;
+        const priority = rule.style.getPropertyPriority(prop);
+        decls.push(prop + ':' + browserVhValue(value) + (priority ? ' !important' : ''));
+      }
+      if (!decls.length) continue;
+      try {
+        const owner = rule.parentRule || rule.parentStyleSheet;
+        owner.insertRule(browserScopedSelector(rule.selectorText) + '{' + decls.join(';') + '}', i + 1);
+      } catch {}
+    }
+  }
+  function addBrowserViewportRules() {
+    Array.from(document.styleSheets).forEach((sheet) => {
+      let rules = null;
+      try {
+        if (sheet.href && new URL(sheet.href, window.location.href).origin !== window.location.origin) return;
+        rules = sheet.cssRules;
+      } catch { return; }
+      if (rules) addBrowserViewportRulesTo(rules);
+    });
+  }
+
+  // =====================================================
+  // BROWSER BACK / FORWARD (Mini App opened in a browser, never inside
+  // Telegram, which keeps its own navigation). Important internal steps -
+  // switching sections, the Photo Tools list and each tool, and the Pro
+  // Studio panels below - become history entries (same URL, no reload).
+  // Back closes the top step with the app's own close function; Forward
+  // opens it again. Closing with the app's own × also moves history back,
+  // so the two never drift apart.
+  // =====================================================
+  const BrowserNav = (() => {
+    const id = Math.random().toString(36).slice(2);
+    const entries = [];
+    let cur = 0, enabled = false, replaying = false, skipPops = 0, lastView = '';
+    const activeView = () => (document.querySelector('.view.active') || {}).dataset?.view || 'home';
+    function syncTo(target) {
+      // Bring the browser back to `cur` after a step that could not apply
+      // (a generation still running, nothing to reopen, ...).
+      if (target === cur) return;
+      skipPops += 1;
+      history.go(cur - target);
+    }
+    function onPop(event) {
+      const state = event.state || {};
+      if (state.sxNav !== id || typeof state.sxIndex !== 'number') return;
+      const target = state.sxIndex;
+      if (skipPops > 0) { skipPops -= 1; cur = target; return; }
+      replaying = true;
+      try {
+        while (cur > target) {
+          const entry = entries[cur];
+          if (entry && entry.close) { try { entry.close(); } catch {} }
+          if (entry && entry.isOpen && entry.isOpen()) break; // refused (e.g. generation running)
+          cur -= 1;
+        }
+        while (cur < target) {
+          const entry = entries[cur + 1];
+          if (!entry || !entry.open) break;
+          try { entry.open(); } catch { break; }
+          if (entry.isOpen && !entry.isOpen()) break;
+          cur += 1;
+        }
+      } finally {
+        replaying = false;
+        lastView = activeView();
+      }
+      syncTo(target);
+    }
+    function start() {
+      if (enabled || !isBrowserApp() || !window.history || !history.pushState) return;
+      enabled = true;
+      lastView = activeView();
+      entries[0] = { key: 'view:' + lastView };
+      history.replaceState(Object.assign({}, history.state || {}, { sxNav: id, sxIndex: 0 }), '');
+      window.addEventListener('popstate', onPop);
+      initLayerWatch();
+    }
+    function push(key, entry) {
+      if (!enabled || replaying) return;
+      if (entries[cur] && entries[cur].key === key) return;
+      entries.length = cur + 1;
+      entries.push(Object.assign({ key }, entry));
+      cur += 1;
+      history.pushState({ sxNav: id, sxIndex: cur }, '');
+    }
+    // The app closed `key` itself (its ×, a backdrop tap, a finished flow).
+    function closed(key) {
+      if (!enabled || replaying) return;
+      // Steps above `key` that are already gone (closed together with it)
+      // are passed over in the same move.
+      let i = cur;
+      while (i > 0 && entries[i].key !== key && entries[i].isOpen && !entries[i].isOpen()) i -= 1;
+      if (i <= 0 || entries[i].key !== key) return;
+      const n = cur - i + 1;
+      cur = i - 1;
+      skipPops += 1;
+      history.go(-n);
+    }
+    function viewChanged(name) {
+      if (!enabled) { lastView = name; return; }
+      if (replaying) { lastView = name; return; }
+      const prev = lastView || 'home';
+      lastView = name;
+      if (prev === name) return;
+      push('view:' + name, {
+        open: () => switchView(name),
+        close: () => switchView(prev),
+        isOpen: () => activeView() === name,
+      });
+    }
+
+    // Pro Studio panels: [key, is it showing?, close it]. A panel showing up
+    // gets an entry; it disappearing (closed by any path) moves history back.
+    // Forward reopens it with the opener the user last tapped (SYLVEX.open*).
+    const byId = (elementId) => document.getElementById(elementId);
+    const shown = (elementId) => { const el = byId(elementId); return !!(el && el.classList.contains('show')); };
+    const LAYERS = [
+      ['photo-catalog', () => shown('photoCatalogModal'), () => closePhotoCatalog()],
+      ['quick-image-detail', () => shown('quickImageDetailModal'), () => closeQuickImageDetail()],
+      ['edit-workspace', () => document.body.classList.contains('edit-workspace-open'), () => closeEditWorkspace()],
+      ['music-settings', () => shown('musicSettingsModal'), () => closeMusicSettingsModal()],
+      ['try-on-picker', () => shown('tryOnPickerModal'), () => closeTryOnPicker()],
+      ['character-replace-picker', () => shown('characterReplacePickerModal'), () => closeCharacterReplacePicker()],
+      ['image-style-panel', () => { const el = byId('imageStylePanel'); return !!(el && !el.hidden && el.classList.contains('show')); }, () => closeImageStylePanel()],
+      ['visual-picker', () => shown('visualPickerModal'), () => closeVisualPicker()],
+      ['visual-create', () => shown('visualCreateModal'), () => closeVisualCreateModal()],
+      ['upload-panel', () => shown('uploadPanel'), () => closeUploadPanel()],
+      ['generation-info', () => shown('generationInfoDrawer'), () => closeGenerationInfoDrawer()],
+      ['image-viewer', () => shown('imageViewer'), () => closeImageViewer()],
+      ['creative-catalog', () => shown('creativeCatalogModal'), () => closeCreativeCatalog()],
+      ['knowledge', () => shown('knowledgeWorkspaceModal'), () => closeKnowledgeWorkspace()],
+      ['video-templates', () => !!byId('videoTemplatesOverlay'), () => closeVideoTemplatesCatalog()],
+      ['video-template', () => !!byId('videoTemplateModal'), () => closeVideoTemplateModal()],
+      ['plus-sheet', () => shown('plusSheet'), () => closePlusSheet()],
+    ];
+    let lastOpener = null;
+    function wrapOpeners() {
+      Object.keys(S).forEach((name) => {
+        const fn = S[name];
+        if (!/^open[A-Z]/.test(name) || typeof fn !== 'function' || fn.__sxNavWrapped || name === 'openWebAuthGate') return;
+        const wrapped = function (...args) {
+          if (!replaying) lastOpener = { fn, args: args.map((a) => (a instanceof Event ? null : a)), at: Date.now() };
+          return fn.apply(this, args);
+        };
+        wrapped.__sxNavWrapped = true;
+        S[name] = wrapped;
+      });
+    }
+    function initLayerWatch() {
+      wrapOpeners();
+      const showing = new Set(LAYERS.filter(([, isOpen]) => isOpen()).map(([key]) => key));
+      let frame = 0;
+      const check = () => {
+        frame = 0;
+        LAYERS.forEach(([key, isOpen, close]) => {
+          const open = isOpen();
+          if (open && !showing.has(key)) {
+            showing.add(key);
+            const opener = lastOpener && Date.now() - lastOpener.at < 1500 ? lastOpener : null;
+            push('layer:' + key, {
+              open: opener ? () => opener.fn.apply(S, opener.args) : null,
+              close,
+              isOpen,
+            });
+          } else if (!open && showing.has(key)) {
+            showing.delete(key);
+            closed('layer:' + key);
+          }
+        });
+      };
+      new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(check); })
+        .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+    }
+    return { start, push, closed, viewChanged };
+  })();
+  S.browserNav = BrowserNav;
+  S.onViewSwitched = (name) => BrowserNav.viewChanged(name);
   // Browser guest (not signed in): the home user card shows Log in / Sign up
   // instead of account details (see .user-guest in cabinet.html).
   function setBrowserGuest(on) {
@@ -27248,6 +27504,7 @@ async function waitGeneration(jobId, options) {
     // Mini App opened directly in a browser (never inside Telegram).
     document.documentElement.classList.toggle('browser-app', isBrowserApp());
     initBrowserGuestPrompts();
+    initBrowserViewport();
 
     // Restore saved theme.
     restoreAppTheme();
@@ -27289,6 +27546,8 @@ async function waitGeneration(jobId, options) {
     applyStoredTheme();
     applyInitialViewFromUrl();
     setTimeout(applyInitialViewFromUrl, 150);
+    // Browser Back/Forward starts after the initial view is in place.
+    setTimeout(() => BrowserNav.start(), 400);
     handleReferralStart();
 
     // Website embed, or a standalone browser visit with no real Telegram

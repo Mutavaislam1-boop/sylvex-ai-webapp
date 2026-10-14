@@ -135,6 +135,8 @@
     if (name === 'community' && window.SYLVEX && window.SYLVEX.loadCommunityFeed) window.SYLVEX.loadCommunityFeed();
     if (window.SYLVEX && window.SYLVEX.haptic) window.SYLVEX.haptic.select();
     if (window.SYLVEX && window.SYLVEX.updatePrice) window.SYLVEX.updatePrice();
+    // Browser Mini App only: record the step for Back/Forward (no-op in Telegram).
+    if (window.SYLVEX && window.SYLVEX.onViewSwitched) window.SYLVEX.onViewSwitched(name);
   }
 
   // Card / list HTML renderers (presentation only).
