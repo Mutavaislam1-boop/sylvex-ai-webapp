@@ -297,6 +297,12 @@
     async function onAuthenticated() {
       authGateOpen = false;
       closeOverlay(overlay);
+      // Start from the server's account data only - nothing from the guest
+      // session (placeholder name, avatar, appearance) is kept or saved.
+      if (S.isBrowserApp && S.isBrowserApp()) {
+        S.user = {};
+        try { localStorage.removeItem('sylvex-profile-save-pending'); } catch {}
+      }
       if (S.syncWebSession) await S.syncWebSession();
       if (S.renderSubscription) S.renderSubscription();
       if (S.onWebSignedIn) S.onWebSignedIn();

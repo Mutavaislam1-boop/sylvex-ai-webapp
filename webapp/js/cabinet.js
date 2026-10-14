@@ -24335,7 +24335,16 @@ async function waitGeneration(jobId, options) {
   function clearQueuedProfileSave() {
     try { localStorage.removeItem(PROFILE_SAVE_PENDING_KEY); } catch {}
   }
+  // Browser Mini App: a profile save belongs to the signed-in account it was
+  // made with (body.telegram_id). Without one (guest) nothing is sent or
+  // queued, and a queued save from another session is dropped, never
+  // replayed onto a different account.
+  function browserProfileSaveAllowed(body) {
+    if (!isBrowserApp()) return true;
+    return !isBrowserGuest() && !!(body && body.telegram_id) && Number(body.telegram_id) === Number(getTelegramId());
+  }
   async function persistProfileInBackground(body, silent) {
+    if (!browserProfileSaveAllowed(body)) { clearQueuedProfileSave(); return false; }
     if (profileSaveInFlight) { queueProfileSave(body); return false; }
     profileSaveInFlight = true;
     if (!silent) showProfileSaveStatus('Сохраняем настройки…', 'saving');
@@ -24368,6 +24377,10 @@ async function waitGeneration(jobId, options) {
   function retryQueuedProfileSave() {
     let body = null;
     try { body = JSON.parse(localStorage.getItem(PROFILE_SAVE_PENDING_KEY) || 'null'); } catch {}
+    // Browser: retry only once the account it belongs to is known (the web
+    // session loads after startup); persistProfileInBackground drops it if
+    // it is not this account's.
+    if (body && isBrowserApp() && !getTelegramId()) return;
     if (body && navigator.onLine !== false) persistProfileInBackground(body, true);
   }
   window.addEventListener('online', retryQueuedProfileSave);
@@ -24377,6 +24390,7 @@ async function waitGeneration(jobId, options) {
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   function openEditProfile() {
+    if (guestNeedsAccount()) return;
     const u = S.user || {};
     document.getElementById('epName').value = u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '';
     epSelectedAvatar = u.custom_avatar_url || null;
@@ -24404,6 +24418,7 @@ async function waitGeneration(jobId, options) {
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
   function saveEditProfile() {
+    if (guestNeedsAccount()) { closeModal(null, 'editProfileModal'); return; }
     const name = (document.getElementById('epName').value || '').trim().slice(0, 60);
     const body = {
       initData: S.tg && S.tg.initData ? S.tg.initData : '',
@@ -24497,6 +24512,7 @@ async function waitGeneration(jobId, options) {
     applyProfileAppearance(epAppearanceDraft);
   }
   function selectProfileTheme(themeId) {
+    if (guestNeedsAccount()) return;
     const theme = THEMES.find((item) => item.id === themeId) || THEMES[0];
     epAppearanceDraft = { id:theme.id, coverIndex:0 };
     syncAppearanceEditor();
@@ -25840,10 +25856,25 @@ async function waitGeneration(jobId, options) {
   // instead of account details (see .user-guest in cabinet.html).
   function setBrowserGuest(on) {
     document.documentElement.classList.toggle('browser-guest', !!on && isBrowserApp());
+    if (!on || !isBrowserApp()) return;
+    // A guest has no account to edit: leave Profile if it was opened before
+    // the session check finished, and drop any profile save queued without
+    // an account so it can never be sent after signing in.
+    clearQueuedProfileSave();
+    const active = document.querySelector('.view.active');
+    if (active && active.dataset.view === 'profile') switchView('home');
   }
   function isBrowserGuest() {
     return document.documentElement.classList.contains('browser-guest');
   }
+  // Browser guest: Profile and profile editing need an account. Opens the
+  // existing sign-in window once (it is never stacked) and reports blocked.
+  function guestNeedsAccount() {
+    if (!isBrowserApp() || !isBrowserGuest()) return false;
+    if (S.openWebAuthGate) S.openWebAuthGate();
+    return true;
+  }
+  S.guardGuestView = (name) => name === 'profile' && guestNeedsAccount();
   // A guest who taps something that needs an account (generate, create,
   // pay, ...) gets the sign-in window instead of a bare error: an action
   // (non-GET) API call refused for lack of an account right after a tap or

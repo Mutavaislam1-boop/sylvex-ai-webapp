@@ -106,6 +106,9 @@
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function switchView(name) {
+    // Browser Mini App guest: Profile needs an account - the sign-in window
+    // opens instead (no-op in Telegram).
+    if (window.SYLVEX && window.SYLVEX.guardGuestView && window.SYLVEX.guardGuestView(name)) return;
     // Website-hosted Pro Studio: Store/Profile/Settings already have their
     // own real pages on the website itself, so send the user there instead
     // of rendering Pro Studio's own Mini-App-style copy of that screen.
