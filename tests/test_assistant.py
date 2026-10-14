@@ -542,6 +542,38 @@ def test_realtime_session_mints_session_and_never_exposes_key(env, monkeypatch):
     assert b"test-openai-key" not in response.body
 
 
+def test_realtime_session_authorizes_real_transport_with_subscription_scope(env, monkeypatch):
+    main, _ = env
+    _set_subscriber(main, monkeypatch, active=True)
+    import services.assistant_openai as assistant_openai
+    from services.billing_safety import current_billing_scope
+
+    captured = {}
+
+    def fake_post(url, headers, files, timeout):
+        captured["url"] = url
+        captured["scope"] = current_billing_scope()
+        captured["session"] = json.loads(files["session"][1])
+        return SimpleNamespace(
+            content=b"v=0\r\n(real transport answer)",
+            status_code=200,
+            headers={"content-type": "application/sdp"},
+        )
+
+    monkeypatch.setattr(assistant_openai.requests, "post", fake_post)
+    monkeypatch.setattr(main, "mint_realtime_session", assistant_openai.mint_realtime_session)
+
+    request = FakeRequest(payload=None, state=SimpleNamespace(telegram_id=900052), raw_body=b"v=0\r\n(real offer)")
+    response = _run(main.web_assistant_realtime_session(request))
+
+    assert response.status_code == 200
+    assert captured["url"] == "https://api.openai.com/v1/realtime/calls"
+    assert captured["scope"]["free"] is True
+    assert captured["scope"]["credits"] == 0
+    assert captured["scope"]["generation_id"].startswith("assistant-realtime:900052:")
+    assert captured["session"]["model"] == main.OPENAI_ASSISTANT_REALTIME_MODEL
+
+
 # ---------------------------------------------------------------------------
 # Fix 1: Assistant provider quota - Guide Mode never spends it, an AI
 # request checks it exactly once with the real resolved user id (never

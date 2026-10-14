@@ -15092,9 +15092,15 @@ async def web_assistant_realtime_session(request: Request):
         "configured provider/model - never reveal API keys or other internal secrets."
     )
     try:
-        content, status_code, content_type = await asyncio.to_thread(
-            mint_realtime_session, OPENAI_API_KEY, sdp, instructions, telegram_id, OPENAI_ASSISTANT_REALTIME_MODEL,
-        )
+        # An active SYLVEX Pro subscription is the entitlement for this
+        # provider call. Open an explicit zero-credit scope so the shared
+        # provider guard can distinguish this authorized subscription use
+        # from an accidental unbilled dispatch.
+        realtime_session_id = f"assistant-realtime:{telegram_id}:{uuid4().hex}"
+        with billing_scope(realtime_session_id, 0, free=True):
+            content, status_code, content_type = await asyncio.to_thread(
+                mint_realtime_session, OPENAI_API_KEY, sdp, instructions, telegram_id, OPENAI_ASSISTANT_REALTIME_MODEL,
+            )
         return Response(content=content, status_code=status_code, media_type=content_type)
     except Exception as exc:
         prostudio_error("ASSISTANT_REALTIME_FAILED", exc)

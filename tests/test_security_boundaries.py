@@ -308,9 +308,6 @@ async def test_assistant_realtime_sdp_passes_middleware_and_quota_checked_once(c
  monkeypatch.setattr(security,'resolve_web_session_uid',lambda account_id:555555)
  monkeypatch.setattr(main,'OPENAI_API_KEY','test-only')
  monkeypatch.setattr(main,'get_user_state',lambda telegram_id:{'subscription_status':'active'})
- # Transport check: lift the no-tariff gate (tested in test_billing_coverage.py).
- monkeypatch.setattr(main,'UNPRICED_HELPERS',frozenset())
-
  handler_quota_calls=[]
  async def spy_quota(uid,path):handler_quota_calls.append((uid,path))
  monkeypatch.setattr(main,'check_request_quota',spy_quota)
