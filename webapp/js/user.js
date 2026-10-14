@@ -237,6 +237,9 @@
     if (normalized.subscription_expired && S.showExpiredSubscriptionModal) {
       S.showExpiredSubscriptionModal(normalized);
     }
+    if (u.telegram_id && typeof CustomEvent !== 'undefined') {
+      document.dispatchEvent(new CustomEvent('sylvex:user-ready', { detail: { telegram_id: u.telegram_id } }));
+    }
   }
 
   // =====================================================

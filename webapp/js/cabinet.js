@@ -6820,7 +6820,10 @@ function createEditSylvexRestoreState() {
 }
 let editSessionsOwner='',editSessions=[],editSessionsHasMore=false,editSessionsOffset=0,editSessionSaveTimer=0,editSessionSaveQueue=Promise.resolve(),editSessionSyncStatus='',editSessionOpenVersion=0,editSessionPagehideBound=false,editSessionRevision=0,editSessionLocalAvailable=true;
 const editSessionLocalStates=new Map();
-function editSessionOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):'';}
+const EDIT_SESSION_GUEST_OWNER='guest',EDIT_SESSION_LOCAL_PREFIX='sylvex-edit-sessions-v2:';
+function editSessionAccountOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):'';}
+function editSessionOwner(){return editSessionAccountOwner()||EDIT_SESSION_GUEST_OWNER;}
+function editSessionLocalKey(owner=editSessionsOwner||editSessionOwner()){return EDIT_SESSION_LOCAL_PREFIX+owner;}
 function editSessionSnapshot(){
   const s=editWorkspaceState,urls=new Map(s.chain.map(node=>[node.preview,node.url]));
   const snapshot=JSON.parse(JSON.stringify({...s,busy:false,uploading:false,showBefore:false,upscaleEstimate:null},(key,value)=>{
@@ -6834,7 +6837,7 @@ function editSessionSummary(state){
   return {id:state.sessionId,title:state.sourceName||'Edit workspace',preview_url:[...state.chain].reverse().find(node=>node.status==='ready')?.url||'',count:state.chain.filter(node=>node.parentId&&node.status==='ready').length,updatedAt:state.updatedAt||new Date().toISOString()};
 }
 function writeEditSessionLocal(){
-  try{localStorage.setItem('sylvex-edit-sessions-v1:'+editSessionsOwner,JSON.stringify({active:editWorkspaceState.sessionId,states:[...editSessionLocalStates.values()]}));editSessionLocalAvailable=true;}
+  try{localStorage.setItem(editSessionLocalKey(),JSON.stringify({active:editWorkspaceState.sessionId,states:[...editSessionLocalStates.values()]}));editSessionLocalAvailable=true;}
   catch(_){editSessionLocalAvailable=false;editSessionSyncStatus='Local saving is unavailable';}
 }
 function renderEditSessionList(){
@@ -6851,21 +6854,21 @@ function renderEditSessionList(){
   const status=document.getElementById('editSessionSync');if(status)status.textContent=editSessionSyncStatus;
   const newButton=document.getElementById('editSidebarNew');if(newButton)newButton.disabled=editWorkspaceLocked();
 }
-function scheduleEditWorkspaceSave(){
-  if(!editSessionOwner()||!editWorkspaceHasContent(editWorkspaceState))return;
-  clearTimeout(editSessionSaveTimer);editSessionSaveTimer=setTimeout(()=>{void saveEditWorkspaceSession();},650);
-}
-function saveEditWorkspaceSession(){
-  clearTimeout(editSessionSaveTimer);
-  const owner=editSessionOwner();if(!owner||!editWorkspaceHasContent(editWorkspaceState))return Promise.resolve();
-  if(editSessionsOwner!==owner)return Promise.resolve();
+function checkpointEditWorkspaceSession(){
+  const owner=editSessionOwner();
+  if(!editWorkspaceHasContent(editWorkspaceState)||editSessionsOwner!==owner)return null;
   editWorkspaceState.updatedAt=new Date().toISOString();editWorkspaceState.saveRevision=++editSessionRevision;
   const state=editSessionSnapshot();editSessionLocalStates.set(state.sessionId,{...state,localUnsynced:true});
   editSessions=[editSessionSummary(state),...editSessions.filter(item=>item.id!==state.sessionId)];writeEditSessionLocal();
-  editSessionSyncStatus='Saving…';renderEditSessionList();
+  editSessionSyncStatus=owner===EDIT_SESSION_GUEST_OWNER?'Saved on this device':'Saving…';renderEditSessionList();
+  return state;
+}
+function queueEditSessionCloudSave(rawState,owner=editSessionAccountOwner()){
+  if(!rawState||!owner||owner===EDIT_SESSION_GUEST_OWNER)return Promise.resolve();
+  const state=JSON.parse(JSON.stringify(rawState));delete state.localUnsynced;
   const save=async()=>{
     try{
-      if(editSessionOwner()!==owner)return;
+      if(editSessionAccountOwner()!==owner||editSessionsOwner!==owner)return;
       const response=await fetch('/api/public/prostudio/edit-sessions/'+encodeURIComponent(state.sessionId),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({state})});
       if(!response.ok)throw new Error('save_failed');
       if(editSessionsOwner!==owner)return;
@@ -6876,25 +6879,47 @@ function saveEditWorkspaceSession(){
   };
   editSessionSaveQueue=editSessionSaveQueue.then(save,save);return editSessionSaveQueue;
 }
+function scheduleEditWorkspaceSave(){
+  if(editSessionsOwner&&editSessionsOwner!==editSessionOwner()){
+    if(!editWorkspaceLocked())void loadEditSessionHistory();
+    return;
+  }
+  const state=checkpointEditWorkspaceSession();if(!state)return;
+  clearTimeout(editSessionSaveTimer);
+  if(editSessionAccountOwner())editSessionSaveTimer=setTimeout(()=>{void queueEditSessionCloudSave(editSessionLocalStates.get(state.sessionId),editSessionAccountOwner());},650);
+}
+function saveEditWorkspaceSession(){
+  clearTimeout(editSessionSaveTimer);
+  const state=checkpointEditWorkspaceSession();return queueEditSessionCloudSave(state,editSessionAccountOwner());
+}
 async function loadMoreEditSessions(e){
   e?.preventDefault();await loadEditSessionHistory(true);
 }
 async function loadEditSessionHistory(more=false){
-  const owner=editSessionOwner();if(!owner)return;
-  let restoredId='';const ownerChanged=editSessionsOwner!==owner;
+  const owner=editSessionOwner();let restoredId='';const ownerChanged=editSessionsOwner!==owner;
   if(ownerChanged){
-    if(editSessionsOwner){resetEditWorkspaceSurface();Object.assign(editWorkspaceState,createEditWorkspaceState());}
+    const previousOwner=editSessionsOwner;
+    if(previousOwner===EDIT_SESSION_GUEST_OWNER&&editWorkspaceHasContent(editWorkspaceState)){
+      editWorkspaceState.updatedAt=new Date().toISOString();editWorkspaceState.saveRevision=++editSessionRevision;
+      const current=editSessionSnapshot();editSessionLocalStates.set(current.sessionId,{...current,localUnsynced:true});writeEditSessionLocal();
+    }
+    const guestDrafts=previousOwner===EDIT_SESSION_GUEST_OWNER?[...editSessionLocalStates.values()].filter(editWorkspaceHasContent):[];
+    if(previousOwner&&previousOwner!==EDIT_SESSION_GUEST_OWNER){resetEditWorkspaceSurface();Object.assign(editWorkspaceState,createEditWorkspaceState());}
     ++editSessionOpenVersion;
     editSessionsOwner=owner;editSessions=[];editSessionLocalStates.clear();editSessionsOffset=0;
     try{
-      const saved=JSON.parse(localStorage.getItem('sylvex-edit-sessions-v1:'+owner)||'null');
+      const stored=localStorage.getItem(editSessionLocalKey(owner))||(owner!==EDIT_SESSION_GUEST_OWNER?localStorage.getItem('sylvex-edit-sessions-v1:'+owner):null);
+      const saved=JSON.parse(stored||'null');
       (saved?.states||[]).forEach(state=>{if(state?.sessionId&&Array.isArray(state.chain)&&editWorkspaceHasContent(state))editSessionLocalStates.set(state.sessionId,state);});
+      guestDrafts.forEach(state=>editSessionLocalStates.set(state.sessionId,{...state,localUnsynced:true}));
       editSessions=[...editSessionLocalStates.values()].map(editSessionSummary).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
       if(!editWorkspaceHasContent(editWorkspaceState)&&editSessionLocalStates.has(saved?.active)){restoreEditSessionState(editSessionLocalStates.get(saved.active));restoredId=saved.active;}
+      if(guestDrafts.length){const active=guestDrafts.find(state=>state.sessionId===editWorkspaceState.sessionId)||guestDrafts[0];restoreEditSessionState(active);restoredId=active.sessionId;writeEditSessionLocal();}
     }catch(_){}
   }
   if(restoredId){renderEditWorkspace();void openEditSession(restoredId,true);}
   else if(ownerChanged)renderEditWorkspace();else renderEditSessionList();
+  const accountOwner=editSessionAccountOwner();if(!accountOwner)return;
   try{
     const offset=more?editSessionsOffset:0,response=await fetch('/api/public/prostudio/edit-sessions?offset='+offset,{cache:'no-store'});
     if(!response.ok)throw new Error('history_failed');const data=await response.json();if(owner!==editSessionsOwner)return;
@@ -6902,7 +6927,7 @@ async function loadEditSessionHistory(more=false){
     const merged=new Map(editSessions.map(item=>[item.id,item]));
     items.forEach(item=>{const local=editSessionLocalStates.get(item.id);if(!local?.localUnsynced)merged.set(item.id,item);});
     editSessions=[...merged.values()].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));editSessionsHasMore=!!data.hasMore;editSessionsOffset=offset+items.length;
-    if(!more){for(const state of editSessionLocalStates.values())if(state.localUnsynced&&state.sessionId===editWorkspaceState.sessionId)void saveEditWorkspaceSession();}
+    if(!more){for(const state of editSessionLocalStates.values())if(state.localUnsynced)void queueEditSessionCloudSave(state,accountOwner);}
     renderEditSessionList();
   }catch(_){editSessionSyncStatus='History on this device · server unavailable';renderEditSessionList();}
 }
@@ -6987,6 +7012,17 @@ function ensureEditWorkspaceChain() {
   if(active||!s.sourceUrl)return active;
   active={id:'edit-node-'+(++s.nodeSequence),parentId:'',status:'ready',mode:'source',url:s.sourceUrl,preview:s.sourcePreview||s.sourceUrl,jobId:s.jobId,width:s.width,height:s.height,x:0,y:0,...editWorkspacePreviewSize(s.width,s.height)};
   s.chain.push(active);s.activeNodeId=active.id;return active;
+}
+function selectEditWorkspaceNode(e,id){
+  if(e){e.preventDefault();e.stopPropagation();}
+  const s=editWorkspaceState,node=s.chain.find(item=>item.id===id);
+  if(editWorkspaceLocked()||!node||node.status!=='ready'||!node.url||node.id===s.activeNodeId)return;
+  const parent=s.chain.find(item=>item.id===node.parentId),changedSource=s.sourceUrl!==node.url;
+  Object.assign(s,{activeNodeId:node.id,sourceUrl:node.url,sourcePreview:node.preview||node.url,resultUrl:node.parentId?node.url:'',jobId:node.jobId||'',beforeUrl:parent?.preview||parent?.url||'',showBefore:false,maskStrokes:[],maskRedo:[],viewNeedsFit:false});
+  if(node.width&&node.height)setEditWorkspaceDimensions(node.width,node.height);
+  s.expand={left:0,right:0,top:0,bottom:0};
+  if(changedSource&&s.upscale?.sylvex)s.upscale.sylvex=createEditSylvexRestoreState();
+  renderEditWorkspace();scheduleEditWorkspaceSave();
 }
 function beginEditWorkspaceChainResult() {
   const s=editWorkspaceState,parent=ensureEditWorkspaceChain(),last=s.chain.at(-1);
@@ -7603,10 +7639,10 @@ function initEditWorkspaceNavigation(stage) {
     if(drag.guideRegion){
       const dx=(e.clientX-drag.x)/drag.scale,dy=(e.clientY-drag.y)/drag.scale;drag.moved=drag.moved||Math.hypot(dx,dy)>3;drag.guideRegion.guideX=drag.guidePosition.x+dx;drag.guideRegion.guideY=drag.guidePosition.y+dy;root?._editChainLayout?.();
     }else if(drag.node){
-      drag.node.x=drag.position.x+(e.clientX-drag.x)/drag.scale;drag.node.y=drag.position.y+(e.clientY-drag.y)/drag.scale;root?._editChainLayout?.();
+      const dx=(e.clientX-drag.x)/drag.scale,dy=(e.clientY-drag.y)/drag.scale;drag.moved=drag.moved||Math.hypot(dx,dy)>3;drag.node.x=drag.position.x+dx;drag.node.y=drag.position.y+dy;root?._editChainLayout?.();
     }else{state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};root?._editView?.();}
   };
-  const end=e=>{if(drag?.id===e.pointerId){const finished=drag;finished.card?.classList.remove('is-moving');finished.guideEl?.classList.remove('is-moving');if(finished.guideEl&&finished.moved){finished.guideEl.dataset.dragged='true';setTimeout(()=>{if(finished.guideEl)delete finished.guideEl.dataset.dragged;},0);}drag=null;stage.classList.remove('is-panning');stage.classList.remove('is-moving-node');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);scheduleEditWorkspaceSave();}};
+  const end=e=>{if(drag?.id===e.pointerId){const finished=drag;finished.card?.classList.remove('is-moving');finished.guideEl?.classList.remove('is-moving');if(finished.guideEl&&finished.moved){finished.guideEl.dataset.dragged='true';setTimeout(()=>{if(finished.guideEl)delete finished.guideEl.dataset.dragged;},0);}drag=null;stage.classList.remove('is-panning');stage.classList.remove('is-moving-node');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);if(finished.node&&!finished.moved)selectEditWorkspaceNode(null,finished.node.id);else scheduleEditWorkspaceSave();}};
   stage.onpointerup=stage.onpointercancel=stage.onlostpointercapture=end;
   const touchStart=e=>{
     if(e.pointerType!=='touch'||editWorkspaceLocked()||document.getElementById('editWorkspace')?._editExpandDrag||e.target.closest('button'))return;
@@ -7657,6 +7693,7 @@ function initEditWorkspaceNavigation(stage) {
   stage.onkeydown=e=>{
     if(e.target.closest('button,input,textarea,select'))return;
     const card=e.target.closest('[data-chain-node]'),node=card&&state.chain.find(item=>item.id===card.dataset.chainNode);
+    if(node&&(e.key==='Enter'||e.key===' ')){e.preventDefault();selectEditWorkspaceNode(null,node.id);return;}
     const direction={ArrowLeft:[-24,0],ArrowRight:[24,0],ArrowUp:[0,-24],ArrowDown:[0,24]}[e.key];
     if(node&&direction&&!space){
       e.preventDefault();const root=document.getElementById('editWorkspace');root?._editStopChainMotion?.();
@@ -7671,7 +7708,7 @@ function initEditWorkspaceNavigation(stage) {
   stage.onkeyup=e=>{if(e.code==='Space'){space=false;stage.classList.remove('can-pan');}};
   stage.onblur=e=>{if(e?.relatedTarget&&stage.contains(e.relatedTarget))return;space=false;pinch=null;gesture=null;touches.clear();stage.classList.remove('can-pan');if(drag)end({pointerId:drag.id});};
   const spaceDown=e=>{
-    if(e.code!=='Space'||editWorkspaceLocked()||e.target.closest?.('button,input,textarea,select,[contenteditable="true"]'))return;
+    if(e.code!=='Space'||editWorkspaceLocked()||e.target.closest?.('button,input,textarea,select,[contenteditable="true"],[data-chain-node]'))return;
     e.preventDefault();space=true;stage.classList.add('can-pan');
   };
   const spaceUp=e=>{if(e.code==='Space'){space=false;stage.classList.remove('can-pan');}};
@@ -7929,7 +7966,12 @@ function openEditWorkspace(e) {
   renderEditWorkspace();
   root.querySelector('button')?.focus();
   void loadEditSessionHistory();
-  if(!editSessionPagehideBound){window.addEventListener('pagehide',saveEditWorkspaceSession);editSessionPagehideBound=true;}
+  if(!editSessionPagehideBound){
+    window.addEventListener('pagehide',saveEditWorkspaceSession);
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')void saveEditWorkspaceSession();});
+    document.addEventListener('sylvex:user-ready',()=>{if(!editWorkspaceLocked()&&editSessionOwner()!==editSessionsOwner)void loadEditSessionHistory();});
+    editSessionPagehideBound=true;
+  }
 }
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
@@ -7950,6 +7992,7 @@ function renderEditWorkspace() {
   root._cameraOrbit?.destroy();
   root._lightOrbit?.destroy();
   const state=editWorkspaceState, mode=state.mode, safe=(v)=>S.escapeHtml(String(v??''));
+  const selectedNode=state.chain.find(node=>node.id===state.activeNodeId&&node.status==='ready'&&node.url);
   const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',sketch:'✎',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
   root.dataset.mode=mode;root.dataset.sidebar=String(state.sidebarOpen);root.dataset.busy=String(editWorkspaceLocked());
   root.dataset.drawing=String(mode==='sketch'&&!!state.sketch?.editing);
@@ -7973,9 +8016,9 @@ function renderEditWorkspace() {
   if(mode==='sketch')action='<textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Sketch description" placeholder="Describe the scene, materials or lighting (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button type="button" onclick="SYLVEX.toggleEditSketch(event)">'+(state.sketch?.editing?'View results':'Edit drawing')+'</button><span class="edit-workspace-model-label">Sketch → realistic photo</span>'+generate+'</div>';
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action=editExpandPanel(generate);
-  const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
+  const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(selectedNode?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
   const surface='<section class="edit-workspace-stage"><div class="edit-workspace-grid"></div><div class="edit-workspace-world"></div></section>';
-  const controls=editWorkspaceSidebar()+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Reset images to their default display size" onclick="SYLVEX.resetEditWorkspaceSize(event)">Default size</button><button title="Zoom out" aria-label="Zoom out" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Fit images to canvas (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Zoom in" aria-label="Zoom in" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
+  const controls=editWorkspaceSidebar()+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Reset images to their default display size" onclick="SYLVEX.resetEditWorkspaceSize(event)">Default size</button><button title="Zoom out" aria-label="Zoom out" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Fit images to canvas (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Zoom in" aria-label="Zoom in" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download selected image" '+(!selectedNode?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
   const main=root.querySelector('.edit-workspace-main');
   if(main){
     // Keep the stage, its images and the pending card mounted throughout a job.
@@ -8250,9 +8293,13 @@ function cycleEditWorkspaceZoom(e){fitEditWorkspace(e);}
 function adjustEditWorkspaceZoom(e,delta){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceSetViewZoom(editWorkspaceState.zoom+delta);}
 
 async function downloadEditWorkspaceResult(e){
-  if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(!s.resultUrl)return;
-  if(s.jobId)return downloadGeneratedFile({currentTarget:{dataset:{downloadUrl:completedGenerationDownloadUrl(s.jobId),fileName:'sylvex-edit.png'}}});
-  try{const response=await fetch(s.resultUrl);if(!response.ok)throw new Error('Download failed');const blob=await response.blob(),url=URL.createObjectURL(blob);browserDownload(url,'sylvex-edit.png');setTimeout(()=>URL.revokeObjectURL(url),30000);}
+  if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState,node=s.chain.find(item=>item.id===s.activeNodeId&&item.status==='ready'&&item.url);if(!node)return;
+  const index=Math.max(0,s.chain.indexOf(node)),name=node.parentId?'sylvex-edit-'+index+'.png':(s.sourceName||'sylvex-edit-source.png');
+  if(node.jobId)return downloadGeneratedFile({currentTarget:{dataset:{downloadUrl:completedGenerationDownloadUrl(node.jobId),fileName:name}}});
+  if(typeof S!=='undefined'&&S.tg&&typeof S.tg.downloadFile==='function'){
+    try{S.tg.downloadFile({url:new URL(node.url,window.location.origin).toString(),file_name:name},accepted=>{if(accepted===false)editWorkspaceToast('The device did not allow the download.');});return;}catch(_){}
+  }
+  try{const response=await fetch(node.url);if(!response.ok)throw new Error('Download failed');const blob=await response.blob(),url=URL.createObjectURL(blob);browserDownload(url,name);setTimeout(()=>URL.revokeObjectURL(url),30000);}
   catch(error){editWorkspaceToast('Could not download the image. Please try again.');}
 }
 async function onEditWorkspaceFile(e){const input=e&&e.target,file=input&&input.files&&input.files[0];if(!file)return;input.value='';await loadEditWorkspaceImage(file)}
@@ -8326,7 +8373,7 @@ async function generateEditWorkspace(e){
     state.busy=false;document.body.classList.remove('ai-generating');clearActiveProStudioJob();renderEditWorkspace();renderChat();rememberCurrentChatSpace();
   }
 }
-function useEditWorkspaceResult(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}if(!editWorkspaceState.resultUrl)return;const url=editWorkspaceState.resultUrl;closeEditWorkspace();switchView('tools');updateComposerMode('image');imageState.uploadedImageUrls=[url];imageState.referenceImageUrls=[url];imageState.referenceImageUrl=url;renderImageControls();renderComposerImageDraft();renderUploadedPhotoGrid();updateImageUploadButtonPreview()}
+function useEditWorkspaceResult(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const node=editWorkspaceState.chain.find(item=>item.id===editWorkspaceState.activeNodeId&&item.status==='ready'&&item.url);if(!node)return;const url=node.url;closeEditWorkspace();switchView('tools');updateComposerMode('image');imageState.uploadedImageUrls=[url];imageState.referenceImageUrls=[url];imageState.referenceImageUrl=url;renderImageControls();renderComposerImageDraft();renderUploadedPhotoGrid();updateImageUploadButtonPreview()}
 
 async function generateQuickImageDetail(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -27784,7 +27831,7 @@ async function waitGeneration(jobId, options) {
   });
 
   S.clearPhotoToolMask = clearPhotoToolMask;
-  S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;
+  S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;S.selectEditWorkspaceNode=selectEditWorkspaceNode;
   S.setEditLightPreset=setEditLightPreset;
   S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode;
   S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.updateEditBackgroundColor=updateEditBackgroundColor; S.onEditBackgroundFile=onEditBackgroundFile; S.clearEditBackgroundImage=clearEditBackgroundImage; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;

@@ -186,6 +186,15 @@ test('camera, lighting and resize append one sequence and send only the precedin
  assert.equal(h.requests[0][4].model,'gpt_image_2_5_sunburst');assert.equal(h.requests[2][4].imageOptions.editWorkspaceResize.width,1200);
  assert.ok(h.requests.every(request=>!('chain' in request[4].imageOptions)&&!('slotWidth' in request[4].imageOptions)));
 });
+test('selecting any ready image branches the next generation and its connection from that image',async()=>{
+ const h=harness();let index=0;h.context.callGenerate=async(...args)=>{h.requests.push(args);return {images:['https://cdn.example/branch-'+(++index)+'.png']};};
+ await h.context.generateEditWorkspace();h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();
+ const [source,first,second]=h.state.chain;assert.equal(second.parentId,first.id);
+ h.context.selectEditWorkspaceNode(null,source.id);
+ assert.equal(h.state.activeNodeId,source.id);assert.equal(h.state.sourceUrl,source.url);assert.equal(h.state.resultUrl,'');
+ h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();const branch=h.state.chain.at(-1);
+ assert.equal(branch.parentId,source.id);assert.equal(h.requests.at(-1)[2][0],source.url);assert.ok(branch.x>Math.max(first.x,second.x));
+});
 test('failed attempt retains the reference and retries the same empty slot',async()=>{
  const h=harness();h.context.callGenerate=async()=>{throw new Error('provider failed');};await h.context.generateEditWorkspace();
  const slot=h.state.chain[1],position=slot.x;assert.equal(slot.status,'failed');assert.equal(h.state.sourceUrl,h.state.chain[0].url);assert.equal(h.state.history.length,0);
@@ -315,7 +324,8 @@ test('failed upload preserves existing document and chain; successful upload sta
 });
 test('lights are limited to eight and all-disabled is rejected',()=>{const h=harness();h.state.mode='lighting';for(let i=0;i<12;i++)h.context.addEditWorkspaceLight();assert.equal(h.state.light.layers.length,8);h.state.light.layers.forEach(l=>l.enabled=false);assert.match(h.context.editWorkspaceValidation(),/источник/);});
 test('comparison view cannot submit a retouch without its visible mask canvas',async()=>{const h=harness();h.state.mode='retouch';h.state.maskStrokes=[{}];h.state.showBefore=true;await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/Return to the result/);});
-test('completed job downloads through the protected file endpoint',async()=>{const h=harness();const downloads=[];h.state.resultUrl='https://cdn.example/result.png';h.state.jobId='job-123';h.context.completedGenerationDownloadUrl=id=>'/download/'+id;h.context.downloadGeneratedFile=event=>downloads.push(event.currentTarget.dataset);await h.context.downloadEditWorkspaceResult();assert.equal(downloads[0].downloadUrl,'/download/job-123');});
+test('selected chain image downloads at its protected original file endpoint',async()=>{const h=harness();const downloads=[];h.context.ensureEditWorkspaceChain();const result=h.context.beginEditWorkspaceChainResult();Object.assign(result,{status:'ready',url:'https://cdn.example/result.png',preview:'https://cdn.example/result.png',jobId:'job-123'});h.state.activeNodeId=result.id;h.context.completedGenerationDownloadUrl=id=>'/download/'+id;h.context.downloadGeneratedFile=event=>downloads.push(event.currentTarget.dataset);await h.context.downloadEditWorkspaceResult();assert.equal(downloads[0].downloadUrl,'/download/job-123');assert.match(downloads[0].fileName,/sylvex-edit-1\.png/);});
+test('the selected original reference downloads without re-encoding its bytes',async()=>{const h=harness(),downloads=[];h.state.sourceName='original.webp';h.context.ensureEditWorkspaceChain();h.context.fetch=async url=>({ok:true,blob:async()=>new Blob(['original bytes'],{type:'image/webp'})});h.context.browserDownload=(url,name)=>downloads.push({url,name});h.context.setTimeout=()=>0;await h.context.downloadEditWorkspaceResult();assert.deepEqual(downloads,[{url:'blob:new',name:'original.webp'}]);});
 test('brush strokes can be undone and redone; clearing resets both stacks',()=>{const h=harness();const stroke={points:[{x:.2,y:.4}],size:.05};h.state.maskStrokes=[stroke];h.context.clearEditWorkspaceMask(null,true);assert.equal(h.state.maskStrokes.length,0);h.context.redoEditWorkspaceMask();assert.equal(h.state.maskStrokes[0],stroke);h.context.clearEditWorkspaceMask();assert.equal(h.state.maskStrokes.length,0);assert.equal(h.state.maskRedo.length,0);});
 test('shared request builder preserves isolated masks without reading composer state',async()=>{
  const builder=source.slice(source.indexOf('async function buildGenerationRequest('),source.indexOf('\nasync function callGenerateCore(',source.indexOf('async function buildGenerationRequest(')));
@@ -576,8 +586,8 @@ test('standard size resets displayed cards and zoom without changing pixels, con
  h.context.resetEditWorkspaceSize();assert.equal(h.state.zoom,100);assert.ok(h.state.chain.every(n=>Math.max(n.slotWidth,n.slotHeight)===240));
  assert.equal(JSON.stringify(h.state.chain.map(n=>[n.id,n.parentId,n.x,n.y,n.url,n.width,n.height])),positions);
 });
-function sessionHarness(){
- const h=harness(),local=new Map(),cloud=new Map();let owner='111',offline=false;
+function sessionHarness(existingLocal=new Map(),existingCloud=new Map()){
+ const h=harness(),local=existingLocal,cloud=existingCloud;let owner='111',offline=false;
  h.context.getTelegramId=()=>owner;h.context.localStorage={getItem:k=>local.get(k)||null,setItem:(k,v)=>local.set(k,v)};
  h.context.fetch=async(url,options={})=>{
   if(offline)throw new Error('offline');
@@ -639,9 +649,22 @@ test('new workspace keeps complete prior chain and restoring preserves links, ge
 test('history restores locally offline, replaces blob previews, and isolates a different account',async()=>{
  const h=sessionHarness();await h.context.loadEditSessionHistory();h.context.ensureEditWorkspaceChain();h.state.sourcePreview='blob:source';h.state.chain[0].preview='blob:source';h.setOffline(true);
  await h.context.saveEditWorkspaceSession();const id=h.state.sessionId;
- assert.doesNotMatch(h.local.get('sylvex-edit-sessions-v1:111'),/blob:/);
+ assert.doesNotMatch(h.local.get('sylvex-edit-sessions-v2:111'),/blob:/);
  h.context.newEditWorkspace();await h.context.openEditSession(id);assert.equal(h.state.sourcePreview,'https://cdn.example/source.png');
  h.setOwner('222');await h.context.loadEditSessionHistory();assert.equal(h.state.chain.length,0);assert.notEqual(h.state.sessionId,id);
+});
+test('Edit checkpoints immediately and restores the active chain after a page reload',async()=>{
+ const first=sessionHarness();await first.context.loadEditSessionHistory();first.context.ensureEditWorkspaceChain();
+ first.state.camera.horizontal=180;first.context.scheduleEditWorkspaceSave();
+ const stored=first.local.get('sylvex-edit-sessions-v2:111');assert.ok(stored,'the local checkpoint must exist before the cloud debounce');assert.match(stored,/"horizontal":180/);
+ const id=first.state.sessionId,second=sessionHarness(first.local,first.cloud);await second.context.loadEditSessionHistory();
+ assert.equal(second.state.sessionId,id);assert.equal(second.state.chain.length,1);assert.equal(second.state.camera.horizontal,180);
+});
+test('an anonymous Edit draft survives identity loading and is migrated to private cloud history',async()=>{
+ const h=sessionHarness();h.setOwner('');await h.context.loadEditSessionHistory();h.context.ensureEditWorkspaceChain();h.context.scheduleEditWorkspaceSave();
+ const id=h.state.sessionId;assert.ok(h.local.has('sylvex-edit-sessions-v2:guest'));assert.equal(h.cloud.size,0);
+ h.setOwner('111');await h.context.loadEditSessionHistory();await h.context.saveEditWorkspaceSession();
+ assert.equal(h.state.sessionId,id);assert.equal(h.state.chain.length,1);assert.ok(h.local.has('sylvex-edit-sessions-v2:111'));assert.ok(h.cloud.has('111:'+id));
 });
 test('reopening an interrupted job polls the saved job and fills the original slot without charging again',async()=>{
  const h=harness();h.context.ensureEditWorkspaceChain();const slot=h.context.beginEditWorkspaceChainResult();slot.jobId='existing-job';let polls=0;
