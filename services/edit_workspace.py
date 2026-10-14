@@ -325,6 +325,36 @@ def composite_background(source_png, generated, mode, settings, background_png=N
     return png(Image.alpha_composite(backdrop, source))
 
 
+EXPAND_SCENE_PROMPT = """OUTPAINT THE SOURCE IMAGE INTO THE TRANSPARENT EXPANSION MARGINS.
+
+The source image is the sole authoritative visual reference and the fixed, immutable anchor of one continuous photograph at its supplied position on the canvas. Generate only the missing pixels in the editable transparent margins. Do not move, crop, scale, rotate, mirror, redraw, reinterpret, or replace any part of the source image.
+
+Extend the exact same physical scene naturally beyond every expanded edge. Continue all perspective lines, vanishing points, horizon, camera viewpoint, lens characteristics, depth, geometry, scale, materials, textures, lighting direction and intensity, shadows, reflections, depth of field, color grading, grain, and noise so the result reads as one coherent photograph captured by one camera in one exposure.
+
+At each source boundary, continue the nearest visible environment and partially cut-off objects with physically plausible geometry. Every line, surface, texture, shadow, and object crossing an original edge must continue smoothly into the new area with no visible transition. If an unseen area is uncertain, infer the most plausible continuation from the adjacent source pixels and the established scene; never reuse source content as filler.
+
+STRICTLY FORBIDDEN: repeating, tiling, cloning, copying, mirroring, flipping, stretching, or reinserting the source image or any subject; creating a second version of a person, object, structure, horizon, or background feature; collage, split screen, diptych, triptych, picture-in-picture, inset image, second frame, border, frame, panel, band, stripe, separator, blank strip, seam, crease, hard edge, or visible join.
+
+Fill the full editable expansion area with the seamless continuation of the scene. Do not leave blank, black, white, blurred, translucent, or patterned bands unless a separate alpha-transparency instruction explicitly requires transparent empty space. The final output must be a single seamless image with no indication of where the original image ended and the generated extension began."""
+
+
+def expansion_prompt(settings, user=''):
+    """Build an explicit outpainting contract tied to the requested canvas margins."""
+    margins = {key: int(number(settings.get(key), 0, 4096, 0))
+               for key in ('left', 'right', 'top', 'bottom')}
+    geometry = ("Expansion geometry in pixels: "
+                f"left {margins['left']}, right {margins['right']}, "
+                f"top {margins['top']}, bottom {margins['bottom']}.")
+    user = str(user or '').strip()
+    guidance = ''
+    if user:
+        guidance = ("\nUser guidance for the newly generated margins only: " + user +
+                    "\nFollow this guidance only where it is compatible with one seamless continuation of the "
+                    "existing scene. It must never cause changes to the protected source image, duplication, "
+                    "a collage, a second frame, or a visible join.")
+    return f"{EXPAND_SCENE_PROMPT}\n\n{geometry}{guidance}"
+
+
 def instruction(opts):
     mode = opts.get('editWorkspaceMode', 'edit')
     user = str(opts.get('editWorkspacePrompt') or '').strip()
@@ -353,10 +383,12 @@ def instruction(opts):
                        'Replace only the background. Keep every foreground subject and its identity, appearance, '
                        'clothing, pose, scale and position unchanged. Preserve framing and camera viewpoint. '
                        'Do not crop, move, resize, duplicate or redraw the subjects.'),
-        'expand': 'Fill only the transparent canvas margins. Continue the scene naturally. Preserve the original image in place without moving, scaling or duplicating its subjects.',
+        'expand': expansion_prompt(opts.get('editWorkspaceExpand') or {}, user),
         'translate': 'Translate all visible text into ' + str(opts.get('editWorkspaceTranslateLanguage') or '') + '. Preserve layout, fonts, typography, colors and all non-text content.',
     }
-    return tasks.get(mode, 'Preserve the original image content.') + ('\nUser instruction: ' + user if user else '')
+    task = tasks.get(mode, 'Preserve the original image content.')
+    # Expand embeds user guidance inside its stricter outpainting contract.
+    return task if mode == 'expand' else task + ('\nUser instruction: ' + user if user else '')
 
 
 def is_free_resize(payload):

@@ -108,17 +108,39 @@ def test_empty_mask_rejected_before_provider(provider):
 
 
 def test_expand_sends_padded_source_and_protects_original_pixels(provider):
-    result = asyncio.run(main.generate_edit_workspace_image(payload('expand', editWorkspaceExpand={'left': 10, 'top': 20, 'right': 30, 'bottom': 0})))
+    result = asyncio.run(main.generate_edit_workspace_image(payload(
+        'expand', editWorkspacePrompt='Continue the forest path into the new space',
+        editWorkspaceExpand={'left': 10, 'top': 20, 'right': 30, 'bottom': 0})))
     assert result['ok']
-    files = dict(provider[0][0][1]['files'])
+    request = provider[0][0][1]
+    files = dict(request['files'])
     source = Image.open(io.BytesIO(files['image'][1]));mask = Image.open(io.BytesIO(files['mask'][1]))
     assert source.size == mask.size == (104, 68)
     assert mask.getpixel((0, 0))[3] == 0
     assert mask.getpixel((10, 20))[3] == 255
+    prompt = request['data']['prompt']
+    assert 'one continuous photograph' in prompt
+    assert 'left 10, right 30, top 20, bottom 0' in prompt
+    assert 'Continue the forest path into the new space' in prompt
+    assert 'newly generated margins only' in prompt
+    for forbidden in ('mirroring', 'collage', 'second frame', 'stripe', 'visible join'):
+        assert forbidden in prompt
     final = Image.open(io.BytesIO(provider[1][0]))
     assert final.size == (104, 68)
     assert final.getpixel((10, 20)) == (20, 40, 60, 255)
     assert final.getpixel((0, 0)) == (200, 120, 50, 255)
+
+
+def test_expand_prompt_without_user_text_still_enforces_seamless_outpainting():
+    prompt = edit.instruction({
+        'editWorkspaceMode': 'expand', 'editWorkspacePrompt': '',
+        'editWorkspaceExpand': {'left': 0, 'right': 256, 'top': 64, 'bottom': 0},
+    })
+    assert prompt.startswith('OUTPAINT THE SOURCE IMAGE')
+    assert 'Generate only the missing pixels in the editable transparent margins' in prompt
+    assert 'no indication of where the original image ended' in prompt
+    assert 'left 0, right 256, top 64, bottom 0' in prompt
+    assert 'User guidance' not in prompt
 
 
 def test_resize_is_exact_free_and_never_calls_ai(provider):
