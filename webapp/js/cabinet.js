@@ -7919,6 +7919,7 @@ const EDIT_WORKSPACE_MODES = [
 function editWorkspaceToast(message) { if (typeof toast === 'function') toast(message); }
 function openEditWorkspace(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (hideEditOnThisScreen()) return;
   if (!window.matchMedia('(min-width: 1000px)').matches) { editWorkspaceToast('Edit is currently available on wide desktop screens.'); return; }
   updateComposerMode('image');
   let root = document.getElementById('editWorkspace');
@@ -8982,13 +8983,18 @@ function closeRemoveObjectMaskEditor(e) {
 function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character'||kind==='object')return openVisualCreateModal(e,kind);toast('Слот для нового референса подготовлен')}
 function selectPhotoToolReference(e,url){if(e){e.preventDefault();e.stopPropagation()}const config=PHOTO_TOOL_CONFIG[activePhotoTool],state=photoToolStateFor(activePhotoTool);if(!config||!state||!url)return;const slot=config.library==='character'?1:Math.max(0,config.max-1);state.files[slot]={name:'Референс из каталога',mime:'image/*',url};renderPhotoToolModal()}
 
+function hideEditOnThisScreen() {
+  const app = typeof window !== 'undefined' ? window.SYLVEX : null;
+  return !!(app && app.isBrowserMobileUi && app.isBrowserMobileUi());
+}
+
 function renderPhotoToolCatalog() {
   const body = document.getElementById('photoToolModalBody');
   if (!body) return;
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструменты</small><h3>Что сделать с фотографией?</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + '<div class="photo-tool-catalog">'
-    + Object.entries(PHOTO_TOOL_CONFIG).map(([key, config]) =>
+    + Object.entries(PHOTO_TOOL_CONFIG).filter(([key]) => !(key === 'edit_workspace' && hideEditOnThisScreen())).map(([key, config]) =>
       '<button type="button" class="photo-tool-catalog-card" onclick="SYLVEX.openPhotoToolModal(event,\'' + key + '\')">'
       + photoToolCatalogPreviewHtml(config)
       + '<span><b>' + S.escapeHtml(config.shortTitle) + '</b><small>' + S.escapeHtml(config.description) + '</small></span>'
@@ -17161,6 +17167,10 @@ function renderGeneratedTelegramButton(url, kind) {
     {key:'hair_beard',title:'Причёска и борода',note:'Стиль, форма и цвет волос',image:'assets/quick-tools/replace-character.jpg'},
     {key:'face_retouch',title:'Ретушь лица',note:'Естественная коррекция кожи',image:'assets/quick-tools/enhance-photo.jpg'},
   ];
+  // Home quick tools shown on this screen (Edit is left out on a mobile browser).
+  function homeQuickTools() {
+    return isBrowserMobileUi() ? HOME_QUICK_TOOLS.filter((item) => item.key !== 'edit_workspace') : HOME_QUICK_TOOLS;
+  }
   let homeQuickOffset = 0;
   let homeQuickTimer = null;
   let homeQuickDragStart = 0;
@@ -17362,13 +17372,15 @@ function renderGeneratedTelegramButton(url, kind) {
   function homeQuickCardHtml(item) { const media=item.video?'<video src="'+item.video+'" muted loop autoplay playsinline preload="metadata"></video>':'<img src="'+item.image+'" alt="" loading="eager" decoding="async" fetchpriority="high">';return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-preview">'+media+'</span><span class="home-quick-copy"><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
   function moveHomeQuickTools(direction) {
     const host=document.getElementById('homeHist'),track=host&&host.querySelector('.home-quick-track');if(!track)return;
-    homeQuickOffset=(homeQuickOffset+(direction>0?1:HOME_QUICK_TOOLS.length-1))%HOME_QUICK_TOOLS.length;
+    const tools=homeQuickTools();
+    homeQuickOffset=(homeQuickOffset+(direction>0?1:tools.length-1))%tools.length;
     const card=track.children[homeQuickOffset];
     if(card)track.scrollTo({left:card.offsetLeft-track.offsetLeft,behavior:'smooth'});
   }
   function renderHomeQuickTools() {
     const host=document.getElementById('homeHist');if(!host)return;
-    host.innerHTML='<div class="home-quick-track">'+HOME_QUICK_TOOLS.map(homeQuickCardHtml).join('')+'</div><div class="home-quick-dots">'+HOME_QUICK_TOOLS.map((_,index)=>'<span class="'+(index===homeQuickOffset?'active':'')+'"></span>').join('')+'</div>';
+    const tools=homeQuickTools();
+    host.innerHTML='<div class="home-quick-track">'+tools.map(homeQuickCardHtml).join('')+'</div><div class="home-quick-dots">'+tools.map((_,index)=>'<span class="'+(index===homeQuickOffset?'active':'')+'"></span>').join('')+'</div>';
     if(!host.dataset.swipeBound){host.dataset.swipeBound='1';
       host.addEventListener('pointerdown',event=>{if(event.pointerType!=='mouse')return;const track=host.querySelector('.home-quick-track');if(!track)return;homeQuickDragStart=event.clientX;homeQuickDragScrollStart=track.scrollLeft;homeQuickDragging=true;homeQuickMoved=false;host.setPointerCapture(event.pointerId);host.classList.add('is-dragging');clearInterval(homeQuickTimer);homeQuickTimer=null});
       host.addEventListener('pointermove',event=>{if(!homeQuickDragging)return;const track=host.querySelector('.home-quick-track');if(!track)return;const dx=event.clientX-homeQuickDragStart;if(Math.abs(dx)>4)homeQuickMoved=true;track.scrollLeft=homeQuickDragScrollStart-dx});
@@ -24934,6 +24946,8 @@ async function waitGeneration(jobId, options) {
   function initAiAssistantFab() {
     const fab = document.getElementById('aiAssistantFab');
     if (!fab) return;
+    // Browser Mini App: no SYLVEX Assistant button (nor its Settings row).
+    if (isBrowserApp()) { fab.remove(); return; }
     const size = 58, half = size / 2;
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem('sylvex-ai-assistant-position') || 'null'); } catch {}
@@ -25607,6 +25621,12 @@ async function waitGeneration(jobId, options) {
     return !isWebEmbed() && !hasTelegramContext();
   }
   S.isBrowserApp = isBrowserApp;
+  // Browser Mini App on a phone/tablet: Grid and Edit are not offered there
+  // (their code stays; desktop browsers and Telegram are unchanged).
+  function isBrowserMobileUi() {
+    return isBrowserApp() && !!(S.device && (S.device.isMobile || S.device.isTablet));
+  }
+  S.isBrowserMobileUi = isBrowserMobileUi;
 
   // =====================================================
   // MOBILE BROWSER VIEWPORT (Mini App opened in Safari/Chrome, never inside
@@ -27033,7 +27053,7 @@ async function waitGeneration(jobId, options) {
   }
 
   function setStudioLayout(layout) {
-    const mode = layout === 'grid' ? 'grid' : 'classic';
+    const mode = layout === 'grid' && !isBrowserMobileUi() ? 'grid' : 'classic';
     if (mode === 'grid' && !studioGridAvailableOnThisScreen()) {
       if (window.toast) window.toast('Режим Сетки доступен только на компьютерах и широких экранах');
       return;
