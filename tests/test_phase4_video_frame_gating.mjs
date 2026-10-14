@@ -136,13 +136,13 @@ test('normalizeVideoStateForModel keeps startImage but clears endImage when only
   assert.equal(vm.runInContext('videoState.endImage', context), '');
 });
 
-test('renderVideoStartPreview and renderVideoEndPreview hide the card when unsupported', () => {
-  const context = vm.createContext({console, fetchedModelCapabilities: null});
+test('renderVideoStartPreview and renderVideoEndPreview hide unsupported cards in the Mini App', () => {
+  const context = vm.createContext({console, fetchedModelCapabilities: null, isWebEmbed: () => false});
   vm.runInContext(videoModelConfigWithKlingSource(), context);
   vm.runInContext('var videoState = {};', context);
   vm.runInContext(extract('currentVideoConfig'), context);
-  const startCard = {hidden: false, querySelector: () => null};
-  const endCard = {hidden: false, querySelector: () => null};
+  const startCard = {hidden: false, dataset: {}, querySelector: () => null};
+  const endCard = {hidden: false, dataset: {}, querySelector: () => null};
   context.document = {getElementById: (id) => (id === 'videoStartFrameCard' ? startCard : id === 'videoEndFrameCard' ? endCard : null)};
   context.setFramePreview = () => {};
   vm.runInContext(extract('renderVideoStartPreview'), context);
@@ -157,4 +157,29 @@ test('renderVideoStartPreview and renderVideoEndPreview hide the card when unsup
   vm.runInContext(`videoState.modelId = 'kling_3_0'; renderVideoStartPreview(); renderVideoEndPreview();`, context);
   assert.equal(startCard.hidden, false);
   assert.equal(endCard.hidden, false);
+});
+
+test('website Pro Studio restores the existing Start/End Frame pair even when the selected model lacks End Frame', () => {
+  const context = vm.createContext({console, fetchedModelCapabilities: null, isWebEmbed: () => true});
+  vm.runInContext(videoModelConfigWithKlingSource(), context);
+  vm.runInContext('var videoState = {};', context);
+  vm.runInContext(extract('currentVideoConfig'), context);
+  const startCard = {hidden: true, dataset: {}, querySelector: () => null};
+  const endCard = {hidden: true, dataset: {}, querySelector: () => null};
+  context.document = {getElementById: (id) => (id === 'videoStartFrameCard' ? startCard : id === 'videoEndFrameCard' ? endCard : null)};
+  context.setFramePreview = () => {};
+  vm.runInContext(extract('renderVideoStartPreview'), context);
+  vm.runInContext(extract('renderVideoEndPreview'), context);
+
+  // Seedance 2.0 Fast supports Start Frame but not End Frame. The website
+  // must still show the original two cards; the unsupported End Frame card
+  // is guarded by openVideoEndUpload() instead of disappearing.
+  vm.runInContext(`videoState.modelId = 'seedance_2_fast'; renderVideoStartPreview(); renderVideoEndPreview();`, context);
+  assert.equal(startCard.hidden, false);
+  assert.equal(endCard.hidden, false);
+  assert.equal(startCard.dataset.frameSupported, 'true');
+  assert.equal(endCard.dataset.frameSupported, 'false');
+  assert.equal(startCard.disabled, false);
+  assert.equal(endCard.disabled, true);
+  assert.match(endCard.title, /supports an End Frame/);
 });

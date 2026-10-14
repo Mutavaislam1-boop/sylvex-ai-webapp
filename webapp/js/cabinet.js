@@ -6112,10 +6112,21 @@ function renderImageUploadPreview() {
 // =====================================================
 function renderVideoStartPreview() {
   const button = document.getElementById('videoStartUploadButton') || document.getElementById('videoStartFrameCard');
-  if (button) button.hidden = !(currentVideoConfig() || {}).start_image;
+  const supported = !!(currentVideoConfig() || {}).start_image;
+  // The website Pro Studio keeps the existing Start/End Frame pair visible.
+  // Capability checks still guard the upload action, so an unsupported frame
+  // is never sent to (or silently discarded by) the selected provider.
+  if (button) {
+    button.hidden = !supported && !isWebEmbed();
+    button.disabled = isWebEmbed() && !supported;
+    button.dataset.frameSupported = supported ? 'true' : 'false';
+    button.title = supported ? '' : (isWebEmbed() ? 'Choose a video model that supports a Start Frame' : 'Выберите модель с поддержкой начального кадра');
+  }
   setFramePreview(button, videoState.startImage || '', 'start image');
   const label = button && button.querySelector(':scope > span:last-child');
-  if (label) label.textContent = videoState.startImage ? 'Начальное изображение выбрано' : 'Начальное изображение';
+  if (label) label.textContent = isWebEmbed()
+    ? (videoState.startImage ? 'Start image selected' : 'Start image')
+    : (videoState.startImage ? 'Начальное изображение выбрано' : 'Начальное изображение');
 }
 
 // =====================================================
@@ -6124,10 +6135,18 @@ function renderVideoStartPreview() {
 // =====================================================
 function renderVideoEndPreview() {
   const button = document.getElementById('videoEndUploadButton') || document.getElementById('videoEndFrameCard');
-  if (button) button.hidden = !(currentVideoConfig() || {}).end_image;
+  const supported = !!(currentVideoConfig() || {}).end_image;
+  if (button) {
+    button.hidden = !supported && !isWebEmbed();
+    button.disabled = isWebEmbed() && !supported;
+    button.dataset.frameSupported = supported ? 'true' : 'false';
+    button.title = supported ? '' : (isWebEmbed() ? 'Choose a video model that supports an End Frame' : 'Выберите модель с поддержкой конечного кадра');
+  }
   setFramePreview(button, videoState.endImage || '', 'end image');
   const label = button && button.querySelector(':scope > span:last-child');
-  if (label) label.textContent = videoState.endImage ? 'Конечный образ выбран' : 'Конечный образ';
+  if (label) label.textContent = isWebEmbed()
+    ? (videoState.endImage ? 'End frame selected' : 'End frame')
+    : (videoState.endImage ? 'Конечный образ выбран' : 'Конечный образ');
 }
 
 // =====================================================
@@ -13250,6 +13269,14 @@ function pickVisualReference(e, kind, id) {
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
 // =====================================================
 function openVideoStartUpload(e) {
+  if (!(currentVideoConfig() || {}).start_image) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    toast(isWebEmbed() ? 'Choose a video model that supports a Start Frame.' : 'Выберите видеомодель с поддержкой начального кадра.');
+    return;
+  }
   openUploadTarget(UPLOAD_TARGETS.VIDEO_START, e);
 }
 
@@ -13258,6 +13285,14 @@ function openVideoStartUpload(e) {
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
 // =====================================================
 function openVideoEndUpload(e) {
+  if (!(currentVideoConfig() || {}).end_image) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    toast(isWebEmbed() ? 'Choose a video model that supports an End Frame.' : 'Выберите видеомодель с поддержкой конечного кадра.');
+    return;
+  }
   openUploadTarget(UPLOAD_TARGETS.VIDEO_END, e);
 }
 
