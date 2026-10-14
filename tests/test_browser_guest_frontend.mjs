@@ -43,3 +43,19 @@ test('guest texts exist in English and Russian', () => {
     assert.equal((lang.match(new RegExp('\\b' + key + ':', 'g')) || []).length, 2, key);
   }
 });
+
+test('a browser guest cannot open or save Profile, and guest saves never reach an account', () => {
+  const ui = read('../webapp/js/ui.js');
+  assert.match(ui, /window\.SYLVEX\.guardGuestView && window\.SYLVEX\.guardGuestView\(name\)\) return;/);
+  assert.match(cabinet, /S\.guardGuestView = \(name\) => name === 'profile' && guestNeedsAccount\(\);/);
+  assert.match(cabinet, /function guestNeedsAccount\(\) \{\s*if \(!isBrowserApp\(\) \|\| !isBrowserGuest\(\)\) return false;/);
+  for (const fn of ['function openEditProfile() {', 'function saveEditProfile() {', 'function selectProfileTheme(themeId) {']) {
+    const body = cabinet.slice(cabinet.indexOf(fn), cabinet.indexOf(fn) + 160);
+    assert.match(body, /guestNeedsAccount\(\)/, fn);
+  }
+  // Saves belong to the signed-in account they were made with; guest ones are dropped.
+  assert.match(cabinet, /if \(!browserProfileSaveAllowed\(body\)\) \{ clearQueuedProfileSave\(\); return false; \}/);
+  assert.match(cabinet, /Number\(body\.telegram_id\) === Number\(getTelegramId\(\)\)/);
+  // After sign-in the account starts from server data only.
+  assert.match(auth, /S\.user = \{\};\s*try \{ localStorage\.removeItem\('sylvex-profile-save-pending'\); \} catch \{\}/);
+});
