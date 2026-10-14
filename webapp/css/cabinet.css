@@ -10125,3 +10125,13 @@ html.browser-app .view[data-view="tools"].active .studio{
   html.browser-app .photo-tool-modal{padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}
   html.browser-app .photo-tool-dialog{max-height:calc(var(--bvh,1vh) * 100 - 20px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
 }
+/* Browser Mini App keyboard (cabinet.js initBrowserKeyboard): no
+   keyboard-close button - the browser's own Done / hide closes it - and the
+   Pro Studio input window fills only the area the keyboard leaves visible
+   (--vv-top/--vv-h from visualViewport), so it stays below the address bar
+   and right above the keyboard. Telegram is unchanged. */
+html.browser-app .mobile-keyboard-close{display:none!important}
+html.browser-app :is(body.device-mobile,body.device-tablet) .view[data-view="tools"].active .studio-input.composer-input-window{
+  top:var(--vv-top,0px)!important;bottom:auto!important;
+  height:var(--vv-h,100dvh)!important;max-height:var(--vv-h,100dvh)!important
+}

@@ -41,3 +41,15 @@ test('Photo Tools list and tool are separate history steps', () => {
   assert.match(cabinet, /browserNav\.push\(navKey, \{\s*open: \(\) => openPhotoToolModal\(null, kind\)/);
   assert.equal((cabinet.match(/window\.SYLVEX\.browserNav\.closed\(navKey\)/g) || []).length, 2);
 });
+
+test('browser keyboard: no close button, window fits the visible area, browser close and mode switch restore the block', () => {
+  assert.match(css, /html\.browser-app \.mobile-keyboard-close\{display:none!important\}/);
+  assert.match(css, /html\.browser-app :is\(body\.device-mobile,body\.device-tablet\) \.view\[data-view="tools"\]\.active \.studio-input\.composer-input-window\{\s*top:var\(--vv-top,0px\)!important;bottom:auto!important;\s*height:var\(--vv-h,100dvh\)!important/);
+  const kb = between(cabinet, 'function initBrowserKeyboard(vv, chatInput) {', 'function usesVirtualKeyboardLayout()');
+  assert.match(kb, /if \(!\(S\.isBrowserApp && S\.isBrowserApp\(\)\) \|\| !vv/);
+  assert.match(kb, /chatInput\.addEventListener\('blur'/);
+  assert.match(kb, /keyboardSeen && document\.activeElement === chatInput/);
+  assert.match(cabinet, /S\.isBrowserApp && S\.isBrowserApp\(\) && browserComposerWindowOpen\(\)\) hideMobileKeyboard\(\);/);
+  // Telegram path untouched: the keyboard layout check still uses the device.
+  assert.match(between(cabinet, 'function usesVirtualKeyboardLayout() {', 'function dismissGenerationInputUi'), /^function usesVirtualKeyboardLayout\(\) \{\s*return Boolean\(S\.device && S\.device\.usesVirtualKeyboard\);/);
+});
