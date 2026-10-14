@@ -3801,6 +3801,10 @@ function hideMobileKeyboard(event) {
 }
 
 function usesVirtualKeyboardLayout() {
+  // Mini App opened in a regular browser: no custom keyboard handling (no
+  // lifted Pro Studio block, no keyboard-close button, --kb stays 0) - the
+  // browser handles the keyboard and viewport itself. Telegram unchanged.
+  if (S.isBrowserApp && S.isBrowserApp()) return false;
   return Boolean(S.device && S.device.usesVirtualKeyboard);
 }
 
@@ -25526,8 +25530,8 @@ async function waitGeneration(jobId, options) {
   // the address bar / bottom controls showing, anything sized in vh (the
   // app, Pro Studio and its tool panels) runs under them. --bvh is 1% of the
   // height that is actually visible right now and follows the bars as they
-  // expand/collapse, rotation and resizes (the on-screen keyboard keeps its
-  // own --kb handling). Every stylesheet rule that sizes something in vh gets
+  // expand/collapse, rotation and resizes (the on-screen keyboard is left to
+  // the browser). Every stylesheet rule that sizes something in vh gets
   // a twin right after it, scoped to html.browser-app, with vh replaced by
   // --bvh - same specificity and cascade position, so only the unit changes.
   // =====================================================
