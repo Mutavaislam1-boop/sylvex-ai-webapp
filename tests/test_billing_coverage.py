@@ -416,6 +416,11 @@ def test_helpers_without_a_tariff_are_blocked_before_any_provider(endpoint):
     assert status == 402 and body["error"] == "pricing_not_configured"
 
 
+def test_assistant_realtime_is_subscription_covered_while_guest_realtime_stays_blocked():
+    assert "assistant_realtime" not in main.UNPRICED_HELPERS
+    assert "home_idea_realtime" in main.UNPRICED_HELPERS
+
+
 def test_voice_avatar_auto_generation_stays_blocked_even_when_enabled(monkeypatch):
     monkeypatch.setattr(main, "VOICE_AVATAR_AUTO_GENERATION", True)
     monkeypatch.setattr(main, "DATABASE_URL", "postgres://unused")

@@ -5057,7 +5057,6 @@ async def run_billed_helper(telegram_id: int, credits: int, label: str, call, *,
 # without that wiring still fails closed at the dispatcher guard.
 UNPRICED_HELPERS = frozenset({
     "home_idea_realtime",        # OpenAI Realtime voice session
-    "assistant_realtime",        # OpenAI Realtime voice session
     "transcribe",                # dictation (OpenAI/Gemini STT)
     "voice_clone",               # ElevenLabs instant voice clone
     "voice_avatar_generation",   # automatic voice avatar images
