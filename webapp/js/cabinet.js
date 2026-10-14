@@ -46,6 +46,7 @@
     let temporaryText = '';
 
     const language = () => {
+      if (isWebEmbed()) return 'en';
       const selected = String((S.getLang && S.getLang()) || localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
       return PROMPT_PLACEHOLDER_ANIMATIONS[selected] ? selected : 'en';
     };
@@ -5124,7 +5125,7 @@ let styleSheetCssInjected = false;
   }
 
   function uiLang() {
-    return (localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
+    return isWebEmbed() ? 'en' : (localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
   }
 
 function localizedGreeting() {
@@ -5721,6 +5722,9 @@ function localizedGreeting() {
   }
 
   function showImageModelPicker(e) {
+    const websiteAnchorRect = isWebEmbed() && e && e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function'
+      ? e.currentTarget.getBoundingClientRect()
+      : null;
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -5758,6 +5762,9 @@ function localizedGreeting() {
       + '</div>';
 
     el.classList.add('show');
+    if (websiteAnchorRect) {
+      window.requestAnimationFrame(() => positionWebsiteStudioPopover(el, websiteAnchorRect));
+    }
     const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
     const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
     S.haptic && S.haptic.impact && S.haptic.impact('light');
@@ -14818,14 +14825,51 @@ function imageModelButton(model) {
     }
   }
 
+  // Website Pro Studio uses a wide desktop workspace. Keep every compact
+  // settings/model panel attached to the control that opened it instead of
+  // reusing the Mini App's fixed bottom-left sheet coordinates.
+  function positionWebsiteStudioPopover(el, anchorRect) {
+    if (!isWebEmbed() || !el || !anchorRect || !el.classList.contains('show')) return;
+    const margin = 12;
+    const gap = 10;
+    const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+    el.classList.add('web-studio-anchored-pop');
+    el.style.setProperty('position', 'fixed', 'important');
+    el.style.setProperty('right', 'auto', 'important');
+    el.style.setProperty('bottom', 'auto', 'important');
+    el.style.setProperty('transform', 'none', 'important');
+    el.style.setProperty('max-height', Math.max(180, viewportHeight - (margin * 2)) + 'px', 'important');
+
+    const panelRect = el.getBoundingClientRect();
+    const panelWidth = Math.min(panelRect.width || 315, Math.max(220, viewportWidth - (margin * 2)));
+    const panelHeight = Math.min(panelRect.height || 320, Math.max(180, viewportHeight - (margin * 2)));
+    const centeredLeft = anchorRect.left + (anchorRect.width / 2) - (panelWidth / 2);
+    const left = Math.max(margin, Math.min(centeredLeft, viewportWidth - panelWidth - margin));
+    const above = anchorRect.top - panelHeight - gap;
+    const below = anchorRect.bottom + gap;
+    const top = above >= margin
+      ? above
+      : Math.max(margin, Math.min(below, viewportHeight - panelHeight - margin));
+    el.style.setProperty('left', Math.round(left) + 'px', 'important');
+    el.style.setProperty('top', Math.round(top) + 'px', 'important');
+  }
+
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageOptionMenu
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   function openImageOptionMenu(e, kind) {
+    const websiteAnchorRect = isWebEmbed() && e && e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function'
+      ? e.currentTarget.getBoundingClientRect()
+      : null;
     if (e) {
       e.preventDefault();
       e.stopPropagation();
+    }
+
+    if (websiteAnchorRect) {
+      window.requestAnimationFrame(() => positionWebsiteStudioPopover(document.getElementById('modelPop'), websiteAnchorRect));
     }
 
     if (kind === 'model') {
@@ -25044,8 +25088,14 @@ async function waitGeneration(jobId, options) {
   function initAiAssistantFab() {
     const fab = document.getElementById('aiAssistantFab');
     if (!fab) return;
-    // Browser Mini App: no SYLVEX Assistant button (nor its Settings row).
+    // Browser Mini App and Website Pro Studio use their own navigation and
+    // support surfaces, so the Telegram floating assistant does not belong.
     if (isBrowserApp()) { fab.remove(); return; }
+    if (isWebEmbed()) {
+      fab.remove();
+      document.getElementById('aiAssistantModal')?.remove();
+      return;
+    }
     const size = 58, half = size / 2;
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem('sylvex-ai-assistant-position') || 'null'); } catch {}
@@ -25693,6 +25743,134 @@ async function waitGeneration(jobId, options) {
   function isWebEmbed() {
     try { return document.querySelector('meta[name="sylvex-studio-embed"]')?.content === 'web' || new URLSearchParams(window.location.search || '').get('embed') === 'web'; }
     catch { return false; }
+  }
+
+  const WEBSITE_STUDIO_ENGLISH = Object.freeze({
+    'Обычный':'Classic', 'Сетка':'Grid', 'Тема':'Theme', 'Новая цепочка':'New workflow',
+    'История':'History', 'Новый проект':'New project', 'Авто-компоновка':'Auto layout',
+    'Запустить цепочку':'Run workflow', 'Новый':'New', 'Расставить':'Arrange', 'Запустить':'Run',
+    'Задача':'Task', 'Текст':'Text', 'Фото':'Image', 'Видео':'Video', 'Музыка':'Music', 'Голос':'Voice',
+    'Проекты сетки':'Grid projects', 'Автокомпоновка':'Auto layout', 'РЕДАКТОР БЛОКА':'NODE EDITOR',
+    'Редактирование текста':'Edit text', 'Отмена':'Cancel', 'Сохранить':'Save',
+    'Генератор музыки':'Music generator', 'Генерация озвучки':'Voice generation', 'Диалоги':'Dialogue',
+    'Генерация текста':'Text generation', 'Создать изображение':'Create image', 'Фото инструменты':'Image tools',
+    'Создать видео':'Create video', 'Редактировать видео':'Edit video', 'Управление движением':'Motion control',
+    'Создать голос':'Create voice', 'Список голосов':'Voice library', 'Загрузить':'Upload',
+    'Инструменты':'Tools', 'Произношение':'Pronunciation', 'Перевести':'Translate',
+    'Улучшить текст':'Improve text', 'Анализ текста':'Analyze text', 'Прослушать':'Preview',
+    'В избранное':'Add to favorites', 'Загрузите видео-референс':'Upload a video reference',
+    'Длительность: 3–10 секунд':'Duration: 3–10 seconds', 'Начальное изображение':'Start image',
+    'Конечный образ':'End frame', 'Загрузки':'Uploads', 'Прикрепить':'Attach',
+    'Стили':'Styles', 'Персонаж':'Character', 'Объект':'Object', 'Модель AI':'AI model',
+    'Реклама':'Ad copy', 'Стили текста':'Text styles', 'Настройки':'Settings',
+    'Звук выкл':'Sound off', 'Звук вкл':'Sound on', 'Звук OFF':'Sound OFF', 'Звук ON':'Sound ON',
+    'Создать текст с AI':'Create text with AI', 'Общие настройки':'General settings',
+    'Шаблоны текста':'Text templates', 'Сгенерировать':'Generate', 'Отправить':'Send',
+    'Выберите модель':'Choose a model', 'Формат видео':'Video format', 'Длительность':'Duration',
+    'Разрешение':'Resolution', 'Режим видео':'Video mode', 'Качество':'Quality', 'Движение':'Motion',
+    'Соотношение сторон':'Aspect ratio', 'Функции Recraft':'Recraft tools',
+    'Seed недоступен для выбранной модели':'Seed is unavailable for the selected model',
+    'Сбросить настройки':'Reset settings', 'Инструмент текста':'Text tool',
+    'Версия модели':'Model version', 'Стиль текста':'Text style', 'Формат результата':'Output format',
+    'Файл':'File', 'Загрузка':'Uploading', 'Фото выбрано':'Image selected', 'Видео выбрано':'Video selected',
+    'Аудио выбрано':'Audio selected', 'Файл выбран':'File selected', 'Настройки озвучки':'Voice settings',
+    'Настройки голоса':'Voice settings', 'Один голос':'One voice', 'Два голоса':'Two voices',
+    'Основной голос':'Primary voice', 'Второй голос':'Second voice', 'Режим':'Mode',
+    'Язык перевода':'Translation language', 'Язык дубляжа':'Dubbing language',
+    'Количество дикторов':'Speaker count', 'Цель загрузки':'Upload purpose',
+    'Голос озвучки':'Voiceover voice', 'Режим озвучки':'Voice mode',
+    'Инструмент ElevenLabs':'ElevenLabs tool', 'Инструмент Runway':'Runway tool',
+    'Длительность материала':'Media duration', 'Длительность эффекта':'Effect duration',
+    'Второй голос ElevenLabs':'Second ElevenLabs voice', 'Жанр':'Genre',
+    'Изображение → Изображение':'Image to image', 'Дорисовка изображения':'Outpaint image',
+    'Замена фона':'Replace background', 'Генерация фона':'Generate background',
+    'Генерация стиля':'Generate style', 'Векторизация':'Vectorize', 'Удаление фона':'Remove background',
+    'Увеличение разрешения':'Upscale resolution', 'Повышение качества':'Enhance quality',
+    'Стирание области':'Erase region', 'Нейтрально':'Neutral', 'Бизнес':'Business',
+    'Креатив':'Creative', 'Технично':'Technical', 'Обычный текст':'Plain text',
+    'Документ':'Document', 'Промпт':'Prompt', 'Перевод':'Translation', 'Конспект':'Summary',
+    'Рерайт':'Rewrite', 'Извлечь текст':'Extract text', 'Промпт по фото':'Image prompt',
+    'Промпт по видео':'Video prompt', 'Аудио → текст':'Audio to text', 'Видео → текст':'Video to text',
+    'Озвучить текст':'Text to speech', 'Изменить голос записи':'Speech to speech',
+    'Диалог нескольких дикторов':'Multi-speaker dialogue', 'Перевести и озвучить':'Translate and dub',
+    'Создать голос по описанию':'Design voice', 'Создать звуковой эффект':'Create sound effect',
+    'Очистить голос от шума':'Isolate voice', 'Озвучка':'Voiceover', 'Русский':'Russian',
+    'Озвучить видео':'Dub video', 'Перевести аудио':'Translate audio', 'Копировать голос':'Copy voice',
+    'Очистить голос':'Isolate voice', 'Звуковой эффект':'Sound effect',
+    'Озвучить документ':'Voice a document', 'Перевести документ и озвучить':'Translate and voice a document',
+    'Опишите желаемый результат…':'Describe the desired result…',
+    'Введите или создайте текст…':'Enter or create text…', 'Опишите изображение…':'Describe the image…',
+    'Опишите движение и сцену…':'Describe the motion and scene…',
+    'Опишите трек, настроение и жанр…':'Describe the track, mood and genre…',
+    'Введите текст или диалог…':'Enter text or dialogue…', 'Изображение':'Image',
+    'Промпт изображения':'Image prompt', 'Построить цепочку':'Build workflow',
+    'Строим…':'Building…', 'Повторить':'Retry', 'Остановить цепочку':'Stop workflow',
+    'Стоп':'Stop', 'Действия':'Actions', 'Результат появится здесь':'The result will appear here',
+    'Прикрепить файл':'Attach file', 'Закрыть клавиатуру':'Close keyboard',
+    'Голосовой набор':'Voice input', 'Добавить фото или видео':'Add image or video',
+    'Добавить персонажа':'Add character', 'Добавить объект':'Add object', 'Убрать видео':'Remove video',
+    'Скоро':'Coming soon'
+  });
+
+  function websiteStudioEnglishValue(value) {
+    const raw = String(value || '');
+    const trimmed = raw.trim();
+    if (!trimmed) return raw;
+    let translated = WEBSITE_STUDIO_ENGLISH[trimmed] || trimmed;
+    translated = translated.replace(/^(\d+)\s*сек$/i, '$1 sec');
+    translated = translated.replace(/^(\d+)\s*секунд(?:а|ы)?$/i, '$1 seconds');
+    translated = translated.replace(/^Диктор\s+(\d+)$/i, 'Speaker $1');
+    translated = translated.replace(/^Диктор\s+(\d+)\s+·\s+выберите новый голос$/i, 'Speaker $1 · choose a new voice');
+    translated = translated.replace(/^(\d+)\s+диктор(?:а|ов)?$/i, '$1 speakers');
+    translated = translated.replace(/\s+·\s+недоступно$/i, ' · unavailable');
+    if (translated === trimmed) return raw;
+    return raw.replace(trimmed, translated);
+  }
+
+  function isWebsiteStudioUiElement(element) {
+    if (!element || !element.closest) return false;
+    return !!element.closest('.view[data-view="tools"], #modelPop, #imageStylePanel, #musicSettingsModal, #voiceAddonDrawer');
+  }
+
+  function translateWebsiteStudioUi(root) {
+    if (!isWebEmbed() || !root) return;
+    const rootElement = root.nodeType === 1 ? root : root.parentElement;
+    if (!rootElement) return;
+    const translateElementAttributes = (element) => {
+      if (!isWebsiteStudioUiElement(element)) return;
+      ['aria-label', 'title', 'placeholder'].forEach((name) => {
+        if (element.hasAttribute && element.hasAttribute(name)) {
+          element.setAttribute(name, websiteStudioEnglishValue(element.getAttribute(name)));
+        }
+      });
+      if (element.id === 'studioGridTitle' && element.value === 'Новая цепочка') element.value = 'New workflow';
+    };
+    if (rootElement.nodeType === 1) translateElementAttributes(rootElement);
+    rootElement.querySelectorAll?.('*').forEach(translateElementAttributes);
+    const walker = document.createTreeWalker(rootElement, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const parent = node.parentElement;
+      if (!isWebsiteStudioUiElement(parent)) continue;
+      if (parent.closest('#chatArea, textarea, input, [contenteditable="true"], script, style')) continue;
+      const translated = websiteStudioEnglishValue(node.nodeValue);
+      if (translated !== node.nodeValue) node.nodeValue = translated;
+    }
+  }
+
+  function initWebsiteProStudioUi() {
+    if (!isWebEmbed()) return;
+    const toolsView = document.querySelector('.view[data-view="tools"]');
+    if (toolsView) translateWebsiteStudioUi(toolsView);
+    if (!('MutationObserver' in window)) return;
+    const observer = new MutationObserver((records) => records.forEach((record) => {
+      if (record.type === 'characterData') translateWebsiteStudioUi(record.target.parentElement);
+      record.addedNodes.forEach((node) => {
+        if (node.nodeType === 1) translateWebsiteStudioUi(node);
+        else if (node.parentElement) translateWebsiteStudioUi(node.parentElement);
+      });
+    }));
+    observer.observe(document.body, { childList:true, subtree:true, characterData:true });
   }
 
   // True only when actually launched from inside Telegram (real initData
@@ -27724,6 +27902,7 @@ async function waitGeneration(jobId, options) {
     document.documentElement.classList.toggle('web-embed', isWebEmbed());
     // Mini App opened directly in a browser (never inside Telegram).
     document.documentElement.classList.toggle('browser-app', isBrowserApp());
+    initWebsiteProStudioUi();
     initBrowserGuestPrompts();
     initBrowserViewport();
 

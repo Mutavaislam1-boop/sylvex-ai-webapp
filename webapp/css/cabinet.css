@@ -4069,7 +4069,7 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop button.image-model-row
   border:0;
   border-radius:14px;
   background:transparent;
-  color:#f3f3f3;
+  color:var(--st-text, #f3f3f3);
   text-align:left;
   font-family:inherit;
 }
@@ -4078,7 +4078,7 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop button.image-model-row
 .view[data-view="tools"].active .model-pop button.image-model-row:active,
 .view[data-view="tools"].active .model-pop button.image-model-row.active,
 .view[data-view="tools"].active .model-pop button.image-model-row.sel{
-  background:#24262b;
+  background:var(--st-accent-bg, #24262b);
 }
 
 /* =====================================================
@@ -4092,8 +4092,8 @@ CSS-БЛОК: .image-model-icon
   display:grid;
   place-items:center;
   border-radius:12px;
-  background:#2c2c2c;
-  color:#f3f3f3;
+  background:var(--st-bg-3, #2c2c2c);
+  color:var(--st-text, #f3f3f3);
   font-size:17px;
   font-weight:700;
 }
@@ -4115,7 +4115,7 @@ CSS-БЛОК: .image-model-name
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .image-model-name{
-  color:#f3f3f3;
+  color:var(--st-text, #f3f3f3);
   font-size:13px;
   line-height:1.15;
   font-weight:700;
@@ -4126,7 +4126,7 @@ CSS-БЛОК: .image-model-desc
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .image-model-desc{
-  color:#8d8d92;
+  color:var(--st-dim, #8d8d92);
   font-size:11px;
   line-height:1.25;
   font-weight:400;
@@ -4147,7 +4147,7 @@ CSS-БЛОК: .image-model-check
   display:grid;
   place-items:center;
   border-radius:50%;
-  color:#f3f3f3;
+  color:var(--st-text, #f3f3f3);
   font-size:13px;
   opacity:0;
 }
@@ -9519,9 +9519,35 @@ CSS-БЛОК: Website embed (html.web-embed, see isWebEmbed() in cabinet.js)
 навигацию, тему и вкладку Grid Mode. На Telegram Mini App эти правила не
 действуют, поскольку класс web-embed там никогда не выставляется.
 ===================================================== */
-html.web-embed .nav{display:none!important}
-html.web-embed #studioThemeBtn{display:none!important}
-html.web-embed .studio-layout-switch{display:none!important}
+html.web-embed .nav,
+html.web-embed .view[data-view="tools"] .studio-bar,
+html.web-embed #histDrawer,
+html.web-embed #histBackdrop,
+html.web-embed #aiAssistantFab,
+html.web-embed #aiAssistantModal,
+html.web-embed .settings-ai-assistant-row{display:none!important}
+
+/* The Website owns navigation, history and the global page header. Pro
+   Studio contributes only its workspace/composer there, with a clean solid
+   surface instead of the Telegram Mini App's decorative dot layers. */
+html.web-embed .view[data-view="tools"].active .studio:not(.grid-mode)::before,
+html.web-embed .view[data-view="tools"].active .studio:not(.grid-mode)::after{
+  display:none!important;
+  content:none!important;
+}
+html.web-embed .view[data-view="tools"].active .studio:not(.grid-mode),
+html.web-embed .view[data-view="tools"].active .studio:not(.grid-mode) .chat-area{
+  background-color:var(--st-bg)!important;
+  background-image:none!important;
+}
+
+/* Inline coordinates are calculated from the actual clicked control. These
+   declarations win over the old mobile bottom-sheet !important rules. */
+html.web-embed body > #modelPop.web-studio-anchored-pop{
+  right:auto!important;
+  bottom:auto!important;
+  transform:none!important;
+}
 
 /* Desktop-width website workspace: the Mini App's fixed, phone-sized
    generation cards/thumbnails stay exactly as they are for Telegram, but a
