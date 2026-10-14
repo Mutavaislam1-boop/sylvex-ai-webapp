@@ -7983,6 +7983,7 @@ function renderEditWorkspace() {
     const template=document.createElement('template');template.innerHTML=controls;main.appendChild(template.content);
   }else root.innerHTML='<main class="edit-workspace-main">'+surface+controls+'</main>';
   if(mode==='sketch'&&state.sketch?.editing){
+    syncEditSketchSource(state);
     const host=document.createElement('section');host.className='edit-sketch-workbench';root.querySelector('.edit-workspace-main').appendChild(host);
     if(typeof SYLVEXSketch!=='undefined')root._editSketch=new SYLVEXSketch.Editor(host,state.sketch,updateEditWorkspaceReady,editWorkspaceToast);
     else host.textContent='Drawing tools could not load. Refresh the page to try again.';
@@ -7995,24 +7996,56 @@ function renderEditWorkspace() {
   if(mode==='upscale')void refreshEditUpscaleEstimate();
 
 }
-function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;if(mode==='sketch'&&typeof SYLVEXSketch!=='undefined'){s.sketch??=SYLVEXSketch.create();s.sketch.editing=true;if(!s.sourceName)s.sourceName='Sketch drawing';}renderEditWorkspace()}
+function editSketchSourceSize(width,height){
+  width=Math.max(1,Number(width)||1024);height=Math.max(1,Number(height)||1024);
+  const scale=Math.min(1,4096/width,4096/height,Math.sqrt(16777216/(width*height)));
+  return {width:Math.max(256,Math.round(width*scale)),height:Math.max(256,Math.round(height*scale))};
+}
+function syncEditSketchSource(s=editWorkspaceState){
+  if(typeof SYLVEXSketch==='undefined')return null;
+  const d=s.sketch??=SYLVEXSketch.create(),active=s.chain.find(node=>node.id===s.activeNodeId);
+  // A blank drawing becomes the first visible source after it is flattened.
+  // Reopening a failed attempt must keep that editable vector draft, rather
+  // than painting its own flattened copy underneath it.
+  if(active?.mode==='sketch-source'&&active.id===d.sourceNodeId)return d;
+  const url=String(s.sourceUrl||''),preview=String(s.sourcePreview||url),key=url?String(active?.id||url):'';
+  const bindingChanged=d.referenceKey!==key,urlChanged=d.referenceUrl!==url;
+  if(bindingChanged&&d.referenceKey&&d.items.length){d.items=[];d.revision++;}
+  if(bindingChanged||urlChanged){d.flattenedUrl='';d.flattenedRevision=-1;d.flattenedReferenceKey='';}
+  d.referenceUrl=url;d.referencePreview=preview;d.referenceKey=key;d.referenceNodeId=active?.id||'';
+  if(url&&bindingChanged&&s.width&&s.height){
+    const size=editSketchSourceSize(s.width,s.height),sx=size.width/d.width,sy=size.height/d.height;
+    d.items.forEach(item=>{item.x*=sx;item.y*=sy;item.sx=(item.sx||1)*sx;item.sy=(item.sy||1)*sy;});
+    d.width=size.width;d.height=size.height;d.revision++;
+  }
+  return d;
+}
+function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;if(mode==='sketch'&&typeof SYLVEXSketch!=='undefined'){s.sketch??=SYLVEXSketch.create();syncEditSketchSource(s);s.sketch.editing=true;if(!s.sourceName)s.sourceName='Sketch drawing';}renderEditWorkspace()}
 function editWorkspaceHasContent(state){return !!(state?.chain?.length||state?.sketch?.version===1);}
-function toggleEditSketch(e){e?.preventDefault();if(editWorkspaceLocked()||!editWorkspaceState.sketch)return;editWorkspaceState.sketch.editing=!editWorkspaceState.sketch.editing;renderEditWorkspace();}
+function toggleEditSketch(e){e?.preventDefault();if(editWorkspaceLocked()||!editWorkspaceState.sketch)return;const editing=!editWorkspaceState.sketch.editing;if(editing)syncEditSketchSource(editWorkspaceState);editWorkspaceState.sketch.editing=editing;renderEditWorkspace();}
 async function prepareEditSketchReference(){
   const s=editWorkspaceState,d=s.sketch,session=s.sessionId;
-  let node=s.chain.find(n=>n.id===d.sourceNodeId&&n.mode==='sketch-source'&&n.url);
-  if(!node||d.sourceRevision!==d.revision){
+  const hasPhoto=!!d.referenceUrl;
+  if(hasPhoto)ensureEditWorkspaceChain();
+  if(!d.flattenedUrl||d.flattenedRevision!==d.revision||d.flattenedReferenceKey!==d.referenceKey){
     s.uploading=true;renderEditWorkspace();
     try{
       const blob=await SYLVEXSketch.exportPNG(d),url=await uploadProStudioMediaFile(new File([blob],'sketch.png',{type:'image/png'}),'image');
       if(s.sessionId!==session)throw new Error('The workspace changed. Please try again.');
-      const size=editWorkspacePreviewSize(d.width,d.height,s.zoom),parentId=node?.id||'',right=s.chain.length?Math.max(...s.chain.map(n=>n.x+n.slotWidth/2)):null;
-      node={id:'edit-node-'+(++s.nodeSequence),parentId,status:'ready',mode:'sketch-source',url,preview:url,jobId:'',width:d.width,height:d.height,x:right===null?0:right+72/(s.zoom/100)+size.slotWidth/2,y:node?.y||0,...size};
-      s.chain.push(node);d.sourceNodeId=node.id;d.sourceRevision=d.revision;
+      d.flattenedUrl=url;d.flattenedRevision=d.revision;d.flattenedReferenceKey=d.referenceKey;d.sourceRevision=d.revision;
     }finally{s.uploading=false;}
   }
-  Object.assign(s,{sourceUrl:node.url,sourcePreview:node.url,activeNodeId:node.id,showBefore:false,maskStrokes:[],maskRedo:[],beforeUrl:'',viewNeedsFit:true});
-  setEditWorkspaceDimensions(d.width,d.height);d.editing=false;
+  if(!hasPhoto){
+    let node=s.chain.find(n=>n.id===d.sourceNodeId&&n.mode==='sketch-source');
+    if(!node){
+      const size=editWorkspacePreviewSize(d.width,d.height,s.zoom),right=s.chain.length?Math.max(...s.chain.map(n=>n.x+n.slotWidth/2)):null;
+      node={id:'edit-node-'+(++s.nodeSequence),parentId:'',status:'ready',mode:'sketch-source',url:d.flattenedUrl,preview:d.flattenedUrl,jobId:'',width:d.width,height:d.height,x:right===null?0:right+72/(s.zoom/100)+size.slotWidth/2,y:0,...size};
+      s.chain.push(node);d.sourceNodeId=node.id;
+    }else Object.assign(node,{status:'ready',url:d.flattenedUrl,preview:d.flattenedUrl,width:d.width,height:d.height});
+    Object.assign(s,{sourceUrl:d.flattenedUrl,sourcePreview:d.flattenedUrl,activeNodeId:node.id,showBefore:false,maskStrokes:[],maskRedo:[],beforeUrl:'',viewNeedsFit:true});
+    setEditWorkspaceDimensions(d.width,d.height);
+  }
+  d.editing=false;return d.flattenedUrl;
 }
 function setEditCameraPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation()}updateEditCamera({horizontal:h,vertical:v},true);}
 function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}if(group==='light'){updateEditLight({[key]:Number(input.value)});return;}let value=Number(input.value);if(!Number.isFinite(value))return;if(group==='upscale'){if(!['sharpness','denoise','strength','creativity','modelStrength','fixCompression'].includes(key))return;if(['strength','creativity'].includes(key)&&!editWorkspaceState.upscale.faceEnhancement)return;value=Math.round(Math.max(key==='modelStrength'?1:0,Math.min(100,value)));}editWorkspaceState[group][key]=value;updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=value;}
@@ -8255,8 +8288,9 @@ async function generateEditWorkspace(e){
   const state=editWorkspaceState;if(editWorkspaceLocked())return;
   if(state.chain.some(node=>node.status==='pending'&&node.jobId)){void recoverEditSessionJob();return;}
   const reason=editWorkspaceValidation();if(reason)return editWorkspaceToast(reason);
+  let sketchReferenceUrl='';
   if(state.mode==='sketch'){
-    try{await prepareEditSketchReference();}catch(error){editWorkspaceToast(error.message||'Could not prepare the drawing.');renderEditWorkspace();return;}
+    try{sketchReferenceUrl=await prepareEditSketchReference();}catch(error){editWorkspaceToast(error.message||'Could not prepare the drawing.');renderEditWorkspace();return;}
   }
   const mode=state.mode,isSylvex=mode==='upscale'&&state.upscale.model==='sylvex_sr',restore=isSylvex?editSylvexRestoreState():null;
   if(isSylvex)await animateEditSylvexGuidesIntoSource();
@@ -8264,8 +8298,8 @@ async function generateEditWorkspace(e){
   const before=editWorkspaceSnapshot();state.showBefore=false;const maskCanvas=document.getElementById('editWorkspaceMask'),maskUrl=state.mode==='retouch'&&maskCanvas?maskCanvas.toDataURL('image/png'):'';
   state.busy=true;const chainResult=beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
-  const refs=[state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
-  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  const refs=[sketchReferenceUrl||state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
+  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:refs[0],editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
   if(isSylvex)Object.assign(imageOptions,{enhancePhotoModel:'sylvex_sr',sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance}});
   if(isSylvex)chainResult.restoreModel='sylvex_sr';
   try{

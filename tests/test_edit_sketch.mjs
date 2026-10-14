@@ -50,8 +50,9 @@ test('text tool recognizes a second click on text and expands the editor width w
  assert.ok(sketch.textWidth('A much longer line',30)>sketch.textWidth('Text',30));
 });
 test('restoration keeps editable artwork and rejects corrupt canvas geometry and unsafe colors',()=>{
- const d=sketch.create();d.items=[stroke(),{...stroke(),type:'arrow',points:undefined,w:-40,h:-20}];
- const saved=JSON.parse(JSON.stringify(d));assert.equal(sketch.restore(saved).items.length,2);assert.equal(sketch.hasContent(sketch.restore(saved)),true);
+ const d=sketch.create();d.referenceUrl='https://cdn.example/source.png';d.referencePreview='blob:source';d.referenceKey='edit-node-1';d.items=[stroke(),{...stroke(),type:'arrow',points:undefined,w:-40,h:-20}];
+ const saved=JSON.parse(JSON.stringify(d)),restored=sketch.restore(saved);assert.equal(restored.items.length,2);assert.equal(sketch.hasContent(restored),true);
+ assert.equal(sketch.referenceSource(restored),'blob:source');assert.equal(restored.referenceUrl,d.referenceUrl);
  saved.items[0].color='url(javascript:bad)';assert.equal(sketch.restore(saved).items.length,1);
  saved.width=100000;assert.equal(sketch.restore(saved).width,1024);assert.equal(sketch.restore(saved).items.length,0);
  assert.equal(sketch.hasContent({...d,items:[{...stroke(),type:'eraser'}]}),false);
@@ -68,4 +69,14 @@ test('expanded shape library remains editable and renders every added shape',()=
  types.forEach((type,index)=>sketch.drawItem(ctx,d.items[index]));
  assert.equal(sketch.restore(JSON.parse(JSON.stringify(d))).items.length,types.length);
  assert.equal(events.filter(([key])=>key==='stroke').length,types.length);
+});
+test('PNG export composites the active photo below the editable artwork',async()=>{
+ const draws=[];let loadedImage;
+ const makeContext=()=>new Proxy({getImageData:()=>({data:new Uint8ClampedArray([0,0,0,255])}),drawImage:image=>draws.push(image)},{get:(target,key)=>target[key]??(()=>{}),set:(target,key,value)=>{target[key]=value;return true;}});
+ const ownerDocument={defaultView:{Image:class{set src(value){this.url=value;loadedImage=this;queueMicrotask(()=>this.onload());}}},createElement:()=>({ownerDocument,width:0,height:0,getContext:makeContext,toBlob:callback=>callback(new Blob(['png'],{type:'image/png'}))})};
+ const d=sketch.create();d.referenceUrl='https://cdn.example/source.png';d.items=[stroke()];
+ const blob=await sketch.exportPNG(d,ownerDocument);
+ assert.equal(blob.type,'image/png');assert.equal(loadedImage.url,d.referenceUrl);
+ assert.equal(draws.at(-2),loadedImage,'the source photo is drawn before the artwork canvas');
+ assert.notEqual(draws.at(-1),loadedImage);
 });
