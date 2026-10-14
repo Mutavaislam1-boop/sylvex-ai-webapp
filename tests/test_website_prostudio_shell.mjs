@@ -31,6 +31,7 @@ test('website Pro Studio forces English UI text without changing the Mini App la
   assert.match(js, /return isWebEmbed\(\) \? 'en' : \(localStorage\.getItem\('sylvex-lang'\)/);
   assert.match(js, /const WEBSITE_STUDIO_ENGLISH = Object\.freeze/);
   assert.match(js, /'Соотношение сторон':'Aspect ratio'/);
+  assert.match(js, /attributeFilter:\['aria-label', 'title', 'placeholder'\]/);
   assert.match(js, /initWebsiteProStudioUi\(\);/);
 });
 

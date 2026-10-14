@@ -25767,6 +25767,7 @@ async function waitGeneration(jobId, options) {
     'Создать текст с AI':'Create text with AI', 'Общие настройки':'General settings',
     'Шаблоны текста':'Text templates', 'Сгенерировать':'Generate', 'Отправить':'Send',
     'Копировать':'Copy', 'Сообщить об ошибке':'Report issue', 'Поделиться генерацией':'Share generation',
+    'Поделиться':'Share',
     'Изображение готово':'Image ready',
     'Не удалось создать изображение. Попробуйте ещё раз.':'Could not create the image. Please try again.',
     'Выберите модель':'Choose a model', 'Формат видео':'Video format', 'Длительность':'Duration',
@@ -25845,7 +25846,9 @@ async function waitGeneration(jobId, options) {
       if (!isWebsiteStudioUiElement(element)) return;
       ['aria-label', 'title', 'placeholder'].forEach((name) => {
         if (element.hasAttribute && element.hasAttribute(name)) {
-          element.setAttribute(name, websiteStudioEnglishValue(element.getAttribute(name)));
+          const current = element.getAttribute(name);
+          const translated = websiteStudioEnglishValue(current);
+          if (translated !== current) element.setAttribute(name, translated);
         }
       });
       if (element.id === 'studioGridTitle' && element.value === 'Новая цепочка') element.value = 'New workflow';
@@ -25870,12 +25873,19 @@ async function waitGeneration(jobId, options) {
     if (!('MutationObserver' in window)) return;
     const observer = new MutationObserver((records) => records.forEach((record) => {
       if (record.type === 'characterData') translateWebsiteStudioUi(record.target.parentElement);
+      if (record.type === 'attributes') translateWebsiteStudioUi(record.target);
       record.addedNodes.forEach((node) => {
         if (node.nodeType === 1) translateWebsiteStudioUi(node);
         else if (node.parentElement) translateWebsiteStudioUi(node.parentElement);
       });
     }));
-    observer.observe(document.body, { childList:true, subtree:true, characterData:true });
+    observer.observe(document.body, {
+      childList:true,
+      subtree:true,
+      characterData:true,
+      attributes:true,
+      attributeFilter:['aria-label', 'title', 'placeholder'],
+    });
   }
 
   // True only when actually launched from inside Telegram (real initData
