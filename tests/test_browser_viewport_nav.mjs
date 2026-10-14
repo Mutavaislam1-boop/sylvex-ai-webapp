@@ -59,3 +59,16 @@ test('browser app Pro Studio workspace has no dot/grid background (Telegram keep
   // The original dotted backdrop is still defined for Telegram.
   assert.match(css, /radial-gradient\(circle, var\(--st-grid-line\) 1px, transparent 1\.3px\)/);
 });
+
+test('browser app: no Assistant button/setting; mobile browser hides Grid and Edit (code kept)', () => {
+  assert.match(css, /html\.browser-app #aiAssistantFab,\s*html\.browser-app \.settings-ai-assistant-row\{display:none!important\}/);
+  assert.match(css, /html\.browser-app:is\(\.device-mobile,\.device-tablet\) #studioLayoutSwitch\{display:none!important\}/);
+  assert.match(cabinet, /if \(isBrowserApp\(\)\) \{ fab\.remove\(\); return; \}/);
+  assert.match(cabinet, /function isBrowserMobileUi\(\) \{\s*return isBrowserApp\(\) && !!\(S\.device && \(S\.device\.isMobile \|\| S\.device\.isTablet\)\);/);
+  assert.match(cabinet, /const mode = layout === 'grid' && !isBrowserMobileUi\(\) \? 'grid' : 'classic';/);
+  assert.match(cabinet, /filter\(\(\[key\]\) => !\(key === 'edit_workspace' && hideEditOnThisScreen\(\)\)\)/);
+  assert.match(cabinet, /HOME_QUICK_TOOLS\.filter\(\(item\) => item\.key !== 'edit_workspace'\)/);
+  // The Grid/Edit features themselves are still there.
+  assert.match(cabinet, /function openEditWorkspace\(e\)/);
+  assert.match(read('../webapp/cabinet.html'), /data-studio-layout="grid"/);
+});

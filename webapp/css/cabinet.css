@@ -10144,3 +10144,9 @@ html.browser-app body .view[data-view="tools"].active .chat-area.chat-area,
 html.browser-app body .view[data-view="tools"].active .studio-grid-canvas.studio-grid-canvas{
   background-image:none!important
 }
+/* Browser Mini App: no SYLVEX Assistant button or its Settings row; on a
+   phone/tablet browser the Pro Studio Grid switch is hidden (Edit is left
+   out of the tool lists in cabinet.js). Telegram and desktop unchanged. */
+html.browser-app #aiAssistantFab,
+html.browser-app .settings-ai-assistant-row{display:none!important}
+html.browser-app:is(.device-mobile,.device-tablet) #studioLayoutSwitch{display:none!important}
