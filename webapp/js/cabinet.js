@@ -7042,12 +7042,16 @@ function ensureEditWorkspaceChain() {
 function selectEditWorkspaceNode(e,id){
   if(e){e.preventDefault();e.stopPropagation();}
   const s=editWorkspaceState,node=s.chain.find(item=>item.id===id);
-  if(editWorkspaceLocked()||!node||node.status!=='ready'||!node.url||node.id===s.activeNodeId)return;
+  const sketchSelection=s.mode==='sketch';
+  if(editWorkspaceLocked()||!node||node.status!=='ready'||!node.url||(!sketchSelection&&node.id===s.activeNodeId))return;
   const parent=s.chain.find(item=>item.id===node.parentId),changedSource=s.sourceUrl!==node.url;
   Object.assign(s,{activeNodeId:node.id,sourceUrl:node.url,sourcePreview:node.preview||node.url,resultUrl:node.parentId?node.url:'',jobId:node.jobId||'',beforeUrl:parent?.preview||parent?.url||'',showBefore:false,maskStrokes:[],maskRedo:[],viewNeedsFit:false});
   if(node.width&&node.height)setEditWorkspaceDimensions(node.width,node.height);
   s.expand={left:0,right:0,top:0,bottom:0};
   if(changedSource&&s.upscale?.sylvex)s.upscale.sylvex=createEditSylvexRestoreState();
+  if(sketchSelection&&typeof SYLVEXSketch!=='undefined'){
+    s.sketch??=SYLVEXSketch.create();syncEditSketchSource(s);s.sketch.editing=true;
+  }
   renderEditWorkspace();scheduleEditWorkspaceSave();
 }
 function beginEditWorkspaceChainResult() {
@@ -7165,6 +7169,9 @@ function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
   ensureEditWorkspaceChain();
   if(!s.chain.length){
+    // The drawing workbench already supplies its own clean white paper. Do
+    // not place the generic photo-upload card underneath that paper.
+    if(s.mode==='sketch'){world.innerHTML='';return;}
     if(!world.querySelector('.edit-workspace-upload'))world.innerHTML='<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Upload a photo or drop it here</b><small>JPEG, PNG, WebP · up to 50 MB</small></button>';
     return;
   }
@@ -7755,6 +7762,7 @@ function editWorkspaceValidation() {
   if(s.uploading)return 'Uploading image…';
   if(s.mode==='sketch'){
     if(typeof SYLVEXSketch==='undefined')return 'Drawing tools could not load. Refresh the page to try again.';
+    if(!s.sketch?.editing)return s.chain.some(node=>node.status==='ready'&&node.url)?'Select an image in the chain to draw on it.':'Open the blank canvas to start drawing.';
     if(!SYLVEXSketch.hasContent(s.sketch))return 'Draw something before generating.';
     if(!SYLVEXSketch.validSize(s.sketch.width,s.sketch.height))return 'Use canvas dimensions from 256 to 4096 px.';
     return '';
@@ -8045,7 +8053,11 @@ function renderEditWorkspace() {
   if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button title="Attach image" onclick="document.getElementById(\'editWorkspaceFile\').click()">⌁</button><span class="edit-workspace-model-label">GPT Image 2.5</span>'+generate+'</div>';
   if(mode==='retouch')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Draw a selection and describe what you want to change" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.brushMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'replace\')">Replace</button><button class="'+(state.brushMode==='erase'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'erase\')">Erase</button><span>✎</span><input type="range" min="4" max="80" value="'+state.brushSize+'" oninput="SYLVEX.updateEditBrushSize(event)"><output id="editBrushSizeOutput">'+state.brushSize+'</output><button data-mask-action="undo" title="Undo stroke" aria-label="Undo stroke" onclick="SYLVEX.clearEditWorkspaceMask(event,true)">↶</button><button data-mask-action="redo" title="Redo stroke" aria-label="Redo stroke" onclick="SYLVEX.redoEditWorkspaceMask(event)">↷</button><button data-mask-action="clear" onclick="SYLVEX.clearEditWorkspaceMask(event)">Clear selection</button>'+generate+'</div>';
   if(mode==='background')action=editBackgroundPanel(generate);
-  if(mode==='sketch')action='<textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Sketch description" placeholder="Describe the scene, materials or lighting (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button type="button" onclick="SYLVEX.toggleEditSketch(event)">'+(state.sketch?.editing?'View results':'Edit drawing')+'</button><span class="edit-workspace-model-label">Sketch → realistic photo</span>'+generate+'</div>';
+  if(mode==='sketch'){
+    const readyImages=state.chain.filter(node=>node.status==='ready'&&node.url),editing=!!state.sketch?.editing;
+    const canvasControl=editing?'<button type="button" onclick="SYLVEX.toggleEditSketch(event)">'+(readyImages.length?'Choose another image':'Close canvas')+'</button>':readyImages.length>1?'<span class="edit-sketch-chain-hint">Select any image in the chain to draw on it</span>':'<button type="button" onclick="SYLVEX.toggleEditSketch(event)">'+(readyImages.length?'Open selected image':'New blank canvas')+'</button>';
+    action='<textarea maxlength="8000" id="editWorkspacePrompt" aria-label="Sketch description" placeholder="Describe the scene, materials or lighting (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row">'+canvasControl+'<span class="edit-workspace-model-label">Sketch → realistic photo</span>'+generate+'</div>';
+  }
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action=editExpandPanel(generate);
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(selectedNode?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
@@ -8101,9 +8113,30 @@ function syncEditSketchSource(s=editWorkspaceState){
   }
   return d;
 }
-function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;if(mode==='sketch'&&typeof SYLVEXSketch!=='undefined'){s.sketch??=SYLVEXSketch.create();syncEditSketchSource(s);s.sketch.editing=true;if(!s.sourceName)s.sourceName='Sketch drawing';}renderEditWorkspace()}
+function setEditWorkspaceMode(e,mode){
+  if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;
+  if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;
+  s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;
+  if(mode==='sketch'&&typeof SYLVEXSketch!=='undefined'){
+    s.sketch??=SYLVEXSketch.create();
+    if(s.sourceUrl&&!s.chain.length)ensureEditWorkspaceChain();
+    const readyImages=s.chain.filter(node=>node.status==='ready'&&node.url);
+    // A blank session and a single-photo session have an unambiguous canvas.
+    // With a generation chain, wait for an explicit image selection.
+    if(readyImages.length<=1){syncEditSketchSource(s);s.sketch.editing=true;}
+    else s.sketch.editing=false;
+    if(!s.sourceName)s.sourceName='Sketch drawing';
+  }
+  renderEditWorkspace();
+}
 function editWorkspaceHasContent(state){return !!(state?.chain?.length||state?.sketch?.version===1);}
-function toggleEditSketch(e){e?.preventDefault();if(editWorkspaceLocked()||!editWorkspaceState.sketch)return;const editing=!editWorkspaceState.sketch.editing;if(editing)syncEditSketchSource(editWorkspaceState);editWorkspaceState.sketch.editing=editing;renderEditWorkspace();}
+function toggleEditSketch(e){
+  e?.preventDefault();const s=editWorkspaceState;if(editWorkspaceLocked()||!s.sketch)return;
+  if(s.sketch.editing){s.sketch.editing=false;renderEditWorkspace();scheduleEditWorkspaceSave();return;}
+  const readyImages=s.chain.filter(node=>node.status==='ready'&&node.url);
+  if(readyImages.length>1){editWorkspaceToast('Select an image in the chain to draw on it.');return;}
+  syncEditSketchSource(s);s.sketch.editing=true;renderEditWorkspace();scheduleEditWorkspaceSave();
+}
 async function prepareEditSketchReference(){
   const s=editWorkspaceState,d=s.sketch,session=s.sessionId;
   const hasPhoto=!!d.referenceUrl;

@@ -9703,6 +9703,7 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-tab.active{padding-inline:17px}
 .edit-workspace-action{border-radius:24px;background:#242426e8;backdrop-filter:blur(18px)}
 .edit-workspace-action-row button:disabled{opacity:.4;cursor:default}
+.edit-sketch-chain-hint{display:inline-flex;align-items:center;min-height:31px;color:var(--edit-muted);font-size:11px}
 
 /* One infinite world fills the viewport, including the area behind every tool. */
 .edit-workspace-stage{overflow:hidden;touch-action:none;cursor:grab;outline:none}
