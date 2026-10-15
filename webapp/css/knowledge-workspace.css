@@ -141,10 +141,9 @@
    bottom at ~80% width. The history sidebar pushes the chat instead of
    covering it, so the chat stays usable while it is open. */
 .knowledge-workspace[data-mode="text"]{--qt-drawer-w:min(300px,60vw);width:auto;max-width:none;height:100vh;height:100dvh;min-height:0;margin:0;display:flex;flex-direction:column;padding-bottom:calc(12px + env(safe-area-inset-bottom));transition:padding-left .22s ease}
-.knowledge-workspace[data-mode="text"].qt-drawer-open{padding-left:calc(var(--qt-drawer-w) + 10px)}
 .knowledge-workspace[data-mode="text"] .text-page{flex:1;min-height:0;display:flex;flex-direction:column;width:min(1180px,100%);margin:0 auto;container-type:inline-size}
 .knowledge-workspace[data-mode="text"] .quick-text-chat{flex:1;min-height:0;max-height:none}
-.knowledge-workspace[data-mode="text"] .text-page .quick-generator{position:static;width:80%;margin:10px auto 0}
+.knowledge-workspace[data-mode="text"] .text-page .quick-generator{position:static;width:100%;margin:10px auto 0}
 .knowledge-workspace[data-mode="text"] .quick-generator-controls{display:flex;align-items:center;gap:8px}
 .qt-controls-gap{flex:1 1 auto;min-width:0}
 .qt-mic{flex:0 0 38px;width:38px;height:38px;display:grid;place-items:center;padding:0;border:1px solid rgba(255,255,255,.11);border-radius:50%;background:#292929;color:#e4e4e4;cursor:pointer}
@@ -213,3 +212,25 @@
 .qt-link{display:inline-flex;margin:8px 4px 0 0;padding:7px 12px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:#1d1d1d;color:#f2f2f2;font:600 13px/1.2 inherit;cursor:pointer}
 .qt-notice{position:fixed;z-index:70;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translate(-50%,10px);max-width:86vw;padding:10px 14px;border-radius:14px;background:rgba(30,30,30,.96);color:#f2f2f2;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
 .qt-notice.show{opacity:1;transform:translate(-50%,0)}
+/* Wide screens: narrower composer, sidebar beside the chat. Phones: full
+   width composer, sidebar over the chat (closed before typing again). */
+@media(min-width:701px){
+  .knowledge-workspace[data-mode="text"] .text-page .quick-generator{width:80%}
+  .knowledge-workspace[data-mode="text"].qt-drawer-open{padding-left:calc(var(--qt-drawer-w) + 10px)}
+  .qt-backdrop{display:none!important}
+}
+@media(max-width:700px){
+  .knowledge-workspace[data-mode="text"]{--qt-drawer-w:min(300px,84vw)}
+  .qt-drawer{box-shadow:12px 0 40px rgba(0,0,0,.45)}
+}
+.qt-backdrop{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.5)}
+.qt-backdrop[hidden]{display:none}
+/* Message rows: the bubble plus a quiet action line under it. */
+.qt-row{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.qt-row.user{align-items:flex-end}
+.qt-actions{display:flex;align-items:center;gap:2px;min-height:26px;padding:0 2px;color:#8a8a8a}
+.qt-act{width:26px;height:26px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer}
+@media(hover:hover){.qt-act:hover{color:#e6e6e6;background:rgba(255,255,255,.06)}}
+.qt-act:disabled{opacity:.4;cursor:default}
+.qt-act svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.qt-time{margin-left:4px;font-size:11px;font-variant-numeric:tabular-nums;color:#7a7a7a}

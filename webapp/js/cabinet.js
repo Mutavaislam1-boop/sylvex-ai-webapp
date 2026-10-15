@@ -17957,7 +17957,7 @@ function renderGeneratedTelegramButton(url, kind) {
       quickText.messages = (data.messages || [])
         .map((m) => {
           const images = m.role === 'assistant' ? [] : (Array.isArray(m.images) ? m.images.filter((url) => typeof url === 'string') : []);
-          return { role: m.role === 'assistant' ? 'ai' : 'user', text: String(m.role === 'assistant' ? (m.response_text || '') : (m.prompt || '')), images };
+          return { role: m.role === 'assistant' ? 'ai' : 'user', text: String(m.role === 'assistant' ? (m.response_text || '') : (m.prompt || '')), images, at: String(m.created_at || '') };
         })
         .filter((m) => m.text || m.images.length);
       quickTextSave();
@@ -17988,6 +17988,77 @@ function renderGeneratedTelegramButton(url, kind) {
     quickTextPush();
   }
 
+  // One Text request in the current conversation; resolves to the reply.
+  async function quickTextRequest(prompt, attachment, history, model) {
+    const response = await fetch('/api/public/prostudio/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      cache: 'no-store',
+      body: JSON.stringify({
+        telegram_id: getTelegramId(),
+        prompt,
+        mode: 'text',
+        category: 'text',
+        model,
+        provider: providerHintForModel(model),
+        text_options: { tool: 'text', style: 'neutral', format: 'markdown', language: 'auto', sylvex_links: true },
+        history,
+        attachment,
+        conversation_id: quickText.conversationId,
+        client_request_id: 'quick-text-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
+        language: uiLang(),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 403 && data && data.subscription_required) throw new Error('Текстовый чат доступен после активации подписки.');
+    if (response.status === 402 && data && data.paywall) throw new Error(data.error || 'Недостаточно токенов');
+    if (!response.ok || !data.ok || !data.text) throw new Error(translateGenerationError(data, 'Не удалось получить ответ. Попробуйте ещё раз.'));
+    if (data.conversation_id) quickText.conversationId = data.conversation_id;
+    return { role: 'ai', text: String(data.text), at: new Date().toISOString() };
+  }
+
+  function quickTextErrorReply(error) {
+    return { role: 'ai', text: (error && error.message) || 'Не удалось получить ответ. Попробуйте ещё раз.', error: true, at: new Date().toISOString() };
+  }
+
+  function quickTextHistoryBefore(index) {
+    return quickText.messages.slice(0, Math.max(0, index))
+      .filter((m) => m.text && !m.loading && !m.error)
+      .slice(-10)
+      .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
+  }
+
+  // Regenerate: ask again with the user message the reply answered (and its
+  // image), replacing that reply in place.
+  async function quickTextRegenerate(index) {
+    quickTextEnsureLoaded();
+    const target = quickText.messages[index];
+    if (!target || target.role !== 'ai' || target.loading || quickText.busy) return;
+    if (guestNeedsAccount()) return;
+    let userIndex = index - 1;
+    while (userIndex >= 0 && quickText.messages[userIndex].role !== 'user') userIndex -= 1;
+    const user = quickText.messages[userIndex];
+    if (!user) return;
+    const image = (user.images || []).find((url) => /^(https?:)?\/\//i.test(url) || /^\/(?!\/)/.test(url));
+    const attachment = image ? { kind: 'image', mime: /\.jpe?g(\?|$)/i.test(image) ? 'image/jpeg' : (/\.webp(\?|$)/i.test(image) ? 'image/webp' : 'image/png'), name: 'image', url: image } : null;
+    const pending = { role: 'ai', text: '', loading: true };
+    quickText.messages[index] = pending;
+    quickText.busy = true;
+    quickTextPush();
+    let reply;
+    try {
+      reply = await quickTextRequest(user.text || '', attachment, quickTextHistoryBefore(userIndex), quickTextModelId());
+    } catch (error) {
+      reply = quickTextErrorReply(error);
+    }
+    const at = quickText.messages.indexOf(pending);
+    if (at >= 0) quickText.messages[at] = reply;
+    quickText.busy = false;
+    quickTextSave();
+    quickTextPush();
+    quickTextLoadConversations();
+  }
+
   async function quickTextSend(request) {
     quickTextEnsureLoaded();
     const prompt = String((request && request.prompt) || '').trim();
@@ -18002,7 +18073,7 @@ function renderGeneratedTelegramButton(url, kind) {
       .slice(-10)
       .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
     const preview = String((request && request.preview) || '');
-    const userMessage = { role: 'user', text: prompt, images: [] };
+    const userMessage = { role: 'user', text: prompt, images: [], at: new Date().toISOString() };
     if (attachment && attachment.url) userMessage.images = [attachment.url];
     else if (attachment && attachment.dataBase64) userMessage.images = ['data:' + (attachment.mime || 'image/png') + ';base64,' + attachment.dataBase64];
     else if (file && /^data:image\//.test(preview)) userMessage.images = [preview];
@@ -18027,33 +18098,9 @@ function renderGeneratedTelegramButton(url, kind) {
         attachment = { kind: 'image', mime: blob.type || (attachment && attachment.mime) || 'image/png', name, url: String(uploaded.url) };
         userMessage.images = [attachment.url];
       }
-      const response = await fetch('/api/public/prostudio/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-        cache: 'no-store',
-        body: JSON.stringify({
-          telegram_id: getTelegramId(),
-          prompt,
-          mode: 'text',
-          category: 'text',
-          model,
-          provider: providerHintForModel(model),
-          text_options: { tool: 'text', style: 'neutral', format: 'markdown', language: 'auto', sylvex_links: true },
-          history,
-          attachment,
-          conversation_id: quickText.conversationId,
-          client_request_id: 'quick-text-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
-          language: uiLang(),
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (response.status === 403 && data && data.subscription_required) throw new Error('Текстовый чат доступен после активации подписки.');
-      if (response.status === 402 && data && data.paywall) throw new Error(data.error || 'Недостаточно токенов');
-      if (!response.ok || !data.ok || !data.text) throw new Error(translateGenerationError(data, 'Не удалось получить ответ. Попробуйте ещё раз.'));
-      if (data.conversation_id) quickText.conversationId = data.conversation_id;
-      reply = { role: 'ai', text: String(data.text) };
+      reply = await quickTextRequest(prompt, attachment, history, model);
     } catch (error) {
-      reply = { role: 'ai', text: (error && error.message) || 'Не удалось получить ответ. Попробуйте ещё раз.', error: true };
+      reply = quickTextErrorReply(error);
     }
     const index = quickText.messages.indexOf(pending);
     if (index >= 0) quickText.messages[index] = reply;
@@ -18124,6 +18171,7 @@ function renderGeneratedTelegramButton(url, kind) {
       return;
     }
     if (message.action === 'quick-text-transcribe') { quickTextTranscribe(message.audio); return; }
+    if (message.action === 'quick-text-regenerate') { quickTextRegenerate(Number(message.index)); return; }
     if (message.action === 'quick-text-new') { quickTextNew(); return; }
     if (message.action === 'quick-text-open') { quickTextOpen(String(message.id || '')); return; }
     if (message.action === 'quick-text-delete') { quickTextDelete(String(message.id || '')); return; }
