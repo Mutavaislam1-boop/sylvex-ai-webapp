@@ -106,7 +106,9 @@ TELEGRAM_BLOCKED_PURCHASE_ROUTES = frozenset({
 #   middleware (it's a protected route), so without this exemption its
 #   already-real uid would be quota-checked twice: once here, once again by
 #   the handler - double-decrementing a subscriber's quota per request.
-ASSISTANT_SELF_QUOTA_ROUTES = frozenset({'/api/web/assistant/message', '/api/web/assistant/realtime/session'})
+# /api/public/prostudio/realtime/session checks its quota itself, after the
+# subscription check, for the same double-count reason.
+ASSISTANT_SELF_QUOTA_ROUTES = frozenset({'/api/web/assistant/message', '/api/web/assistant/realtime/session', '/api/public/prostudio/realtime/session'})
 # application/sdp bodies (WebRTC offer/answer exchange) must be replayed to
 # the route byte-for-byte, never parsed as JSON - see the `sdp` flag below.
 SDP_ROUTES = frozenset({'/api/public/home-idea/realtime', '/api/web/assistant/realtime/session'})

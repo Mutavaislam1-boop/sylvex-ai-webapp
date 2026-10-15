@@ -5190,7 +5190,7 @@ function localizedGreeting() {
     if (!chatSpaces[type]) return;
     chatSpaces[type].activeChatId = currentConvId || null;
     chatSpaces[type].conversationId = currentConvId || null;
-    chatSpaces[type].messages = (chatMessages || []).slice();
+    chatSpaces[type].messages = (chatMessages || []).filter((item) => !(item && item.voicePending));
     try {
       localStorage.setItem(chatStorageKey(type), JSON.stringify(chatSpaces[type]));
       localStorage.setItem(lastModeStorageKey(), type);
@@ -17368,7 +17368,10 @@ function renderGeneratedTelegramButton(url, kind) {
       const next = chatMessages[i + 1];
       const resultRefs = m.role === 'user' && next && next.imageResultMini ? requestImageDisplayReferences(next.metadata) : [];
       if (resultRefs.length) inner += renderReferenceRequest(resultRefs, requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''));
-      else if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
+      else if (m.text) {
+        const textHtml = S.escapeHtml(m.text).replace(/\n/g, '<br>');
+        inner += m.role === 'ai' ? renderSylvexChatLinks(textHtml) : textHtml;
+      }
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
       if (!resultRefs.length && m.referenceImages && m.referenceImages.length) {
         inner += '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
@@ -17801,6 +17804,8 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   function openKnowledgeWorkspace(section) {
+    // Quick Access -> Text is the full persistent Text chat itself.
+    if (section === 'text') { openTextChat(); return; }
     const modal = document.getElementById('knowledgeWorkspaceModal');
     const frame = document.getElementById('knowledgeWorkspaceFrame');
     if (!modal || !frame) return;
@@ -21350,6 +21355,8 @@ function maybeShowVideoTemplateIntro(force) {
 
   function updateComposerMode(kind) {
     const requestedMode = chatTypeForMode(kind);
+    // Live voice belongs to the Text conversation: leaving Text ends it.
+    if (requestedMode !== 'text' && typeof liveVoiceActive === 'function' && liveVoiceActive()) stopLiveVoice();
     if (requestedMode !== currentChatType()) stopTextListen(false);
     if (activeGenerationLocked() && !activeGeneration.restoringMode && activeGeneration.mode && requestedMode !== activeGeneration.mode) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
@@ -21836,7 +21843,10 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
     : null;
   const musicOptions = isMusicMode() ? musicOptionsPayload() : null;
-  const textOptions = studioMode === 'text' ? textOptionsPayload() : null;
+  // Only the Text chat itself may offer internal SYLVEX links.
+  const textOptions = studioMode === 'text'
+    ? Object.assign(textOptionsPayload(), generationOptions && generationOptions.textDirect ? { sylvex_links: true } : {})
+    : null;
   const audioUploadsOverride = generationOptions && Array.isArray(generationOptions.audioUploads)
     ? generationOptions.audioUploads.slice()
     : null;
@@ -23405,6 +23415,7 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function newChat() {
     stopTextListen(false);
+    if (liveVoiceActive()) stopLiveVoice();
     const type = currentChatType();
     currentConvId = null;
     chatMessages = [];
@@ -23488,6 +23499,7 @@ async function waitGeneration(jobId, options) {
   async function openConv(id, type, opts) {
     const tg = getTelegramId(); if (!tg) return;
     if (!id) return;
+    if (id !== currentConvId && liveVoiceActive()) stopLiveVoice();
     stopTextListen(false);
     let openKey = '';
     try {
@@ -25145,14 +25157,482 @@ async function waitGeneration(jobId, options) {
   }
 
   const AI_ASSISTANT_WELCOME = 'Здравствуйте! Я SYLVEX Ассистент. Напишите, что вы хотите сделать, и я помогу.';
-  const homeIdeaMessages=[];let homeIdeaAttachment=null,homeIdeaRoute=null,homeIdeaPeer=null,homeIdeaStream=null,homeIdeaAudio=null;
+  const homeIdeaMessages=[];let homeIdeaAttachment=null,homeIdeaRoute=null;
   function renderHomeIdeaChat(){const host=document.getElementById('homeIdeaChat');if(!host)return;host.innerHTML=(homeIdeaMessages.length?homeIdeaMessages:[{role:'ai',text:'Опишите свою идею — я уточню детали и подготовлю запрос для нужного генератора.'}]).map(item=>`<p class="${item.role==='user'?'user':'ai'}">${S.escapeHtml(item.text)}</p>`).join('');host.scrollTop=host.scrollHeight}
   function renderHomeIdeaAttachment(){const host=document.getElementById('homeIdeaAttachment');if(!host)return;host.hidden=!homeIdeaAttachment;host.innerHTML=homeIdeaAttachment?`<img src="${S.escapeHtml(homeIdeaAttachment.url)}" alt=""><button type="button" data-home-idea-remove>×</button>`:''}
-  async function sendHomeIdea(text,showUser=true){const input=document.getElementById('homeIdeaInput'),form=document.getElementById('homeIdeaForm'),submit=form?.querySelector('.send'),go=document.getElementById('homeIdeaGo'),message=String(text||input?.value||'').trim();if(!message&&!homeIdeaAttachment)return;if(form?.classList.contains('loading'))return;if(showUser&&message)homeIdeaMessages.push({role:'user',text:message});if(input)input.value='';if(submit)submit.hidden=true;homeIdeaMessages.push({role:'ai',text:'Думаю…',loading:true});renderHomeIdeaChat();form?.classList.add('loading');if(go)go.hidden=true;try{const response=await fetch('/api/public/home-idea/route',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({message,history:homeIdeaMessages.filter(item=>!item.loading).slice(-12).map(item=>({role:item.role==='ai'?'assistant':'user',content:item.text})),attachment:homeIdeaAttachment?{kind:'image',mime:homeIdeaAttachment.mime,name:homeIdeaAttachment.name,dataBase64:homeIdeaAttachment.dataBase64}:null})}),data=await response.json().catch(()=>({}));if(!response.ok||!data.ok)throw new Error(data.message||'SYLVEX временно недоступен');homeIdeaMessages[homeIdeaMessages.length-1]={role:'ai',text:data.reply||'Готово.'};homeIdeaRoute=data.ready?data:null;if(input&&!homeIdeaRoute)input.placeholder=data.reply||'Уточните идею…';if(go){go.hidden=!homeIdeaRoute;go.textContent=homeIdeaRoute?`Перейти: ${homeIdeaRoute.mode} →`:'Перейти к созданию →'}if(homeIdeaRoute)setTimeout(applyHomeIdeaRoute,220)}catch(error){homeIdeaMessages[homeIdeaMessages.length-1]={role:'ai',text:error.message||'Не удалось обработать идею'};if(input)input.placeholder=error.message||'Попробуйте ещё раз…'}finally{form?.classList.remove('loading');renderHomeIdeaChat()}}
-  function applyHomeIdeaRoute(){const route=homeIdeaRoute;if(!route)return;stopHomeIdeaVoice();if(route.mode==='grid'){switchView('tools');setStudioLayout('grid');setTimeout(()=>{const state=loadStudioGridState(),task=state.nodes.find(node=>node.type==='task');if(task){task.prompt=route.prompt;task.status='IDLE';saveStudioGridState();renderStudioGrid()}},80);return}switchView('tools');updateComposerMode(route.mode);if(route.mode==='image'&&route.model)imageState.modelId=route.model;else if(route.mode==='video'&&route.model)videoState.modelId=route.model;else if(route.mode==='music'&&route.model)musicState.modelId=route.model;else if(route.mode==='voice'&&route.model)voiceState.modelId=route.model;else if(route.mode==='text'&&route.model)textState.modelId=route.model;if(homeIdeaAttachment)setCurrentModeAttachment({kind:'image',mime:homeIdeaAttachment.mime,name:homeIdeaAttachment.name,dataBase64:homeIdeaAttachment.dataBase64,url:homeIdeaAttachment.url});setTimeout(()=>{const input=document.getElementById('chatInput');if(input){input.value=route.prompt||'';input.dispatchEvent(new Event('input',{bubbles:true}));autoGrow(input);input.focus()}updateSendButton()},100)}
-  function stopHomeIdeaVoice(){homeIdeaPeer?.close();homeIdeaStream?.getTracks().forEach(track=>track.stop());if(homeIdeaAudio)homeIdeaAudio.srcObject=null;homeIdeaPeer=null;homeIdeaStream=null;document.getElementById('homeIdeaVoice')?.classList.remove('live')}
-  async function toggleHomeIdeaVoice(){if(homeIdeaPeer){stopHomeIdeaVoice();return}const button=document.getElementById('homeIdeaVoice');try{homeIdeaStream=await navigator.mediaDevices.getUserMedia({audio:true});const pc=new RTCPeerConnection();homeIdeaPeer=pc;homeIdeaAudio=document.createElement('audio');homeIdeaAudio.autoplay=true;pc.ontrack=event=>{homeIdeaAudio.srcObject=event.streams[0]};homeIdeaStream.getTracks().forEach(track=>pc.addTrack(track,homeIdeaStream));const channel=pc.createDataChannel('oai-events');channel.addEventListener('message',event=>{let data;try{data=JSON.parse(event.data)}catch(_){return}if(data.type==='conversation.item.input_audio_transcription.completed'&&data.transcript){homeIdeaMessages.push({role:'user',text:data.transcript});renderHomeIdeaChat();sendHomeIdea(data.transcript,false)}});const offer=await pc.createOffer();await pc.setLocalDescription(offer);const response=await fetch('/api/public/home-idea/realtime?telegram_id='+encodeURIComponent(getTelegramId()||0),{method:'POST',headers:{'Content-Type':'application/sdp'},body:offer.sdp});if(!response.ok)throw new Error('Голосовой режим временно недоступен');await pc.setRemoteDescription({type:'answer',sdp:await response.text()});button?.classList.add('live')}catch(error){stopHomeIdeaVoice();toast(error.message||'Не удалось включить микрофон')}}
-  function initHomeIdeaAi(){const form=document.getElementById('homeIdeaForm'),ideaInput=document.getElementById('homeIdeaInput'),submit=form?.querySelector('.send'),fileButton=document.getElementById('homeIdeaFile'),fileInput=document.getElementById('homeIdeaFileInput'),attachment=document.getElementById('homeIdeaAttachment');if(!form)return;ideaInput?.addEventListener('input',()=>{if(submit)submit.hidden=!String(ideaInput.value||'').trim()});form.addEventListener('submit',event=>{event.preventDefault();sendHomeIdea()});fileButton?.addEventListener('click',()=>fileInput?.click());fileInput?.addEventListener('change',()=>{const file=fileInput.files?.[0];if(!file)return;if(file.size>8*1024*1024){toast('Фото должно быть меньше 8 МБ');return}const reader=new FileReader();reader.onload=()=>{const url=String(reader.result||''),dataBase64=url.split(',')[1]||'';homeIdeaAttachment={name:file.name,mime:file.type||'image/jpeg',url,dataBase64};renderHomeIdeaAttachment()};reader.readAsDataURL(file)});attachment?.addEventListener('click',event=>{if(event.target.closest('[data-home-idea-remove]')){homeIdeaAttachment=null;if(fileInput)fileInput.value='';renderHomeIdeaAttachment()}});document.getElementById('homeIdeaVoice')?.addEventListener('click',toggleHomeIdeaVoice);renderHomeIdeaChat()}
+  // Home input = universal router. A clear request is routed locally (free);
+  // anything ambiguous asks the server router. Unclear or failed routing
+  // always lands in the full Text chat. The original prompt is passed on
+  // unchanged and media generators are only prefilled, never launched.
+  const HOME_ROUTE_TOOL_PATTERNS = [
+    ['remove_bg', /(удал|убер|сотр)\S*\s+(\S+\s+)?фон|remove\s+(the\s+)?background|background\s+remov/i],
+    ['try_on', /примерк|примерь|try[\s‑-]?on/i],
+    ['tattoo', /тату|tattoo/i],
+    ['animate_photo', /ожив\S*\s+(\S+\s+)?фото|animate\s+(this\s+|my\s+|the\s+)?(photo|picture|image)/i],
+    ['replace_character', /замен\S*\s+(\S+\s+)?персонаж|replace\s+(the\s+)?character/i],
+    ['enhance', /улучш\S*\s+(\S+\s+)?(фото|качеств)|upscale|enhance\s+(the\s+|my\s+)?(photo|image)/i],
+  ];
+  const HOME_ROUTE_CREATE = /(созда|сгенер|генерир|сдела|нарису|рисова|сними|снять|напиши\s+(мне\s+)?(песн|трек|музык)|сочини|озвуч|начитай|прочитай\s+вслух|оживи|анимиру|\bgenerate|\bcreate|\bmake\b|\bdraw|\brender|\bcompose|\bpaint|\bdesign|\bvoice\s*over|\bnarrate|\bread\s+aloud|\banimate)/i;
+  const HOME_ROUTE_MEDIA = [
+    ['video', /(видео|ролик|клип|анимаци|мультик|\bvideo|\bclip\b|\bfootage|\banimation)/i],
+    ['music', /(музык|песн|трек|(?:^|[\s,.;!?])бит(?=[\s,.;!?]|$)|мелоди|саундтрек|инструментал|\bmusic|\bsong|\btrack\b|\bbeat\b|melody|soundtrack|instrumental)/i],
+    ['voice', /(озвуч|начитай|прочитай\s+вслух|голосом|синтез\s+речи|\btts\b|text[\s-]to[\s-]speech|voice\s*over|narrat|read\s+aloud)/i],
+    ['image', /(картин|изображен|фото|рисун|нарису|логотип|лого(?=[\s,.;!?]|$)|постер|плакат|обложк|иллюстрац|аватар|обои|баннер|(?:^|[\s,.;!?])арт(?=[\s,.;!?]|$)|\bimage|\bpicture|\bphoto|\bdraw|\blogo\b|poster|illustration|wallpaper|banner|avatar|artwork)/i],
+  ];
+  const HOME_ROUTE_QUESTION = /^\s*(как|что|почему|зачем|когда|где|кто|какой|какая|какие|сколько|объясни|расскажи|помоги\s+понять|можно\s+ли|how|what|why|when|where|who|which|explain|tell\s+me|can\s+you\s+explain|is\s+it|are\s+there)(?=[\s,.:;!?]|$)/i;
+
+  function homeRouteModelCatalog() {
+    const ids = (list) => (Array.isArray(list) ? list : []).map((item) => item && item.id).filter(Boolean);
+    return {
+      image: ids(IMAGE_MODEL_LIST),
+      video: ids(typeof VIDEO_MODELS !== 'undefined' ? VIDEO_MODELS : []),
+      music: ids(MUSIC_MODEL_LIST),
+      voice: ids(VOICE_MODEL_LIST),
+      text: ids(TEXT_MODEL_LIST),
+    };
+  }
+
+  function homeRouteToolIds() {
+    return ['edit_workspace'].concat(Object.keys(PHOTO_TOOL_CONFIG || {}));
+  }
+
+  // An explicitly named model ("in Kling", "ask GPT-5.6", "Suno") wins.
+  function homeRouteNamedModel(message) {
+    const text = ' ' + String(message || '').toLowerCase().replace(/\s+/g, ' ') + ' ';
+    const candidates = [];
+    const add = (mode, id, label) => {
+      const name = String(label || '').toLowerCase().trim();
+      if (name.length >= 4) candidates.push({ mode, model: id, name });
+    };
+    [['image', IMAGE_MODEL_LIST], ['video', typeof VIDEO_MODELS !== 'undefined' ? VIDEO_MODELS : []], ['music', MUSIC_MODEL_LIST], ['voice', VOICE_MODEL_LIST], ['text', TEXT_MODEL_LIST]]
+      .forEach(([mode, list]) => (list || []).forEach((item) => item && add(mode, item.id, item.label)));
+    Object.values(BRAND_GENERATORS).forEach((item) => add(item.mode, item.model, item.label));
+    const known = homeRouteModelCatalog();
+    const match = candidates
+      .filter((item) => (known[item.mode] || []).includes(item.model) && text.includes(item.name))
+      .sort((a, b) => b.name.length - a.name.length)[0];
+    return match ? { mode: match.mode, model: match.model } : null;
+  }
+
+  // { mode, model, tool, confident }: confident = no server call needed.
+  function localHomeRoute(message, hasAttachment) {
+    const text = String(message || '');
+    const named = homeRouteNamedModel(text);
+    if (named) return Object.assign({ tool: '', confident: true }, named);
+    const toolIds = homeRouteToolIds();
+    const tool = HOME_ROUTE_TOOL_PATTERNS.find(([id, pattern]) => toolIds.includes(id) && pattern.test(text));
+    if (tool) return { mode: 'tool', model: '', tool: tool[0], confident: true };
+    const media = HOME_ROUTE_MEDIA.find(([, pattern]) => pattern.test(text));
+    const creates = HOME_ROUTE_CREATE.test(text);
+    if (media && creates) return { mode: media[0], model: '', tool: '', confident: true };
+    if (/нарису|\bdraw\b/i.test(text)) return { mode: 'image', model: '', tool: '', confident: true };
+    if (!media && !creates && !hasAttachment) return { mode: 'text', model: '', tool: '', confident: true };
+    if (HOME_ROUTE_QUESTION.test(text) && !creates) return { mode: 'text', model: '', tool: '', confident: true };
+    return { mode: 'text', model: '', tool: '', confident: false };
+  }
+
+  async function serverHomeRoute(message) {
+    const response = await fetch('/api/public/home-idea/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      cache: 'no-store',
+      body: JSON.stringify({
+        message,
+        telegram_id: getTelegramId() || 0,
+        client_request_id: 'home-route-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+        models: homeRouteModelCatalog(),
+        tools: homeRouteToolIds(),
+        attachment: homeIdeaAttachment ? { kind: 'image', mime: homeIdeaAttachment.mime, name: homeIdeaAttachment.name } : null,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.message || 'route_failed');
+    return data;
+  }
+
+  async function sendHomeIdea(text) {
+    const input = document.getElementById('homeIdeaInput');
+    const form = document.getElementById('homeIdeaForm');
+    const submit = form?.querySelector('.send');
+    const message = String(text || input?.value || '').trim();
+    if (!message && !homeIdeaAttachment) return;
+    if (form?.classList.contains('loading')) return;
+    let route = localHomeRoute(message, !!homeIdeaAttachment);
+    if (!route.confident) {
+      form?.classList.add('loading');
+      try {
+        route = await serverHomeRoute(message);
+      } catch (_) {
+        route = { mode: 'text', model: '', tool: '' };
+      } finally {
+        form?.classList.remove('loading');
+      }
+    }
+    homeIdeaRoute = Object.assign({}, route, { prompt: message });
+    if (input) { input.value = ''; input.placeholder = 'Опиши свою идею…'; }
+    if (submit) submit.hidden = true;
+    applyHomeIdeaRoute();
+  }
+
+  function applyHomeIdeaRoute() {
+    const route = homeIdeaRoute;
+    if (!route) return;
+    homeIdeaRoute = null;
+    const attachment = homeIdeaAttachment
+      ? { kind: 'image', mime: homeIdeaAttachment.mime, name: homeIdeaAttachment.name, dataBase64: homeIdeaAttachment.dataBase64, url: homeIdeaAttachment.url }
+      : null;
+    homeIdeaAttachment = null;
+    const fileInput = document.getElementById('homeIdeaFileInput');
+    if (fileInput) fileInput.value = '';
+    renderHomeIdeaAttachment();
+    if (route.mode === 'grid') {
+      switchView('tools');
+      setStudioLayout('grid');
+      setTimeout(() => {
+        const state = loadStudioGridState(), task = state.nodes.find((node) => node.type === 'task');
+        if (task) { task.prompt = route.prompt; task.status = 'IDLE'; saveStudioGridState(); renderStudioGrid(); }
+      }, 80);
+      return;
+    }
+    if (route.mode === 'tool' && route.tool) {
+      switchView('tools');
+      openPhotoToolModal(null, route.tool);
+      return;
+    }
+    if (route.mode === 'text' || !CHAT_SPACE_TYPES.includes(route.mode)) {
+      openTextChat({ prompt: route.prompt, attachment, model: route.model, send: true });
+      return;
+    }
+    openStudioDestination(route.mode, route.prompt, { model: route.model, attachment });
+  }
+
+  // Opens a generator with the prompt prefilled. Never starts a generation.
+  function openStudioDestination(mode, prompt, opts) {
+    const options = opts || {};
+    if (options.model) {
+      if (mode === 'image') imageState.modelId = options.model;
+      else if (mode === 'video') videoState.modelId = options.model;
+      else if (mode === 'music') musicState.modelId = options.model;
+      else if (mode === 'voice') voiceState.modelId = options.model;
+    }
+    switchView('tools');
+    if (document.querySelector('[data-view="tools"] .studio.grid-mode')) setStudioLayout('classic');
+    updateComposerMode(mode);
+    if (options.model) renderModelPop();
+    if (options.attachment) setCurrentModeAttachment(options.attachment);
+    setTimeout(() => {
+      const input = document.getElementById('chatInput');
+      if (input) {
+        input.value = prompt || '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        autoGrow(input);
+        if (!(S.isBrowserApp && S.isBrowserApp())) input.focus();
+      }
+      updateSendButton();
+    }, 100);
+  }
+
+  // Full Text chat: the persistent Pro Studio text conversation (the same
+  // chat spaces and server history as Pro Studio). send=true posts the
+  // prompt as the next message of the current conversation.
+  function openTextChat(opts) {
+    const options = opts || {};
+    if (options.model) textState.modelId = options.model;
+    switchView('tools');
+    if (document.querySelector('[data-view="tools"] .studio.grid-mode')) setStudioLayout('classic');
+    if (studioMode !== 'text') updateComposerMode('text');
+    else if (options.model) renderTextControls();
+    if (options.model) renderModelPop();
+    if (options.attachment) setCurrentModeAttachment(options.attachment);
+    const prompt = String(options.prompt || '');
+    if (!prompt && !options.attachment) return;
+    setTimeout(() => {
+      const input = document.getElementById('chatInput');
+      if (input) {
+        input.value = prompt;
+        autoGrow(input);
+      }
+      updateSendButton();
+      if (options.send && studioMode === 'text') sendTextChat();
+    }, 120);
+  }
+
+  // Internal links offered by the Text chat ([Open Video Studio](sylvex://open/video)).
+  // The user decides: the link opens the studio with the request prefilled.
+  function renderSylvexChatLinks(html) {
+    return String(html || '').replace(/\[([^\]\n<]{1,80})\]\(sylvex:\/\/open\/(image|video|music|voice)\)/g,
+      (_, label, mode) => '<button type="button" class="sylvex-chat-link" data-sylvex-open="' + mode + '">' + label + ' →</button>');
+  }
+
+  function openSylvexChatLink(button) {
+    const mode = String(button.dataset.sylvexOpen || '');
+    if (!['image', 'video', 'music', 'voice'].includes(mode)) return;
+    const row = button.closest('.msg[data-i]');
+    const index = row ? Number(row.dataset.i) : chatMessages.length;
+    let prompt = '';
+    for (let i = Math.min(index, chatMessages.length) - 1; i >= 0; i--) {
+      const item = chatMessages[i];
+      if (item && item.role === 'user' && item.text) { prompt = String(item.text); break; }
+    }
+    if (liveVoice.pc) stopLiveVoice();
+    rememberCurrentChatSpace();
+    openStudioDestination(mode, prompt);
+  }
+
+  document.addEventListener('click', (event) => {
+    const button = event.target && event.target.closest ? event.target.closest('[data-sylvex-open]') : null;
+    if (!button) return;
+    event.preventDefault();
+    openSylvexChatLink(button);
+  });
+
+  // Realtime voice: another way to continue the current Text conversation.
+  // WebRTC to the OpenAI Realtime API through the server (the key never
+  // reaches the client). Server VAD with interrupt_response gives barge-in.
+  // Transcripts are added to the same chat and saved to the same history.
+  const liveVoice = { pc:null, stream:null, audio:null, channel:null, starting:false, items:new Map(), responses:new Map(), lastUserItem:'', persist:Promise.resolve(), renderQueued:false };
+
+  function liveVoiceSetStatus(text) {
+    const bar = document.getElementById('liveVoiceBar');
+    const status = document.getElementById('liveVoiceStatus');
+    if (status) status.textContent = text;
+    if (bar) bar.hidden = !liveVoice.pc && !liveVoice.starting;
+    const on = !!(liveVoice.pc || liveVoice.starting);
+    document.getElementById('textLiveBtn')?.classList.toggle('live', on);
+    document.getElementById('homeIdeaVoice')?.classList.toggle('live', on);
+    document.querySelector('[data-view="tools"] .studio')?.classList.toggle('live-voice-on', on);
+  }
+
+  function liveVoiceRender() {
+    if (liveVoice.renderQueued) return;
+    liveVoice.renderQueued = true;
+    requestAnimationFrame(() => {
+      liveVoice.renderQueued = false;
+      if (studioMode === 'text') renderChat();
+    });
+  }
+
+  function liveVoiceContext() {
+    return (chatMessages || [])
+      .filter((item) => item && (item.role === 'user' || item.role === 'ai') && item.text && !item.textLoading && !item.generationLoading && !item.voicePending)
+      .slice(-12)
+      .map((item) => ({ role: item.role === 'ai' ? 'assistant' : 'user', text: String(item.text).slice(0, 1200) }));
+  }
+
+  function liveVoiceSaveTurn(userText, assistantText) {
+    if (!userText && !assistantText) return;
+    liveVoice.persist = liveVoice.persist.then(async () => {
+      try {
+        const space = chatSpaces.text || {};
+        const conversationId = studioMode === 'text' ? currentConvId : (space.activeChatId || space.conversationId || null);
+        const response = await fetch('/api/public/prostudio/conversations/voice-turn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegram_id: getTelegramId() || 0, conversation_id: conversationId || '', user_text: userText || '', assistant_text: assistantText || '' }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!data.ok || !data.conversation_id) return;
+        if (studioMode === 'text') {
+          currentConvId = data.conversation_id;
+          rememberCurrentChatSpace();
+        } else if (chatSpaces.text) {
+          chatSpaces.text.activeChatId = chatSpaces.text.conversationId = data.conversation_id;
+        }
+      } catch (_) {}
+    });
+  }
+
+  // Save finished exchanges in order; a reply waits for its user transcript.
+  function liveVoiceFlush(force) {
+    for (const response of liveVoice.responses.values()) {
+      if (response.saved) continue;
+      if (!response.done && !force) break;
+      const user = response.userItem ? liveVoice.items.get(response.userItem) : null;
+      if (user && !user.done && !force) break;
+      response.saved = true;
+      if (user) user.saved = true;
+      liveVoiceSaveTurn(user && user.done ? user.text : '', response.text);
+    }
+    if (force) {
+      for (const user of liveVoice.items.values()) {
+        if (!user.saved && user.done && user.text) { user.saved = true; liveVoiceSaveTurn(user.text, ''); }
+      }
+    }
+  }
+
+  function liveVoiceUserItem(itemId) {
+    let entry = liveVoice.items.get(itemId);
+    if (!entry) {
+      const message = { role: 'user', text: '…', voice: true, voicePending: true };
+      chatMessages.push(message);
+      entry = { message, text: '', done: false, saved: false };
+      liveVoice.items.set(itemId, entry);
+    }
+    return entry;
+  }
+
+  function liveVoiceResponse(responseId) {
+    let entry = liveVoice.responses.get(responseId);
+    if (!entry) {
+      entry = { message: null, text: '', userItem: liveVoice.lastUserItem, done: false, saved: false };
+      liveVoice.lastUserItem = '';
+      liveVoice.responses.set(responseId, entry);
+    }
+    return entry;
+  }
+
+  function liveVoiceRemoveMessage(message) {
+    const index = chatMessages.indexOf(message);
+    if (index >= 0) chatMessages.splice(index, 1);
+  }
+
+  function handleLiveVoiceEvent(event) {
+    let data;
+    try { data = JSON.parse(event.data); } catch (_) { return; }
+    const type = String(data.type || '');
+    if (type === 'input_audio_buffer.speech_started') {
+      liveVoiceSetStatus('Слушаю…');
+    } else if (type === 'input_audio_buffer.committed' && data.item_id) {
+      liveVoiceUserItem(data.item_id);
+      liveVoice.lastUserItem = data.item_id;
+      liveVoiceRender();
+    } else if (type === 'conversation.item.input_audio_transcription.completed' && data.item_id) {
+      const entry = liveVoiceUserItem(data.item_id);
+      entry.text = String(data.transcript || '').trim();
+      entry.done = true;
+      if (entry.text) { entry.message.text = entry.text; delete entry.message.voicePending; }
+      else liveVoiceRemoveMessage(entry.message);
+      liveVoiceRender();
+      rememberCurrentChatSpace();
+      liveVoiceFlush(false);
+    } else if (type === 'conversation.item.input_audio_transcription.failed' && data.item_id) {
+      const entry = liveVoiceUserItem(data.item_id);
+      entry.done = true;
+      entry.text = '';
+      liveVoiceRemoveMessage(entry.message);
+      liveVoiceRender();
+      liveVoiceFlush(false);
+    } else if (type === 'response.created' && data.response && data.response.id) {
+      liveVoiceResponse(data.response.id);
+      liveVoiceSetStatus('Отвечаю…');
+    } else if ((type === 'response.output_audio_transcript.delta' || type === 'response.audio_transcript.delta') && data.response_id) {
+      const entry = liveVoiceResponse(data.response_id);
+      entry.text += String(data.delta || '');
+      if (!entry.message) { entry.message = { role: 'ai', text: '', voice: true }; chatMessages.push(entry.message); }
+      entry.message.text = entry.text;
+      liveVoiceRender();
+    } else if ((type === 'response.output_audio_transcript.done' || type === 'response.audio_transcript.done') && data.response_id) {
+      const entry = liveVoiceResponse(data.response_id);
+      entry.text = String(data.transcript || entry.text || '').trim();
+      if (!entry.message && entry.text) { entry.message = { role: 'ai', text: '', voice: true }; chatMessages.push(entry.message); }
+      if (entry.message) entry.message.text = entry.text;
+      liveVoiceRender();
+    } else if (type === 'response.done' && data.response && data.response.id) {
+      const entry = liveVoiceResponse(data.response.id);
+      entry.done = true;
+      entry.text = String(entry.text || '').trim();
+      if (entry.message && !entry.text) liveVoiceRemoveMessage(entry.message);
+      liveVoiceRender();
+      rememberCurrentChatSpace();
+      liveVoiceFlush(false);
+      if (liveVoice.pc) liveVoiceSetStatus('Говорите — я слушаю');
+    } else if (type === 'error') {
+      console.warn('SYLVEX live voice error:', data.error || data);
+    }
+  }
+
+  async function startLiveVoice() {
+    if (liveVoice.pc || liveVoice.starting) return;
+    if (guestNeedsAccount()) return;
+    if (!getTelegramId()) { toast('Войдите в аккаунт, чтобы говорить с SYLVEX'); return; }
+    if (!navigator.mediaDevices || !window.RTCPeerConnection) { toast('Голосовой режим не поддерживается в этом браузере'); return; }
+    openTextChat();
+    stopTextListen(false);
+    // Voice replaces typing: close the keyboard so the transcript is visible.
+    hideMobileKeyboard();
+    liveVoice.starting = true;
+    liveVoiceSetStatus('Подключение…');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (!liveVoice.starting) { stream.getTracks().forEach((track) => track.stop()); return; }
+      liveVoice.stream = stream;
+      const pc = new RTCPeerConnection();
+      liveVoice.pc = pc;
+      liveVoice.audio = document.createElement('audio');
+      liveVoice.audio.autoplay = true;
+      liveVoice.audio.hidden = true;
+      document.body.appendChild(liveVoice.audio);
+      pc.ontrack = (event) => { if (liveVoice.audio) liveVoice.audio.srcObject = event.streams[0]; };
+      pc.onconnectionstatechange = () => {
+        if (['failed', 'closed'].includes(pc.connectionState) && liveVoice.pc === pc) {
+          stopLiveVoice();
+          toast('Голосовой режим отключён');
+        }
+      };
+      liveVoice.stream.getTracks().forEach((track) => pc.addTrack(track, liveVoice.stream));
+      liveVoice.channel = pc.createDataChannel('oai-events');
+      liveVoice.channel.addEventListener('message', handleLiveVoiceEvent);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      const response = await fetch('/api/public/prostudio/realtime/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: getTelegramId() || 0, sdp: offer.sdp, context: liveVoiceContext() }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        const error = new Error(data.message || 'Голосовой режим временно недоступен');
+        error.code = data.error || '';
+        throw error;
+      }
+      const answer = await response.text();
+      if (liveVoice.pc !== pc) return;
+      await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+      liveVoice.starting = false;
+      liveVoiceSetStatus('Говорите — я слушаю');
+      S.haptic.impact('light');
+    } catch (error) {
+      liveVoice.starting = false;
+      stopLiveVoice();
+      if (error && error.code === 'subscription_required') toast(error.message || 'Голосовой режим доступен с подпиской SYLVEX Pro');
+      else if (error && error.name === 'NotAllowedError') toast('Разрешите доступ к микрофону');
+      else toast((error && error.message) || 'Не удалось включить голосовой режим');
+    }
+  }
+
+  function stopLiveVoice() {
+    const wasActive = !!(liveVoice.pc || liveVoice.starting);
+    liveVoice.starting = false;
+    try { liveVoice.channel?.close(); } catch (_) {}
+    try { liveVoice.pc?.close(); } catch (_) {}
+    liveVoice.stream?.getTracks().forEach((track) => track.stop());
+    if (liveVoice.audio) { liveVoice.audio.srcObject = null; liveVoice.audio.remove(); }
+    liveVoice.pc = liveVoice.stream = liveVoice.audio = liveVoice.channel = null;
+    liveVoiceFlush(true);
+    // Drop placeholders for speech that was never transcribed.
+    for (const entry of liveVoice.items.values()) if (!entry.done) liveVoiceRemoveMessage(entry.message);
+    for (const entry of liveVoice.responses.values()) if (entry.message && !entry.text) liveVoiceRemoveMessage(entry.message);
+    liveVoice.items.clear();
+    liveVoice.responses.clear();
+    liveVoice.lastUserItem = '';
+    liveVoiceSetStatus('');
+    if (wasActive) {
+      if (studioMode === 'text') { renderChat(); rememberCurrentChatSpace(); }
+      liveVoice.persist.then(() => loadConversations());
+    }
+  }
+
+  // Safe before the liveVoice declaration above has run (early init calls).
+  function liveVoiceActive() {
+    try { return !!(liveVoice.pc || liveVoice.starting); } catch (_) { return false; }
+  }
+
+  function toggleLiveVoice(event) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    if (liveVoice.pc || liveVoice.starting) stopLiveVoice();
+    else startLiveVoice();
+  }
+  function initHomeIdeaAi(){const form=document.getElementById('homeIdeaForm'),ideaInput=document.getElementById('homeIdeaInput'),submit=form?.querySelector('.send'),fileButton=document.getElementById('homeIdeaFile'),fileInput=document.getElementById('homeIdeaFileInput'),attachment=document.getElementById('homeIdeaAttachment');if(!form)return;ideaInput?.addEventListener('input',()=>{if(submit)submit.hidden=!String(ideaInput.value||'').trim()});form.addEventListener('submit',event=>{event.preventDefault();sendHomeIdea()});fileButton?.addEventListener('click',()=>fileInput?.click());fileInput?.addEventListener('change',()=>{const file=fileInput.files?.[0];if(!file)return;if(file.size>8*1024*1024){toast('Фото должно быть меньше 8 МБ');return}const reader=new FileReader();reader.onload=()=>{const url=String(reader.result||''),dataBase64=url.split(',')[1]||'';homeIdeaAttachment={name:file.name,mime:file.type||'image/jpeg',url,dataBase64};renderHomeIdeaAttachment()};reader.readAsDataURL(file)});attachment?.addEventListener('click',event=>{if(event.target.closest('[data-home-idea-remove]')){homeIdeaAttachment=null;if(fileInput)fileInput.value='';renderHomeIdeaAttachment()}});document.getElementById('homeIdeaVoice')?.addEventListener('click',toggleLiveVoice);renderHomeIdeaChat()}
   const aiAssistantMessages = [{role:'ai',text:AI_ASSISTANT_WELCOME,welcome:true}];
   function renderAiAssistant() {
     const chat = document.getElementById('aiAssistantChat');
@@ -28146,6 +28626,7 @@ async function waitGeneration(jobId, options) {
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
+    toggleLiveVoice, stopLiveVoice, openTextChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, openBrowserBillingPortal, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, toggleNotifications, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
