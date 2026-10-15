@@ -4414,6 +4414,12 @@ def ensure_prostudio_table():
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (telegram_id, id))""")
             cursor.execute("""CREATE INDEX IF NOT EXISTS idx_edit_sessions_owner_updated
                 ON prostudio_edit_sessions (telegram_id, updated_at DESC)""")
+            # User-set conversation title and pin (History menu); messages
+            # themselves stay in prostudio_messages.
+            cursor.execute("""CREATE TABLE IF NOT EXISTS prostudio_conversation_meta (
+                telegram_id BIGINT NOT NULL, conversation_id TEXT NOT NULL,
+                title TEXT, pinned_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (telegram_id, conversation_id))""")
             cursor.execute("""
         CREATE TABLE IF NOT EXISTS prostudio_messages (
             id SERIAL PRIMARY KEY,
@@ -6880,12 +6886,31 @@ def attach_image_thumbnails(result: dict) -> dict:
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: save_prostudio_message
 # Записывает состояние пользователя, job, metadata или результат генерации в общую базу Mini App и Telegram Bot.
 # =====================================================
+def text_message_input_image(payload: dict) -> str:
+    """URL of the image a Text message was sent with, so the conversation
+    shows it again when reopened (inline base64 is never stored)."""
+    if (payload.get("mode") or "text") != "text":
+        return ""
+    attachment = payload.get("attachment")
+    if not isinstance(attachment, dict):
+        return ""
+    mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
+    url = str(attachment.get("url") or "").strip()
+    if mime.startswith("image/") and url.startswith(("https://", "http://", "/")) and len(url) <= 2000:
+        return url
+    return ""
+
+
 def save_prostudio_message(payload: dict, result: dict) -> str:
     conversation_id = payload.get("conversation_id") or str(uuid4())
     telegram_id = int(payload.get("telegram_id") or 0)
     if not DATABASE_URL or not telegram_id:
         return conversation_id
     metadata = _json_obj(result.get("metadata")) or build_prostudio_metadata(payload, result)
+    input_image = text_message_input_image(payload)
+    if input_image:
+        metadata = dict(metadata or {})
+        metadata["input_images"] = [input_image]
     print("PROSTUDIO MESSAGE SAVE DEBUG:", {
         "conversation_id": conversation_id,
         "telegram_id": telegram_id,
@@ -7147,12 +7172,16 @@ async def public_prostudio_conversations(
                     response_data = _json_obj(response_json)
                     if response_data.get("job_id") and not metadata.get("job_id"):
                         metadata["job_id"] = response_data.get("job_id")
-                if prompt:
-                    messages.append({
+                input_images = [url for url in _json_list(metadata.get("input_images")) if isinstance(url, str)] if metadata else []
+                if prompt or input_images:
+                    user_message = {
                         "role": "user",
-                        "prompt": prompt,
+                        "prompt": prompt or "",
                         "created_at": created_value,
-                    })
+                    }
+                    if input_images:
+                        user_message["images"] = input_images
+                    messages.append(user_message)
                 messages.append({
                     "role": "assistant",
                     "response_text": response_text or "",
@@ -7179,22 +7208,31 @@ async def public_prostudio_conversations(
         params = [telegram_id]
         if mode_where:
             params.append(mode_filter)
+        params.append(telegram_id)
         params.extend([min(limit, 80), offset])
+        # The Text tool lists pinned conversations first (newest pin on top).
+        pinned_order = "(m.pinned_at IS NULL), m.pinned_at DESC," if mode_filter == "text" else ""
         def _fetch_conversation_list():
             with db_connection(DATABASE_URL) as conn:
                 cursor = conn.cursor()
                 cursor.execute(f"""
-                    SELECT
-                        conversation_id,
-                        COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
-                        MAX(created_at) AS updated_at,
-                        COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
-                        MIN(created_at) AS created_at
-                    FROM prostudio_messages
-                    WHERE telegram_id = %s
-                      {mode_where}
-                    GROUP BY conversation_id
-                    ORDER BY updated_at DESC
+                    SELECT c.conversation_id, COALESCE(NULLIF(m.title, ''), c.title) AS title,
+                           c.updated_at, c.type, c.created_at, m.pinned_at
+                    FROM (
+                        SELECT
+                            conversation_id,
+                            COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
+                            MAX(created_at) AS updated_at,
+                            COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
+                            MIN(created_at) AS created_at
+                        FROM prostudio_messages
+                        WHERE telegram_id = %s
+                          {mode_where}
+                        GROUP BY conversation_id
+                    ) c
+                    LEFT JOIN prostudio_conversation_meta m
+                      ON m.telegram_id = %s AND m.conversation_id = c.conversation_id
+                    ORDER BY {pinned_order} c.updated_at DESC
                     LIMIT %s OFFSET %s
                 """, tuple(params))
                 rows = cursor.fetchall()
@@ -7210,6 +7248,7 @@ async def public_prostudio_conversations(
                     "updated_at": row[2],
                     "type": row[3] or "image",
                     "created_at": row[4],
+                    "pinned": bool(row[5]),
                 }
                 for row in rows
             ],
@@ -7217,6 +7256,55 @@ async def public_prostudio_conversations(
     except Exception as exc:
         print("PROSTUDIO CONVERSATIONS FAILED:", exc)
         return {"ok": True, "conversations": [], "messages": []}
+
+@app.post("/api/public/prostudio/conversations/meta")
+async def update_public_prostudio_conversation_meta(request: Request):
+    """Rename and/or pin a conversation from the History menu. Only the
+    owner's own conversations can be changed."""
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    body = await request.json()
+    conversation_id = str((body or {}).get("conversation_id") or "").strip()[:120]
+    if not conversation_id or not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "conversation_required"}, status_code=400)
+    has_title = "title" in (body or {})
+    has_pin = "pinned" in (body or {})
+    if not has_title and not has_pin:
+        return JSONResponse({"ok": False, "error": "nothing_to_update"}, status_code=400)
+    title = re.sub(r"\s+", " ", str((body or {}).get("title") or "")).strip()[:120] if has_title else None
+    pinned = bool((body or {}).get("pinned")) if has_pin else None
+
+    def _sync():
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 1 FROM prostudio_messages WHERE telegram_id = %s AND conversation_id = %s LIMIT 1
+            """, (telegram_id, conversation_id))
+            if not cursor.fetchone():
+                cursor.close()
+                return False
+            cursor.execute("""
+                INSERT INTO prostudio_conversation_meta (telegram_id, conversation_id, title, pinned_at, updated_at)
+                VALUES (%s, %s, %s, CASE WHEN %s THEN NOW() ELSE NULL END, NOW())
+                ON CONFLICT (telegram_id, conversation_id) DO UPDATE SET
+                    title = CASE WHEN %s THEN EXCLUDED.title ELSE prostudio_conversation_meta.title END,
+                    pinned_at = CASE WHEN %s THEN EXCLUDED.pinned_at ELSE prostudio_conversation_meta.pinned_at END,
+                    updated_at = NOW()
+            """, (telegram_id, conversation_id, title or None, bool(pinned), has_title, has_pin))
+            cursor.close()
+            return True
+
+    try:
+        found = await asyncio.to_thread(_sync)
+    except Exception as exc:
+        prostudio_error("CONVERSATION_META_FAILED", exc, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "update_failed"}, status_code=500)
+    if not found:
+        return JSONResponse({"ok": False, "error": "conversation_not_found"}, status_code=404)
+    return {"ok": True}
+
 
 # =====================================================
 # API ENDPOINT: delete_public_prostudio_conversation
@@ -7238,6 +7326,11 @@ async def delete_public_prostudio_conversation(
             cursor = conn.cursor()
             cursor.execute("""
                 DELETE FROM prostudio_messages
+                WHERE telegram_id = %s
+                  AND conversation_id = %s
+            """, (telegram_id, conversation_id))
+            cursor.execute("""
+                DELETE FROM prostudio_conversation_meta
                 WHERE telegram_id = %s
                   AND conversation_id = %s
             """, (telegram_id, conversation_id))
