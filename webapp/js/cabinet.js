@@ -335,6 +335,21 @@ const logoState = { selectedReferenceId:null, prompt:'', generating:false, resul
 // it only feeds the tool's own "Предмет для замены" upload slot and never
 // writes into imageState.
 const replaceObjectState = { comparison:null, selectedObjectId:null };
+const EDIT_WORKSPACE_IMAGE_MODELS = [
+  {id:'gpt_image_2_5_sunburst',label:'GPT Image 2.5 Sunburst',provider:'OpenAI'},
+  {id:'gpt_image_2',label:'GPT Image 2',provider:'OpenAI'},
+  {id:'seedream_5_0_pro',label:'Seedream 5.0 Pro',provider:'ByteDance'},
+  {id:'seedream_4_5',label:'Seedream 4.5',provider:'ByteDance'},
+  {id:'flux_2',label:'FLUX.2',provider:'Black Forest Labs'},
+  {id:'flux_pro_kontext',label:'FLUX Pro Kontext',provider:'Black Forest Labs'},
+  {id:'qwen_image_2_pro',label:'Qwen Image 2 Pro',provider:'Qwen'},
+  {id:'qwen_image_2',label:'Qwen Image 2',provider:'Qwen'},
+  {id:'nano_banana_pro',label:'Nano Banana Pro',provider:'Google'},
+  {id:'nano_banana_2',label:'Nano Banana 2',provider:'Google'},
+  {id:'grok_pro',label:'Grok Pro',provider:'xAI'},
+  {id:'grok',label:'Grok',provider:'xAI'},
+];
+const EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL = EDIT_WORKSPACE_IMAGE_MODELS[0].id;
 const editWorkspaceState = createEditWorkspaceState();
 // Try-On owns a completely separate, dedicated state shape - never the
 // generic {files: []} array every other Photo Tool uses - so the person
@@ -6832,7 +6847,7 @@ function scrollPresetCarousel(e, btn, dir) {
 }
 
 function createEditWorkspaceState() {
-  return {sessionId:'edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10),sidebarOpen:true,mode:'edit',sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
+  return {sessionId:'edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10),sidebarOpen:true,mode:'edit',editModel:EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL,sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
     width:0,height:0,showBefore:false,history:[],chain:[],activeNodeId:'',nodeSequence:0,maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:0,right:0,top:0,bottom:0},
@@ -6962,6 +6977,7 @@ function restoreEditSessionState(saved){
   Object.assign(editWorkspaceState,fresh,JSON.parse(JSON.stringify(saved)),{busy:false,uploading:false,upscaleEstimate:null,viewNeedsFit:false});
   delete editWorkspaceState.localUnsynced;
   editWorkspaceState.background={...fresh.background,...saved.background};
+  editWorkspaceState.editModel=editWorkspaceImageModel(editWorkspaceState.editModel).id;
   editWorkspaceState.upscale={...fresh.upscale,...saved.upscale,sylvex:{...fresh.upscale.sylvex,...saved.upscale?.sylvex,absorbing:false,guidesHidden:false}};
   editWorkspaceState.sketch=saved.sketch&&typeof SYLVEXSketch!=='undefined'?SYLVEXSketch.restore(saved.sketch):null;
   // Blob previews never survive a WebView restart; durable URLs do.
@@ -8050,7 +8066,7 @@ function renderEditWorkspace() {
     const languages=['German · Deutsch','Filipino · Filipino','Ukrainian · Українська','Bulgarian · Български','Indonesian · Bahasa Indonesia','Czech · Čeština','Romanian · Română','English','French · Français','Spanish · Español','Russian · Русский','Turkish · Türkçe','Arabic · العربية','Italian · Italiano','Portuguese · Português','Japanese · 日本語','Korean · 한국어','Chinese · 中文'];
     panel='<h3>Translate Image</h3><label class="edit-workspace-translate-search">Translate to <input placeholder="⌕  Search language" oninput="SYLVEX.filterEditLanguages(event)"></label><div class="edit-workspace-language-list">'+languages.map((name,index)=>'<button type="button" data-language="'+safe(name.toLowerCase())+'" class="'+(state.translateLanguage===name?'active':'')+'" onclick="SYLVEX.selectEditLanguage(event,\''+safe(name)+'\')"><span>'+name.split(' · ')[0]+'<small>'+(name.split(' · ')[1]||name)+'</small></span><b>'+(state.translateLanguage===name?'●':'○')+'</b></button>').join('')+'</div>'+generate;
   }
-  if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button title="Attach image" onclick="document.getElementById(\'editWorkspaceFile\').click()">⌁</button><span class="edit-workspace-model-label">GPT Image 2.5</span>'+generate+'</div>';
+  if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button title="Attach image" onclick="document.getElementById(\'editWorkspaceFile\').click()">⌁</button><label class="edit-workspace-model-picker"><span>Model</span><select aria-label="Edit image model" onchange="SYLVEX.setEditWorkspaceModel(event)">'+editWorkspaceModelOptions(editWorkspaceImageModel(state.editModel).id)+'</select></label>'+generate+'</div>';
   if(mode==='retouch')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Draw a selection and describe what you want to change" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.brushMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'replace\')">Replace</button><button class="'+(state.brushMode==='erase'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'erase\')">Erase</button><span>✎</span><input type="range" min="4" max="80" value="'+state.brushSize+'" oninput="SYLVEX.updateEditBrushSize(event)"><output id="editBrushSizeOutput">'+state.brushSize+'</output><button data-mask-action="undo" title="Undo stroke" aria-label="Undo stroke" onclick="SYLVEX.clearEditWorkspaceMask(event,true)">↶</button><button data-mask-action="redo" title="Redo stroke" aria-label="Redo stroke" onclick="SYLVEX.redoEditWorkspaceMask(event)">↷</button><button data-mask-action="clear" onclick="SYLVEX.clearEditWorkspaceMask(event)">Clear selection</button>'+generate+'</div>';
   if(mode==='background')action=editBackgroundPanel(generate);
   if(mode==='sketch'){
@@ -8128,6 +8144,25 @@ function setEditWorkspaceMode(e,mode){
     if(!s.sourceName)s.sourceName='Sketch drawing';
   }
   renderEditWorkspace();
+}
+function editWorkspaceImageModel(modelId){
+  return EDIT_WORKSPACE_IMAGE_MODELS.find(item=>item.id===modelId)||EDIT_WORKSPACE_IMAGE_MODELS[0];
+}
+function editWorkspaceModelOptions(selectedId){
+  const providers=[];
+  for(const model of EDIT_WORKSPACE_IMAGE_MODELS){
+    let group=providers.find(item=>item.provider===model.provider);
+    if(!group){group={provider:model.provider,models:[]};providers.push(group)}
+    group.models.push(model);
+  }
+  const safe=value=>S.escapeHtml(String(value||''));
+  return providers.map(group=>'<optgroup label="'+safe(group.provider)+'">'+group.models.map(model=>'<option value="'+safe(model.id)+'" '+(model.id===selectedId?'selected':'')+'>'+safe(model.label)+'</option>').join('')+'</optgroup>').join('');
+}
+function setEditWorkspaceModel(e){
+  if(editWorkspaceLocked())return;
+  const model=EDIT_WORKSPACE_IMAGE_MODELS.find(item=>item.id===e?.currentTarget?.value);
+  if(!model)return;
+  editWorkspaceState.editModel=model.id;renderEditWorkspace();scheduleEditWorkspaceSave();
 }
 function editWorkspaceHasContent(state){return !!(state?.chain?.length||state?.sketch?.version===1);}
 function toggleEditSketch(e){
@@ -8422,12 +8457,15 @@ async function generateEditWorkspace(e){
   state.busy=true;const chainResult=beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
   const refs=[sketchReferenceUrl||state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
-  const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:refs[0],editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  const selectedEditModel=editWorkspaceImageModel(state.editModel),imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspaceModel:selectedEditModel.id,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:refs[0],editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  if(mode==='edit')Object.assign(imageOptions,{modelId:selectedEditModel.id,quality:'high',count:1});
   if(isSylvex)Object.assign(imageOptions,{enhancePhotoModel:'sylvex_sr',sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance}});
   if(isSylvex)chainResult.restoreModel='sylvex_sr';
   try{
     prompt=editWorkspaceInstruction(state);
-    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:isSylvex?'openai':mode==='upscale'?'topaz':'openai',model:isSylvex?'sylvex_sr':mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
+    const requestModel=isSylvex?'sylvex_sr':mode==='upscale'?'topaz_enhance_photo':mode==='edit'?selectedEditModel.id:'gpt_image_2_5_sunburst';
+    const requestProvider=isSylvex?'openai':mode==='upscale'?'topaz':mode==='edit'?providerHintForModel(selectedEditModel.id):'openai';
+    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:requestProvider,model:requestModel,imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
     historyIndex=activeGenerationPlaceholderIndex();
     const response=await pending,providerResult=response.result||response;
     completeEditChainResult(chainResult,response,before);
@@ -28135,7 +28173,7 @@ async function waitGeneration(jobId, options) {
   S.clearPhotoToolMask = clearPhotoToolMask;
   S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;S.selectEditWorkspaceNode=selectEditWorkspaceNode;
   S.setEditLightPreset=setEditLightPreset;
-  S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode;
+  S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode; S.setEditWorkspaceModel=setEditWorkspaceModel;
   S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.updateEditBackgroundColor=updateEditBackgroundColor; S.onEditBackgroundFile=onEditBackgroundFile; S.clearEditBackgroundImage=clearEditBackgroundImage; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
   S.updateEditExpandField=updateEditExpandField; S.resetEditExpand=resetEditExpand;
   S.setEditUpscaleModel=setEditUpscaleModel;S.resetEditSylvexRestore=resetEditSylvexRestore;S.selectEditSylvexRegion=selectEditSylvexRegion;S.startEditSylvexRegion=startEditSylvexRegion;S.updateEditSylvexRegion=updateEditSylvexRegion;S.deleteEditSylvexRegion=deleteEditSylvexRegion;S.openEditSylvexReference=openEditSylvexReference;S.onEditSylvexReference=onEditSylvexReference;S.removeEditSylvexReference=removeEditSylvexReference;

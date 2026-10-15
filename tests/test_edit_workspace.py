@@ -72,6 +72,47 @@ def test_openai_contract_and_isolation(provider, mode, settings, fragment):
     assert call['data'].get('background') == ('transparent' if settings.get('editWorkspaceBackgroundMode') == 'transparent' else None)
 
 
+@pytest.mark.parametrize(('model', 'slot'), [
+    ('gpt_image_2', 'OPENAI'),
+    ('seedream_5_0_pro', 'BYTEPLUS'),
+    ('flux_2', 'FLUX'),
+    ('qwen_image_2_pro', 'QWEN'),
+    ('nano_banana_pro', 'GEMINI'),
+    ('grok_pro', 'GROK'),
+])
+def test_edit_picker_models_resolve_to_their_real_provider_slot(model, slot):
+    request = payload('edit', editWorkspaceModel=model, modelId=model)
+    request.update(model=model, provider='openai')
+    assert main.resolve_prostudio_provider_for_slot(request, 'image', model, 'openai') == slot
+
+
+def test_selected_edit_model_uses_generic_image_adapter_with_only_the_workspace_source(monkeypatch):
+    captured = {}
+    async def generate(request):
+        captured.update(request)
+        return {'ok': True, 'type': 'image', 'images': ['https://cdn.example.com/qwen-edit.png'],
+                'image_url': 'https://cdn.example.com/qwen-edit.png', 'provider': 'qwen', 'model': request['model']}
+    monkeypatch.setattr(main, 'image_generation', generate)
+    request = payload('edit', editWorkspaceModel='qwen_image_2_pro', modelId='qwen_image_2_pro')
+    request.update(model='qwen_image_2_pro', provider='qwen')
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok'] and result['provider'] == 'qwen' and result['edit_model'] == 'qwen_image_2_pro'
+    options = captured['image_options']
+    assert options['tool'] == 'edit_workspace_model'
+    assert options['referenceImageUrls'] == [request['image_options']['editWorkspaceSourceUrl']]
+    assert options['characterReferences'] == [] and options['objectReferences'] == []
+    assert options['quality'] == 'high' and options['count'] == 1
+    assert 'Make it blue' in captured['prompt'] and 'IGNORE COMPOSER' not in captured['prompt']
+
+
+def test_edit_model_price_is_not_overridden_by_sunburst():
+    request = payload('edit', editWorkspaceModel='qwen_image_2_pro', modelId='qwen_image_2_pro', quality='high', count=1)
+    request.update(model='qwen_image_2_pro', provider='qwen')
+    price = main.calculate_generation_price(request)
+    assert price['credits'] == main.QWEN_MODEL_VARIANTS['qwen_image_2_pro']['cost_credits']
+    assert price['credits'] != main.OPENAI_IMAGE_MODEL_VARIANTS['gpt_image_2_5_sunburst']['cost_credits']['high']
+
+
 def test_sketch_uses_only_the_flattened_drawing_and_allows_an_optional_description(provider):
     request = payload('sketch', editWorkspacePrompt='')
     result = asyncio.run(main.generate_edit_workspace_image(request))

@@ -4,14 +4,16 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const source=readFileSync(new URL('../webapp/js/cabinet.js',import.meta.url),'utf8');
 const sketchSource=readFileSync(new URL('../webapp/js/edit-sketch.js',import.meta.url),'utf8');
-const block=source.slice(source.indexOf('function createEditWorkspaceState'),source.indexOf('\nasync function generateQuickImageDetail',source.indexOf('function createEditWorkspaceState')));
+const editModelStart=source.indexOf('const EDIT_WORKSPACE_IMAGE_MODELS');
+const editModelBlock=source.slice(editModelStart,source.indexOf('const editWorkspaceState',editModelStart));
+const block=editModelBlock+source.slice(source.indexOf('function createEditWorkspaceState'),source.indexOf('\nasync function generateQuickImageDetail',source.indexOf('function createEditWorkspaceState')));
 function harness(){
   const requests=[],messages=[],revoked=[];let rejectUpload=false;
   const context=vm.createContext({console,setTimeout,clearTimeout,File,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
     Image:class{naturalWidth=1200;naturalHeight=800;set src(value){queueMicrotask(()=>this.onload());}},
     document:{querySelector:()=>null,getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
     toast:m=>messages.push(m),updateComposerMode(){},callGenerate:async (...args)=>{requests.push(args);return {images:['https://cdn.example/result.png']};},
-    validateSylvexRestorePlan:()=>'',
+    validateSylvexRestorePlan:()=>'',providerHintForModel:model=>model.startsWith('qwen')?'qwen':model.startsWith('nano_banana')?'google':model.startsWith('seedream')?'bytedance':model.startsWith('flux')?'flux':model.startsWith('grok')?'xai':'openai',
     serializeSylvexRestoreRegions:regions=>regions.map(region=>{const instruction=String(region.text_instruction||'').slice(0,500),reference=region.reference_asset_id||null;return{region_id:region.region_id,source:'user_added',region_type:region.region_type||'other',bbox:{...region.bbox},confidence:null,importance_score:1,issue_type:'user_defined',issue_summary:'User manually marked this region.',suggested_action:null,user_action:reference?'upload_reference':instruction.trim()?'enter_text':'auto_restore',reference_asset_id:reference,text_instruction:instruction||null,protection_mode:null}}),
     uploadProStudioMediaFile:async ()=>{if(rejectUpload)throw new Error('upload failed');return 'https://cdn.example/new.png';},
     activeGenerationPlaceholderIndex:()=>-1,generatedUrlsFromResponse:r=>r.images,generatedThumbsFromResponse:()=>[],addGeneratedImages(){},imageGenerationMetadata:()=>({}),loadConversations(){},chatMessages:[],resolveFailureMessage:e=>({error:e.message}),translateGenerationError:e=>e.message,clearActiveProStudioJob(){},renderChat(){},rememberCurrentChatSpace(){},
@@ -22,6 +24,18 @@ function harness(){
   return {context,state:context.state,requests,messages,revoked,failUpload:()=>{rejectUpload=true;}};
 }
 test('mode-specific prompts persist independently',()=>{const h=harness();h.context.setEditWorkspaceMode(null,'translate');assert.equal(h.state.prompt,'');h.context.setEditWorkspaceMode(null,'edit');assert.equal(h.state.prompt,'Turn blue');});
+test('Edit offers the leading image editors, persists the selection and routes only Edit through it',async()=>{
+ const h=harness();
+ assert.equal(h.state.editModel,'gpt_image_2_5_sunburst');
+ for(const model of ['gpt_image_2_5_sunburst','gpt_image_2','seedream_5_0_pro','seedream_4_5','flux_2','flux_pro_kontext','qwen_image_2_pro','qwen_image_2','nano_banana_pro','nano_banana_2','grok_pro','grok'])assert.match(source,new RegExp("id:'"+model+"'"));
+ h.state.editModel='qwen_image_2_pro';await h.context.generateEditWorkspace();
+ let options=h.requests[0][4];assert.equal(options.provider,'qwen');assert.equal(options.model,'qwen_image_2_pro');
+ assert.equal(options.imageOptions.editWorkspaceModel,'qwen_image_2_pro');assert.equal(options.imageOptions.modelId,'qwen_image_2_pro');assert.equal(options.imageOptions.quality,'high');
+ const saved=h.context.editSessionSnapshot();h.context.restoreEditSessionState(saved);assert.equal(h.state.editModel,'qwen_image_2_pro');
+ saved.editModel='not-an-edit-model';h.context.restoreEditSessionState(saved);assert.equal(h.state.editModel,'gpt_image_2_5_sunburst');
+ h.state.editModel='grok_pro';h.context.setEditWorkspaceMode(null,'camera');h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();
+ options=h.requests.at(-1)[4];assert.equal(options.provider,'openai');assert.equal(options.model,'gpt_image_2_5_sunburst');
+});
 test('Sketch opens only the unambiguous blank or single-photo canvas and hides the generic upload layer',async()=>{
  const blank=harness();Object.assign(blank.state,{sourceUrl:'',sourcePreview:'',width:0,height:0});blank.context.setEditWorkspaceMode(null,'sketch');
  assert.equal(blank.state.sketch.editing,true);assert.equal(blank.state.sketch.referenceUrl,'');assert.equal(blank.state.chain.length,0);

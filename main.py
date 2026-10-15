@@ -15962,6 +15962,58 @@ def is_edit_workspace_request(payload: dict) -> bool:
     return str(opts.get("tool") or "").strip().lower() == "edit_workspace"
 
 
+# The first Edit workspace tool deliberately exposes a small quality-first
+# subset of the project's image-to-image adapters. Every entry below accepts
+# a source image in its existing provider adapter; generation-only models are
+# intentionally excluded from the picker and from the server allowlist.
+EDIT_WORKSPACE_IMAGE_MODEL_IDS = frozenset({
+    "gpt_image_2_5_sunburst", "gpt_image_2",
+    "seedream_5_0_pro", "seedream_4_5",
+    "flux_2", "flux_pro_kontext",
+    "qwen_image_2_pro", "qwen_image_2",
+    "nano_banana_pro", "nano_banana_2",
+    "grok_pro", "grok",
+})
+EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL = "gpt_image_2_5_sunburst"
+
+
+def edit_workspace_image_model(payload: dict) -> str:
+    opts = payload.get("image_options") or {}
+    return str(
+        opts.get("editWorkspaceModel")
+        or opts.get("modelId")
+        or opts.get("model_id")
+        or payload.get("model")
+        or EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL
+    ).strip()
+
+
+def edit_workspace_image_ratio(size: tuple[int, int]) -> str:
+    width, height = size
+    ratio = width / max(1, height)
+    if ratio >= 1.55:
+        return "16:9"
+    if ratio >= 1.15:
+        return "4:3"
+    if ratio <= .64:
+        return "9:16"
+    if ratio <= .87:
+        return "3:4"
+    return "1:1"
+
+
+def edit_workspace_model_size(model: str, size: tuple[int, int]) -> str:
+    ratio = edit_workspace_image_ratio(size)
+    # GPT Image 2 exposes three real edit boxes. Passing a cosmetic 4:3 or
+    # 3:4 choice would normalize to square in its adapter.
+    if model == "gpt_image_2":
+        if size[0] > size[1]:
+            return "3:2"
+        if size[1] > size[0]:
+            return "2:3"
+    return ratio
+
+
 def is_replace_object_request(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
     return str(opts.get("tool") or "").strip().lower() == "replace_object"
@@ -18555,11 +18607,80 @@ async def generate_remove_object_image(payload: dict) -> dict:
     return result
 
 
+async def generate_edit_workspace_model_image(payload: dict, source_url: str, source_png: bytes, source_size: tuple[int, int]) -> dict:
+    """Run the first Edit tool through its explicitly selected image editor."""
+    selected_model = edit_workspace_image_model(payload)
+    if selected_model not in EDIT_WORKSPACE_IMAGE_MODEL_IDS:
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "The selected model is not available for Edit.",
+            "model": selected_model,
+        }
+    mapping = image_provider_mapping(selected_model)
+    if not mapping:
+        return unknown_image_model_mapping_response(selected_model, str(payload.get("provider") or ""))
+
+    original_options = payload.get("image_options") or {}
+    model_options = dict(original_options)
+    # Bypass only the workspace dispatcher while retaining the normal tested
+    # provider adapters, pricing metadata and media persistence lifecycle.
+    model_options.update({
+        "tool": "edit_workspace_model",
+        "photo_tool": "edit",
+        "modelId": selected_model,
+        "model_id": selected_model,
+        "count": 1,
+        "quality": "high",
+        "size": edit_workspace_model_size(selected_model, source_size),
+        "referenceImageUrls": [source_url],
+        "referenceImages": [source_url],
+        "uploadedImageUrls": [source_url],
+        "characterReferences": [],
+        "objectReferences": [],
+        "style": "auto",
+    })
+    prompt = edit_workspace_service.instruction({**original_options, "editWorkspaceMode": "edit"})
+    if edit_workspace_service.has_transparency(source_png):
+        prompt += (
+            "\nThe source has a transparent background. Keep the edited subject isolated on true alpha transparency. "
+            "Preserve translucent details and fine edges. Do not add a backdrop, floor, solid color, or checkerboard."
+        )
+    model_payload = dict(payload)
+    model_payload.update({
+        "model": selected_model,
+        "provider": mapping.get("provider") or payload.get("provider") or "",
+        "prompt": prompt,
+        "image_options": model_options,
+    })
+    prostudio_debug(
+        "EDIT_WORKSPACE_MODEL_DISPATCH",
+        model=selected_model,
+        provider=model_payload["provider"],
+        source_width=source_size[0],
+        source_height=source_size[1],
+    )
+    result = await image_generation(model_payload)
+    if result.get("ok"):
+        result.update({
+            "tool": "edit_workspace",
+            "photo_tool": "edit_workspace",
+            "edit_mode": "edit",
+            "edit_model": selected_model,
+            "source_image_url": source_url,
+            "reference_images": [source_url],
+            "canvas_width": source_size[0],
+            "canvas_height": source_size[1],
+        })
+    return result
+
+
 async def generate_edit_workspace_image(payload: dict) -> dict:
     """Isolated full-screen Edit workspace provider adapter.
 
-    Camera, lighting and other image edits use the configured OpenAI image edit API.
-    Only the workspace's own source and settings are read here.
+    Camera, lighting and specialized image edits use the configured OpenAI
+    image edit API. The first Edit tool may use one of the explicitly allowed
+    image-to-image models. Only the workspace's own source and settings are read.
     """
     opts = payload.get("image_options") or {}
     try:
@@ -18589,6 +18710,9 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         source_png, source_size = edit_workspace_service.normalize_source(source_raw)
     except Exception as exc:
         return image_error_response("edit", "edit_workspace", "", "", "Could not prepare workspace source image", data={"body_preview": str(exc)[:500]})
+
+    if mode == "edit" and edit_workspace_image_model(payload) != EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL:
+        return await generate_edit_workspace_model_image(payload, source_url, source_png, source_size)
 
     if mode == "resize":
         size = edit_workspace_service.dimensions(opts.get("editWorkspaceResize") or {})
@@ -18707,13 +18831,15 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         return image_error_response(provider, "edit_workspace", model, endpoint, "Could not persist edit result")
     price = calculate_generation_price(payload)
     extra = {
-        "provider": provider, "model": "edit_workspace", "provider_model": model,
+        "provider": provider, "model": EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL if mode == "edit" else "edit_workspace", "provider_model": model,
         "tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": mode,
         "source_image_url": source_url, "reference_images": [source_url],
         "canvas_width": output_dimensions[0], "canvas_height": output_dimensions[1],
         "cost_credits": int(price.get("credits") or 0), "cost_usd": price.get("cost_usd") or 0,
         "generation_cost": price.get("generation_cost") or "",
     }
+    if mode == "edit":
+        extra["edit_model"] = EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL
     if mode == "camera":
         extra["edit_camera"] = camera
         extra["camera_prompt"] = camera_instruction
@@ -21886,6 +22012,13 @@ def calculate_generation_price(payload: dict) -> dict:
                 estimate = edit_upscale_cost_info(settings['width'], settings['height'])
         elif operation == "resize":
             estimate = {"credits": 0, "cost_credits": 0, "cost_usd": 0, "generation_cost": "0 ⚡", "pricing_available": True, "model_label": "Resize"}
+        elif operation == "edit":
+            selected_model = edit_workspace_image_model(payload)
+            if selected_model not in EDIT_WORKSPACE_IMAGE_MODEL_IDS:
+                estimate = {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
+            # estimate_generation_cost() already resolved the selected model
+            # and its real provider price before entering this workspace
+            # override. Keep that estimate unchanged for the first Edit tool.
         else:
             detail = openai_image_cost_info("gpt_image_2_5_sunburst", "gpt-image-2.5-sunburst", "high", 1)
             credits = max(1, int(detail.get("cost_credits") or 32))
@@ -23353,6 +23486,20 @@ async def public_prostudio_generate(request: Request):
         # Persist the real route in the queued job as well as at dispatch.
         selected_provider = payload["provider"] = "openai"
         selected_model = payload["model"] = SYLVEX_RESTORE_MODEL_KEY
+    elif mode == "image" and is_edit_workspace_request(payload) and str(image_options.get("editWorkspaceMode") or "edit").lower() == "edit":
+        selected_model = edit_workspace_image_model(payload)
+        if selected_model not in EDIT_WORKSPACE_IMAGE_MODEL_IDS:
+            return JSONResponse({
+                "ok": False,
+                "error": "unsupported_edit_model",
+                "message": "The selected model is not available for Edit.",
+            }, status_code=422)
+        mapping = image_provider_mapping(selected_model)
+        selected_provider = str(mapping.get("provider") or "").lower()
+        payload["model"] = selected_model
+        payload["provider"] = selected_provider
+        image_options["editWorkspaceModel"] = selected_model
+        image_options["modelId"] = selected_model
     video_options = payload.get("video_options") or {}
     voice_options = payload.get("voice_options") or {}
     reference_images = (
@@ -23710,6 +23857,9 @@ def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit").lower()
         if edit_mode == "upscale":
             return "OPENAI" if is_edit_workspace_sylvex_restore(payload) else "TOPAZ"
+        if edit_mode == "edit":
+            mapping = image_provider_mapping(edit_workspace_image_model(payload))
+            return normalize_provider(mapping.get("provider") or selected_provider)
         return "OPENAI"
     candidate = selected_provider
     if mode == "image":
@@ -23761,7 +23911,8 @@ async def dispatch_prostudio_provider_request(
     result = None
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit")
-        edit_provider = "openai" if is_edit_workspace_sylvex_restore(payload) else "topaz" if edit_mode == "upscale" else "openai"
+        edit_mapping = image_provider_mapping(edit_workspace_image_model(payload)) if edit_mode == "edit" else {}
+        edit_provider = "openai" if is_edit_workspace_sylvex_restore(payload) else "topaz" if edit_mode == "upscale" else edit_mapping.get("provider") or "openai"
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=edit_provider, model=selected_model, route="generate_edit_workspace_image", edit_mode=edit_mode)
         result = await run_provider_coroutine_off_loop(lambda: generate_edit_workspace_image(payload))
     elif mode == "image" and is_watermark_removal_request(payload):
