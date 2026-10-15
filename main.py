@@ -5150,6 +5150,8 @@ def text_generation_price_input(payload: dict) -> tuple:
     opts = payload.get("text_options") or {}
     tool = str(opts.get("tool") or "text").strip().lower()
     parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower())]
+    if opts.get("sylvex_links") and tool == "text":
+        parts.append(SYLVEX_TEXT_LINK_GUIDANCE)
     for item in (payload.get("history") or [])[-10:]:
         if isinstance(item, dict) and item.get("content"):
             parts.append(str(item.get("content")))
@@ -5217,6 +5219,8 @@ def text_generation_reservation(payload: dict) -> tuple:
     opts = payload.get("text_options") if isinstance(payload.get("text_options"), dict) else {}
     tool = str(opts.get("tool") or "text").strip().lower()
     parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower())]
+    if opts.get("sylvex_links") and tool == "text":
+        parts.append(SYLVEX_TEXT_LINK_GUIDANCE)
     for item in (payload.get("history") or [])[-10:]:
         if isinstance(item, dict) and item.get("content"):
             parts.append(str(item.get("content")))
@@ -7149,6 +7153,9 @@ async def public_prostudio_conversations(
                         "prompt": prompt,
                         "created_at": created_value,
                     })
+                if metadata.get("source") == "realtime_voice" and not response_text:
+                    # A live-voice turn the model never answered aloud.
+                    continue
                 messages.append({
                     "role": "assistant",
                     "response_text": response_text or "",
@@ -19731,6 +19738,19 @@ def text_system_prompt(tool: str, style: str, output_format: str) -> str:
     )
 
 
+# The full Text chat never switches the user to another studio by itself;
+# the model may only offer an internal link the client renders as a button.
+SYLVEX_TEXT_LINK_GUIDANCE = (
+    "You are inside SYLVEX, which also has an Image studio, a Video studio, a Music studio and a "
+    "Voice (text-to-speech) studio. Keep the conversation here and never say you switched sections. "
+    "When the user clearly wants something one of those studios produces, answer normally and add at "
+    "most one short suggestion with a Markdown link of the form "
+    "[Open Video Studio](sylvex://open/video). Allowed targets: sylvex://open/image, "
+    "sylvex://open/video, sylvex://open/music, sylvex://open/voice. Translate the link text to the "
+    "user's language. Do not add such links when they are not relevant."
+)
+
+
 def quick_text_reply(prompt: str, attachment: dict, history: list, tool: str, output_format: str) -> str:
     if attachment or history or tool not in {"text", ""} or output_format == "pdf":
         return ""
@@ -20002,7 +20022,10 @@ def text_generation(payload: dict) -> dict:
         if attachment_text:
             prompt = (prompt + "\n\n" if prompt else "") + "Attached document text:\n" + attachment_text
 
-    messages = [{"role": "system", "content": text_system_prompt(tool, style, output_format)}]
+    system_prompt = text_system_prompt(tool, style, output_format)
+    if text_options.get("sylvex_links") and tool == "text":
+        system_prompt += " " + SYLVEX_TEXT_LINK_GUIDANCE
+    messages = [{"role": "system", "content": system_prompt}]
     for item in history[-10:]:
         role = item.get("role") if item.get("role") in ("user", "assistant") else "user"
         content = item.get("content")
@@ -23373,64 +23396,196 @@ User task:
         return JSONResponse({"ok": False, "error": "planner_failed", "message": "Не удалось построить цепочку."}, status_code=500)
 
 
+HOME_ROUTE_MODES = ("image", "video", "music", "voice", "text", "grid", "tool")
+HOME_ROUTE_MODEL = "gpt-4.1-mini"
+HOME_ROUTE_MAX_OUTPUT_TOKENS = 300
+
+
+def _home_route_choices(value, limit: int = 80) -> list:
+    """Client-advertised model/tool ids, reduced to safe short identifiers."""
+    if not isinstance(value, list):
+        return []
+    clean = []
+    for item in value[:limit]:
+        ident = re.sub(r"[^a-zA-Z0-9_.:\-]", "", str(item or ""))[:80]
+        if ident and ident not in clean:
+            clean.append(ident)
+    return clean
+
+
+def clean_home_route(route, message: str, models: dict, tools: list) -> dict:
+    """Validate a router decision. Anything unclear falls back to Text and the
+    user's original prompt is always passed through unchanged."""
+    route = route if isinstance(route, dict) else {}
+    mode = str(route.get("mode") or "").strip().lower()
+    if mode not in HOME_ROUTE_MODES:
+        mode = "text"
+    tool = str(route.get("tool") or "").strip()
+    if mode == "tool" and tool not in tools:
+        mode, tool = "image", ""
+    if mode != "tool":
+        tool = ""
+    model = str(route.get("model") or "").strip()
+    if model not in (models.get(mode) or []):
+        model = ""
+    return {"ok": True, "ready": True, "mode": mode, "model": model, "tool": tool,
+            "prompt": message, "reply": ""}
+
+
 @app.post("/api/public/home-idea/route")
 async def public_home_idea_route(request: Request):
-    """Conversational SYLVEX guide: clarify an idea and prepare, but never launch, a generator."""
+    """Universal home router: classify the request and pick the destination
+    (generator, exact model/tool or the full Text chat). Never launches a
+    generation and never rewrites the user's prompt."""
     try:
         body = await request.json()
         message = str((body or {}).get("message") or "").strip()
-        history = (body or {}).get("history") or []
         attachment = (body or {}).get("attachment") or None
         if not message and not attachment:
             return JSONResponse({"ok": False, "error": "message_required"}, status_code=400)
+        raw_models = (body or {}).get("models") if isinstance((body or {}).get("models"), dict) else {}
+        models = {mode: _home_route_choices(raw_models.get(mode)) for mode in ("image", "video", "music", "voice", "text")}
+        tools = _home_route_choices((body or {}).get("tools"))
+        attachment_note = ""
+        if isinstance(attachment, dict):
+            attachment_note = "Вложение: " + str(attachment.get("name") or "file")[:120] + " (" + str(attachment.get("mime") or attachment.get("content_type") or "")[:60] + ")"
+        catalog = "\n".join(f"{mode}: {', '.join(ids) or '-'}" for mode, ids in models.items())
         instruction = f"""
-Ты — SYLVEX AI, персональный творческий навигатор внутри Mini App. Никогда не называй себя OpenAI или ChatGPT.
-Помоги понять задачу и направь пользователя в правильный генератор. Ответь ТОЛЬКО JSON без markdown:
-{{"reply":"краткий естественный ответ или один уточняющий вопрос","ready":true,"mode":"image|video|music|voice|text|grid","model":"идентификатор модели","prompt":"полностью сформулированный запрос для выбранного генератора"}}
-Если данных недостаточно, ready=false, mode/model/prompt оставь пустыми и задай только один самый важный вопрос.
-Если задача ясна, ready=true. Рекомендуемые модели: image=seedream_5_0_pro, video=seedance_2_0, music=suno_chirp_5_5, voice=elevenlabs_eleven_v3, text=gpt-5.6. Для сложной цепочки нескольких видов контента используй grid.
-Не запускай генерацию и не обещай, что она уже началась.
-Сообщение пользователя: {message}
+Ты — маршрутизатор SYLVEX. Определи, куда направить запрос пользователя. Ответь ТОЛЬКО JSON без markdown:
+{{"mode":"image|video|music|voice|text|grid|tool","model":"","tool":""}}
+Правила:
+- image: пользователь просит создать, нарисовать, сгенерировать или отредактировать изображение/фото/картинку/логотип.
+- video: просит создать или анимировать видео, ролик, клип.
+- music: просит создать музыку, песню, трек, бит.
+- voice: просит озвучить текст, сгенерировать речь/голос (TTS).
+- tool: просит конкретный инструмент из списка инструментов ниже (например, удалить фон, апскейл); укажи его id в "tool".
+- grid: только если пользователь прямо просит сетку/цепочку из нескольких генераций.
+- text: вопрос, обсуждение, объяснение, план, перевод, написание текста или всё, что явно не просит медиа-генерацию.
+- Если пользователь явно называет модель из списка моделей, укажи её id в "model" и соответствующий mode; иначе "model" оставь пустым.
+- Если сомневаешься — text.
+Модели:
+{catalog}
+Инструменты: {', '.join(tools) or '-'}
+{attachment_note}
+Запрос пользователя: {message[:4000]}
 """.strip()
-        idea_history = history[-12:] if isinstance(history, list) else []
-        attachment_mime = str((attachment or {}).get("mime") or (attachment or {}).get("content_type") or "").lower() if isinstance(attachment, dict) else ""
-        if attachment_mime.startswith(("audio/", "video/")):
-            # text_generation() would transcribe it - a paid call this
-            # helper's text tariff does not cover.
-            return JSONResponse({"ok": False, "error": "attachment_not_supported"}, status_code=400)
-        idea_payload = {
-            "prompt": instruction, "mode": "text", "category": "text", "model": "gpt-5.6",
+        route_payload = {
+            "prompt": instruction, "mode": "text", "category": "text", "model": HOME_ROUTE_MODEL,
             "provider": "openai", "text_options": {"tool": "text", "format": "json", "style": "neutral"},
-            "history": idea_history, "attachment": attachment,
-            "output_token_cap": HOME_IDEA_MAX_OUTPUT_TOKENS,
+            "history": [], "attachment": None,
+            "output_token_cap": HOME_ROUTE_MAX_OUTPUT_TOKENS,
         }
-        idea_input, idea_images = await asyncio.to_thread(text_generation_price_input, idea_payload)
+        route_input, route_images = await asyncio.to_thread(text_generation_price_input, route_payload)
         result = await run_billed_helper(
             int((body or {}).get("telegram_id") or 0),
-            helper_text_reservation("gpt-5.6", idea_input, HOME_IDEA_MAX_OUTPUT_TOKENS, idea_images),
+            helper_text_reservation(HOME_ROUTE_MODEL, route_input, HOME_ROUTE_MAX_OUTPUT_TOKENS, route_images),
             "home_idea_route",
-            lambda: asyncio.to_thread(text_generation, idea_payload),
+            lambda: asyncio.to_thread(text_generation, route_payload),
             client_request_id=str((body or {}).get("client_request_id") or ""),
-            model="gpt-5.6",
-            usage_credits=text_generation_usage_credits("gpt-5.6"),
+            model=HOME_ROUTE_MODEL,
+            usage_credits=text_generation_usage_credits(HOME_ROUTE_MODEL),
         )
         if not result.get("ok"):
             return JSONResponse(result, status_code=502)
         raw = str(result.get("text") or "").strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
-        route = json.loads(raw)
-        allowed_modes = {"image", "video", "music", "voice", "text", "grid"}
-        mode = str(route.get("mode") or "")
-        ready = bool(route.get("ready")) and mode in allowed_modes
-        return {"ok": True, "reply": str(route.get("reply") or "Готов помочь."), "ready": ready,
-                "mode": mode if ready else "", "model": str(route.get("model") or "") if ready else "",
-                "prompt": str(route.get("prompt") or "") if ready else ""}
+        try:
+            route = json.loads(raw)
+        except json.JSONDecodeError:
+            route = {}
+        return clean_home_route(route, message, models, tools)
     except SecurityError:
         raise
     except Exception as exc:
         prostudio_error("HOME_IDEA_ROUTE_FAILED", exc)
-        return JSONResponse({"ok": False, "error": "idea_route_failed", "message": "SYLVEX временно не смог обработать идею."}, status_code=500)
+        return JSONResponse({"ok": False, "error": "idea_route_failed", "message": "SYLVEX временно не смог обработать запрос."}, status_code=500)
+
+
+PROSTUDIO_REALTIME_TRANSCRIBE_MODEL = os.getenv("OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
+
+
+def prostudio_realtime_instructions(context) -> str:
+    """Voice persona for the Text chat, primed with the current conversation
+    so a live session continues it instead of starting over."""
+    lines = []
+    for item in (context if isinstance(context, list) else [])[-12:]:
+        if not isinstance(item, dict):
+            continue
+        role = "User" if item.get("role") == "user" else "Assistant"
+        text = re.sub(r"\s+", " ", str(item.get("text") or "")).strip()[:1200]
+        if text:
+            lines.append(f"{role}: {text}")
+    base = (
+        "You are SYLVEX AI, the voice of the SYLVEX Text chat. Speak naturally, warmly and concisely, "
+        "in the user's language. Keep answers short enough for speech and let the user interrupt. "
+        "If the user wants an image, video, music or voiceover, you may suggest the matching SYLVEX "
+        "studio, but never claim that a generation has started. If the user explicitly asks which "
+        "underlying AI provider or model powers this feature, answer accurately based on the configured "
+        "provider/model - never reveal API keys or other internal secrets."
+    )
+    if lines:
+        base += "\n\nThis voice session continues the following conversation:\n" + "\n".join(lines)
+    return base[:16000]
+
+
+@app.post("/api/public/prostudio/realtime/session")
+async def public_prostudio_realtime_session(request: Request):
+    """Live voice for the Text chat (home input and Text mode). Same
+    entitlement as the website assistant: an active SYLVEX Pro subscription,
+    zero-credit billing scope, server-side API key."""
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    state = await asyncio.to_thread(get_user_state, telegram_id)
+    if state.get("subscription_status") != "active":
+        return JSONResponse({
+            "ok": False, "error": "subscription_required",
+            "message": "Голосовой режим доступен с подпиской SYLVEX Pro.",
+        }, status_code=403)
+    if not OPENAI_API_KEY:
+        return JSONResponse({"ok": False, "error": "openai_not_configured"}, status_code=503)
+    await check_request_quota(telegram_id, "/api/public/prostudio/realtime/session")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    sdp = str((body or {}).get("sdp") or "").strip()
+    if not sdp or len(sdp) > 200_000:
+        return JSONResponse({"ok": False, "error": "sdp_required"}, status_code=400)
+    instructions = prostudio_realtime_instructions((body or {}).get("context"))
+    try:
+        realtime_session_id = f"prostudio-realtime:{telegram_id}:{uuid4().hex}"
+        with billing_scope(realtime_session_id, 0, free=True):
+            content, status_code, content_type = await asyncio.to_thread(
+                mint_realtime_session, OPENAI_API_KEY, sdp, instructions, telegram_id, OPENAI_ASSISTANT_REALTIME_MODEL,
+                "marin", 30, PROSTUDIO_REALTIME_TRANSCRIBE_MODEL,
+                {"type": "semantic_vad", "create_response": True, "interrupt_response": True},
+            )
+        return Response(content=content, status_code=status_code, media_type=content_type)
+    except Exception as exc:
+        prostudio_error("PROSTUDIO_REALTIME_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "realtime_unavailable"}, status_code=502)
+
+
+@app.post("/api/public/prostudio/conversations/voice-turn")
+async def public_prostudio_voice_turn(request: Request):
+    """Persist one live-voice exchange into the shared Text conversation."""
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    body = await request.json()
+    user_text = str((body or {}).get("user_text") or "").strip()[:8000]
+    assistant_text = str((body or {}).get("assistant_text") or "").strip()[:16000]
+    if not user_text and not assistant_text:
+        return JSONResponse({"ok": False, "error": "text_required"}, status_code=400)
+    conversation_id = re.sub(r"[^a-zA-Z0-9_\-]", "", str((body or {}).get("conversation_id") or ""))[:80]
+    payload = {"conversation_id": conversation_id or None, "telegram_id": telegram_id, "mode": "text",
+               "prompt": user_text, "model": OPENAI_ASSISTANT_REALTIME_MODEL, "provider": "openai-realtime"}
+    result = {"text": assistant_text, "status": "completed",
+              "metadata": {"type": "text", "source": "realtime_voice", "model": OPENAI_ASSISTANT_REALTIME_MODEL}}
+    saved_id = await asyncio.to_thread(save_prostudio_message, payload, result)
+    return {"ok": True, "conversation_id": saved_id}
 
 
 @app.post("/api/public/home-idea/realtime")
