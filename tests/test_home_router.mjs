@@ -12,7 +12,7 @@ const slice = (from, to) => {
   return source.slice(start, end);
 };
 const code = slice('  const HOME_ROUTE_TOOL_PATTERNS', '  async function serverHomeRoute')
-  + slice('  function renderSylvexChatLinks', '  function openSylvexChatLink');
+  + slice('  function sylvexModelCatalog', '  // A recommended model: open its section');
 const context = vm.createContext({
   IMAGE_MODEL_LIST: [{ id: 'seedream_5_0_pro', label: 'Seedream 5.0 Pro' }],
   VIDEO_MODELS: [{ id: 'kling_3_0', label: 'Kling 3.0' }],
@@ -64,4 +64,12 @@ test('only sylvex://open links in AI text become internal buttons', () => {
   assert.match(html, /<button type="button" class="sylvex-chat-link" data-sylvex-open="video">Открыть Video Studio →<\/button>/);
   assert.match(html, /\[x\]\(https:\/\/evil\.example\)/);
   assert.match(html, /\[y\]\(sylvex:\/\/open\/admin\)/);
+});
+
+test('recommended SYLVEX models and the Assistant become buttons; unknown models stay plain text', () => {
+  const html = context.renderSylvexChatLinks('Для видео: [Kling 3.0 →](sylvex://model/video/kling_3_0) и [Sora X](sylvex://model/video/sora_x). Аккаунт: [Open SYLVEX Assistant](sylvex://assistant)');
+  assert.match(html, /<button type="button" class="sylvex-chat-link" data-sylvex-model="video:kling_3_0">Kling 3.0 →<\/button>/);
+  assert.ok(!html.includes('sora_x'), html);
+  assert.match(html, / Sora X\./);
+  assert.match(html, /data-sylvex-assistant="1">Open SYLVEX Assistant →<\/button>/);
 });

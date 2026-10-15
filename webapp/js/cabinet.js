@@ -17932,6 +17932,7 @@ function renderGeneratedTelegramButton(url, kind) {
       user: quickTextUserCard(),
       models: quickTextModels(),
       model: quickTextModelId(),
+      catalog: sylvexModelCatalog(),
     }, location.origin);
   }
 
@@ -18001,7 +18002,7 @@ function renderGeneratedTelegramButton(url, kind) {
         category: 'text',
         model,
         provider: providerHintForModel(model),
-        text_options: { tool: 'text', style: 'neutral', format: 'markdown', language: 'auto', sylvex_links: true },
+        text_options: { tool: 'text', style: 'neutral', format: 'markdown', language: 'auto', sylvex_links: true, sylvex_catalog: sylvexModelCatalog() },
         history,
         attachment,
         conversation_id: quickText.conversationId,
@@ -18178,6 +18179,11 @@ function renderGeneratedTelegramButton(url, kind) {
     if (message.action === 'quick-text-account') {
       if (getTelegramId()) { closeKnowledgeWorkspace(); switchView('profile'); }
       else guestNeedsAccount();
+      return;
+    }
+    if (message.action === 'quick-text-assistant') { openSylvexAssistant(); return; }
+    if (message.action === 'quick-text-model-link') {
+      openSylvexModel(String(message.mode || ''), String(message.model || ''), { quickText: true });
       return;
     }
     if (message.action === 'quick-text-link') {
@@ -22190,7 +22196,7 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
   const musicOptions = isMusicMode() ? musicOptionsPayload() : null;
   // Only the Text chat itself may offer internal SYLVEX links.
   const textOptions = studioMode === 'text'
-    ? Object.assign(textOptionsPayload(), generationOptions && generationOptions.textDirect ? { sylvex_links: true } : {})
+    ? Object.assign(textOptionsPayload(), generationOptions && generationOptions.textDirect ? { sylvex_links: true, sylvex_catalog: sylvexModelCatalog() } : {})
     : null;
   const audioUploadsOverride = generationOptions && Array.isArray(generationOptions.audioUploads)
     ? generationOptions.audioUploads.slice()
@@ -25675,11 +25681,60 @@ async function waitGeneration(jobId, options) {
     }, 100);
   }
 
-  // Internal links offered by the Text chat ([Open Video Studio](sylvex://open/video)).
-  // The user decides: the link opens the studio with the request prefilled.
+  // Models selectable in SYLVEX, sent with Text chat requests so a model
+  // recommends only these: { mode: [[id, label], ...] }.
+  function sylvexModelCatalog() {
+    const pairs = (list) => (Array.isArray(list) ? list : []).filter((m) => m && m.id).map((m) => [String(m.id), String(m.label || m.name || m.id)]);
+    return {
+      image: pairs(IMAGE_MODEL_LIST),
+      video: pairs(typeof VIDEO_MODELS !== 'undefined' ? VIDEO_MODELS : []),
+      music: pairs(MUSIC_MODEL_LIST),
+      voice: pairs(VOICE_MODEL_LIST),
+      text: pairs(TEXT_MODEL_LIST),
+    };
+  }
+
+  function sylvexCatalogHas(mode, id) {
+    return (sylvexModelCatalog()[mode] || []).some((pair) => pair[0] === id);
+  }
+
+  // Internal links offered by the Text chat: open a studio
+  // ([Open Video Studio](sylvex://open/video)), a recommended model
+  // ([Kling 3.0 →](sylvex://model/video/kling_3_0)) or the separate SYLVEX
+  // Assistant (sylvex://assistant). The user decides; nothing is generated.
   function renderSylvexChatLinks(html) {
-    return String(html || '').replace(/\[([^\]\n<]{1,80})\]\(sylvex:\/\/open\/(image|video|music|voice)\)/g,
-      (_, label, mode) => '<button type="button" class="sylvex-chat-link" data-sylvex-open="' + mode + '">' + label + ' →</button>');
+    return String(html || '')
+      .replace(/\[([^\]\n<]{1,80})\]\(sylvex:\/\/open\/(image|video|music|voice)\)/g,
+        (_, label, mode) => '<button type="button" class="sylvex-chat-link" data-sylvex-open="' + mode + '">' + label + ' →</button>')
+      .replace(/\[([^\]\n<]{1,80})\]\(sylvex:\/\/model\/(image|video|music|voice|text)\/([a-zA-Z0-9_.:-]{1,80})\)/g,
+        (match, label, mode, id) => sylvexCatalogHas(mode, id)
+          ? '<button type="button" class="sylvex-chat-link" data-sylvex-model="' + mode + ':' + id + '">' + label.replace(/\s*→\s*$/, '') + ' →</button>'
+          : label.replace(/\s*→\s*$/, ''))
+      .replace(/\[([^\]\n<]{1,80})\]\(sylvex:\/\/assistant\)/g,
+        (_, label) => '<button type="button" class="sylvex-chat-link" data-sylvex-assistant="1">' + label + ' →</button>');
+  }
+
+  // A recommended model: open its section with that model selected, or switch
+  // the Text model in place. Never starts a generation.
+  function openSylvexModel(mode, id, opts) {
+    if (!sylvexCatalogHas(mode, id)) return;
+    if (mode === 'text') {
+      if (opts && opts.quickText) { quickText.model = id; quickTextSave(); quickTextPush(); return; }
+      textState.modelId = id;
+      renderTextControls();
+      renderModelPop();
+      toast('Модель: ' + ((TEXT_MODEL_LIST.find((m) => m.id === id) || {}).label || id));
+      return;
+    }
+    if (opts && opts.quickText) closeKnowledgeWorkspace();
+    rememberCurrentChatSpace();
+    openStudioDestination(mode, '', { model: id });
+  }
+
+  function openSylvexAssistant() {
+    if (!document.getElementById('aiAssistantModal')) { toast('SYLVEX Assistant недоступен на этой странице'); return; }
+    closeKnowledgeWorkspace();
+    openAiAssistant();
   }
 
   function openSylvexChatLink(button) {
@@ -25697,7 +25752,18 @@ async function waitGeneration(jobId, options) {
   }
 
   document.addEventListener('click', (event) => {
-    const button = event.target && event.target.closest ? event.target.closest('[data-sylvex-open]') : null;
+    const target = event.target && event.target.closest ? event.target : null;
+    if (!target) return;
+    const model = target.closest('[data-sylvex-model]');
+    if (model) {
+      event.preventDefault();
+      const value = String(model.dataset.sylvexModel || '');
+      const split = value.indexOf(':');
+      openSylvexModel(value.slice(0, split), value.slice(split + 1));
+      return;
+    }
+    if (target.closest('[data-sylvex-assistant]')) { event.preventDefault(); openSylvexAssistant(); return; }
+    const button = target.closest('[data-sylvex-open]');
     if (!button) return;
     event.preventDefault();
     openSylvexChatLink(button);

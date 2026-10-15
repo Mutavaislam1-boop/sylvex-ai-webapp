@@ -73,3 +73,52 @@ def test_realtime_voice_mode_is_removed_for_now():
     paths = {getattr(route, "path", "") for route in main.app.routes}
     assert "/api/public/prostudio/realtime/session" not in paths
     assert "/api/public/prostudio/conversations/voice-turn" not in paths
+
+
+def test_text_models_keep_their_real_identity():
+    prompt = main.text_system_prompt("text", "neutral", "markdown", "gpt-5.6")
+    assert "You are GPT-5.6 by OpenAI" in prompt
+    assert "Do not call yourself SYLVEX Assistant" in prompt
+    assert "SYLVEX Pro Studio Text AI" not in prompt
+    assert "You are Gemini 3.1 Pro by Google" in main.text_system_prompt("text", "neutral", "markdown", "gemini_3_1_pro")
+    # Every selectable text model has a display identity.
+    assert set(main.TEXT_MODEL_VARIANTS) <= set(main.TEXT_MODEL_IDENTITY)
+
+
+def test_text_chat_policy_assistant_scope_and_catalog():
+    assert main.sylvex_text_policy({"tool": "text"}) == ""
+    assert main.sylvex_text_policy({"tool": "translate", "sylvex_links": True}) == ""
+    catalog = {
+        "video": [["kling_3_0", "Kling 3.0"], ["bad id!", "Evil](javascript:x)"], ["veo_3_1", "Veo [3.1]"]],
+        "image": "not a list",
+        "other": [["x", "y"]],
+    }
+    policy = main.sylvex_text_policy({"tool": "text", "sylvex_links": True, "sylvex_catalog": catalog})
+    assert "(sylvex://assistant)" in policy and "SYLVEX Assistant" in policy
+    assert "unrestricted general-purpose assistant" in policy
+    assert "sylvex://model/<section>/<id>" in policy
+    assert "video: kling_3_0=Kling 3.0; badid=Evil  javascript:x; veo_3_1=Veo  3.1" in policy
+    assert "image:" not in policy and "other:" not in policy
+
+
+def test_text_generation_sends_identity_and_policy(monkeypatch):
+    seen = {}
+
+    def fake_provider(model, messages, attachment=None, max_output_tokens=None):
+        seen["model"] = model
+        seen["system"] = messages[0]["content"]
+        return {"ok": True, "text": "ok", "provider": "openai", "model": model}
+
+    monkeypatch.setattr(main, "call_text_provider", fake_provider)
+    payload = {"prompt": "Which model is best for video?", "model": "gpt-5.6",
+               "text_options": {"tool": "text", "sylvex_links": True, "sylvex_catalog": {"video": [["kling_3_0", "Kling 3.0"]]}}}
+    from services.billing_safety import billing_scope
+    with billing_scope("test-identity", 0, free=True):
+        result = main.text_generation(payload)
+    assert result["ok"]
+    assert "You are GPT-5.6 by OpenAI" in seen["system"]
+    assert "video: kling_3_0=Kling 3.0" in seen["system"]
+    # The reservation covers the same system text.
+    linked = main.text_generation_reservation(payload)[1]
+    plain = main.text_generation_reservation({"prompt": payload["prompt"], "model": "gpt-5.6", "text_options": {"tool": "text"}})[1]
+    assert linked > plain + len(main.SYLVEX_TEXT_LINK_GUIDANCE)

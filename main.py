@@ -5155,9 +5155,9 @@ def text_generation_price_input(payload: dict) -> tuple:
     capped helper reservation covers the whole request."""
     opts = payload.get("text_options") or {}
     tool = str(opts.get("tool") or "text").strip().lower()
-    parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower())]
-    if opts.get("sylvex_links") and tool == "text":
-        parts.append(SYLVEX_TEXT_LINK_GUIDANCE)
+    parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower(), normalize_text_model(payload.get("model") or "gpt-5.5"))]
+    if sylvex_text_policy(opts):
+        parts.append(sylvex_text_policy(opts))
     for item in (payload.get("history") or [])[-10:]:
         if isinstance(item, dict) and item.get("content"):
             parts.append(str(item.get("content")))
@@ -5224,9 +5224,9 @@ def text_generation_reservation(payload: dict) -> tuple:
     model = normalize_text_model(payload.get("model") or "gpt-5.5")
     opts = payload.get("text_options") if isinstance(payload.get("text_options"), dict) else {}
     tool = str(opts.get("tool") or "text").strip().lower()
-    parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower())]
-    if opts.get("sylvex_links") and tool == "text":
-        parts.append(SYLVEX_TEXT_LINK_GUIDANCE)
+    parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower(), normalize_text_model(payload.get("model") or "gpt-5.5"))]
+    if sylvex_text_policy(opts):
+        parts.append(sylvex_text_policy(opts))
     for item in (payload.get("history") or [])[-10:]:
         if isinstance(item, dict) and item.get("content"):
             parts.append(str(item.get("content")))
@@ -19796,7 +19796,31 @@ def save_text_pdf(text: str, title: str = "SYLVEX Text") -> str:
         return ""
 
 
-def text_system_prompt(tool: str, style: str, output_format: str) -> str:
+# Display name and maker of each selectable Text model, so the model can
+# state its real identity (the SYLVEX Assistant is a separate mode).
+TEXT_MODEL_IDENTITY = {
+    "gpt-5.6": ("GPT-5.6", "OpenAI"), "gpt-5.5": ("GPT-5.5", "OpenAI"), "gpt-5": ("GPT-5", "OpenAI"),
+    "gpt-5-mini": ("GPT-5 mini", "OpenAI"), "gpt-4.1": ("GPT-4.1", "OpenAI"), "gpt-4.1-mini": ("GPT-4.1 mini", "OpenAI"),
+    "gpt-4o": ("GPT-4o", "OpenAI"), "gpt-4o-mini": ("GPT-4o mini", "OpenAI"),
+    "gemini_3_1_pro": ("Gemini 3.1 Pro", "Google"), "gemini_3_1_flash": ("Gemini 3.1 Flash", "Google"),
+    "gemini_2_5_pro": ("Gemini 2.5 Pro", "Google"), "gemini_2_5_flash": ("Gemini 2.5 Flash", "Google"),
+    "grok_4_1": ("Grok 4.1", "xAI"), "grok_4_fast": ("Grok 4 Fast", "xAI"), "grok_3": ("Grok 3", "xAI"),
+    "qwen_plus": ("Qwen Plus", "Alibaba Cloud"), "qwen_turbo": ("Qwen Turbo", "Alibaba Cloud"), "qwen_max": ("Qwen Max", "Alibaba Cloud"),
+    "byteplus_seed_2_lite": ("BytePlus Seed 2.0 Lite", "ByteDance"),
+}
+
+
+def text_model_identity_line(model: str = "") -> str:
+    label, maker = TEXT_MODEL_IDENTITY.get(str(model or ""), ("", ""))
+    if not label:
+        return ("You are the text model the user selected, running inside the SYLVEX app. "
+                "Do not call yourself SYLVEX Assistant or SYLVEX.")
+    return (f"You are {label} by {maker}, the text model the user selected, running inside the SYLVEX app. "
+            f"If the user asks which model you are, say that you are {label} by {maker}. "
+            "Do not call yourself SYLVEX Assistant, SYLVEX AI or SYLVEX; the SYLVEX Assistant is a separate mode.")
+
+
+def text_system_prompt(tool: str, style: str, output_format: str, model: str = "") -> str:
     tool_notes = {
         "text": "Generate high-quality text for the user's task.",
         "document": "Create a structured document with clear sections, headings, and final actionable content.",
@@ -19820,7 +19844,7 @@ def text_system_prompt(tool: str, style: str, output_format: str) -> str:
     }
     format_note = "If PDF is selected, still return clean Markdown text; the backend will also create a PDF file."
     return (
-        "You are SYLVEX Pro Studio Text AI inside a Telegram Mini App. "
+        text_model_identity_line(model) + " "
         + tool_notes.get(tool, tool_notes["text"]) + " "
         + style_notes.get(style, style_notes["neutral"]) + " "
         + format_note
@@ -19828,17 +19852,69 @@ def text_system_prompt(tool: str, style: str, output_format: str) -> str:
     )
 
 
-# The full Text chat never switches the user to another studio by itself;
-# the model may only offer an internal link the client renders as a button.
+# Text chat policy (Pro Studio Text and Quick Access Text): stay within the
+# SYLVEX creative workflow, send SYLVEX account/platform questions to the
+# separate SYLVEX Assistant, and recommend only models available in SYLVEX.
+# The model never switches sections itself; it only offers internal links
+# that the client renders as buttons.
 SYLVEX_TEXT_LINK_GUIDANCE = (
-    "You are inside SYLVEX, which also has an Image studio, a Video studio, a Music studio and a "
-    "Voice (text-to-speech) studio. Keep the conversation here and never say you switched sections. "
-    "When the user clearly wants something one of those studios produces, answer normally and add at "
-    "most one short suggestion with a Markdown link of the form "
-    "[Open Video Studio](sylvex://open/video). Allowed targets: sylvex://open/image, "
-    "sylvex://open/video, sylvex://open/music, sylvex://open/voice. Translate the link text to the "
-    "user's language. Do not add such links when they are not relevant."
+    "You work inside SYLVEX, an AI creative platform with Image, Video, Music and Voice "
+    "(text-to-speech) studios and Text models. Help fully with writing and improving prompts, scripts, "
+    "descriptions, generation planning, image/video/music/voice-related tasks, text creation and editing, "
+    "and other work connected to the user's creative workflow. "
+    "If a request is clearly unrelated to SYLVEX, content creation, generation or that workflow, do not act "
+    "as an unrestricted general-purpose assistant: reply briefly and politely that Text models in SYLVEX work "
+    "within the SYLVEX creative workflow, and offer help with a related task. "
+    "Questions about SYLVEX itself (the user's account, balance, subscription, payments, platform features or "
+    "behaviour, support) belong to the separate SYLVEX Assistant. Do not answer them as the official SYLVEX "
+    "Assistant: reply with one short sentence pointing the user there and add the link "
+    "[Open SYLVEX Assistant](sylvex://assistant) on its own line. "
+    "When the user clearly wants something a studio produces, you may add at most one short link of the form "
+    "[Open Video Studio](sylvex://open/video); allowed targets: sylvex://open/image, sylvex://open/video, "
+    "sylvex://open/music, sylvex://open/voice. Never say you switched sections or started a generation. "
+    "Translate link text to the user's language and do not add links that are not relevant."
 )
+SYLVEX_CATALOG_MODES = ("image", "video", "music", "voice", "text")
+
+
+def sylvex_text_catalog(value) -> dict:
+    """Models the client can actually select, as {mode: [(id, label)]};
+    ids and labels are reduced to safe short strings."""
+    catalog = {}
+    if not isinstance(value, dict):
+        return catalog
+    for mode in SYLVEX_CATALOG_MODES:
+        items = []
+        for item in (value.get(mode) or [])[:80] if isinstance(value.get(mode), list) else []:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            model_id = re.sub(r"[^a-zA-Z0-9_.:\-]", "", str(item[0] or ""))[:80]
+            label = re.sub(r"[\[\]()<>\n\r]", " ", str(item[1] or "")).strip()[:60]
+            if model_id and label:
+                items.append((model_id, label))
+        if items:
+            catalog[mode] = items
+    return catalog
+
+
+def sylvex_text_policy(opts: dict) -> str:
+    """System guidance for the Text chat ("" for other text callers)."""
+    if not isinstance(opts, dict) or not opts.get("sylvex_links"):
+        return ""
+    if str(opts.get("tool") or "text").strip().lower() != "text":
+        return ""
+    policy = SYLVEX_TEXT_LINK_GUIDANCE
+    catalog = sylvex_text_catalog(opts.get("sylvex_catalog"))
+    if catalog:
+        listing = "\n".join(f"{mode}: " + "; ".join(f"{model_id}={label}" for model_id, label in items) for mode, items in catalog.items())
+        policy += (
+            " When the user asks which model fits an image, video, music, voice or text task, recommend only "
+            "models from the list of models available in SYLVEX below and never offer other models as choices. "
+            "For every model you recommend add a link with its exact name and id: "
+            "[Label →](sylvex://model/<section>/<id>), for example [Kling 3.0 →](sylvex://model/video/kling_3_0). "
+            "Available models (section: id=name):\n" + listing
+        )
+    return policy
 
 
 def quick_text_reply(prompt: str, attachment: dict, history: list, tool: str, output_format: str) -> str:
@@ -20112,9 +20188,10 @@ def text_generation(payload: dict) -> dict:
         if attachment_text:
             prompt = (prompt + "\n\n" if prompt else "") + "Attached document text:\n" + attachment_text
 
-    system_prompt = text_system_prompt(tool, style, output_format)
-    if text_options.get("sylvex_links") and tool == "text":
-        system_prompt += " " + SYLVEX_TEXT_LINK_GUIDANCE
+    system_prompt = text_system_prompt(tool, style, output_format, model)
+    policy = sylvex_text_policy(text_options)
+    if policy:
+        system_prompt += " " + policy
     messages = [{"role": "system", "content": system_prompt}]
     for item in history[-10:]:
         role = item.get("role") if item.get("role") in ("user", "assistant") else "user"
