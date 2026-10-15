@@ -55,7 +55,7 @@ function makeContext() {
     renderFixedDemoAvatars: 0,
     renderVoiceSpeakers: 0,
     setVoicePreview: [],
-    renderQuickText: 0,
+    quickText: [],
   };
   const parent = {}; // the trusted source - the real parent window
   const foreignWindow = {}; // any other window reference - never trusted
@@ -67,13 +67,12 @@ function makeContext() {
     renderFixedDemoAvatars: () => { calls.renderFixedDemoAvatars++; },
     renderVoiceSpeakers: () => { calls.renderVoiceSpeakers++; },
     setVoicePreview: (voice, autoplay) => calls.setVoicePreview.push([voice, autoplay]),
-    renderQuickText: () => { calls.renderQuickText++; },
+    handleQuickTextParentMessage: (message) => calls.quickText.push(message),
   });
   // The real module's closed-over `let` state these actions read/reassign.
   context.voiceLibrary = [];
   context.demoVoiceLibrary = ['d0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6'];
   context.selectedSpeakers = [{id: 'v1', name: 'One'}, {id: '', name: 'Two'}];
-  context.quickTextState = null;
   vm.runInContext('globalThis.__listener = ' + LISTENER_SRC + ';', context);
   return {context, calls, parent, foreignWindow};
 }
@@ -97,8 +96,8 @@ test('trusted origin + real parent window: music-library and quick-text-state st
   assert.deepEqual(calls.loadMusicSlides, [[{id: 't1'}]]);
 
   context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'sylvex-knowledge-parent', action: 'quick-text-state', messages: [{role: 'ai', text: 'Hello'}], busy: false}});
-  assert.equal(calls.renderQuickText, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(context.quickTextState.messages)), [{role: 'ai', text: 'Hello'}]);
+  assert.equal(calls.quickText.length, 1);
+  assert.equal(calls.quickText[0].action, 'quick-text-state');
 });
 
 test('foreign origin is rejected without any side effects, even with a correctly shaped payload', () => {
@@ -110,7 +109,7 @@ test('foreign origin is rejected without any side effects, even with a correctly
   });
   assert.deepEqual(calls.loadMusicSlides, []);
   assert.equal(calls.renderVoiceSpeakers, 0);
-  assert.equal(calls.renderQuickText, 0);
+  assert.equal(calls.quickText.length, 0);
 });
 
 test('correct origin but wrong window/source is rejected without any side effects', () => {
@@ -120,18 +119,17 @@ test('correct origin but wrong window/source is rejected without any side effect
     source: foreignWindow, // same origin, but not window.parent
     data: {source: 'sylvex-knowledge-parent', action: 'quick-text-state', messages: [{role: 'ai', text: 'spoofed'}]},
   });
-  assert.equal(calls.renderQuickText, 0);
-  assert.equal(context.quickTextState, null);
+  assert.equal(calls.quickText.length, 0);
 });
 
 test('missing origin/source (e.g. a non-postMessage-shaped event) is rejected, not just empty data', () => {
   const {context, calls} = makeContext();
   context.__listener({origin: '', source: null, data: {source: 'sylvex-knowledge-parent', action: 'quick-text-state', messages: [{role: 'ai', text: 'x'}]}});
-  assert.equal(calls.renderQuickText, 0);
+  assert.equal(calls.quickText.length, 0);
 });
 
 test('trusted origin and source but an unrelated message.source string is still ignored (pre-existing content check preserved)', () => {
   const {context, calls, parent} = makeContext();
   context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'something-else', action: 'quick-text-state', messages: [{role: 'ai', text: 'x'}]}});
-  assert.equal(calls.renderQuickText, 0);
+  assert.equal(calls.quickText.length, 0);
 });

@@ -17841,7 +17841,20 @@ function renderGeneratedTelegramButton(url, kind) {
   // tool, reloads and reopening the app until the user starts a new chat or
   // deletes it. The iframe only renders; this side owns state and API calls.
   // =====================================================
-  const quickText = { conversationId: null, messages: [], conversations: [], busy: false, loadedFor: null };
+  const quickText = { conversationId: null, messages: [], conversations: [], busy: false, loadedFor: null, model: '' };
+  const QUICK_TEXT_DEFAULT_MODEL = 'gpt-5.6';
+
+  // Text models with their Pro Studio brand icons for the Text tool's picker.
+  function quickTextModels() {
+    return TEXT_MODEL_LIST.map((model) => {
+      const icon = AI_LOGOS[model.icon] || AI_LOGOS.openai;
+      return { id: model.id, label: model.label || model.id, desc: model.desc || '', icon: icon === 'custom-banana' ? '' : icon };
+    });
+  }
+
+  function quickTextModelId() {
+    return TEXT_MODEL_LIST.some((model) => model.id === quickText.model) ? quickText.model : QUICK_TEXT_DEFAULT_MODEL;
+  }
 
   function quickTextStorageKey() {
     return 'sylvex-quick-text-' + (getTelegramId() || 'anon');
@@ -17854,10 +17867,12 @@ function renderGeneratedTelegramButton(url, kind) {
     quickText.conversationId = null;
     quickText.messages = [];
     quickText.conversations = [];
+    quickText.model = '';
     try {
       const stored = JSON.parse(localStorage.getItem(key) || 'null');
       if (stored && typeof stored === 'object') {
         quickText.conversationId = stored.conversationId || null;
+        quickText.model = String(stored.model || '');
         quickText.messages = (Array.isArray(stored.messages) ? stored.messages : [])
           .filter((m) => m && (m.role === 'user' || m.role === 'ai') && typeof m.text === 'string' && !m.loading);
       }
@@ -17866,9 +17881,17 @@ function renderGeneratedTelegramButton(url, kind) {
 
   function quickTextSave() {
     try {
+      // Only uploaded image URLs are kept; a local preview (data:/blob:)
+      // is never written to storage.
+      const messages = quickText.messages.filter((m) => !m.loading).slice(-200).map((m) => {
+        if (!Array.isArray(m.images)) return m;
+        const images = m.images.filter((url) => /^(https?:)?\/\//i.test(url) || /^\/(?!\/)/.test(url));
+        return Object.assign({}, m, { images });
+      });
       localStorage.setItem(quickTextStorageKey(), JSON.stringify({
         conversationId: quickText.conversationId,
-        messages: quickText.messages.filter((m) => !m.loading).slice(-200),
+        model: quickText.model,
+        messages,
       }));
     } catch (_) {}
   }
@@ -17904,9 +17927,11 @@ function renderGeneratedTelegramButton(url, kind) {
       action: 'quick-text-state',
       conversationId: quickText.conversationId,
       messages: quickText.messages,
-      conversations: quickText.conversations.slice(0, 60).map((item) => ({ id: item.id, title: item.title || 'Chat', updated_at: item.updated_at || '' })),
+      conversations: quickText.conversations.slice(0, 60).map((item) => ({ id: item.id, title: item.title || 'Chat', updated_at: item.updated_at || '', pinned: !!item.pinned })),
       busy: quickText.busy,
       user: quickTextUserCard(),
+      models: quickTextModels(),
+      model: quickTextModelId(),
     }, location.origin);
   }
 
@@ -17930,8 +17955,11 @@ function renderGeneratedTelegramButton(url, kind) {
       if (!data || !data.ok) return;
       quickText.conversationId = id;
       quickText.messages = (data.messages || [])
-        .map((m) => ({ role: m.role === 'assistant' ? 'ai' : 'user', text: String(m.role === 'assistant' ? (m.response_text || '') : (m.prompt || '')) }))
-        .filter((m) => m.text);
+        .map((m) => {
+          const images = m.role === 'assistant' ? [] : (Array.isArray(m.images) ? m.images.filter((url) => typeof url === 'string') : []);
+          return { role: m.role === 'assistant' ? 'ai' : 'user', text: String(m.role === 'assistant' ? (m.response_text || '') : (m.prompt || '')), images };
+        })
+        .filter((m) => m.text || m.images.length);
       quickTextSave();
     } catch (_) {}
     quickTextPush();
@@ -17963,15 +17991,22 @@ function renderGeneratedTelegramButton(url, kind) {
   async function quickTextSend(request) {
     quickTextEnsureLoaded();
     const prompt = String((request && request.prompt) || '').trim();
-    const attachment = request && request.attachment ? request.attachment : null;
-    if ((!prompt && !attachment) || quickText.busy) return;
+    const file = request && request.file instanceof Blob ? request.file : null;
+    let attachment = request && request.attachment ? request.attachment : null;
+    if ((!prompt && !attachment && !file) || quickText.busy) return;
     if (guestNeedsAccount()) return;
-    const model = String((request && request.model) || 'gpt-5.6');
+    if (request && request.model) quickText.model = String(request.model);
+    const model = quickTextModelId();
     const history = quickText.messages
       .filter((m) => m.text && !m.loading && !m.error)
       .slice(-10)
       .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
-    quickText.messages.push({ role: 'user', text: prompt, attachmentName: attachment ? String(attachment.name || 'Файл') : '' });
+    const preview = String((request && request.preview) || '');
+    const userMessage = { role: 'user', text: prompt, images: [] };
+    if (attachment && attachment.url) userMessage.images = [attachment.url];
+    else if (attachment && attachment.dataBase64) userMessage.images = ['data:' + (attachment.mime || 'image/png') + ';base64,' + attachment.dataBase64];
+    else if (file && /^data:image\//.test(preview)) userMessage.images = [preview];
+    quickText.messages.push(userMessage);
     const pending = { role: 'ai', text: '', loading: true };
     quickText.messages.push(pending);
     quickText.busy = true;
@@ -17979,6 +18014,19 @@ function renderGeneratedTelegramButton(url, kind) {
     quickTextPush();
     let reply;
     try {
+      // The image is uploaded first so the message keeps a real URL that
+      // is shown again when the conversation is reopened.
+      if (file || (attachment && attachment.dataBase64 && !attachment.url)) {
+        const blob = file || await (await fetch('data:' + (attachment.mime || 'image/png') + ';base64,' + attachment.dataBase64)).blob();
+        const name = String((file && file.name) || (attachment && attachment.name) || 'image.png');
+        const form = new FormData();
+        form.append('file', blob, name);
+        const upload = await fetch('/api/public/prostudio/upload-media?kind=image', { method: 'POST', body: form });
+        const uploaded = await upload.json().catch(() => ({}));
+        if (!upload.ok || !uploaded.ok || !uploaded.url) throw new Error('Не удалось загрузить фото. Попробуйте ещё раз.');
+        attachment = { kind: 'image', mime: blob.type || (attachment && attachment.mime) || 'image/png', name, url: String(uploaded.url) };
+        userMessage.images = [attachment.url];
+      }
       const response = await fetch('/api/public/prostudio/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
@@ -18016,6 +18064,40 @@ function renderGeneratedTelegramButton(url, kind) {
     quickTextLoadConversations();
   }
 
+  async function quickTextUpdateMeta(id, change) {
+    const tg = getTelegramId();
+    if (!tg || !id) return;
+    const item = quickText.conversations.find((c) => c.id === id);
+    if (item) Object.assign(item, change);
+    quickTextPush();
+    try {
+      await fetch('/api/public/prostudio/conversations/meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ telegram_id: tg, conversation_id: id }, change)),
+      });
+    } catch (_) {}
+    quickTextLoadConversations();
+  }
+
+  // Dictation fallback when the device has no speech recognition: the same
+  // transcription endpoint Pro Studio's microphone uses.
+  async function quickTextTranscribe(audio) {
+    const target = quickTextFrame();
+    const reply = (data) => target && target.postMessage(Object.assign({ source: 'sylvex-knowledge-parent', action: 'quick-text-transcript' }, data), location.origin);
+    if (!(audio instanceof Blob)) { reply({ error: 'Не удалось распознать голос' }); return; }
+    try {
+      const form = new FormData();
+      form.append('file', audio, 'voice.' + (String(audio.type).includes('mp4') ? 'mp4' : 'webm'));
+      const response = await fetch('/api/public/prostudio/transcribe', { method: 'POST', body: form });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(response.status === 402 ? 'Голосовой ввод пока недоступен на этом устройстве' : translateGenerationError(data, 'Не удалось распознать голос. Попробуйте ещё раз.'));
+      reply({ text: String(data.text || '') });
+    } catch (error) {
+      reply({ error: (error && error.message) || 'Не удалось распознать голос' });
+    }
+  }
+
   // Home router / Quick Access entry: open the Text tool, optionally sending
   // a prompt as the next message of its current conversation.
   function openQuickTextChat(opts) {
@@ -18028,12 +18110,20 @@ function renderGeneratedTelegramButton(url, kind) {
     quickTextEnsureLoaded();
     if (message.action === 'quick-text-init') { quickTextPush(); quickTextLoadConversations(); return; }
     if (message.action === 'text-chat') {
-      const reference = String(message.reference || '');
-      const match = /^data:([^;,]+);base64,(.+)$/.exec(reference);
-      const attachment = match ? { kind: 'image', mime: match[1], name: 'image', dataBase64: match[2] } : null;
-      quickTextSend({ prompt: message.prompt, model: message.model, attachment });
+      quickTextSend({ prompt: message.prompt, model: message.model, file: message.file, preview: message.preview });
       return;
     }
+    if (message.action === 'quick-text-model') {
+      quickText.model = String(message.model || '');
+      quickTextSave();
+      quickTextPush();
+      return;
+    }
+    if (message.action === 'quick-text-pin' || message.action === 'quick-text-rename') {
+      quickTextUpdateMeta(String(message.id || ''), message.action === 'quick-text-pin' ? { pinned: !!message.pinned } : { title: String(message.title || '') });
+      return;
+    }
+    if (message.action === 'quick-text-transcribe') { quickTextTranscribe(message.audio); return; }
     if (message.action === 'quick-text-new') { quickTextNew(); return; }
     if (message.action === 'quick-text-open') { quickTextOpen(String(message.id || '')); return; }
     if (message.action === 'quick-text-delete') { quickTextDelete(String(message.id || '')); return; }
