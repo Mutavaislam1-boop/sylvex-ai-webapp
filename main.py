@@ -7153,9 +7153,6 @@ async def public_prostudio_conversations(
                         "prompt": prompt,
                         "created_at": created_value,
                     })
-                if metadata.get("source") == "realtime_voice" and not response_text:
-                    # A live-voice turn the model never answered aloud.
-                    continue
                 messages.append({
                     "role": "assistant",
                     "response_text": response_text or "",
@@ -7178,7 +7175,7 @@ async def public_prostudio_conversations(
             return {"ok": True, "messages": messages, "limit": limit, "offset": offset}
 
         mode_filter = (mode or "").strip().lower()
-        mode_where = "AND mode = %s" if mode_filter in {"image", "video", "music", "voice"} else ""
+        mode_where = "AND mode = %s" if mode_filter in {"image", "video", "music", "voice", "text"} else ""
         params = [telegram_id]
         if mode_where:
             params.append(mode_filter)
@@ -23500,92 +23497,6 @@ async def public_home_idea_route(request: Request):
     except Exception as exc:
         prostudio_error("HOME_IDEA_ROUTE_FAILED", exc)
         return JSONResponse({"ok": False, "error": "idea_route_failed", "message": "SYLVEX временно не смог обработать запрос."}, status_code=500)
-
-
-PROSTUDIO_REALTIME_TRANSCRIBE_MODEL = os.getenv("OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
-
-
-def prostudio_realtime_instructions(context) -> str:
-    """Voice persona for the Text chat, primed with the current conversation
-    so a live session continues it instead of starting over."""
-    lines = []
-    for item in (context if isinstance(context, list) else [])[-12:]:
-        if not isinstance(item, dict):
-            continue
-        role = "User" if item.get("role") == "user" else "Assistant"
-        text = re.sub(r"\s+", " ", str(item.get("text") or "")).strip()[:1200]
-        if text:
-            lines.append(f"{role}: {text}")
-    base = (
-        "You are SYLVEX AI, the voice of the SYLVEX Text chat. Speak naturally, warmly and concisely, "
-        "in the user's language. Keep answers short enough for speech and let the user interrupt. "
-        "If the user wants an image, video, music or voiceover, you may suggest the matching SYLVEX "
-        "studio, but never claim that a generation has started. If the user explicitly asks which "
-        "underlying AI provider or model powers this feature, answer accurately based on the configured "
-        "provider/model - never reveal API keys or other internal secrets."
-    )
-    if lines:
-        base += "\n\nThis voice session continues the following conversation:\n" + "\n".join(lines)
-    return base[:16000]
-
-
-@app.post("/api/public/prostudio/realtime/session")
-async def public_prostudio_realtime_session(request: Request):
-    """Live voice for the Text chat (home input and Text mode). Same
-    entitlement as the website assistant: an active SYLVEX Pro subscription,
-    zero-credit billing scope, server-side API key."""
-    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
-    if not telegram_id:
-        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
-    state = await asyncio.to_thread(get_user_state, telegram_id)
-    if state.get("subscription_status") != "active":
-        return JSONResponse({
-            "ok": False, "error": "subscription_required",
-            "message": "Голосовой режим доступен с подпиской SYLVEX Pro.",
-        }, status_code=403)
-    if not OPENAI_API_KEY:
-        return JSONResponse({"ok": False, "error": "openai_not_configured"}, status_code=503)
-    await check_request_quota(telegram_id, "/api/public/prostudio/realtime/session")
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    sdp = str((body or {}).get("sdp") or "").strip()
-    if not sdp or len(sdp) > 200_000:
-        return JSONResponse({"ok": False, "error": "sdp_required"}, status_code=400)
-    instructions = prostudio_realtime_instructions((body or {}).get("context"))
-    try:
-        realtime_session_id = f"prostudio-realtime:{telegram_id}:{uuid4().hex}"
-        with billing_scope(realtime_session_id, 0, free=True):
-            content, status_code, content_type = await asyncio.to_thread(
-                mint_realtime_session, OPENAI_API_KEY, sdp, instructions, telegram_id, OPENAI_ASSISTANT_REALTIME_MODEL,
-                "marin", 30, PROSTUDIO_REALTIME_TRANSCRIBE_MODEL,
-                {"type": "semantic_vad", "create_response": True, "interrupt_response": True},
-            )
-        return Response(content=content, status_code=status_code, media_type=content_type)
-    except Exception as exc:
-        prostudio_error("PROSTUDIO_REALTIME_FAILED", exc)
-        return JSONResponse({"ok": False, "error": "realtime_unavailable"}, status_code=502)
-
-
-@app.post("/api/public/prostudio/conversations/voice-turn")
-async def public_prostudio_voice_turn(request: Request):
-    """Persist one live-voice exchange into the shared Text conversation."""
-    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
-    if not telegram_id:
-        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
-    body = await request.json()
-    user_text = str((body or {}).get("user_text") or "").strip()[:8000]
-    assistant_text = str((body or {}).get("assistant_text") or "").strip()[:16000]
-    if not user_text and not assistant_text:
-        return JSONResponse({"ok": False, "error": "text_required"}, status_code=400)
-    conversation_id = re.sub(r"[^a-zA-Z0-9_\-]", "", str((body or {}).get("conversation_id") or ""))[:80]
-    payload = {"conversation_id": conversation_id or None, "telegram_id": telegram_id, "mode": "text",
-               "prompt": user_text, "model": OPENAI_ASSISTANT_REALTIME_MODEL, "provider": "openai-realtime"}
-    result = {"text": assistant_text, "status": "completed",
-              "metadata": {"type": "text", "source": "realtime_voice", "model": OPENAI_ASSISTANT_REALTIME_MODEL}}
-    saved_id = await asyncio.to_thread(save_prostudio_message, payload, result)
-    return {"ok": True, "conversation_id": saved_id}
 
 
 @app.post("/api/public/home-idea/realtime")

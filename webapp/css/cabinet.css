@@ -10189,26 +10189,7 @@ html.browser-app body .view[data-view="tools"].active .studio-grid-canvas.studio
 html.browser-app #aiAssistantFab,
 html.browser-app .settings-ai-assistant-row{display:none!important}
 html.browser-app:is(.device-mobile,.device-tablet) #studioLayoutSwitch{display:none!important}
-/* Text chat: live voice (Realtime) button, status bar and internal links. */
-.studio-video-composer[data-composer-mode="text"] .text-live-btn.live,
-.home-idea-ai form button.voice.live{
-  background:#1687ff!important;border-color:#46a1ff!important;color:#fff!important;
-  animation:textMicBluePulse 1.15s ease-in-out infinite
-}
-.live-voice-bar{
-  position:absolute;left:24px;right:0;top:5px;z-index:4;height:38px;padding:0 4px 0 10px;
-  display:flex;align-items:center;gap:10px;border-radius:19px;
-  background:var(--st-bg-2,#202020);color:var(--st-text,#ececf1);font-size:13px
-}
-.live-voice-bar[hidden]{display:none!important}
-.live-voice-wave{display:flex;align-items:center;gap:3px;height:20px}
-.live-voice-wave i{width:3px;height:100%;border-radius:99px;background:#1687ff;animation:liveVoiceWave 1s ease-in-out infinite}
-.live-voice-wave i:nth-child(2){animation-delay:.15s}.live-voice-wave i:nth-child(3){animation-delay:.3s}.live-voice-wave i:nth-child(4){animation-delay:.45s}
-.live-voice-status{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.live-voice-end{flex:0 0 auto;height:30px;padding:0 14px;border:0;border-radius:15px;background:#ef4f63;color:#fff;font:600 12px/1 inherit;cursor:pointer}
-.studio.live-voice-on .studio-prompt-column textarea{visibility:hidden}
-@keyframes liveVoiceWave{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
-@media(max-width:900px){.live-voice-bar{left:0}}
+/* Text chat: internal SYLVEX links offered by the assistant. */
 .sylvex-chat-link{
   display:inline-flex;align-items:center;margin:6px 4px 2px 0;padding:7px 12px;border:1px solid var(--st-line-2,rgba(255,255,255,.14));
   border-radius:999px;background:var(--st-bg-2,#16161b);color:var(--st-text,#ececf1);font:600 13px/1.2 inherit;cursor:pointer
