@@ -17958,7 +17958,7 @@ function renderGeneratedTelegramButton(url, kind) {
       quickText.messages = (data.messages || [])
         .map((m) => {
           const images = m.role === 'assistant' ? [] : (Array.isArray(m.images) ? m.images.filter((url) => typeof url === 'string') : []);
-          return { role: m.role === 'assistant' ? 'ai' : 'user', text: String(m.role === 'assistant' ? (m.response_text || '') : (m.prompt || '')), images, at: String(m.created_at || '') };
+          return { role: m.role === 'assistant' ? 'ai' : 'user', text: String(m.role === 'assistant' ? (m.response_text || '') : (m.prompt || '')), images, at: String(m.created_at || ''), serverId: Number(m.message_id) || undefined };
         })
         .filter((m) => m.text || m.images.length);
       quickTextSave();
@@ -17990,7 +17990,7 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   // One Text request in the current conversation; resolves to the reply.
-  async function quickTextRequest(prompt, attachment, history, model) {
+  async function quickTextRequest(prompt, attachment, history, model, replaceMessageId) {
     const response = await fetch('/api/public/prostudio/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
@@ -18008,6 +18008,7 @@ function renderGeneratedTelegramButton(url, kind) {
         conversation_id: quickText.conversationId,
         client_request_id: 'quick-text-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
         language: uiLang(),
+        replace_message_id: replaceMessageId || undefined,
       }),
     });
     const data = await response.json().catch(() => ({}));
@@ -18015,7 +18016,22 @@ function renderGeneratedTelegramButton(url, kind) {
     if (response.status === 402 && data && data.paywall) throw new Error(data.error || 'Недостаточно токенов');
     if (!response.ok || !data.ok || !data.text) throw new Error(translateGenerationError(data, 'Не удалось получить ответ. Попробуйте ещё раз.'));
     if (data.conversation_id) quickText.conversationId = data.conversation_id;
-    return { role: 'ai', text: String(data.text), at: new Date().toISOString() };
+    return { role: 'ai', text: String(data.text), at: new Date().toISOString(), serverId: Number(data.message_id) || undefined };
+  }
+
+  // Server row of a saved answer (older messages may not carry it yet).
+  async function quickTextServerId(message) {
+    if (message && message.serverId) return message.serverId;
+    const tg = getTelegramId();
+    if (!tg || !quickText.conversationId || !message || !message.text) return 0;
+    try {
+      const response = await fetch('/api/public/prostudio/conversations?telegram_id=' + encodeURIComponent(tg) + '&conversation_id=' + encodeURIComponent(quickText.conversationId) + '&limit=100&offset=0', { cache: 'no-store' });
+      const data = await response.json();
+      const match = (data && data.messages || []).filter((m) => m.role === 'assistant' && m.response_text === message.text).pop();
+      return match && match.message_id ? Number(match.message_id) : 0;
+    } catch (_) {
+      return 0;
+    }
   }
 
   function quickTextErrorReply(error) {
@@ -18046,11 +18062,15 @@ function renderGeneratedTelegramButton(url, kind) {
     quickText.messages[index] = pending;
     quickText.busy = true;
     quickTextPush();
+    // The saved answer is replaced in place, so the history keeps the user
+    // message once with only the latest answer.
+    const replaceId = target.error ? 0 : await quickTextServerId(target);
     let reply;
     try {
-      reply = await quickTextRequest(user.text || '', attachment, quickTextHistoryBefore(userIndex), quickTextModelId());
+      reply = await quickTextRequest(user.text || '', attachment, quickTextHistoryBefore(userIndex), quickTextModelId(), replaceId);
     } catch (error) {
-      reply = quickTextErrorReply(error);
+      // The server still holds the previous answer; keep pointing at it.
+      reply = Object.assign(quickTextErrorReply(error), { serverId: target.serverId || replaceId || undefined });
     }
     const at = quickText.messages.indexOf(pending);
     if (at >= 0) quickText.messages[at] = reply;
@@ -18100,6 +18120,7 @@ function renderGeneratedTelegramButton(url, kind) {
         userMessage.images = [attachment.url];
       }
       reply = await quickTextRequest(prompt, attachment, history, model);
+      if (reply.serverId) userMessage.serverId = reply.serverId;
     } catch (error) {
       reply = quickTextErrorReply(error);
     }
@@ -18128,24 +18149,6 @@ function renderGeneratedTelegramButton(url, kind) {
     quickTextLoadConversations();
   }
 
-  // Dictation fallback when the device has no speech recognition: the same
-  // transcription endpoint Pro Studio's microphone uses.
-  async function quickTextTranscribe(audio) {
-    const target = quickTextFrame();
-    const reply = (data) => target && target.postMessage(Object.assign({ source: 'sylvex-knowledge-parent', action: 'quick-text-transcript' }, data), location.origin);
-    if (!(audio instanceof Blob)) { reply({ error: 'Не удалось распознать голос' }); return; }
-    try {
-      const form = new FormData();
-      form.append('file', audio, 'voice.' + (String(audio.type).includes('mp4') ? 'mp4' : 'webm'));
-      const response = await fetch('/api/public/prostudio/transcribe', { method: 'POST', body: form });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok) throw new Error(response.status === 402 ? 'Голосовой ввод пока недоступен на этом устройстве' : translateGenerationError(data, 'Не удалось распознать голос. Попробуйте ещё раз.'));
-      reply({ text: String(data.text || '') });
-    } catch (error) {
-      reply({ error: (error && error.message) || 'Не удалось распознать голос' });
-    }
-  }
-
   // Home router / Quick Access entry: open the Text tool, optionally sending
   // a prompt as the next message of its current conversation.
   function openQuickTextChat(opts) {
@@ -18171,7 +18174,6 @@ function renderGeneratedTelegramButton(url, kind) {
       quickTextUpdateMeta(String(message.id || ''), message.action === 'quick-text-pin' ? { pinned: !!message.pinned } : { title: String(message.title || '') });
       return;
     }
-    if (message.action === 'quick-text-transcribe') { quickTextTranscribe(message.audio); return; }
     if (message.action === 'quick-text-regenerate') { quickTextRegenerate(Number(message.index)); return; }
     if (message.action === 'quick-text-new') { quickTextNew(); return; }
     if (message.action === 'quick-text-open') { quickTextOpen(String(message.id || '')); return; }

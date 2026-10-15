@@ -6901,6 +6901,17 @@ def text_message_input_image(payload: dict) -> str:
     return ""
 
 
+def text_regenerate_target(payload: dict) -> int:
+    """Row id of the Text chat answer a regeneration replaces (0 = none)."""
+    if (payload.get("mode") or "text") != "text" or not payload.get("conversation_id"):
+        return 0
+    try:
+        value = int(payload.get("replace_message_id") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return value if value > 0 else 0
+
+
 def save_prostudio_message(payload: dict, result: dict) -> str:
     conversation_id = payload.get("conversation_id") or str(uuid4())
     telegram_id = int(payload.get("telegram_id") or 0)
@@ -6940,6 +6951,33 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
         ensure_prostudio_table()
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
+            replace_id = text_regenerate_target(payload)
+            if replace_id:
+                # Regenerate in the Text chat: the same user message keeps its
+                # one row and only the answer is replaced - no duplicate
+                # prompt/answer pair in the history.
+                cursor.execute("""
+                    UPDATE prostudio_messages
+                    SET response_text = %s, metadata_json = %s, status = %s, model = %s, provider = %s,
+                        cost = %s, response_json = %s::jsonb, updated_at = NOW(), completed_at = NOW()
+                    WHERE id = %s AND telegram_id = %s AND conversation_id = %s AND mode = 'text'
+                    RETURNING id
+                """, (
+                    result.get("text") or "",
+                    json.dumps(metadata, ensure_ascii=False),
+                    result.get("status") or "completed",
+                    payload.get("model") or "",
+                    payload.get("provider") or "",
+                    int(result.get("cost") or result.get("price") or 0),
+                    _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
+                    replace_id, telegram_id, conversation_id,
+                ))
+                replaced = cursor.fetchone()
+                if replaced:
+                    result["message_id"] = int(replaced[0])
+                    cursor.close()
+                    prostudio_debug("MESSAGE_DB_REPLACE_DONE", conversation_id=conversation_id, telegram_id=telegram_id)
+                    return conversation_id
             cursor.execute("""
                 INSERT INTO prostudio_messages (
                     conversation_id,
@@ -6965,6 +7003,7 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                     updated_at,
                     completed_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW(), NOW())
+                RETURNING id
             """, (
                 conversation_id,
                 telegram_id,
@@ -6987,6 +7026,9 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                 _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
                 _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
             ))
+            inserted = cursor.fetchone()
+            if inserted:
+                result["message_id"] = int(inserted[0])
             cursor.close()
         prostudio_debug("MESSAGE_DB_WRITE_DONE", conversation_id=conversation_id, telegram_id=telegram_id)
     except Exception as exc:
@@ -7127,7 +7169,7 @@ async def public_prostudio_conversations(
                         SELECT
                             prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
                             video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
-                            status, model, provider, cost, response_json
+                            status, model, provider, cost, response_json, id
                         FROM prostudio_messages
                         WHERE telegram_id = %s
                           AND conversation_id = %s
@@ -7142,7 +7184,7 @@ async def public_prostudio_conversations(
             for (
                 prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
                 video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
-                status, model, provider, cost, response_json,
+                status, model, provider, cost, response_json, message_id,
             ) in rows:
                 images = _json_list(images_json) or ([image_url] if image_url else [])
                 thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
@@ -7178,12 +7220,14 @@ async def public_prostudio_conversations(
                         "role": "user",
                         "prompt": prompt or "",
                         "created_at": created_value,
+                        "message_id": message_id,
                     }
                     if input_images:
                         user_message["images"] = input_images
                     messages.append(user_message)
                 messages.append({
                     "role": "assistant",
+                    "message_id": message_id,
                     "response_text": response_text or "",
                     "image_url": images[0] if images else "",
                     "images": images,

@@ -93,3 +93,46 @@ def test_inline_base64_images_are_not_stored_as_input_images():
     assert main.text_message_input_image({"mode": "text", "attachment": {"mime": "image/png", "dataBase64": "AAAA"}}) == ""
     assert main.text_message_input_image({"mode": "image", "attachment": {"mime": "image/png", "url": "https://x/y.png"}}) == ""
     assert main.text_message_input_image({"mode": "text", "attachment": {"mime": "image/png", "url": "javascript:alert(1)"}}) == ""
+
+
+def _save_result(tg, conv, prompt, text, replace=None):
+    payload = {"conversation_id": conv, "telegram_id": tg, "mode": "text", "prompt": prompt, "model": "gpt-5.6", "provider": "openai"}
+    if replace is not None:
+        payload["replace_message_id"] = replace
+    result = {"text": text, "metadata": {"usage": {"input_tokens": 1}}}
+    main.save_prostudio_message(payload, result)
+    return result
+
+
+@needs_db
+def test_regenerate_replaces_the_saved_answer_in_place(db):
+    tg = db
+    first = _save_result(tg, "conv-r", "Explain light", "answer one")
+    _save_result(tg, "conv-r", "And sound?", "sound answer")
+    row_id = first["message_id"]
+    regenerated = _save_result(tg, "conv-r", "Explain light", "answer two", replace=row_id)
+    assert regenerated["message_id"] == row_id
+    messages = _run(main.public_prostudio_conversations(telegram_id=tg, conversation_id="conv-r"))["messages"]
+    assert [(m["role"], m.get("prompt") or m.get("response_text")) for m in messages] == [
+        ("user", "Explain light"), ("assistant", "answer two"), ("user", "And sound?"), ("assistant", "sound answer")]
+    assert messages[0]["message_id"] == messages[1]["message_id"] == row_id
+
+
+@needs_db
+def test_regenerate_cannot_touch_another_users_or_conversations_rows(db):
+    tg = db
+    first = _save_result(tg, "conv-own", "Mine", "my answer")
+    other = _save_result(tg + 1, "conv-own", "Mine", "their answer", replace=first["message_id"])
+    assert other["message_id"] != first["message_id"]
+    elsewhere = _save_result(tg, "conv-other", "Mine", "other conv", replace=first["message_id"])
+    assert elsewhere["message_id"] != first["message_id"]
+    mine = _run(main.public_prostudio_conversations(telegram_id=tg, conversation_id="conv-own"))["messages"]
+    assert [m.get("response_text") for m in mine if m["role"] == "assistant"] == ["my answer"]
+
+
+def test_regenerate_target_only_for_text_with_a_conversation():
+    assert main.text_regenerate_target({"mode": "text", "conversation_id": "c", "replace_message_id": "12"}) == 12
+    assert main.text_regenerate_target({"mode": "text", "replace_message_id": 12}) == 0
+    assert main.text_regenerate_target({"mode": "image", "conversation_id": "c", "replace_message_id": 12}) == 0
+    assert main.text_regenerate_target({"mode": "text", "conversation_id": "c", "replace_message_id": "x"}) == 0
+    assert main.text_regenerate_target({"mode": "text", "conversation_id": "c", "replace_message_id": -3}) == 0
