@@ -8460,12 +8460,10 @@ async function generateQuickImageDetail(e) {
   Object.assign(customValues, state.extraUploads || {});
   if (state.source === 'quick') switchView('tools');
   updateComposerMode('image');
-  // Catalog-driven generation (References/Styles/Popular/Objects) always
-  // runs on GPT Image 2: the uploaded photo is the main source/content,
-  // the selected catalog image is the visual/style/reference guide -
-  // syncImageModelOptionDefaults() (called inside renderImageControls()
-  // below, keyed off this modelId) corrects size/quality for it the same
-  // way the manual model picker does.
+  // Catalog-driven generation always runs on GPT Image 2. Styles and
+  // Objects use their catalog card only as a visible choice and obtain the
+  // actual transformation from the card's built-in prompt. Their image
+  // input is exclusively the photo uploaded by the user.
   imageState.modelId = 'gpt_image_2';
   imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [state.uploadedUrl]; imageState.referenceImageUrl = state.uploadedUrl;
   imageState.referenceSourceByUrl = Object.assign({}, imageState.referenceSourceByUrl || {}, { [state.uploadedUrl]: 'upload' });
@@ -8473,25 +8471,15 @@ async function generateQuickImageDetail(e) {
   if (item.kind === 'styles') {
     imageState.style = item.styleId || item.id || 'auto';
     const userImageReferences = [state.uploadedUrl].concat(Object.values(state.extraUploads || {})).filter(Boolean);
-    // Built-in Pro Studio styles (item.styleId set) already apply through
-    // the existing imageState.style mechanism - leave that path untouched.
-    // Catalog-folder styles (no styleId) have no such mechanism, so the
-    // style's own template image and prompt (if any) are sent to GPT
-    // Image 2 as an explicit visual/style reference instead, the same way
-    // the References/Popular/Objects branches already do below.
-    const isBuiltInStyle = !!item.styleId;
-    imageState.referenceImageUrls = isBuiltInStyle ? userImageReferences : [item.url].concat(userImageReferences);
+    imageState.referenceImageUrls = userImageReferences.slice();
     imageState.uploadedImageUrls = userImageReferences.slice();
     userImageReferences.forEach((url) => { imageState.referenceSourceByUrl[url] = 'upload'; });
-    if (!isBuiltInStyle) imageState.referenceSourceByUrl[item.url] = 'history';
     prompt = [item.prompt || '', extra].filter(Boolean).join('\n\n');
     const customization = Object.entries(customValues).filter(([key]) => !state.extraUploads || !state.extraUploads[key]).map(([key,value]) => key + ': ' + value).join('\n');
     if (customization) prompt += '\n\nUSER CUSTOMIZATION (use these values exactly):\n' + customization;
   } else if (item.kind === 'objects') {
     imageState.objectId = item.id; imageState.objectName = item.title;
-    imageState.objectReferences = item.objectItem
-      ? (item.objectItem.referenceImages || item.objectItem.reference_images || item.objectItem.photos || [visualPreviewUrl(item.objectItem)]).filter(Boolean)
-      : [item.url];
+    imageState.objectReferences = [];
     imageState.objectPrompt = item.prompt || '';
     prompt = [item.prompt || ('Добавь выбранный объект «' + item.title + '» в загруженное изображение.'), extra].filter(Boolean).join('\n\n');
   } else {
@@ -8504,6 +8492,43 @@ async function generateQuickImageDetail(e) {
   pendingCatalogImageGeneration = { prompt, displayPrompt, catalogUrl:item.url, userUrl:state.uploadedUrl, itemId:item.id, kind:item.kind };
   input.value = displayPrompt; autoGrow(input); renderImageControls(); renderImageUploadPreview(); renderUploadedPhotoGrid(); updateSendButton();
   closeQuickImageDetail(); closePhotoCatalog(); await sendChat();
+}
+
+function applyCatalogImageGenerationOptions(imageOptions, catalogGeneration) {
+  if (!imageOptions || !catalogGeneration) return imageOptions;
+  const kind = String(catalogGeneration.kind || '');
+  const catalogUrl = String(catalogGeneration.catalogUrl || '');
+  const promptOnly = kind === 'styles' || kind === 'objects';
+  const withoutCatalog = (items) => Array.isArray(items) ? items.filter((url) => String(url || '') && String(url) !== catalogUrl) : [];
+  // Defend the wire request even if a restored draft predates the current
+  // catalog rules and still contains the catalog thumbnail among its refs.
+  if (promptOnly) {
+    imageOptions.referenceImageUrls = withoutCatalog(imageOptions.referenceImageUrls);
+    imageOptions.referenceImages = withoutCatalog(imageOptions.referenceImages);
+    imageOptions.uploadedImageUrls = withoutCatalog(imageOptions.uploadedImageUrls);
+    if (String(imageOptions.referenceImageUrl || '') === catalogUrl) imageOptions.referenceImageUrl = imageOptions.referenceImageUrls[0] || '';
+  }
+
+  if (promptOnly) {
+    imageOptions.characterId = null;imageOptions.characterName = '';imageOptions.characterPrompt = '';imageOptions.characterReferences = [];
+    imageOptions.objectId = null;imageOptions.objectName = '';imageOptions.objectPrompt = '';imageOptions.objectReferences = [];imageOptions.objects = '';
+  }
+  if (kind === 'objects') {
+    imageOptions.style = 'auto';imageOptions.style_id = 'auto';delete imageOptions.style_prompt;delete imageOptions.stylePrompt;
+  }
+  Object.assign(imageOptions, {
+    catalog_prompt_hidden: true,
+    catalog_display_prompt: catalogGeneration.displayPrompt,
+    // Display-only metadata. Provider adapters never read this key as an
+    // image input; the chat uses it to show the selected card next to the
+    // user's uploaded photo.
+    catalog_reference_url: catalogUrl,
+    user_reference_url: catalogGeneration.userUrl,
+    catalog_item_id: catalogGeneration.itemId,
+    catalog_item_kind: kind,
+    reference_roles: catalogUrl ? [promptOnly ? 'catalog_display' : 'catalog', 'user'] : ['user'],
+  });
+  return imageOptions;
 }
 
 function photoToolMediaHtml(source, extra) {
@@ -17194,6 +17219,12 @@ function renderGeneratedTelegramButton(url, kind) {
     ].filter((url) => typeof url === 'string' && url);
   }
 
+  function requestImageDisplayReferences(meta) {
+    const options = meta && (meta.image_options || meta.settings) || {};
+    const catalogUrl = String((meta && meta.catalog_reference_url) || options.catalog_reference_url || '');
+    return Array.from(new Set([catalogUrl, ...requestImageReferences(meta)].filter(Boolean)));
+  }
+
   function renderReferencePile(refs) {
     if (!refs || !refs.length) return '';
     const center = (refs.length - 1) / 2;
@@ -17269,7 +17300,7 @@ function renderGeneratedTelegramButton(url, kind) {
           + '</div>';
       }
       if (m.imageResultMini) {
-        const refs = requestImageReferences(m.metadata);
+        const refs = requestImageDisplayReferences(m.metadata);
         const previous = chatMessages[i - 1];
         const pairedUser = refs.length && previous && previous.role === 'user' && !Object.prototype.hasOwnProperty.call(m, 'userPrompt');
         const userPrompt = requestPromptIsInternal(m.metadata) ? '' : String(m.userPrompt || '');
@@ -17297,7 +17328,7 @@ function renderGeneratedTelegramButton(url, kind) {
       const actions = renderMsgActionsBar(m, i);
       let inner = '';
       const next = chatMessages[i + 1];
-      const resultRefs = m.role === 'user' && next && next.imageResultMini ? requestImageReferences(next.metadata) : [];
+      const resultRefs = m.role === 'user' && next && next.imageResultMini ? requestImageDisplayReferences(next.metadata) : [];
       if (resultRefs.length) inner += renderReferenceRequest(resultRefs, requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''));
       else if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
@@ -22477,15 +22508,7 @@ async function waitGeneration(jobId, options) {
       ? imageOptionsPayload(referenceImages)
       : null;
     if (imageOptionsSnapshot && catalogGeneration) {
-      Object.assign(imageOptionsSnapshot, {
-        catalog_prompt_hidden: true,
-        catalog_display_prompt: catalogGeneration.displayPrompt,
-        catalog_reference_url: catalogGeneration.kind === 'styles' ? '' : catalogGeneration.catalogUrl,
-        user_reference_url: catalogGeneration.userUrl,
-        catalog_item_id: catalogGeneration.itemId,
-        catalog_item_kind: catalogGeneration.kind,
-        reference_roles: catalogGeneration.kind === 'styles' ? ['user'] : ['catalog', 'user'],
-      });
+      applyCatalogImageGenerationOptions(imageOptionsSnapshot, catalogGeneration);
     }
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
     const droppedReferenceNotice = videoOptionsSnapshot ? videoDroppedReferenceNotice(videoOptionsSnapshot.reference_inputs_dropped) : '';

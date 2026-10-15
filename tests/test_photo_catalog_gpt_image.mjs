@@ -12,17 +12,9 @@
 //   - References/Popular (the default branch): unchanged - the catalog
 //     image and the user's uploaded photo are both sent as references
 //     (already working before this change).
-//   - Objects: unchanged - the user's photo stays the sole
-//     referenceImageUrls entry, the catalog item's own images flow
-//     through the existing objectReferences/objectPrompt channel.
-//   - Styles, catalog-folder item (no styleId): now also sends the
-//     catalog's own image as a visual/style reference alongside the
-//     uploaded photo, and folds the style's own template prompt into the
-//     final prompt - previously neither ever reached the model.
-//   - Styles, built-in Pro Studio style (styleId set): completely
-//     unaffected - still only the uploaded photo(s), no prompt injection -
-//     since that style already applies through the untouched
-//     imageState.style mechanism.
+//   - Styles and Objects send only the photo uploaded by the user. Their
+//     catalog image is presentation-only, while their built-in prompt is
+//     folded into the generation instruction.
 //   - The result is still handed to the ordinary chat/history pipeline
 //     (sendChat()), never a separate code path.
 import {test} from 'node:test';
@@ -112,25 +104,23 @@ test('popular_references kind behaves exactly like references', async () => {
   assert.deepEqual([...imageState.referenceImageUrls], ['https://cdn.sylvex.ai/pop1.png', 'https://cdn.sylvex.ai/user-photo.jpg']);
 });
 
-test('objects kind: forces GPT Image 2 but leaves the existing Object-reference channel untouched', async () => {
+test('objects kind: uses only the user photo and the built-in object prompt', async () => {
   const item = { id: 'obj1', kind: 'objects', title: 'Leather Bag', url: 'https://cdn.sylvex.ai/obj1.png', prompt: 'Black leather handbag with brass hardware.' };
   const { imageState } = await run(item);
   assert.equal(imageState.modelId, 'gpt_image_2');
-  // The user's photo remains the only referenceImageUrls entry - the
-  // catalog object's own image(s) flow through objectReferences instead.
   assert.deepEqual([...imageState.referenceImageUrls], ['https://cdn.sylvex.ai/user-photo.jpg']);
   assert.equal(imageState.objectId, 'obj1');
   assert.equal(imageState.objectName, 'Leather Bag');
-  assert.deepEqual([...imageState.objectReferences], ['https://cdn.sylvex.ai/obj1.png']);
+  assert.deepEqual([...imageState.objectReferences], []);
   assert.equal(imageState.objectPrompt, 'Black leather handbag with brass hardware.');
 });
 
-test('styles kind, catalog-folder item (no styleId): sends the catalog image as a reference and folds in its template prompt', async () => {
+test('styles kind, catalog-folder item: uses only the user photo and folds in its template prompt', async () => {
   const item = { id: 'quick_styles_07', kind: 'styles', title: 'Lime Editorial', url: 'https://cdn.sylvex.ai/style07.png', prompt: 'Vivid lime-toned editorial fashion look.' };
   const { imageState } = await run(item);
   assert.equal(imageState.modelId, 'gpt_image_2');
-  assert.deepEqual([...imageState.referenceImageUrls], ['https://cdn.sylvex.ai/style07.png', 'https://cdn.sylvex.ai/user-photo.jpg']);
-  assert.equal(imageState.referenceSourceByUrl['https://cdn.sylvex.ai/style07.png'], 'history');
+  assert.deepEqual([...imageState.referenceImageUrls], ['https://cdn.sylvex.ai/user-photo.jpg']);
+  assert.ok(!('https://cdn.sylvex.ai/style07.png' in imageState.referenceSourceByUrl));
   assert.equal(imageState.style, 'quick_styles_07');
 });
 
@@ -152,4 +142,37 @@ test('a missing catalog-folder style prompt does not inject a stray leading blan
   // pendingCatalogImageGeneration.prompt should be just the free-text
   // extra ("make it cinematic"), not "\n\nmake it cinematic".
   assert.equal(sandbox.pendingCatalogImageGeneration.prompt, 'make it cinematic');
+});
+
+test('catalog transport strips hidden style and object images while retaining both display thumbnails', () => {
+  const sandbox = {};
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('applyCatalogImageGenerationOptions'), context);
+  const base = {
+    referenceImageUrls: ['https://cdn.sylvex.ai/catalog.png', 'https://cdn.sylvex.ai/user.jpg'],
+    referenceImages: ['https://cdn.sylvex.ai/catalog.png', 'https://cdn.sylvex.ai/user.jpg'],
+    uploadedImageUrls: ['https://cdn.sylvex.ai/user.jpg'],referenceImageUrl:'https://cdn.sylvex.ai/catalog.png',
+    characterId:'old-character',characterReferences:['https://cdn.sylvex.ai/character.jpg'],
+    objectId:'obj',objectName:'Bag',objectPrompt:'Bag prompt',objectReferences:['https://cdn.sylvex.ai/catalog.png'],
+    style:'cinematic',style_id:'cinematic',style_prompt:'Old style',
+  };
+  const catalog = {kind:'objects',catalogUrl:'https://cdn.sylvex.ai/catalog.png',userUrl:'https://cdn.sylvex.ai/user.jpg',itemId:'obj',displayPrompt:'Object: Bag'};
+  sandbox.options=structuredClone(base);sandbox.catalog=catalog;
+  vm.runInContext('applyCatalogImageGenerationOptions(options,catalog)',context);
+  assert.deepEqual([...sandbox.options.referenceImageUrls],['https://cdn.sylvex.ai/user.jpg']);
+  assert.deepEqual([...sandbox.options.referenceImages],['https://cdn.sylvex.ai/user.jpg']);
+  assert.deepEqual([...sandbox.options.characterReferences],[]);assert.deepEqual([...sandbox.options.objectReferences],[]);
+  assert.equal(sandbox.options.objectId,null);assert.equal(sandbox.options.objectPrompt,'');assert.equal(sandbox.options.style,'auto');
+  assert.equal(sandbox.options.catalog_reference_url,catalog.catalogUrl);
+  assert.deepEqual([...sandbox.options.reference_roles],['catalog_display','user']);
+
+  vm.runInContext(extractFunction('requestImageReferences')+'\n'+extractFunction('requestImageDisplayReferences'),context);
+  sandbox.meta={type:'image',catalog_reference_url:catalog.catalogUrl,image_options:sandbox.options};
+  assert.deepEqual([...vm.runInContext('requestImageReferences(meta)',context)],['https://cdn.sylvex.ai/user.jpg']);
+  assert.deepEqual([...vm.runInContext('requestImageDisplayReferences(meta)',context)],[catalog.catalogUrl,'https://cdn.sylvex.ai/user.jpg']);
+
+  sandbox.options=structuredClone(base);sandbox.catalog={...catalog,kind:'references'};
+  vm.runInContext('applyCatalogImageGenerationOptions(options,catalog)',context);
+  assert.deepEqual([...sandbox.options.referenceImageUrls],[catalog.catalogUrl,'https://cdn.sylvex.ai/user.jpg'],'ordinary reference catalog behavior stays unchanged');
+  assert.deepEqual([...sandbox.options.objectReferences],[catalog.catalogUrl]);
 });
