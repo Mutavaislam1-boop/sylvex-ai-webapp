@@ -9,7 +9,7 @@
 // event.origin or event.source. Since postMessage delivery is not restricted
 // by same-origin policy, any page/frame that merely holds a reference to
 // this window (not just the real parent) could spoof a reply and drive real
-// state changes (injecting a fabricated music/voice library, or appending a
+// state changes (injecting a fabricated music/voice library, or injecting a
 // fabricated "AI" chat message).
 //
 // Fix: the listener now rejects anything whose event.origin isn't this
@@ -55,30 +55,25 @@ function makeContext() {
     renderFixedDemoAvatars: 0,
     renderVoiceSpeakers: 0,
     setVoicePreview: [],
-    appendTextMessage: [],
-    removedLoadingBubble: 0,
+    renderQuickText: 0,
   };
   const parent = {}; // the trusted source - the real parent window
   const foreignWindow = {}; // any other window reference - never trusted
   const context = vm.createContext({
     location: {origin: TRUSTED_ORIGIN},
     window: {parent},
-    document: {
-      querySelector: (selector) => {
-        if (selector === '.quick-text-message.loading') return {remove: () => { calls.removedLoadingBubble++; }};
-        return null;
-      },
-    },
+    mode: 'text',
     loadMusicSlides: (tracks) => calls.loadMusicSlides.push(tracks),
     renderFixedDemoAvatars: () => { calls.renderFixedDemoAvatars++; },
     renderVoiceSpeakers: () => { calls.renderVoiceSpeakers++; },
     setVoicePreview: (voice, autoplay) => calls.setVoicePreview.push([voice, autoplay]),
-    appendTextMessage: (role, text) => calls.appendTextMessage.push([role, text]),
+    renderQuickText: () => { calls.renderQuickText++; },
   });
   // The real module's closed-over `let` state these actions read/reassign.
   context.voiceLibrary = [];
   context.demoVoiceLibrary = ['d0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6'];
   context.selectedSpeakers = [{id: 'v1', name: 'One'}, {id: '', name: 'Two'}];
+  context.quickTextState = null;
   vm.runInContext('globalThis.__listener = ' + LISTENER_SRC + ';', context);
   return {context, calls, parent, foreignWindow};
 }
@@ -96,14 +91,14 @@ test('trusted origin + real parent window: voice-library message is accepted and
   assert.deepEqual(context.demoVoiceLibrary, ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
 });
 
-test('trusted origin + real parent window: music-library and text-chat-result still work unchanged', () => {
+test('trusted origin + real parent window: music-library and quick-text-state still work', () => {
   const {context, calls, parent} = makeContext();
   context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'sylvex-knowledge-parent', action: 'music-library', tracks: [{id: 't1'}]}});
   assert.deepEqual(calls.loadMusicSlides, [[{id: 't1'}]]);
 
-  context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'sylvex-knowledge-parent', action: 'text-chat-result', text: 'Hello'}});
-  assert.equal(calls.removedLoadingBubble, 1);
-  assert.deepEqual(calls.appendTextMessage, [['ai', 'Hello']]);
+  context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'sylvex-knowledge-parent', action: 'quick-text-state', messages: [{role: 'ai', text: 'Hello'}], busy: false}});
+  assert.equal(calls.renderQuickText, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.quickTextState.messages)), [{role: 'ai', text: 'Hello'}]);
 });
 
 test('foreign origin is rejected without any side effects, even with a correctly shaped payload', () => {
@@ -115,7 +110,7 @@ test('foreign origin is rejected without any side effects, even with a correctly
   });
   assert.deepEqual(calls.loadMusicSlides, []);
   assert.equal(calls.renderVoiceSpeakers, 0);
-  assert.equal(calls.appendTextMessage.length, 0);
+  assert.equal(calls.renderQuickText, 0);
 });
 
 test('correct origin but wrong window/source is rejected without any side effects', () => {
@@ -123,20 +118,20 @@ test('correct origin but wrong window/source is rejected without any side effect
   context.__listener({
     origin: TRUSTED_ORIGIN,
     source: foreignWindow, // same origin, but not window.parent
-    data: {source: 'sylvex-knowledge-parent', action: 'text-chat-result', text: 'spoofed'},
+    data: {source: 'sylvex-knowledge-parent', action: 'quick-text-state', messages: [{role: 'ai', text: 'spoofed'}]},
   });
-  assert.equal(calls.removedLoadingBubble, 0);
-  assert.deepEqual(calls.appendTextMessage, []);
+  assert.equal(calls.renderQuickText, 0);
+  assert.equal(context.quickTextState, null);
 });
 
 test('missing origin/source (e.g. a non-postMessage-shaped event) is rejected, not just empty data', () => {
   const {context, calls} = makeContext();
-  context.__listener({origin: '', source: null, data: {source: 'sylvex-knowledge-parent', action: 'text-chat-result', text: 'x'}});
-  assert.deepEqual(calls.appendTextMessage, []);
+  context.__listener({origin: '', source: null, data: {source: 'sylvex-knowledge-parent', action: 'quick-text-state', messages: [{role: 'ai', text: 'x'}]}});
+  assert.equal(calls.renderQuickText, 0);
 });
 
 test('trusted origin and source but an unrelated message.source string is still ignored (pre-existing content check preserved)', () => {
   const {context, calls, parent} = makeContext();
-  context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'something-else', action: 'text-chat-result', text: 'x'}});
-  assert.deepEqual(calls.appendTextMessage, []);
+  context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'something-else', action: 'quick-text-state', messages: [{role: 'ai', text: 'x'}]}});
+  assert.equal(calls.renderQuickText, 0);
 });

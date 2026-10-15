@@ -17,7 +17,6 @@ COSTLY=frozenset({
  '/api/public/home-idea/realtime','/api/public/prostudio/grid/plan',
  '/api/public/prostudio/upload-media',
  '/api/web/assistant/message','/api/web/assistant/realtime/session','/api/web/assistant/files',
- '/api/public/prostudio/realtime/session',
 })
 def ensure_limit_table(dsn):
  global _ready

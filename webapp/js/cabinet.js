@@ -5190,7 +5190,7 @@ function localizedGreeting() {
     if (!chatSpaces[type]) return;
     chatSpaces[type].activeChatId = currentConvId || null;
     chatSpaces[type].conversationId = currentConvId || null;
-    chatSpaces[type].messages = (chatMessages || []).filter((item) => !(item && item.voicePending));
+    chatSpaces[type].messages = (chatMessages || []).slice();
     try {
       localStorage.setItem(chatStorageKey(type), JSON.stringify(chatSpaces[type]));
       localStorage.setItem(lastModeStorageKey(), type);
@@ -17804,8 +17804,6 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   function openKnowledgeWorkspace(section) {
-    // Quick Access -> Text is the full persistent Text chat itself.
-    if (section === 'text') { openTextChat(); return; }
     const modal = document.getElementById('knowledgeWorkspaceModal');
     const frame = document.getElementById('knowledgeWorkspaceFrame');
     if (!modal || !frame) return;
@@ -17834,9 +17832,231 @@ function renderGeneratedTelegramButton(url, kind) {
     }, 260);
   }
 
+  // =====================================================
+  // QUICK ACCESS TEXT
+  // The standalone Text chat (knowledge-workspace.html?mode=text). It keeps
+  // its own current conversation, independent of Pro Studio's chat state:
+  // saved per account in localStorage and server-side in the account's text
+  // history (prostudio_messages, mode "text"), so it survives leaving the
+  // tool, reloads and reopening the app until the user starts a new chat or
+  // deletes it. The iframe only renders; this side owns state and API calls.
+  // =====================================================
+  const quickText = { conversationId: null, messages: [], conversations: [], busy: false, loadedFor: null };
+
+  function quickTextStorageKey() {
+    return 'sylvex-quick-text-' + (getTelegramId() || 'anon');
+  }
+
+  function quickTextEnsureLoaded() {
+    const key = quickTextStorageKey();
+    if (quickText.loadedFor === key) return;
+    quickText.loadedFor = key;
+    quickText.conversationId = null;
+    quickText.messages = [];
+    quickText.conversations = [];
+    try {
+      const stored = JSON.parse(localStorage.getItem(key) || 'null');
+      if (stored && typeof stored === 'object') {
+        quickText.conversationId = stored.conversationId || null;
+        quickText.messages = (Array.isArray(stored.messages) ? stored.messages : [])
+          .filter((m) => m && (m.role === 'user' || m.role === 'ai') && typeof m.text === 'string' && !m.loading);
+      }
+    } catch (_) {}
+  }
+
+  function quickTextSave() {
+    try {
+      localStorage.setItem(quickTextStorageKey(), JSON.stringify({
+        conversationId: quickText.conversationId,
+        messages: quickText.messages.filter((m) => !m.loading).slice(-200),
+      }));
+    } catch (_) {}
+  }
+
+  function quickTextFrame() {
+    const frame = document.getElementById('knowledgeWorkspaceFrame');
+    const modal = document.getElementById('knowledgeWorkspaceModal');
+    if (!frame || !modal || modal.hidden || !/[?&]mode=text\b/.test(frame.getAttribute('src') || '')) return null;
+    return frame.contentWindow || null;
+  }
+
+  function quickTextUserCard() {
+    const user = S.user || {};
+    const signedIn = !!getTelegramId();
+    const name = (user.display_name && String(user.display_name).trim())
+      || [user.first_name, user.last_name].filter(Boolean).join(' ')
+      || user.username || (signedIn ? 'Пользователь' : 'Гость');
+    return {
+      signedIn,
+      name,
+      handle: user.username ? '@' + user.username : (signedIn ? 'SYLVEX ID ' + (user.sylvex_id || user.telegram_id || getTelegramId()) : 'Войдите, чтобы сохранять историю'),
+      avatar: user.custom_avatar_url || user.photo_url || '',
+      initials: ((user.first_name || user.username || (signedIn ? 'S' : 'G')).slice(0, 1) + (user.last_name || '').slice(0, 1)).toUpperCase(),
+      balance: signedIn ? Number(user.balance || 0) : null,
+    };
+  }
+
+  function quickTextPush() {
+    const target = quickTextFrame();
+    if (!target) return;
+    target.postMessage({
+      source: 'sylvex-knowledge-parent',
+      action: 'quick-text-state',
+      conversationId: quickText.conversationId,
+      messages: quickText.messages,
+      conversations: quickText.conversations.slice(0, 60).map((item) => ({ id: item.id, title: item.title || 'Chat', updated_at: item.updated_at || '' })),
+      busy: quickText.busy,
+      user: quickTextUserCard(),
+    }, location.origin);
+  }
+
+  async function quickTextLoadConversations() {
+    const tg = getTelegramId();
+    if (!tg) { quickText.conversations = []; quickTextPush(); return; }
+    try {
+      const response = await fetch('/api/public/prostudio/conversations?telegram_id=' + encodeURIComponent(tg) + '&mode=text&limit=60', { cache: 'no-store' });
+      const data = await response.json();
+      if (data && data.ok && Array.isArray(data.conversations)) quickText.conversations = data.conversations;
+    } catch (_) {}
+    quickTextPush();
+  }
+
+  async function quickTextOpen(id) {
+    const tg = getTelegramId();
+    if (!tg || !id || quickText.busy) return;
+    try {
+      const response = await fetch('/api/public/prostudio/conversations?telegram_id=' + encodeURIComponent(tg) + '&conversation_id=' + encodeURIComponent(id) + '&limit=100&offset=0', { cache: 'no-store' });
+      const data = await response.json();
+      if (!data || !data.ok) return;
+      quickText.conversationId = id;
+      quickText.messages = (data.messages || [])
+        .map((m) => ({ role: m.role === 'assistant' ? 'ai' : 'user', text: String(m.role === 'assistant' ? (m.response_text || '') : (m.prompt || '')) }))
+        .filter((m) => m.text);
+      quickTextSave();
+    } catch (_) {}
+    quickTextPush();
+  }
+
+  function quickTextNew() {
+    if (quickText.busy) return;
+    quickText.conversationId = null;
+    quickText.messages = [];
+    quickTextSave();
+    quickTextPush();
+  }
+
+  async function quickTextDelete(id) {
+    const tg = getTelegramId();
+    if (!tg || !id) return;
+    try {
+      await fetch('/api/public/prostudio/conversations?telegram_id=' + encodeURIComponent(tg) + '&conversation_id=' + encodeURIComponent(id), { method: 'DELETE' });
+    } catch (_) {}
+    quickText.conversations = quickText.conversations.filter((item) => item.id !== id);
+    if (quickText.conversationId === id && !quickText.busy) {
+      quickText.conversationId = null;
+      quickText.messages = [];
+      quickTextSave();
+    }
+    quickTextPush();
+  }
+
+  async function quickTextSend(request) {
+    quickTextEnsureLoaded();
+    const prompt = String((request && request.prompt) || '').trim();
+    const attachment = request && request.attachment ? request.attachment : null;
+    if ((!prompt && !attachment) || quickText.busy) return;
+    if (guestNeedsAccount()) return;
+    const model = String((request && request.model) || 'gpt-5.6');
+    const history = quickText.messages
+      .filter((m) => m.text && !m.loading && !m.error)
+      .slice(-10)
+      .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
+    quickText.messages.push({ role: 'user', text: prompt, attachmentName: attachment ? String(attachment.name || 'Файл') : '' });
+    const pending = { role: 'ai', text: '', loading: true };
+    quickText.messages.push(pending);
+    quickText.busy = true;
+    quickTextSave();
+    quickTextPush();
+    let reply;
+    try {
+      const response = await fetch('/api/public/prostudio/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          telegram_id: getTelegramId(),
+          prompt,
+          mode: 'text',
+          category: 'text',
+          model,
+          provider: providerHintForModel(model),
+          text_options: { tool: 'text', style: 'neutral', format: 'markdown', language: 'auto', sylvex_links: true },
+          history,
+          attachment,
+          conversation_id: quickText.conversationId,
+          client_request_id: 'quick-text-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
+          language: uiLang(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 403 && data && data.subscription_required) throw new Error('Текстовый чат доступен после активации подписки.');
+      if (response.status === 402 && data && data.paywall) throw new Error(data.error || 'Недостаточно токенов');
+      if (!response.ok || !data.ok || !data.text) throw new Error(translateGenerationError(data, 'Не удалось получить ответ. Попробуйте ещё раз.'));
+      if (data.conversation_id) quickText.conversationId = data.conversation_id;
+      reply = { role: 'ai', text: String(data.text) };
+    } catch (error) {
+      reply = { role: 'ai', text: (error && error.message) || 'Не удалось получить ответ. Попробуйте ещё раз.', error: true };
+    }
+    const index = quickText.messages.indexOf(pending);
+    if (index >= 0) quickText.messages[index] = reply;
+    else quickText.messages.push(reply);
+    quickText.busy = false;
+    quickTextSave();
+    quickTextPush();
+    quickTextLoadConversations();
+  }
+
+  // Home router / Quick Access entry: open the Text tool, optionally sending
+  // a prompt as the next message of its current conversation.
+  function openQuickTextChat(opts) {
+    const options = opts || {};
+    openKnowledgeWorkspace('text');
+    if (options.prompt || options.attachment) quickTextSend({ prompt: options.prompt, attachment: options.attachment, model: options.model });
+  }
+
+  async function handleQuickTextMessage(message) {
+    quickTextEnsureLoaded();
+    if (message.action === 'quick-text-init') { quickTextPush(); quickTextLoadConversations(); return; }
+    if (message.action === 'text-chat') {
+      const reference = String(message.reference || '');
+      const match = /^data:([^;,]+);base64,(.+)$/.exec(reference);
+      const attachment = match ? { kind: 'image', mime: match[1], name: 'image', dataBase64: match[2] } : null;
+      quickTextSend({ prompt: message.prompt, model: message.model, attachment });
+      return;
+    }
+    if (message.action === 'quick-text-new') { quickTextNew(); return; }
+    if (message.action === 'quick-text-open') { quickTextOpen(String(message.id || '')); return; }
+    if (message.action === 'quick-text-delete') { quickTextDelete(String(message.id || '')); return; }
+    if (message.action === 'quick-text-account') {
+      if (getTelegramId()) { closeKnowledgeWorkspace(); switchView('profile'); }
+      else guestNeedsAccount();
+      return;
+    }
+    if (message.action === 'quick-text-link') {
+      const mode = String(message.mode || '');
+      if (!['image', 'video', 'music', 'voice'].includes(mode)) return;
+      closeKnowledgeWorkspace();
+      openStudioDestination(mode, String(message.prompt || ''));
+    }
+  }
+
   async function handleKnowledgeWorkspaceMessage(event) {
     const message = event.data || {};
     if (message.source !== 'sylvex-knowledge') return;
+    // Only the same-origin workspace iframe may drive these actions (some
+    // spend credits or delete history).
+    const workspaceFrame = document.getElementById('knowledgeWorkspaceFrame');
+    if (event.origin !== location.origin || !workspaceFrame || event.source !== workspaceFrame.contentWindow) return;
     if (message.action === 'close') { closeKnowledgeWorkspace(); return; }
     if (message.action === 'voice-library-request') {
       const replyTarget = event.source;
@@ -17914,19 +18134,8 @@ function renderGeneratedTelegramButton(url, kind) {
       else toast('Видеошаблон временно недоступен', 'error');
       return;
     }
-    if (message.action === 'text-chat') {
-      const replyTarget = event.source;
-      updateComposerMode('text');
-      if (message.model) textState.modelId = String(message.model);
-      const input = document.getElementById('chatInput');
-      if (input) {
-        input.value = String(message.prompt || '');
-        autoGrow(input);
-        updateSendButton();
-      }
-      await sendChat();
-      const answer = [...chatMessages].reverse().find(item => item && item.role === 'ai' && item.text && !item.generationLoading);
-      replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'text-chat-result', text:answer?.text || 'Не удалось получить ответ.' }, location.origin);
+    if (message.action === 'text-chat' || String(message.action || '').startsWith('quick-text-')) {
+      handleQuickTextMessage(message);
       return;
     }
     if (message.action !== 'generate') return;
@@ -21355,8 +21564,6 @@ function maybeShowVideoTemplateIntro(force) {
 
   function updateComposerMode(kind) {
     const requestedMode = chatTypeForMode(kind);
-    // Live voice belongs to the Text conversation: leaving Text ends it.
-    if (requestedMode !== 'text' && typeof liveVoiceActive === 'function' && liveVoiceActive()) stopLiveVoice();
     if (requestedMode !== currentChatType()) stopTextListen(false);
     if (activeGenerationLocked() && !activeGeneration.restoringMode && activeGeneration.mode && requestedMode !== activeGeneration.mode) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
@@ -23415,7 +23622,6 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function newChat() {
     stopTextListen(false);
-    if (liveVoiceActive()) stopLiveVoice();
     const type = currentChatType();
     currentConvId = null;
     chatMessages = [];
@@ -23499,7 +23705,6 @@ async function waitGeneration(jobId, options) {
   async function openConv(id, type, opts) {
     const tg = getTelegramId(); if (!tg) return;
     if (!id) return;
-    if (id !== currentConvId && liveVoiceActive()) stopLiveVoice();
     stopTextListen(false);
     let openKey = '';
     try {
@@ -25300,7 +25505,7 @@ async function waitGeneration(jobId, options) {
       return;
     }
     if (route.mode === 'text' || !CHAT_SPACE_TYPES.includes(route.mode)) {
-      openTextChat({ prompt: route.prompt, attachment, model: route.model, send: true });
+      openQuickTextChat({ prompt: route.prompt, attachment: attachment && { kind: attachment.kind, mime: attachment.mime, name: attachment.name, dataBase64: attachment.dataBase64 }, model: route.model });
       return;
     }
     openStudioDestination(route.mode, route.prompt, { model: route.model, attachment });
@@ -25332,31 +25537,6 @@ async function waitGeneration(jobId, options) {
     }, 100);
   }
 
-  // Full Text chat: the persistent Pro Studio text conversation (the same
-  // chat spaces and server history as Pro Studio). send=true posts the
-  // prompt as the next message of the current conversation.
-  function openTextChat(opts) {
-    const options = opts || {};
-    if (options.model) textState.modelId = options.model;
-    switchView('tools');
-    if (document.querySelector('[data-view="tools"] .studio.grid-mode')) setStudioLayout('classic');
-    if (studioMode !== 'text') updateComposerMode('text');
-    else if (options.model) renderTextControls();
-    if (options.model) renderModelPop();
-    if (options.attachment) setCurrentModeAttachment(options.attachment);
-    const prompt = String(options.prompt || '');
-    if (!prompt && !options.attachment) return;
-    setTimeout(() => {
-      const input = document.getElementById('chatInput');
-      if (input) {
-        input.value = prompt;
-        autoGrow(input);
-      }
-      updateSendButton();
-      if (options.send && studioMode === 'text') sendTextChat();
-    }, 120);
-  }
-
   // Internal links offered by the Text chat ([Open Video Studio](sylvex://open/video)).
   // The user decides: the link opens the studio with the request prefilled.
   function renderSylvexChatLinks(html) {
@@ -25374,7 +25554,6 @@ async function waitGeneration(jobId, options) {
       const item = chatMessages[i];
       if (item && item.role === 'user' && item.text) { prompt = String(item.text); break; }
     }
-    if (liveVoice.pc) stopLiveVoice();
     rememberCurrentChatSpace();
     openStudioDestination(mode, prompt);
   }
@@ -25386,253 +25565,7 @@ async function waitGeneration(jobId, options) {
     openSylvexChatLink(button);
   });
 
-  // Realtime voice: another way to continue the current Text conversation.
-  // WebRTC to the OpenAI Realtime API through the server (the key never
-  // reaches the client). Server VAD with interrupt_response gives barge-in.
-  // Transcripts are added to the same chat and saved to the same history.
-  const liveVoice = { pc:null, stream:null, audio:null, channel:null, starting:false, items:new Map(), responses:new Map(), lastUserItem:'', persist:Promise.resolve(), renderQueued:false };
-
-  function liveVoiceSetStatus(text) {
-    const bar = document.getElementById('liveVoiceBar');
-    const status = document.getElementById('liveVoiceStatus');
-    if (status) status.textContent = text;
-    if (bar) bar.hidden = !liveVoice.pc && !liveVoice.starting;
-    const on = !!(liveVoice.pc || liveVoice.starting);
-    document.getElementById('textLiveBtn')?.classList.toggle('live', on);
-    document.getElementById('homeIdeaVoice')?.classList.toggle('live', on);
-    document.querySelector('[data-view="tools"] .studio')?.classList.toggle('live-voice-on', on);
-  }
-
-  function liveVoiceRender() {
-    if (liveVoice.renderQueued) return;
-    liveVoice.renderQueued = true;
-    requestAnimationFrame(() => {
-      liveVoice.renderQueued = false;
-      if (studioMode === 'text') renderChat();
-    });
-  }
-
-  function liveVoiceContext() {
-    return (chatMessages || [])
-      .filter((item) => item && (item.role === 'user' || item.role === 'ai') && item.text && !item.textLoading && !item.generationLoading && !item.voicePending)
-      .slice(-12)
-      .map((item) => ({ role: item.role === 'ai' ? 'assistant' : 'user', text: String(item.text).slice(0, 1200) }));
-  }
-
-  function liveVoiceSaveTurn(userText, assistantText) {
-    if (!userText && !assistantText) return;
-    liveVoice.persist = liveVoice.persist.then(async () => {
-      try {
-        const space = chatSpaces.text || {};
-        const conversationId = studioMode === 'text' ? currentConvId : (space.activeChatId || space.conversationId || null);
-        const response = await fetch('/api/public/prostudio/conversations/voice-turn', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ telegram_id: getTelegramId() || 0, conversation_id: conversationId || '', user_text: userText || '', assistant_text: assistantText || '' }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!data.ok || !data.conversation_id) return;
-        if (studioMode === 'text') {
-          currentConvId = data.conversation_id;
-          rememberCurrentChatSpace();
-        } else if (chatSpaces.text) {
-          chatSpaces.text.activeChatId = chatSpaces.text.conversationId = data.conversation_id;
-        }
-      } catch (_) {}
-    });
-  }
-
-  // Save finished exchanges in order; a reply waits for its user transcript.
-  function liveVoiceFlush(force) {
-    for (const response of liveVoice.responses.values()) {
-      if (response.saved) continue;
-      if (!response.done && !force) break;
-      const user = response.userItem ? liveVoice.items.get(response.userItem) : null;
-      if (user && !user.done && !force) break;
-      response.saved = true;
-      if (user) user.saved = true;
-      liveVoiceSaveTurn(user && user.done ? user.text : '', response.text);
-    }
-    if (force) {
-      for (const user of liveVoice.items.values()) {
-        if (!user.saved && user.done && user.text) { user.saved = true; liveVoiceSaveTurn(user.text, ''); }
-      }
-    }
-  }
-
-  function liveVoiceUserItem(itemId) {
-    let entry = liveVoice.items.get(itemId);
-    if (!entry) {
-      const message = { role: 'user', text: '…', voice: true, voicePending: true };
-      chatMessages.push(message);
-      entry = { message, text: '', done: false, saved: false };
-      liveVoice.items.set(itemId, entry);
-    }
-    return entry;
-  }
-
-  function liveVoiceResponse(responseId) {
-    let entry = liveVoice.responses.get(responseId);
-    if (!entry) {
-      entry = { message: null, text: '', userItem: liveVoice.lastUserItem, done: false, saved: false };
-      liveVoice.lastUserItem = '';
-      liveVoice.responses.set(responseId, entry);
-    }
-    return entry;
-  }
-
-  function liveVoiceRemoveMessage(message) {
-    const index = chatMessages.indexOf(message);
-    if (index >= 0) chatMessages.splice(index, 1);
-  }
-
-  function handleLiveVoiceEvent(event) {
-    let data;
-    try { data = JSON.parse(event.data); } catch (_) { return; }
-    const type = String(data.type || '');
-    if (type === 'input_audio_buffer.speech_started') {
-      liveVoiceSetStatus('Слушаю…');
-    } else if (type === 'input_audio_buffer.committed' && data.item_id) {
-      liveVoiceUserItem(data.item_id);
-      liveVoice.lastUserItem = data.item_id;
-      liveVoiceRender();
-    } else if (type === 'conversation.item.input_audio_transcription.completed' && data.item_id) {
-      const entry = liveVoiceUserItem(data.item_id);
-      entry.text = String(data.transcript || '').trim();
-      entry.done = true;
-      if (entry.text) { entry.message.text = entry.text; delete entry.message.voicePending; }
-      else liveVoiceRemoveMessage(entry.message);
-      liveVoiceRender();
-      rememberCurrentChatSpace();
-      liveVoiceFlush(false);
-    } else if (type === 'conversation.item.input_audio_transcription.failed' && data.item_id) {
-      const entry = liveVoiceUserItem(data.item_id);
-      entry.done = true;
-      entry.text = '';
-      liveVoiceRemoveMessage(entry.message);
-      liveVoiceRender();
-      liveVoiceFlush(false);
-    } else if (type === 'response.created' && data.response && data.response.id) {
-      liveVoiceResponse(data.response.id);
-      liveVoiceSetStatus('Отвечаю…');
-    } else if ((type === 'response.output_audio_transcript.delta' || type === 'response.audio_transcript.delta') && data.response_id) {
-      const entry = liveVoiceResponse(data.response_id);
-      entry.text += String(data.delta || '');
-      if (!entry.message) { entry.message = { role: 'ai', text: '', voice: true }; chatMessages.push(entry.message); }
-      entry.message.text = entry.text;
-      liveVoiceRender();
-    } else if ((type === 'response.output_audio_transcript.done' || type === 'response.audio_transcript.done') && data.response_id) {
-      const entry = liveVoiceResponse(data.response_id);
-      entry.text = String(data.transcript || entry.text || '').trim();
-      if (!entry.message && entry.text) { entry.message = { role: 'ai', text: '', voice: true }; chatMessages.push(entry.message); }
-      if (entry.message) entry.message.text = entry.text;
-      liveVoiceRender();
-    } else if (type === 'response.done' && data.response && data.response.id) {
-      const entry = liveVoiceResponse(data.response.id);
-      entry.done = true;
-      entry.text = String(entry.text || '').trim();
-      if (entry.message && !entry.text) liveVoiceRemoveMessage(entry.message);
-      liveVoiceRender();
-      rememberCurrentChatSpace();
-      liveVoiceFlush(false);
-      if (liveVoice.pc) liveVoiceSetStatus('Говорите — я слушаю');
-    } else if (type === 'error') {
-      console.warn('SYLVEX live voice error:', data.error || data);
-    }
-  }
-
-  async function startLiveVoice() {
-    if (liveVoice.pc || liveVoice.starting) return;
-    if (guestNeedsAccount()) return;
-    if (!getTelegramId()) { toast('Войдите в аккаунт, чтобы говорить с SYLVEX'); return; }
-    if (!navigator.mediaDevices || !window.RTCPeerConnection) { toast('Голосовой режим не поддерживается в этом браузере'); return; }
-    openTextChat();
-    stopTextListen(false);
-    // Voice replaces typing: close the keyboard so the transcript is visible.
-    hideMobileKeyboard();
-    liveVoice.starting = true;
-    liveVoiceSetStatus('Подключение…');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      if (!liveVoice.starting) { stream.getTracks().forEach((track) => track.stop()); return; }
-      liveVoice.stream = stream;
-      const pc = new RTCPeerConnection();
-      liveVoice.pc = pc;
-      liveVoice.audio = document.createElement('audio');
-      liveVoice.audio.autoplay = true;
-      liveVoice.audio.hidden = true;
-      document.body.appendChild(liveVoice.audio);
-      pc.ontrack = (event) => { if (liveVoice.audio) liveVoice.audio.srcObject = event.streams[0]; };
-      pc.onconnectionstatechange = () => {
-        if (['failed', 'closed'].includes(pc.connectionState) && liveVoice.pc === pc) {
-          stopLiveVoice();
-          toast('Голосовой режим отключён');
-        }
-      };
-      liveVoice.stream.getTracks().forEach((track) => pc.addTrack(track, liveVoice.stream));
-      liveVoice.channel = pc.createDataChannel('oai-events');
-      liveVoice.channel.addEventListener('message', handleLiveVoiceEvent);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      const response = await fetch('/api/public/prostudio/realtime/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_id: getTelegramId() || 0, sdp: offer.sdp, context: liveVoiceContext() }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        const error = new Error(data.message || 'Голосовой режим временно недоступен');
-        error.code = data.error || '';
-        throw error;
-      }
-      const answer = await response.text();
-      if (liveVoice.pc !== pc) return;
-      await pc.setRemoteDescription({ type: 'answer', sdp: answer });
-      liveVoice.starting = false;
-      liveVoiceSetStatus('Говорите — я слушаю');
-      S.haptic.impact('light');
-    } catch (error) {
-      liveVoice.starting = false;
-      stopLiveVoice();
-      if (error && error.code === 'subscription_required') toast(error.message || 'Голосовой режим доступен с подпиской SYLVEX Pro');
-      else if (error && error.name === 'NotAllowedError') toast('Разрешите доступ к микрофону');
-      else toast((error && error.message) || 'Не удалось включить голосовой режим');
-    }
-  }
-
-  function stopLiveVoice() {
-    const wasActive = !!(liveVoice.pc || liveVoice.starting);
-    liveVoice.starting = false;
-    try { liveVoice.channel?.close(); } catch (_) {}
-    try { liveVoice.pc?.close(); } catch (_) {}
-    liveVoice.stream?.getTracks().forEach((track) => track.stop());
-    if (liveVoice.audio) { liveVoice.audio.srcObject = null; liveVoice.audio.remove(); }
-    liveVoice.pc = liveVoice.stream = liveVoice.audio = liveVoice.channel = null;
-    liveVoiceFlush(true);
-    // Drop placeholders for speech that was never transcribed.
-    for (const entry of liveVoice.items.values()) if (!entry.done) liveVoiceRemoveMessage(entry.message);
-    for (const entry of liveVoice.responses.values()) if (entry.message && !entry.text) liveVoiceRemoveMessage(entry.message);
-    liveVoice.items.clear();
-    liveVoice.responses.clear();
-    liveVoice.lastUserItem = '';
-    liveVoiceSetStatus('');
-    if (wasActive) {
-      if (studioMode === 'text') { renderChat(); rememberCurrentChatSpace(); }
-      liveVoice.persist.then(() => loadConversations());
-    }
-  }
-
-  // Safe before the liveVoice declaration above has run (early init calls).
-  function liveVoiceActive() {
-    try { return !!(liveVoice.pc || liveVoice.starting); } catch (_) { return false; }
-  }
-
-  function toggleLiveVoice(event) {
-    if (event) { event.preventDefault(); event.stopPropagation(); }
-    if (liveVoice.pc || liveVoice.starting) stopLiveVoice();
-    else startLiveVoice();
-  }
-  function initHomeIdeaAi(){const form=document.getElementById('homeIdeaForm'),ideaInput=document.getElementById('homeIdeaInput'),submit=form?.querySelector('.send'),fileButton=document.getElementById('homeIdeaFile'),fileInput=document.getElementById('homeIdeaFileInput'),attachment=document.getElementById('homeIdeaAttachment');if(!form)return;ideaInput?.addEventListener('input',()=>{if(submit)submit.hidden=!String(ideaInput.value||'').trim()});form.addEventListener('submit',event=>{event.preventDefault();sendHomeIdea()});fileButton?.addEventListener('click',()=>fileInput?.click());fileInput?.addEventListener('change',()=>{const file=fileInput.files?.[0];if(!file)return;if(file.size>8*1024*1024){toast('Фото должно быть меньше 8 МБ');return}const reader=new FileReader();reader.onload=()=>{const url=String(reader.result||''),dataBase64=url.split(',')[1]||'';homeIdeaAttachment={name:file.name,mime:file.type||'image/jpeg',url,dataBase64};renderHomeIdeaAttachment()};reader.readAsDataURL(file)});attachment?.addEventListener('click',event=>{if(event.target.closest('[data-home-idea-remove]')){homeIdeaAttachment=null;if(fileInput)fileInput.value='';renderHomeIdeaAttachment()}});document.getElementById('homeIdeaVoice')?.addEventListener('click',toggleLiveVoice);renderHomeIdeaChat()}
+  function initHomeIdeaAi(){const form=document.getElementById('homeIdeaForm'),ideaInput=document.getElementById('homeIdeaInput'),submit=form?.querySelector('.send'),fileButton=document.getElementById('homeIdeaFile'),fileInput=document.getElementById('homeIdeaFileInput'),attachment=document.getElementById('homeIdeaAttachment');if(!form)return;ideaInput?.addEventListener('input',()=>{if(submit)submit.hidden=!String(ideaInput.value||'').trim()});form.addEventListener('submit',event=>{event.preventDefault();sendHomeIdea()});fileButton?.addEventListener('click',()=>fileInput?.click());fileInput?.addEventListener('change',()=>{const file=fileInput.files?.[0];if(!file)return;if(file.size>8*1024*1024){toast('Фото должно быть меньше 8 МБ');return}const reader=new FileReader();reader.onload=()=>{const url=String(reader.result||''),dataBase64=url.split(',')[1]||'';homeIdeaAttachment={name:file.name,mime:file.type||'image/jpeg',url,dataBase64};renderHomeIdeaAttachment()};reader.readAsDataURL(file)});attachment?.addEventListener('click',event=>{if(event.target.closest('[data-home-idea-remove]')){homeIdeaAttachment=null;if(fileInput)fileInput.value='';renderHomeIdeaAttachment()}});renderHomeIdeaChat()}
   const aiAssistantMessages = [{role:'ai',text:AI_ASSISTANT_WELCOME,welcome:true}];
   function renderAiAssistant() {
     const chat = document.getElementById('aiAssistantChat');
@@ -28626,7 +28559,7 @@ async function waitGeneration(jobId, options) {
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
-    toggleLiveVoice, stopLiveVoice, openTextChat,
+    openQuickTextChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, openBrowserBillingPortal, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, toggleNotifications, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,

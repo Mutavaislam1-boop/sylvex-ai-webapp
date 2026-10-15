@@ -115,8 +115,7 @@ def stream_assistant_reply(api_key, api_base, model, messages, timeout=90, max_o
         response.close()
 
 
-def mint_realtime_session(api_key, sdp, instructions, safety_user_id, model, voice="marin", timeout=30,
-                          transcription_model="gpt-4o-mini-transcribe", turn_detection=None):
+def mint_realtime_session(api_key, sdp, instructions, safety_user_id, model, voice="marin", timeout=30):
     """Proxies a WebRTC SDP offer to OpenAI's Realtime API and returns the
     raw (content_bytes, status_code, content_type) SDP-answer response -
     OPENAI_API_KEY is attached here, server-side, and never reaches the
@@ -132,12 +131,8 @@ def mint_realtime_session(api_key, sdp, instructions, safety_user_id, model, voi
         "type": "realtime",
         "model": model,
         "instructions": instructions,
-        "audio": {"input": {"transcription": {"model": transcription_model}}, "output": {"voice": voice}},
+        "audio": {"input": {"transcription": {"model": "gpt-4o-mini-transcribe"}}, "output": {"voice": voice}},
     }
-    if turn_detection:
-        # e.g. semantic_vad with interrupt_response: the user can talk over
-        # the model and the current answer is cut off (barge-in).
-        session["audio"]["input"]["turn_detection"] = turn_detection
     response = requests.post(
         "https://api.openai.com/v1/realtime/calls",
         headers={"Authorization": f"Bearer {api_key}", "OpenAI-Safety-Identifier": safety_id},
