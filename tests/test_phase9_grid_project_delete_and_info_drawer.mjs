@@ -67,6 +67,7 @@ function buildContext(initialActiveState) {
     STUDIO_GRID_PROJECTS_KEY: 'sylvex-prostudio-grid-projects-v1',
     STUDIO_GRID_PROJECT_PREFIX: 'sylvex-prostudio-grid-project-v1:',
     studioGridState: initialActiveState,
+    studioGridProjectSwitchRevision: 0,
     studioGridSelectedIds: new Set(['x']),
     clearStudioGridConnectionMode: () => {},
     renderStudioGrid: () => {},

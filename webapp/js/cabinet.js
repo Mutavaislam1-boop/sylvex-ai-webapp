@@ -27950,6 +27950,8 @@ async function waitGeneration(jobId, options) {
   let studioGridCloudSaveQueue = Promise.resolve();
   let studioGridCloudSync = '';
   let studioGridCloudLoaded = false;
+  let studioGridProjectSwitchRevision = 0;
+  let studioGridVideoViewerKeyBound = false;
 
   function gridDefaultSettings(type) {
     if (type === 'image') return { model_mode:'manual', size:'1:1', count:1, style:'auto', quality:'standard', resolution:'1024' };
@@ -28114,16 +28116,17 @@ async function waitGeneration(jobId, options) {
   function studioGridIsBlank(state){return !!state&&state.nodes?.length===1&&state.nodes[0].type==='task'&&!String(state.nodes[0].prompt||'').trim()&&!state.edges?.length}
   async function loadStudioGridCloudProjects(){
     const owner=studioGridAccountOwner();if(!owner||studioGridCloudLoaded)return;
+    const loadRevision=studioGridProjectSwitchRevision;
     studioGridCloudLoaded=true;
     try{
       const response=await fetch('/api/public/prostudio/grid-projects?offset=0',{cache:'no-store'});if(!response.ok)throw new Error();
       const data=await response.json(),remote=Array.isArray(data.projects)?data.projects:[],local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item])),remoteNewer=new Set();
       remote.forEach(item=>{const previous=merged.get(item.id);if(!previous||String(item.updated_at||'')>String(previous.updated_at||'')){if(previous)remoteNewer.add(item.id);merged.set(item.id,item)}});
       saveStudioGridProjects([...merged.values()].sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||''))));
-      let current=loadStudioGridState(),remoteId=studioGridIsBlank(current)&&remote.length?remote[0].id:(remoteNewer.has(current.projectId)?current.projectId:'');
-      if(remoteId){
+      let current=loadStudioGridState(),remoteId=remoteNewer.has(current.projectId)?current.projectId:'';
+      if(remoteId&&loadRevision===studioGridProjectSwitchRevision){
         const projectResponse=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(remoteId),{cache:'no-store'});
-        if(projectResponse.ok){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(STUDIO_GRID_KEY,JSON.stringify(studioGridState));renderStudioGrid();resetStudioGridView();restoreStudioGridJobs()}}
+        if(projectResponse.ok&&loadRevision===studioGridProjectSwitchRevision){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(STUDIO_GRID_KEY,JSON.stringify(studioGridState));renderStudioGrid();restoreStudioGridJobs()}}
         current=loadStudioGridState();
       }else if(!studioGridIsBlank(current)){void queueStudioGridCloudSave(current,owner)}
       studioGridCloudSync='Saved';renderStudioGridProjects();renderStudioGridCloudStatus();
@@ -28135,7 +28138,7 @@ async function waitGeneration(jobId, options) {
   }
 
   function renderStudioGridProjects() {
-    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><span><b>История сеток</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Удалить проект">🗑</button></div>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
+    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><span><b>Grid project history</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Close">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Untitled project')}</b><small>${item.id===active.projectId?'Open now':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Delete project">🗑</button></div>`).join('')||'<p>No saved Grid projects yet</p>'}</div>`;
   }
 
   function closeStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(panel)panel.hidden=true}
@@ -28156,6 +28159,7 @@ async function waitGeneration(jobId, options) {
     const cloudOwner=typeof studioGridAccountOwner==='function'?studioGridAccountOwner():'';if(cloudOwner)void fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{method:'DELETE'}).catch(()=>{});
     const current = loadStudioGridState();
     if (current.projectId === projectId) {
+      studioGridProjectSwitchRevision += 1;
       studioGridState = emptyStudioGridState();
       studioGridSelectedIds = new Set();
       clearStudioGridConnectionMode();
@@ -28169,13 +28173,24 @@ async function waitGeneration(jobId, options) {
   }
 
   function createStudioGridProject() {
-    if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}archiveStudioGridProject();studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('Создана новая чистая сетка');
+    if(studioGridHasActiveRun()){toast('Wait for the current generation to finish');return}
+    const previous=studioGridSnapshot(loadStudioGridState());
+    archiveStudioGridProject(previous);
+    clearTimeout(studioGridCloudSaveTimer);
+    if(studioGridAccountOwner())void queueStudioGridCloudSave(previous);
+    studioGridProjectSwitchRevision += 1;
+    studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('New Grid project created');
   }
 
   async function openStudioGridProject(projectId) {
-    const current=loadStudioGridState();if(!projectId||projectId===current.projectId){closeStudioGridProjects();return}if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}let stored=null;try{stored=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}
-    if((!stored||!Array.isArray(stored.nodes))&&studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)stored=(await response.json()).state}catch(_){}
-    if(!stored||!Array.isArray(stored.nodes)){toast('Не удалось открыть проект');return}archiveStudioGridProject(current);studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();restoreStudioGridJobs();toast('Проект сетки открыт');
+    const current=loadStudioGridState();if(!projectId||projectId===current.projectId){closeStudioGridProjects();return}if(studioGridHasActiveRun()){toast('Wait for the current generation to finish');return}
+    const switchRevision=++studioGridProjectSwitchRevision;
+    const currentSnapshot=studioGridSnapshot(current);archiveStudioGridProject(currentSnapshot);clearTimeout(studioGridCloudSaveTimer);if(studioGridAccountOwner())void queueStudioGridCloudSave(currentSnapshot);
+    let stored=null;
+    if(studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)stored=(await response.json()).state}catch(_){}
+    if(!stored||!Array.isArray(stored.nodes))try{stored=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}
+    if(switchRevision!==studioGridProjectSwitchRevision)return;
+    if(!stored||!Array.isArray(stored.nodes)){toast('Could not open this Grid project');return}studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();restoreStudioGridJobs();toast('Grid project opened');
   }
 
   function normalizeStudioGridState(state) {
@@ -28293,6 +28308,22 @@ async function waitGeneration(jobId, options) {
     return `<div class="studio-grid-result-versions">${versions.map((_,index)=>`<button type="button" data-grid-pick-version="${index}" class="${index===Number(node.selectedResultVersion)?'active':''}">${index+1}</button>`).join('')}</div>`;
   }
 
+  function ensureStudioGridVideoViewer(){
+    let viewer=document.getElementById('studioGridVideoViewer');
+    if(viewer)return viewer;
+    viewer=document.createElement('div');viewer.id='studioGridVideoViewer';viewer.className='studio-grid-video-viewer';viewer.hidden=true;viewer.innerHTML='<div class="studio-grid-video-viewer-backdrop" data-grid-video-close></div><section role="dialog" aria-modal="true" aria-label="Video preview"><button type="button" data-grid-video-close aria-label="Close video">×</button><video controls playsinline preload="metadata"></video></section>';
+    viewer.addEventListener('click',event=>{if(event.target.closest('[data-grid-video-close]'))closeStudioGridVideoViewer()});
+    document.body.appendChild(viewer);
+    if(!studioGridVideoViewerKeyBound){studioGridVideoViewerKeyBound=true;document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!document.getElementById('studioGridVideoViewer')?.hidden)closeStudioGridVideoViewer()})}
+    return viewer;
+  }
+  function openStudioGridVideoViewer(url){
+    if(!url)return;const viewer=ensureStudioGridVideoViewer(),video=viewer.querySelector('video');video.src=url;viewer.hidden=false;document.body.classList.add('studio-grid-media-viewer-open');video.play().catch(()=>{});
+  }
+  function closeStudioGridVideoViewer(){
+    const viewer=document.getElementById('studioGridVideoViewer'),video=viewer?.querySelector('video');if(video){video.pause();video.removeAttribute('src');video.load()}if(viewer)viewer.hidden=true;document.body.classList.remove('studio-grid-media-viewer-open');
+  }
+
   function gridNodePreview(node,status) {
     // Never render a stale/superseded result while the node is currently
     // regenerating (RUNNING), has failed/been cancelled on its latest run,
@@ -28306,7 +28337,7 @@ async function waitGeneration(jobId, options) {
     if(node.type==='task'&&output?.type==='clarification')return `<div class="studio-grid-clarification"><b>Нужно уточнение</b><span>${gridEscape(output.value||'')}</span></div>`;
     if(node.type==='task'&&output?.type==='references')return gridReferenceRequestsHtml(node);
     if (node.type==='text'&&output?.value) return `${status==='FAILED'?`<small class="studio-grid-latest-error">${gridEscape(node.error||'Latest attempt failed')}</small>`:''}<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>${gridResultVersionsHtml(node)}`;
-    if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" class="${index===Number(output.selected_index||0)?'active':''}"><img src="${gridEscape(item.preview_url||item.url)}" alt="" loading="lazy"></button>`).join('')}</div>${gridResultVersionsHtml(node)}`;
+    if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" data-grid-open-result class="${index===Number(output.selected_index||0)?'active':''}" aria-label="Open generated image"><img src="${gridEscape(item.preview_url||item.url)}" alt="Generated image" loading="lazy"></button>`).join('')}</div>${gridResultVersionsHtml(node)}`;
     if (output?.type==='video'&&output.url) return `<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(output.url)}" muted playsinline preload="metadata"></video><span>▶</span></button>${gridResultVersionsHtml(node)}`;
     if (output?.type==='audio'&&output.url) return `<audio class="studio-grid-audio" src="${gridEscape(output.url)}" controls preload="metadata"></audio>${gridResultVersionsHtml(node)}`;
     const messages={RUNNING:'Генерация…',FAILED:node.error||'Ошибка генерации',CANCELLED:node.error||'Остановлено',WAITING:node.error||'Ожидает входы',READY:'Готов к запуску',COMPLETED:'Результат готов'};
@@ -28955,8 +28986,8 @@ async function waitGeneration(jobId, options) {
         if (event.target.closest('[data-grid-build]')) { buildStudioGridWorkflow(id); return; }
         if (event.target.closest('[data-grid-run]')) { runGridNode(id); return; }
         if(event.target.closest('[data-grid-pick-version]')){selectStudioGridResultVersion(id,event.target.closest('[data-grid-pick-version]').dataset.gridPickVersion);return}
-        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();renderStudioGrid()}return}
-        if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)window.open(node.output.url,'_blank','noopener');return}
+        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){const item=node.output.items[index],urls=node.output.items.map(result=>result.url||result.preview_url).filter(Boolean);node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();openImageViewer(event,item.url||item.preview_url,urls);renderStudioGrid()}return}
+        if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)openStudioGridVideoViewer(node.output.url);return}
         if (event.target.closest('[data-grid-more]')) { const rect=event.target.getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.position_locked?'Разблокировать позицию':'Закрепить позицию'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;return}
         if(event.shiftKey){if(studioGridSelectedIds.has(id))studioGridSelectedIds.delete(id);else studioGridSelectedIds.add(id)}else if(!studioGridSelectedIds.has(id))studioGridSelectedIds=new Set([id]);
         host.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.toggle('selected',studioGridSelectedIds.has(item.dataset.gridId)));

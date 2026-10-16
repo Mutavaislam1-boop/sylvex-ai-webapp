@@ -49,6 +49,23 @@ test('Grid projects autosave to private server history and remain mobile', () =>
   assert.match(cabinet, /function studioGridAvailableOnThisScreen\(\) \{\s*return true;/);
 });
 
+test('Grid history restores the saved viewport, prefers the cloud project, and protects a new blank project from stale sync', () => {
+  assert.match(cabinet, /let studioGridProjectSwitchRevision = 0/);
+  assert.match(cabinet, /if\(studioGridAccountOwner\(\)\)try\{const response=await fetch\('\/api\/public\/prostudio\/grid-projects\/'/);
+  assert.match(cabinet, /if\(!stored\|\|!Array\.isArray\(stored\.nodes\)\)try\{stored=JSON\.parse\(localStorage\.getItem/);
+  assert.doesNotMatch(cabinet, /renderStudioGrid\(\);resetStudioGridView\(\);restoreStudioGridJobs\(\);toast\('Grid project opened'/);
+  assert.match(cabinet, /const previous=studioGridSnapshot\(loadStudioGridState\(\)\)/);
+  assert.match(cabinet, /if\(studioGridAccountOwner\(\)\)void queueStudioGridCloudSave\(previous\)/);
+});
+
+test('Grid image and video results open in in-app viewers', () => {
+  assert.match(cabinet, /data-grid-open-result/);
+  assert.match(cabinet, /openImageViewer\(event,item\.url\|\|item\.preview_url,urls\)/);
+  assert.match(cabinet, /function openStudioGridVideoViewer\(url\)/);
+  assert.match(cabinet, /openStudioGridVideoViewer\(node\.output\.url\)/);
+  assert.doesNotMatch(cabinet, /if\(event\.target\.closest\('\[data-grid-preview\]'\)\).*window\.open/);
+});
+
 test('Grid route and the saved layout survive Grid initialization', () => {
   assert.match(cabinet, /requestedMode === 'grid' \|\| requestedView === 'grid'/);
   assert.match(cabinet, /requestedView=String\(layoutParams\.get\('view'\)\|\|''\)\.toLowerCase\(\)/);

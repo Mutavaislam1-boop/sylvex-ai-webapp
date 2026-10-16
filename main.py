@@ -39,6 +39,7 @@ from services.character_prompts import build_character_prompt, infer_character_o
 from services import edit_sessions as edit_sessions_service
 from services import grid_projects as grid_projects_service
 from services import grid_montage as grid_montage_service
+from services import grid_references as grid_references_service
 from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
@@ -24968,6 +24969,14 @@ async def public_prostudio_generate(request: Request):
     for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe", "_provider_timeout_seconds", "_response_format", "_openai_background", "_openai_poll_timeout_seconds", "_reasoning_effort", "_openai_idempotency_key",
                          "output_token_cap", TEXT_ATTACHMENT_BYTES_KEY):
         payload.pop(internal_key, None)
+    resolved_grid_references = grid_references_service.resolve_grid_catalog_references(payload, WEBAPP_URL)
+    if resolved_grid_references:
+        prostudio_debug(
+            "GRID_INTERNAL_REFERENCES_RESOLVED",
+            project_id=str(payload.get("grid_project_id") or "")[:160],
+            node_id=str(payload.get("grid_node_id") or "")[:180],
+            count=resolved_grid_references,
+        )
     telegram_id = int(payload.get("telegram_id") or 0)
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
     category = (payload.get("category") or mode).lower()
