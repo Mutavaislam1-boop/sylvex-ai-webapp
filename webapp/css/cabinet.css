@@ -10210,3 +10210,81 @@ html.browser-app .settings-ai-assistant-row{display:none!important}
 }
 .sylvex-chat-link:hover{border-color:#1687ff}
 .knowledge-workspace-modal.kw-close-covered .knowledge-workspace-close{visibility:hidden;pointer-events:none}
+
+/* =====================================================
+   Pro Studio → Music: Music Player block (MusicDock in cabinet.js).
+   Sits where the tool cards are in the other modes; matte surfaces on the
+   Pro Studio theme tokens.
+   ===================================================== */
+.studio-music-player{display:none;position:relative;flex-direction:column;justify-content:center;gap:10px;min-width:0;padding:14px;border-radius:18px;background:var(--st-bg-3,#2c2c2c);box-shadow:var(--st-depth-1,none);color:var(--st-text,#ececec)}
+.studio-video-composer[data-composer-mode="music"] .studio-music-player{display:flex}
+/* Music Player → divider → prompt, the same structure as Voice. Applied
+   only where the page has the player block (cabinet.js marks the composer
+   .has-music-player); other copies of the markup keep the old layout. */
+.studio-video-composer.has-music-player[data-composer-mode="music"] .studio-video-panel{grid-template-columns:clamp(220px,28vw,430px) minmax(0,1fr);padding:18px 24px 24px}
+.studio-video-composer.has-music-player[data-composer-mode="music"] .studio-prompt-column{border-left:1px solid rgba(255,255,255,.10);padding-left:24px}
+.view[data-view="tools"].active .studio-video-composer.has-music-player[data-composer-mode="music"] .studio-prompt-column{border-color:var(--st-border-strong)}
+@media(max-width:900px){
+  .studio-video-composer.has-music-player[data-composer-mode="music"] .studio-video-panel{padding:14px}
+  .studio-video-composer.has-music-player[data-composer-mode="music"] .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
+}
+@media(max-width:560px){
+  .studio-video-composer.has-music-player[data-composer-mode="music"] .studio-prompt-column{border-top:1px solid rgba(255,255,255,.10);padding-top:12px}
+}
+.studio-video-composer.is-compact.has-music-player[data-composer-mode="music"] .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
+:is(body.device-mobile,body.device-tablet) .studio-video-composer.has-music-player[data-composer-mode="music"] .studio-prompt-column{--mobile-prompt-column-top:12px}
+.studio-audio-player.is-docked{display:none!important}
+.studio-music-player svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.smp-top{display:flex;align-items:center;gap:12px;min-width:0}
+.smp-cover{position:relative;flex:0 0 auto;width:76px;height:76px;overflow:hidden;border-radius:14px;background:var(--st-bg-4,#3a3a3a);display:grid;place-items:center;color:var(--st-mute,#8a8a8a)}
+.smp-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.smp-cover-icon{width:26px!important;height:26px!important}
+.smp-cover img:not([hidden])+.smp-cover-icon{display:none}
+.smp-meta{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.smp-title{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:14.5px;font-weight:700;line-height:1.25;word-break:break-word}
+.smp-sub{overflow:hidden;color:var(--st-mute,#8a8a8a);font-size:12px;white-space:nowrap;text-overflow:ellipsis}
+.studio-music-player.is-empty .smp-title{font-weight:600;color:var(--st-dim,#bdbdbd)}
+.smp-icon{flex:0 0 auto;display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--st-dim,#cfcfcf);cursor:pointer;transition:background .15s,color .15s}
+.smp-icon:hover:not(:disabled){background:var(--st-bg-4,#3a3a3a);color:var(--st-text,#fff)}
+.smp-icon:disabled{opacity:.35;cursor:default}
+.smp-icon.is-muted{color:var(--st-mute,#8a8a8a)}
+.smp-progress{position:relative;height:16px;margin:2px 0 -4px;cursor:pointer;touch-action:none;outline:0}
+.smp-progress:before{content:"";position:absolute;left:0;right:0;top:6px;height:4px;border-radius:2px;background:var(--st-line-2,rgba(255,255,255,.14))}
+.smp-progress-fill{position:absolute;left:0;top:6px;height:4px;border-radius:2px;background:var(--st-text,#f1f1f1)}
+.smp-progress-knob{position:absolute;top:3px;width:10px;height:10px;margin-left:-5px;border-radius:50%;background:var(--st-text,#f1f1f1);opacity:0;transition:opacity .15s}
+.smp-progress:hover .smp-progress-knob,.smp-progress:focus-visible .smp-progress-knob,.studio-music-player.is-playing .smp-progress-knob{opacity:1}
+.studio-music-player.is-empty .smp-progress{cursor:default}
+.smp-times{display:flex;justify-content:space-between;color:var(--st-mute,#8a8a8a);font-size:11.5px;font-variant-numeric:tabular-nums}
+.smp-controls{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px}
+.smp-transport{display:flex;align-items:center;gap:6px}
+.smp-play{display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;border-radius:50%;background:var(--st-text,#f1f1f1);color:var(--st-bg,#171717);cursor:pointer;transition:transform .15s}
+.smp-play svg{width:20px;height:20px}
+.smp-play:hover:not(:disabled){transform:scale(1.04)}
+.smp-play:disabled{opacity:.35;cursor:default}
+.smp-pill{justify-self:start;min-width:44px;height:28px;padding:0 10px;border:1px solid var(--st-line-2,rgba(255,255,255,.14));border-radius:14px;background:transparent;color:var(--st-dim,#cfcfcf);font-family:inherit;font-size:12px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;cursor:pointer}
+.smp-pill.is-changed{border-color:transparent;background:var(--st-bg-4,#3a3a3a);color:var(--st-text,#fff)}
+.smp-pill:disabled{opacity:.35;cursor:default}
+.smp-volume{justify-self:end;display:flex;align-items:center;gap:2px;min-width:0}
+.smp-volume-slider{width:72px;height:4px;accent-color:var(--st-text,#f1f1f1);cursor:pointer}
+.smp-list{position:absolute;z-index:30;left:8px;right:8px;bottom:calc(100% + 8px);max-height:280px;overflow-y:auto;padding:6px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:16px;background:var(--st-bg-2,#232323);box-shadow:0 18px 44px rgba(0,0,0,.45)}
+.smp-list[hidden]{display:none}
+.smp-list-head{padding:6px 8px 8px;color:var(--st-mute,#8a8a8a);font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.smp-list-item{display:flex;align-items:center;gap:10px;width:100%;padding:6px 8px;border:0;border-radius:11px;background:transparent;color:var(--st-text,#ececec);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.smp-list-item:hover{background:var(--st-bg-3,#2c2c2c)}
+.smp-list-item.is-current{background:var(--st-bg-4,#3a3a3a)}
+.smp-list-cover{flex:0 0 auto;width:34px;height:34px;overflow:hidden;border-radius:8px;background:var(--st-bg-4,#3a3a3a)}
+.smp-list-cover img{width:100%;height:100%;object-fit:cover}
+.smp-list-title{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.smp-eq{display:flex;align-items:flex-end;gap:2px;height:12px}
+.smp-eq b{width:3px;border-radius:1px;background:currentColor;animation:smp-eq .9s ease-in-out infinite}
+.smp-eq b:nth-child(2){animation-delay:.2s}.smp-eq b:nth-child(3){animation-delay:.4s}
+@keyframes smp-eq{0%,100%{height:3px}50%{height:12px}}
+@media(prefers-reduced-motion:reduce){.smp-eq b{animation:none;height:8px}}
+/* Phones and narrow composers: player on top, then the divider and prompt. */
+@media(max-width:900px){
+  .studio-music-player{padding:12px;gap:8px}
+  .smp-cover{width:60px;height:60px;border-radius:12px}
+  .smp-volume-slider{width:56px}
+}
+.studio-video-composer.is-compact .studio-music-player{padding:12px;gap:8px}
+.studio-video-composer.is-compact .smp-cover{width:60px;height:60px;border-radius:12px}

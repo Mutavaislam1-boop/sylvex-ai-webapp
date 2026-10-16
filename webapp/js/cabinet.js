@@ -17250,6 +17250,8 @@ function renderGeneratedTelegramButton(url, kind) {
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
   function renderChat() {
+    // A finished music generation shows up in the Music Player right away.
+    if (musicDockRef && studioMode === 'music') musicDockRef.sync();
     const el = document.getElementById('chatArea'); if (!el) return;
     // Each retried generation that still lacks an active subscription
     // independently produces its own subscriptionRequired message (see
@@ -27735,7 +27737,9 @@ async function waitGeneration(jobId, options) {
     show() {
       this.visible = true;
       if (this.playerEl) this.playerEl.classList.add('is-visible');
-      document.body.classList.add('audio-player-open');
+      // In Pro Studio → Music the Music Player block shows this audio instead.
+      const docked = !!(this.playerEl && this.playerEl.classList.contains('is-docked'));
+      document.body.classList.toggle('audio-player-open', !docked);
     },
 
     hide(stop) {
@@ -27915,6 +27919,8 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function initAudioPlayer() {
     PlayerManager.init();
+    musicDockRef = MusicDock;
+    MusicDock.init();
   }
 
   // =====================================================
@@ -27925,6 +27931,404 @@ async function waitGeneration(jobId, options) {
     if (playlist) PlayerManager.open(playlist, index);
     else PlayerManager.playTrack(track);
   }
+
+  // =====================================================
+  // АУДИОПЛЕЕР: MusicDock — the Music Player block of Pro Studio → Music.
+  // It is a view over the shared PlayerManager audio element (one music
+  // system): its playlist is the account's generated music (gallery
+  // history) plus the tracks of the current Music conversation. While it is
+  // on screen the floating player stays hidden; leaving Music mode during
+  // playback hands the track back to the floating player.
+  // =====================================================
+  // renderChat() may run before this block is evaluated: it reaches the
+  // player through this hoisted reference.
+  var musicDockRef = null;
+  const MUSIC_DOCK_SPEEDS = [0.75, 1, 1.25, 1.5, 2];
+  const MUSIC_DOCK_SPEED_KEY = 'sylvex-music-player-speed';
+  const MusicDock = {
+    el: null,
+    tracks: [],
+    index: -1,
+    known: null,
+    history: [],
+    historyLoadedFor: null,
+    historyLoading: null,
+    speed: 1,
+    seeking: false,
+
+    $(id) { return document.getElementById(id); },
+
+    esc(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    },
+
+    // The same file can carry different signed query strings.
+    key(url) { return String(url || '').split('?')[0].split('#')[0]; },
+
+    audio() {
+      if (!PlayerManager.audioEl) PlayerManager.init();
+      return PlayerManager.audioEl;
+    },
+
+    init() {
+      this.el = this.$('studioMusicPlayer');
+      if (!this.el || this.el.dataset.bound === '1') return;
+      this.el.dataset.bound = '1';
+      try {
+        const saved = parseFloat(localStorage.getItem(MUSIC_DOCK_SPEED_KEY));
+        if (MUSIC_DOCK_SPEEDS.includes(saved)) this.speed = saved;
+      } catch (_) {}
+      this.$('smpPlay').addEventListener('click', () => this.togglePlay());
+      this.$('smpPrev').addEventListener('click', () => this.step(-1));
+      this.$('smpNext').addEventListener('click', () => this.step(1));
+      this.$('smpSpeed').addEventListener('click', () => this.cycleSpeed());
+      this.$('smpMute').addEventListener('click', () => PlayerManager.toggleMute());
+      this.$('smpVolume').addEventListener('input', (e) => PlayerManager.setVolume(Number(e.target.value) / 100, true));
+      this.$('smpListBtn').addEventListener('click', (e) => { e.stopPropagation(); this.toggleList(); });
+      this.$('smpList').addEventListener('click', (e) => {
+        const item = e.target.closest('[data-smp-index]');
+        if (!item) return;
+        this.toggleList(false);
+        this.select(Number(item.dataset.smpIndex), true);
+      });
+      document.addEventListener('pointerdown', (e) => {
+        const list = this.$('smpList');
+        if (list && !list.hidden && !list.contains(e.target) && !this.$('smpListBtn').contains(e.target)) this.toggleList(false);
+      }, true);
+      const bar = this.$('smpProgress');
+      bar.addEventListener('pointerdown', (e) => {
+        if (!this.isCurrent()) return;
+        this.seeking = true;
+        try { bar.setPointerCapture(e.pointerId); } catch (_) {}
+        this.seekTo(e);
+      });
+      bar.addEventListener('pointermove', (e) => { if (this.seeking) this.seekTo(e); });
+      const endSeek = (e) => { if (this.seeking) { this.seekTo(e); this.seeking = false; } };
+      bar.addEventListener('pointerup', endSeek);
+      bar.addEventListener('pointercancel', () => { this.seeking = false; });
+      bar.addEventListener('keydown', (e) => {
+        const audio = this.audio();
+        if (!this.isCurrent() || !audio || !audio.duration) return;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + (e.key === 'ArrowRight' ? 5 : -5)));
+        }
+      });
+      const audio = this.audio();
+      if (audio) {
+        ['play', 'pause', 'timeupdate', 'durationchange', 'loadedmetadata', 'volumechange', 'ratechange', 'emptied', 'ended'].forEach((type) => {
+          audio.addEventListener(type, () => this.onAudio(type));
+        });
+      }
+      const composer = document.getElementById('studioComposer');
+      // Music mode uses the player layout only where this block exists.
+      if (composer) composer.classList.add('has-music-player');
+      if (composer && typeof MutationObserver !== 'undefined') {
+        new MutationObserver(() => this.onModeChange()).observe(composer, { attributes: true, attributeFilter: ['data-composer-mode'] });
+      }
+      this.onModeChange();
+    },
+
+    // On screen: Pro Studio is in Music mode.
+    isActive() {
+      const composer = document.getElementById('studioComposer');
+      return !!(this.el && composer && composer.getAttribute('data-composer-mode') === 'music' && this.el.offsetParent !== null);
+    },
+
+    onModeChange() {
+      const music = (document.getElementById('studioComposer') || {}).getAttribute && document.getElementById('studioComposer').getAttribute('data-composer-mode') === 'music';
+      if (music) {
+        this.sync();
+        this.loadHistory();
+      }
+      this.updateDocking();
+    },
+
+    // The floating player hides while this block shows the same audio.
+    updateDocking() {
+      const player = PlayerManager.playerEl;
+      if (!player) return;
+      const composer = document.getElementById('studioComposer');
+      const docked = !!(composer && composer.getAttribute('data-composer-mode') === 'music');
+      player.classList.toggle('is-docked', docked);
+      document.body.classList.toggle('audio-player-open', !docked && !!PlayerManager.visible);
+    },
+
+    trackFromMessage(message) {
+      const meta = message && message.metadata && typeof message.metadata === 'object' ? message.metadata : {};
+      if (String(meta.type || '').toLowerCase() !== 'music') return [];
+      const urls = generatedUrlsFromMessage(meta, 'audio');
+      const list = urls.length ? urls : [musicAudioUrl(meta)].filter(Boolean);
+      const prompt = String(meta.prompt || message.prompt || '').trim();
+      return list.map((url, i) => ({
+        id: meta.job_id || meta.id || url,
+        audioUrl: url,
+        coverUrl: musicCoverUrl(meta) || '',
+        title: String(meta.title || (prompt ? prompt.slice(0, 70) : '') || 'Трек SYLVEX') + (i ? ' · ' + (i + 1) : ''),
+        model: this.modelLabel(meta.model || meta.model_label),
+        createdAt: meta.created_at || '',
+      }));
+    },
+
+    modelLabel(id) {
+      const value = String(id || '');
+      const model = (typeof MUSIC_MODEL_LIST !== 'undefined' ? MUSIC_MODEL_LIST : []).find((item) => item.id === value);
+      return model ? model.label : value;
+    },
+
+    // Account history (oldest → newest), then this conversation's tracks
+    // that the history does not have yet (just generated).
+    build() {
+      const seen = new Set();
+      const out = [];
+      const add = (track) => {
+        const key = this.key(track && track.audioUrl);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        out.push(Object.assign({ key }, track));
+      };
+      this.history.slice().reverse().forEach(add);
+      (chatMessages || []).forEach((message) => this.trackFromMessage(message).forEach(add));
+      return out;
+    },
+
+    // Rebuilds the playlist; a track that just appeared in the conversation
+    // becomes the selected one (unless something else is playing).
+    sync() {
+      if (!this.el) return;
+      const previous = this.tracks[this.index];
+      const tracks = this.build();
+      const keys = new Set(tracks.map((track) => track.key));
+      const fresh = this.known ? tracks.filter((track) => !this.known.has(track.key)) : [];
+      this.known = keys;
+      this.tracks = tracks;
+      const playingKey = this.isPlaying() && PlayerManager.currentTrack ? this.key(PlayerManager.currentTrack.audioUrl) : '';
+      if (fresh.length && !playingKey) {
+        this.index = tracks.indexOf(fresh[fresh.length - 1]);
+        this.cue();
+      } else {
+        const keep = playingKey || (previous && previous.key) || (PlayerManager.currentTrack && this.key(PlayerManager.currentTrack.audioUrl));
+        const found = keep ? tracks.findIndex((track) => track.key === keep) : -1;
+        this.index = found >= 0 ? found : tracks.length - 1;
+        if (found < 0 && !playingKey) this.cue();
+      }
+      if (this.isCurrent() && PlayerManager.playlist !== this.tracks) this.adoptPlaylist();
+      this.render();
+    },
+
+    async loadHistory(force) {
+      const owner = getTelegramId() || 0;
+      if (!force && this.historyLoadedFor === owner) return;
+      if (this.historyLoading) return this.historyLoading;
+      this.historyLoading = quickMusicLibrary().then((items) => {
+        this.history = (items || []).map((item) => ({
+          id: item.id, audioUrl: item.audioUrl, coverUrl: item.coverUrl || '',
+          title: item.title || 'Трек SYLVEX', model: item.model || '', createdAt: item.createdAt || '',
+        }));
+        this.historyLoadedFor = owner;
+      }).catch(() => {}).finally(() => {
+        this.historyLoading = null;
+        this.sync();
+      });
+      return this.historyLoading;
+    },
+
+    current() { return this.tracks[this.index] || null; },
+
+    // The selected track is the one loaded in the shared audio element.
+    isCurrent() {
+      const track = this.current();
+      return !!(track && PlayerManager.currentTrack && this.key(PlayerManager.currentTrack.audioUrl) === track.key);
+    },
+
+    isPlaying() {
+      const audio = PlayerManager.audioEl;
+      return !!(audio && !audio.paused && !audio.ended && PlayerManager.currentTrack);
+    },
+
+    playerTracks() {
+      return this.tracks.map((track) => ({ id: track.id, audio_url: track.audioUrl, cover_url: track.coverUrl, title: track.title, model: track.model }));
+    },
+
+    // Make PlayerManager's playlist this one, keeping the same position.
+    adoptPlaylist() {
+      const normalized = this.playerTracks().map(normalizePlayerTrack).filter(Boolean);
+      PlayerManager.playlist = normalized;
+      PlayerManager.currentIndex = Math.max(0, this.index);
+    },
+
+    // Loads the selected track without playing, so its length shows and
+    // play starts at once.
+    cue() {
+      const track = this.current();
+      const audio = this.audio();
+      if (!track || !audio || this.isPlaying()) return;
+      this.adoptPlaylist();
+      PlayerManager.currentTrack = PlayerManager.playlist[this.index] || null;
+      activeMusicTrack = PlayerManager.currentTrack;
+      if (this.key(audio.currentSrc || audio.src) !== track.key) {
+        audio.src = track.audioUrl;
+        audio.preload = 'metadata';
+        audio.load();
+      }
+      this.applySpeed();
+      PlayerManager.updateUi();
+    },
+
+    select(index, play) {
+      if (!this.tracks.length) return;
+      this.index = Math.max(0, Math.min(this.tracks.length - 1, index));
+      if (play) {
+        PlayerManager.open(this.playerTracks(), this.index);
+        this.applySpeed();
+        this.updateDocking();
+      } else {
+        this.cue();
+      }
+      this.render();
+    },
+
+    step(delta) {
+      const audio = this.audio();
+      if (delta < 0 && audio && this.isCurrent() && audio.currentTime > 3) {
+        audio.currentTime = 0;
+        return;
+      }
+      const next = this.index + delta;
+      if (next < 0 || next >= this.tracks.length) return;
+      this.select(next, this.isPlaying());
+    },
+
+    togglePlay() {
+      const audio = this.audio();
+      if (!audio || !this.current()) return;
+      if (!this.isCurrent()) { this.select(this.index, true); return; }
+      if (audio.paused) {
+        PlayerManager.visible = true;
+        const promise = audio.play();
+        if (promise && promise.catch) promise.catch(() => {});
+      } else {
+        audio.pause();
+      }
+      this.updateDocking();
+    },
+
+    cycleSpeed() {
+      const i = MUSIC_DOCK_SPEEDS.indexOf(this.speed);
+      this.speed = MUSIC_DOCK_SPEEDS[(i + 1) % MUSIC_DOCK_SPEEDS.length];
+      try { localStorage.setItem(MUSIC_DOCK_SPEED_KEY, String(this.speed)); } catch (_) {}
+      this.applySpeed();
+      this.render();
+    },
+
+    applySpeed() {
+      const audio = this.audio();
+      if (!audio) return;
+      audio.defaultPlaybackRate = this.speed;
+      audio.playbackRate = this.speed;
+    },
+
+    seekTo(event) {
+      const audio = this.audio();
+      const bar = this.$('smpProgress');
+      if (!audio || !bar || !audio.duration) return;
+      const rect = bar.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      audio.currentTime = ratio * audio.duration;
+      this.renderTime();
+    },
+
+    toggleList(open) {
+      const list = this.$('smpList');
+      const show = open == null ? list.hidden : open;
+      list.hidden = !show;
+      this.$('smpListBtn').setAttribute('aria-expanded', String(show));
+      if (show) {
+        list.innerHTML = '<div class="smp-list-head">Ваша музыка · ' + this.tracks.length + '</div>' + this.tracks.slice().reverse().map((track) => {
+          const i = this.tracks.indexOf(track);
+          return '<button type="button" class="smp-list-item' + (i === this.index ? ' is-current' : '') + '" data-smp-index="' + i + '">'
+            + '<span class="smp-list-cover">' + (track.coverUrl ? '<img src="' + this.esc(track.coverUrl) + '" alt="" loading="lazy">' : '') + '</span>'
+            + '<span class="smp-list-title">' + this.esc(track.title) + '</span>'
+            + (i === this.index && this.isPlaying() ? '<i class="smp-eq" aria-hidden="true"><b></b><b></b><b></b></i>' : '')
+            + '</button>';
+        }).join('');
+        const current = list.querySelector('.is-current');
+        if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest' });
+      }
+    },
+
+    onAudio(type) {
+      if (type === 'play' && this.isActive()) this.updateDocking();
+      if ((type === 'play' || type === 'emptied' || type === 'loadedmetadata') && PlayerManager.currentTrack) {
+        // Following PlayerManager's own next/previous (e.g. at the end of a track).
+        const key = this.key(PlayerManager.currentTrack.audioUrl);
+        const found = this.tracks.findIndex((track) => track.key === key);
+        if (found >= 0) this.index = found;
+      }
+      if (type === 'loadedmetadata' || type === 'play') this.applySpeed();
+      if (type === 'timeupdate' || type === 'durationchange') { this.renderTime(); return; }
+      this.render();
+    },
+
+    renderTime() {
+      const audio = PlayerManager.audioEl;
+      const live = this.isCurrent() && audio;
+      const current = live ? audio.currentTime || 0 : 0;
+      const duration = live && Number.isFinite(audio.duration) ? audio.duration : 0;
+      const ratio = duration ? Math.max(0, Math.min(1, current / duration)) : 0;
+      this.$('smpCurrent').textContent = formatAudioTime(current);
+      this.$('smpDuration').textContent = duration ? formatAudioTime(duration) : '0:00';
+      this.$('smpProgressFill').style.width = (ratio * 100) + '%';
+      this.$('smpProgressKnob').style.left = (ratio * 100) + '%';
+      this.$('smpProgress').setAttribute('aria-valuenow', String(Math.round(ratio * 100)));
+    },
+
+    render() {
+      if (!this.el) return;
+      const track = this.current();
+      const has = !!track;
+      const audio = PlayerManager.audioEl;
+      const playing = this.isCurrent() && this.isPlaying();
+      this.el.classList.toggle('is-empty', !has);
+      this.el.classList.toggle('is-playing', playing);
+      const img = this.$('smpCoverImg');
+      if (track && track.coverUrl) {
+        if (img.getAttribute('src') !== track.coverUrl) img.src = track.coverUrl;
+        img.hidden = false;
+      } else {
+        img.removeAttribute('src');
+        img.hidden = true;
+      }
+      this.$('smpTitle').textContent = has ? track.title : 'Здесь появится ваша музыка';
+      this.$('smpSub').textContent = has
+        ? [(this.index + 1) + ' из ' + this.tracks.length, track.model].filter(Boolean).join(' · ')
+        : 'Сгенерируйте трек — он сразу будет в плеере';
+      const play = this.$('smpPlay');
+      play.disabled = !has;
+      play.setAttribute('aria-label', playing ? 'Пауза' : 'Воспроизвести');
+      play.innerHTML = playing
+        ? '<svg viewBox="0 0 24 24"><path d="M7.5 5h3.2v14H7.5zM13.3 5h3.2v14h-3.2z" fill="currentColor" stroke="none"/></svg>'
+        : '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/></svg>';
+      this.$('smpPrev').disabled = !has || (this.index <= 0 && !(this.isCurrent() && audio && audio.currentTime > 3));
+      this.$('smpNext').disabled = !has || this.index >= this.tracks.length - 1;
+      this.$('smpListBtn').disabled = this.tracks.length < 1;
+      const speed = this.$('smpSpeed');
+      speed.disabled = !has;
+      speed.textContent = (this.speed === 1 ? '1' : String(this.speed).replace(/^0/, '0')) + '×';
+      speed.classList.toggle('is-changed', this.speed !== 1);
+      const muted = !!(audio && (audio.muted || audio.volume === 0));
+      const mute = this.$('smpMute');
+      mute.classList.toggle('is-muted', muted);
+      mute.setAttribute('aria-label', muted ? 'Включить звук' : 'Выключить звук');
+      mute.innerHTML = muted
+        ? '<svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17.5 9.5l4 5M21.5 9.5l-4 5"/></svg>'
+        : '<svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 0 1 0 6"/></svg>';
+      const volume = this.$('smpVolume');
+      if (audio && document.activeElement !== volume) volume.value = String(Math.round((audio.muted ? 0 : audio.volume) * 100));
+      this.renderTime();
+      if (!this.$('smpList').hidden) this.toggleList(true);
+    },
+  };
 
   /* ===== ProStudio Grid ===== */
   const STUDIO_GRID_KEY = 'sylvex-prostudio-grid-v2';
