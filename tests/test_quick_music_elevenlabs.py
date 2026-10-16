@@ -124,7 +124,7 @@ def test_reference_is_uploaded_and_conditions_the_plan(monkeypatch):
 
 def test_reference_failure_fails_the_job(monkeypatch):
     calls = []
-    _setup(monkeypatch, calls, [FakeResponse(403, {"detail": {"status": "not_allowed", "message": "Inpainting not available"}})])
+    _setup(monkeypatch, calls, [FakeResponse(422, {"detail": {"status": "invalid_audio", "message": "Reference audio could not be processed"}})])
     payload = {"mode": "music", "model": "elevenlabs_music", "prompt": "Calm piano", "skip_telegram": True,
                "music_options": {"model": "elevenlabs_music", "reference_audio": {"url": "/r.mp3", "duration_ms": 10000}}}
     with billing_scope("el-ref-fail", 0, free=True):
