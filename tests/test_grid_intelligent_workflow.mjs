@@ -47,6 +47,30 @@ test('Grid projects autosave to private server history and remain mobile', () =>
 });
 
 test('Grid route and the saved layout survive Grid initialization', () => {
-  assert.match(cabinet, /const requestedLayout = String\(new URLSearchParams\(window\.location\.search \|\| ''\)\.get\('mode'\) \|\| ''\)\.toLowerCase\(\)/);
+  assert.match(cabinet, /requestedMode === 'grid' \|\| requestedView === 'grid'/);
+  assert.match(cabinet, /requestedView=String\(layoutParams\.get\('view'\)\|\|''\)\.toLowerCase\(\)/);
+  assert.match(cabinet, /requestedLayout=requestedView==='grid'\?'grid':requestedMode/);
   assert.match(cabinet, /setStudioLayout\(requestedLayout === 'grid' \|\| savedLayout === 'grid' \? 'grid' : 'classic'\)/);
+});
+
+test('Grid starts with the intelligent brief instead of the legacy fixed image chain', () => {
+  assert.match(cabinet, /title:'New intelligent project'/);
+  assert.match(cabinet, /title:'Describe the result'/);
+  assert.match(cabinet, /legacyStarter=.*grid_task_1.*grid_text_1.*grid_image_1/);
+  assert.match(cabinet, /Build intelligent chain/);
+});
+
+test('Grid captures an optional brand name and maps reviewed identity into every generated node', () => {
+  assert.match(cabinet, /data-grid-reference-name/);
+  assert.match(cabinet, /reference_context:referenceContexts/);
+  assert.match(cabinet, /PRODUCTION IDENTITY \(mandatory\)/);
+  assert.match(cabinet, /create one original .*stable visual characteristics/);
+});
+
+test('Grid passes only the dedicated text result into each planned media node', () => {
+  assert.match(cabinet, /created\.filter\(node=>\['image','video','music','voice'\]/);
+  assert.match(cabinet, /node\.prompt=''/);
+  assert.match(main, /Create exactly one dedicated Text node and one Video node per shot/);
+  assert.match(main, /grid_requested_duration_seconds/);
+  assert.match(main, /planner_video_duration_mismatch/);
 });

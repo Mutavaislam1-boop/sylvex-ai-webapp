@@ -24149,11 +24149,11 @@ Only use models and settings from this live capability catalog:
 Rules:
 1. Create only nodes that materially contribute to the result. Allowed types: text, image, video, music, voice, montage. The existing Task node is not returned.
 2. Every text node must contain finished production-ready content in `output`, not a note about what someone should write later. Every downstream media node must receive that exact content through an edge, or contain an equally complete local `prompt`.
-3. For films, commercials and clips, decide the number and duration of shots from the story and requested total duration. Create a separate text prompt and Video node per shot. Never use a fixed shot count. Keep the sum of shot durations equal to the requested duration within model limits.
+3. For films, commercials and clips, decide the number and duration of shots from the story and requested total duration. Create exactly one dedicated Text node and one Video node per shot. Connect only that shot's Text node to that shot's Video node. Never send the full screenplay or another shot's text to a Video node. Never use a fixed shot count. Keep the sum of shot timeline durations exactly equal to the requested total duration. If a provider only supports longer fixed clips, request the supported clip duration and put the exact shorter used duration in `timeline.duration` so Final Montage trims it correctly.
 4. Put real model parameters in `settings`, never merely describe them in prose. Use only settings supported by the selected model. Select cost-conscious models unless the brief requires a higher-quality capability.
-5. Repeating people, products, locations and objects use stable `reference_ids` on every relevant node. If identity matters and the user did not supply a reference, add a concise optional `reference_requests` entry. Never request irrelevant references.
+5. Repeating people, products, locations and objects use stable `reference_ids` on every relevant node. If identity matters and the user did not supply a reference, add a concise optional `reference_requests` entry. For a generic request such as "a one-minute sneaker advertisement", request an optional product/brand name or product reference, but do not block the plan if the user skips it. When skipped, invent one original product with concrete stable visual characteristics and preserve that same identity in every relevant shot. Never request irrelevant references.
 6. If a video model cannot take the required identity reference directly, create one shared Image node for the scene/character and connect its image to the applicable video nodes. Do not regenerate the same identity separately for every shot.
-7. Decide whether native video sound is enough. Generate one shared music track or voice track when continuity calls for it. Avoid one music node per shot unless artistically required.
+7. Decide whether native video sound is enough. Generate one shared music track or voice track when continuity calls for it. Avoid one music node per shot unless artistically required. Voice, dialogue and podcast requests must contain finished spoken copy in Text nodes and pass that exact copy into the appropriate Voice node. Music requests must pass the finished concept or lyrics from Text into Music.
 8. Complex multimedia work ends in one montage node. Connect all ordered videos and shared audio to it. Its settings must include timeline entries, transitions, audio roles/offsets, ducking and final resolution.
 9. The graph must be acyclic. Independent nodes may share parents and run in parallel. Edges must represent real data transfer.
 10. If one essential fact would radically change the result and cannot be reasonably inferred, return action=clarify with one short question in the user's language. Otherwise make professional assumptions and plan.
@@ -24180,7 +24180,41 @@ User brief:
 """.strip()
 
 
-def clean_grid_plan(plan: dict, planner_model: str, catalog: dict) -> dict:
+def grid_requested_duration_seconds(task: str) -> int:
+    """Read an explicit total production duration from a short user brief.
+
+    This is deliberately small and deterministic: the planner still decides
+    shot count and rhythm, while the server uses the result only to reject a
+    structurally incomplete timeline before it reaches the Grid canvas.
+    """
+    text = str(task or "").casefold().replace(",", ".")
+    units = {
+        "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600,
+        "час": 3600, "часа": 3600, "часов": 3600,
+        "minute": 60, "minutes": 60, "min": 60, "mins": 60,
+        "минута": 60, "минуты": 60, "минуту": 60, "минут": 60, "мин": 60,
+        "second": 1, "seconds": 1, "sec": 1, "secs": 1,
+        "секунда": 1, "секунды": 1, "секунду": 1, "секунд": 1, "сек": 1,
+    }
+    total = 0.0
+    pattern = r"(?<![\w.])(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|час(?:а|ов)?|минут(?:а|ы|у)?|мин|секунд(?:а|ы|у)?|сек)(?!\w)"
+    for match in re.finditer(pattern, text):
+        total += float(match.group(1)) * units.get(match.group(2), 0)
+    if total <= 0:
+        words = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+            "один": 1, "одна": 1, "одну": 1, "две": 2, "два": 2,
+            "три": 3, "четыре": 4, "пять": 5,
+        }
+        word_pattern = r"\b(" + "|".join(words) + r")[-\s]+(hours?|minutes?|seconds?|час(?:а|ов)?|минут(?:а|ы|у)?|секунд(?:а|ы|у)?)\b"
+        for match in re.finditer(word_pattern, text):
+            total += words[match.group(1)] * units.get(match.group(2), 0)
+    if total <= 0 and (re.search(r"\b(?:one[-\s]minute|a[-\s]minute)\b", text) or re.search(r"\b(?:одно|одна)[-\s]?минут\w*", text) or "в течение минуты" in text):
+        total = 60
+    return max(0, min(7200, int(round(total))))
+
+
+def clean_grid_plan(plan: dict, planner_model: str, catalog: dict, task: str = "") -> dict:
     if not isinstance(plan, dict) or plan.get("action") not in {"clarify", "plan"}:
         raise ValueError("invalid_planner_response")
     if plan.get("action") == "clarify":
@@ -24249,6 +24283,78 @@ def clean_grid_plan(plan: dict, planner_model: str, catalog: dict) -> dict:
             edge_keys.add(edge_key)
             clean_edges.append({"from": source, "output": output, "to": target, "input": input_name})
             adjacency[source].append(target)
+
+    # Every generator must receive the finished content of a Text node. In
+    # particular, each video shot gets its own exclusive text parent so the
+    # full screenplay can never leak into every video request. The planner is
+    # asked to produce this shape; this repair/validation layer makes the
+    # contract deterministic when a model omits an edge or shares one prompt.
+    node_by_key = {node["key"]: node for node in clean_nodes}
+    media_types = {"image", "video", "music", "voice"}
+    video_text_usage = {}
+    for edge in clean_edges:
+        target = node_by_key.get(edge["to"])
+        source = node_by_key.get(edge["from"])
+        if target and target["type"] == "video" and source and source["type"] == "text" and edge["output"] == "text":
+            video_text_usage[edge["from"]] = video_text_usage.get(edge["from"], 0) + 1
+
+    for node in list(clean_nodes):
+        if node["type"] not in media_types:
+            continue
+        text_edges = [
+            edge for edge in clean_edges
+            if edge["to"] == node["key"] and edge["output"] == "text" and edge["input"] in {"text", "lyrics"}
+        ]
+        needs_dedicated = node["type"] == "video" and (
+            len(text_edges) != 1 or (text_edges and video_text_usage.get(text_edges[0]["from"], 0) > 1)
+        )
+        if text_edges and not needs_dedicated:
+            continue
+        content = str(node.get("prompt") or "").strip()
+        if not content and text_edges:
+            source_node = node_by_key.get(text_edges[0]["from"])
+            content = str((source_node or {}).get("output") or "").strip()
+        if not content:
+            raise ValueError(f"planner_{node['type']}_prompt_missing")
+        base_key = re.sub(r"[^a-zA-Z0-9_-]", "", f"{node['key']}_prompt")[:58] or "media_prompt"
+        prompt_key, suffix = base_key, 2
+        while prompt_key in keys:
+            prompt_key = f"{base_key[:54]}_{suffix}"
+            suffix += 1
+        keys.add(prompt_key)
+        prompt_node = {
+            "key": prompt_key, "type": "text",
+            "title": ("Shot prompt — " if node["type"] == "video" else "Generation prompt — ") + node["title"],
+            "role": "shot" if node["type"] == "video" else "script",
+            "model": planner_model, "instruction": "Edit the finished production prompt.",
+            "output": content[:30000], "prompt": "", "settings": {},
+            "reference_ids": list(node.get("reference_ids") or []),
+            "timeline": dict(node.get("timeline") or {}),
+        }
+        clean_nodes.append(prompt_node)
+        node_by_key[prompt_key] = prompt_node
+        if needs_dedicated:
+            clean_edges = [edge for edge in clean_edges if not (edge["to"] == node["key"] and edge in text_edges)]
+        clean_edges.append({
+            "from": prompt_key, "output": "text", "to": node["key"],
+            "input": "lyrics" if node["type"] == "music" and node.get("role") == "lyrics" else "text",
+        })
+
+    video_nodes = [node for node in clean_nodes if node["type"] == "video"]
+    requested_duration = grid_requested_duration_seconds(task)
+    if requested_duration and video_nodes:
+        timeline_total = 0.0
+        for index, node in enumerate(video_nodes):
+            timeline = node.get("timeline") if isinstance(node.get("timeline"), dict) else {}
+            duration = float(timeline.get("duration") or (node.get("settings") or {}).get("duration") or 0)
+            if duration <= 0:
+                raise ValueError("planner_video_timeline_missing")
+            timeline["duration"] = duration
+            timeline["order"] = int(timeline.get("order") or index + 1)
+            node["timeline"] = timeline
+            timeline_total += duration
+        if abs(timeline_total - requested_duration) > 1:
+            raise ValueError("planner_video_duration_mismatch")
     references = []
     reference_ids = set()
     for index, item in enumerate((plan.get("reference_requests") or [])[:12]):
@@ -24307,7 +24413,7 @@ async def public_prostudio_grid_plan(request: Request):
         raw = str(generated.get("text") or "").strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
-        clean = clean_grid_plan(json.loads(raw), planner_model, catalog)
+        clean = clean_grid_plan(json.loads(raw), planner_model, catalog, task=task)
         return {"ok": True, **clean, "provider": generated.get("provider"), "model": generated.get("model") or planner_model}
     except SecurityError:
         raise
