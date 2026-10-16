@@ -18196,6 +18196,129 @@ function renderGeneratedTelegramButton(url, kind) {
     }
   }
 
+  // =====================================================
+  // QUICK ACCESS MUSIC
+  // Generates inside the Quick Access Music tool: the same music job Pro
+  // Studio submits (built here without touching Pro Studio's composer
+  // state), polled in the background, with the finished track sent back to
+  // the tool's carousel. The tool's history is the account's music gallery.
+  // =====================================================
+  const quickMusicJobs = new Map();
+  const QUICK_MUSIC_GENRES = { pop: 'pop', electronic: 'electronic', 'hip-hop': 'hip_hop', cinematic: 'cinematic', ambient: 'ambient' };
+  const QUICK_MUSIC_VOCALS = { 'инструментал': 'instrumental', 'женский вокал': 'female', 'мужской вокал': 'male' };
+
+  function quickMusicFrame() {
+    const frame = document.getElementById('knowledgeWorkspaceFrame');
+    const modal = document.getElementById('knowledgeWorkspaceModal');
+    if (!frame || !modal || modal.hidden || !/[?&]mode=music\b/.test(frame.getAttribute('src') || '')) return null;
+    return frame.contentWindow || null;
+  }
+
+  function quickMusicPost(data) {
+    const target = quickMusicFrame();
+    if (target) target.postMessage(Object.assign({ source: 'sylvex-knowledge-parent' }, data), location.origin);
+  }
+
+  async function quickMusicLibrary() {
+    try {
+      const response = await fetch('/api/public/prostudio/gallery?telegram_id=' + encodeURIComponent(getTelegramId() || 0) + '&limit=100', { cache:'no-store' });
+      const data = await response.json();
+      return (Array.isArray(data.items) ? data.items : [])
+        .filter((item) => {
+          const type = String(item.type || '').toLowerCase();
+          const source = String(item.provider || '') + ' ' + String(item.model || '');
+          return !!item.media_url && (type === 'music' || (type === 'audio' && /suno|chirp/i.test(source)));
+        })
+        .map((item) => ({
+          id: item.id,
+          title: String(item.title || item.prompt || 'Трек Suno').slice(0, 80),
+          genre: item.genre || '',
+          audioUrl: item.media_url,
+          coverUrl: item.preview_url || '',
+          model: item.model || '',
+          provider: item.provider || 'suno',
+        }));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // music_options for the Quick Access choices (genre / vocal labels).
+  function quickMusicOptions(model, options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const fixed = Number(model.fixedDurationSeconds) || 0;
+    let vocal = QUICK_MUSIC_VOCALS[String(opts.vocal || '').trim().toLowerCase()] || 'auto';
+    if (Array.isArray(model.vocalModes) && !model.vocalModes.includes(vocal)) vocal = 'instrumental';
+    return {
+      model: model.id,
+      genre: QUICK_MUSIC_GENRES[String(opts.genre || '').trim().toLowerCase()] || 'auto',
+      duration: fixed || 'auto',
+      duration_seconds: fixed || null,
+      duration_minutes: fixed ? Number((fixed / 60).toFixed(2)) : null,
+      mood: 'auto',
+      tempo: 'auto',
+      theme: 'auto',
+      vocal,
+    };
+  }
+
+  async function quickMusicGenerate(message) {
+    const clientId = String(message.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    const prompt = String(message.prompt || '').trim();
+    if (!clientId || !prompt || quickMusicJobs.has(clientId)) return;
+    if (guestNeedsAccount()) {
+      quickMusicPost({ action: 'quick-music-error', clientId, message: 'Войдите, чтобы создавать музыку' });
+      return;
+    }
+    const model = MUSIC_MODEL_LIST.find((item) => item.id === String(message.model || ''))
+      || MUSIC_MODEL_LIST.find((item) => item.id === 'suno_chirp_5_5') || MUSIC_MODEL_LIST[0];
+    quickMusicJobs.set(clientId, { prompt });
+    try {
+      const response = await fetch('/api/public/prostudio/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          telegram_id: getTelegramId(),
+          prompt,
+          mode: 'music',
+          category: 'music',
+          model: model.id,
+          provider: providerHintForModel(model.id),
+          music_options: quickMusicOptions(model, message.options),
+          history: [],
+          attachment: null,
+          conversation_id: null,
+          client_request_id: 'quick-music-' + clientId,
+          language: uiLang(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 409) throw new Error('Дождитесь окончания текущей генерации');
+      if (response.status === 403 && data && data.subscription_required) throw new Error('Генерация музыки доступна после активации подписки.');
+      if (response.status === 402 && data && data.paywall) throw new Error(data.error || 'Недостаточно токенов');
+      if (!response.ok || !data.ok || !data.job_id) throw new Error(translateGenerationError(data, 'Не удалось начать генерацию музыки'));
+      const result = await pollCreationJob(data.job_id, null, 'Не удалось создать музыку');
+      const audioUrl = result.audio_url || (Array.isArray(result.audios) ? result.audios[0] : '') || '';
+      if (!audioUrl) throw new Error('Музыка не получена. Попробуйте ещё раз.');
+      quickMusicPost({
+        action: 'quick-music-result',
+        clientId,
+        track: {
+          id: String(result.job_id || data.job_id),
+          title: String(result.title || prompt).slice(0, 80),
+          cover: String(result.image_url || (Array.isArray(result.images) ? result.images[0] : '') || ''),
+          audioUrl: String(audioUrl),
+        },
+      });
+    } catch (error) {
+      quickMusicPost({ action: 'quick-music-error', clientId, message: (error && error.message) || 'Не удалось создать музыку' });
+    } finally {
+      quickMusicJobs.delete(clientId);
+    }
+    quickMusicPost({ action: 'music-history', tracks: await quickMusicLibrary() });
+  }
+
   async function handleKnowledgeWorkspaceMessage(event) {
     const message = event.data || {};
     if (message.source !== 'sylvex-knowledge') return;
@@ -18226,30 +18349,15 @@ function renderGeneratedTelegramButton(url, kind) {
     }
     if (message.action === 'music-library-request') {
       const replyTarget = event.source;
-      try {
-        const response = await fetch('/api/public/prostudio/gallery?telegram_id=' + encodeURIComponent(getTelegramId() || 0) + '&limit=100', { cache:'no-store' });
-        const data = await response.json();
-        const tracks = (Array.isArray(data.items) ? data.items : [])
-          .filter((item) => {
-            const type = String(item.type || '').toLowerCase();
-            const source = String(item.provider || '') + ' ' + String(item.model || '');
-            return !!item.media_url && (type === 'music' || (type === 'audio' && /suno|chirp/i.test(source)));
-          })
-          .map((item) => ({
-            id: item.id,
-            title: String(item.title || item.prompt || 'Трек Suno').slice(0, 80),
-            genre: item.genre || '',
-            audioUrl: item.media_url,
-            coverUrl: item.preview_url || '',
-            model: item.model || '',
-            provider: item.provider || 'suno',
-          }));
-        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'music-library', tracks }, location.origin);
-      } catch (_) {
-        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'music-library', tracks:[] }, location.origin);
-      }
+      const tracks = await quickMusicLibrary();
+      replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'music-library', tracks }, location.origin);
+      // Generations still running when the tool was reopened.
+      quickMusicJobs.forEach((job, clientId) => {
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'quick-music-pending', clientId, prompt: job.prompt }, location.origin);
+      });
       return;
     }
+    if (message.action === 'quick-music-generate') { quickMusicGenerate(message); return; }
     if (message.action === 'image-catalog-item') {
       await loadPhotoCatalog(false);
       quickImageCatalogSection = String(message.kind || 'references');

@@ -234,3 +234,24 @@
 .qt-act:disabled{opacity:.4;cursor:default}
 .qt-act svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .qt-time{margin-left:4px;font-size:11px;font-variant-numeric:tabular-nums;color:#7a7a7a}
+/* ===== Quick Access Music: generation card + history sidebar ===== */
+.music-card.is-generating img{filter:brightness(.5) saturate(.6);animation:qmBreath 1.8s ease-in-out infinite}
+.music-card.is-generating::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.16) 50%,transparent 70%);background-size:240% 100%;animation:qmShimmer 1.5s linear infinite;pointer-events:none}
+.qm-loader{position:absolute;left:50%;top:44%;width:46px;height:46px;margin:-23px 0 0 -23px;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;border-radius:50%;animation:qmSpin .9s linear infinite}
+@keyframes qmSpin{to{transform:rotate(360deg)}}
+@keyframes qmShimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+@keyframes qmBreath{50%{filter:brightness(.62) saturate(.75)}}
+.knowledge-workspace[data-mode="music"]{--qt-drawer-w:min(300px,60vw);transition:padding-left .22s ease}
+.qm-drawer-title{flex:1;min-width:0;align-self:center;padding-left:6px;color:#f2f2f2;font-size:15px}
+.qm-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border:0;border-radius:12px;background:none;color:#e6e6e6;text-align:left;cursor:pointer}
+.qm-item:hover{background:#242424}
+.qm-item img{flex:0 0 44px;width:44px;height:44px;border-radius:10px;object-fit:cover;background:#262626}
+.qm-item span{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.qm-item b,.qm-item small{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.qm-item b{font-size:14px;font-weight:600}
+.qm-item small{color:#8f8f8f;font-size:12px}
+@media(min-width:701px){
+  .knowledge-workspace[data-mode="music"]{padding-top:64px}
+  .knowledge-workspace[data-mode="music"].qt-drawer-open{padding-left:calc(var(--qt-drawer-w) + 28px)}
+}
+@media(max-width:700px){.knowledge-workspace[data-mode="music"]{--qt-drawer-w:min(300px,84vw)}}
