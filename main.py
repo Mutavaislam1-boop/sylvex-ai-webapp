@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from routers.video_templates import router as video_templates_router
 
-from services.audio_router import ELEVENLABS_PRICED_TOOLS, audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_dispatch_tool, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
+from services.audio_router import ELEVENLABS_PRICED_TOOLS, ELEVENLABS_MUSIC_MODELS, ELEVENLABS_MUSIC_REFERENCE_MAX_MS, MUSIC_REFERENCE_MODELS, elevenlabs_music_length_ms, music_reference_audio, audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_dispatch_tool, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
@@ -7453,6 +7453,7 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
                 "id": message_id, "conversation_id": conversation_id, "type": kind,
                 "prompt": prompt or metadata.get("prompt") or "", "text": response_text or "",
                 "title": metadata.get("title") or response_data.get("title") or prompt or "",
+                "favorite": bool(metadata.get("favorite")),
                 "genre": metadata.get("genre") or response_data.get("genre") or "",
                 "media_url": media_url, "media_urls": media_urls, "preview_url": preview_url,
                 "job_id": metadata.get("job_id") or response_data.get("job_id") or "",
@@ -7464,6 +7465,51 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
     except Exception as exc:
         print("PROSTUDIO GALLERY FAILED:", exc)
         return {"ok": True, "items": []}
+
+
+@app.post("/api/public/prostudio/gallery/{message_id}/meta")
+async def update_public_prostudio_gallery_item(message_id: int, request: Request):
+    """Rename and/or (un)favorite one of the owner's generated results; the
+    item keeps its place in the history."""
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    body = await request.json()
+    has_title = "title" in (body or {})
+    has_favorite = "favorite" in (body or {})
+    if not message_id or not DATABASE_URL or not (has_title or has_favorite):
+        return JSONResponse({"ok": False, "error": "nothing_to_update"}, status_code=400)
+    title = re.sub(r"\s+", " ", str((body or {}).get("title") or "")).strip()[:120] if has_title else None
+    if has_title and not title:
+        return JSONResponse({"ok": False, "error": "title_required"}, status_code=400)
+
+    def _sync():
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT metadata_json FROM prostudio_messages WHERE id = %s AND telegram_id = %s", (message_id, telegram_id))
+            row = cursor.fetchone()
+            if not row:
+                cursor.close()
+                return False
+            metadata = _json_obj(row[0])
+            if has_title:
+                metadata["title"] = title
+            if has_favorite:
+                metadata["favorite"] = bool((body or {}).get("favorite"))
+            cursor.execute("UPDATE prostudio_messages SET metadata_json = %s, updated_at = NOW() WHERE id = %s AND telegram_id = %s",
+                           (json.dumps(metadata, ensure_ascii=False), message_id, telegram_id))
+            cursor.close()
+            return True
+
+    try:
+        found = await asyncio.to_thread(_sync)
+    except Exception as exc:
+        prostudio_error("GALLERY_META_FAILED", exc, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "update_failed"}, status_code=500)
+    if not found:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    return {"ok": True}
 
 
 @app.delete("/api/public/prostudio/gallery/{message_id}")
@@ -21953,10 +21999,49 @@ def persist_recraft_logo_assets(svg_url: str) -> tuple[str, str]:
 # БАЛАНС И СТОИМОСТЬ: estimate_generation_cost
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
+# ElevenLabs Music is billed per generated minute (and an uploaded reference
+# is billed like generated audio of its length). Override with the actual
+# per-minute rate of the ElevenLabs account if it differs.
+ELEVENLABS_MUSIC_USD_PER_MINUTE = Decimal(os.getenv("ELEVENLABS_MUSIC_USD_PER_MINUTE") or "0.15")
+
+
+def elevenlabs_music_cost_info(music_options: dict) -> dict:
+    """Duration-based price: provider cost of the requested length (plus the
+    reference, if any) -> SYLVEX rule (x1.5, credits, round up)."""
+    length_ms = elevenlabs_music_length_ms(music_options)
+    reference = music_reference_audio(music_options)
+    reference_ms = min(ELEVENLABS_MUSIC_REFERENCE_MAX_MS, reference["duration_ms"] or ELEVENLABS_MUSIC_REFERENCE_MAX_MS) if reference else 0
+    provider_cost = (Decimal(length_ms + reference_ms) / Decimal(60000)) * ELEVENLABS_MUSIC_USD_PER_MINUTE
+    credits = sylvex_credits(provider_cost)
+    return {"credits": credits, "cost_usd": float(round(provider_cost, 4)), "generation_cost": f"{credits} ⚡",
+            "pricing_available": credits > 0, "model_label": "ElevenLabs Music"}
+
+
+def validate_music_reference_request(payload: dict) -> Optional[dict]:
+    """A music reference is only accepted for a model that really sends it to
+    the provider; otherwise the request is rejected, never silently ignored."""
+    music_options = payload.get("music_options") or {}
+    if not isinstance(music_options, dict) or "reference_audio" not in music_options:
+        return None
+    reference = music_reference_audio(music_options)
+    model = str(music_options.get("model") or payload.get("model") or "").lower()
+    if not reference:
+        return {"ok": False, "type": "music", "error": "reference_invalid", "message": "Аудио-референс не загружен"}
+    if model not in MUSIC_REFERENCE_MODELS:
+        return {"ok": False, "type": "music", "error": "reference_not_supported", "message": "Эта модель не поддерживает аудио-референс"}
+    if not reference["url"].startswith(("https://", "http://", "/")):
+        return {"ok": False, "type": "music", "error": "reference_invalid", "message": "Аудио-референс не загружен"}
+    if reference["duration_ms"] > ELEVENLABS_MUSIC_REFERENCE_MAX_MS:
+        return {"ok": False, "type": "music", "error": "reference_too_long", "message": "Референс должен быть не длиннее 30 секунд"}
+    return None
+
+
 def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
     if mode == "music":
         model = str((payload.get("music_options") or {}).get("model") or payload.get("model") or "").lower()
+        if model in ELEVENLABS_MUSIC_MODELS:
+            return elevenlabs_music_cost_info(payload.get("music_options") or {})
         fixed_prices = {
             "google_lyria_3_pro": 12, "google_lyria_3_clip": 6,
             # These 8 models were selectable in the UI and fully wired in
@@ -23928,6 +24013,11 @@ async def public_prostudio_generate(request: Request):
                     "cost_usd": cost_estimate.get("cost_usd") or 0,
                     "shop_url": SHOP_WEBAPP_URL,
                 }, status_code=402)
+
+    if mode == "music":
+        music_error = validate_music_reference_request(payload)
+        if music_error:
+            return JSONResponse(music_error, status_code=400)
 
     if mode == "video":
         feature_error = validate_video_feature_request(payload) or await validate_reference_video_media(payload)

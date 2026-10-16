@@ -57,6 +57,45 @@ SUNO_MUSIC_MODEL_MAP = {
     "google_lyria_realtime": "models/lyria-realtime-exp",
 }
 
+# ElevenLabs Music (direct ElevenLabs API, not the Suno/MiniMax aggregator).
+ELEVENLABS_MUSIC_MODELS = {"elevenlabs_music": "music_v2_5"}
+# Music models whose integration really sends an uploaded audio reference to
+# the provider. Any other model rejects a reference instead of ignoring it.
+MUSIC_REFERENCE_MODELS = frozenset({"elevenlabs_music"})
+# ElevenLabs conditions a generation on at most 30 s of reference audio.
+ELEVENLABS_MUSIC_REFERENCE_MAX_MS = 30000
+ELEVENLABS_MUSIC_REFERENCE_MAX_BYTES = 8 * 1024 * 1024
+ELEVENLABS_MUSIC_DEFAULT_SECONDS = 60
+
+
+def elevenlabs_music_length_ms(music_options: dict) -> int:
+    """Requested song length (10 s - 10 min); 'auto' uses 60 s so the price
+    is known before the request is sent."""
+    raw = (music_options or {}).get("duration_seconds")
+    try:
+        seconds = int(float(raw)) if raw not in (None, "", "auto") else 0
+    except (TypeError, ValueError):
+        seconds = 0
+    if seconds <= 0:
+        seconds = ELEVENLABS_MUSIC_DEFAULT_SECONDS
+    return max(10, min(600, seconds)) * 1000
+
+
+def music_reference_audio(music_options: dict) -> Optional[dict]:
+    """The uploaded reference track of a music request, if any."""
+    ref = (music_options or {}).get("reference_audio")
+    if not isinstance(ref, dict):
+        return None
+    url = str(ref.get("url") or "").strip()
+    if not url:
+        return None
+    try:
+        duration_ms = int(float(ref.get("duration_ms") or 0))
+    except (TypeError, ValueError):
+        duration_ms = 0
+    return {"url": url, "duration_ms": max(0, duration_ms), "name": str(ref.get("name") or "reference")[:120]}
+
+
 GEMINI_TTS_MODEL_MAP = {
     "gemini_3_1_flash_tts_preview": "gemini-3.1-flash-tts-preview",
     "gemini_2_5_flash_preview_tts": "gemini-2.5-flash-preview-tts",
@@ -1377,6 +1416,98 @@ async def _prepare_document_voice_payload(payload: dict) -> Optional[dict]:
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+def _elevenlabs_music_prompt(payload: dict) -> str:
+    music_options = payload.get("music_options") or {}
+    prompt = str(payload.get("prompt") or music_options.get("prompt") or "").strip()
+    parts = [prompt]
+    style = _style_from_music_options(music_options)
+    if style:
+        parts.append(f"Genre and style: {style}.")
+    vocal = _music_option_value(music_options, "vocal").lower()
+    if vocal == "instrumental":
+        parts.append("Instrumental only, no vocals.")
+    elif vocal == "female":
+        parts.append("Female lead vocals.")
+    elif vocal == "male":
+        parts.append("Male lead vocals.")
+    return "\n".join(part for part in parts if part)
+
+
+async def _elevenlabs_music_json(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except Exception:
+        return {"raw": response.text[:2000]}
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: elevenlabs_music_generation
+# ElevenLabs Music v2.5: a prompt song, or - with an uploaded reference - an
+# upload + composition plan whose first chunk is conditioned on up to 30 s of
+# the reference. A reference is never dropped: any failure fails the job.
+# =====================================================
+async def elevenlabs_music_generation(payload: dict, frontend_model: str) -> dict:
+    provider = "elevenlabs"
+    model_id = ELEVENLABS_MUSIC_MODELS.get(frontend_model, "music_v2_5")
+    api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
+    if not api_key:
+        return _audio_error(provider, frontend_model, model_id, "ELEVENLABS_API_KEY is not configured")
+    music_options = payload.get("music_options") or {}
+    prompt = _elevenlabs_music_prompt(payload)
+    if not prompt:
+        return _audio_error(provider, frontend_model, model_id, "Music prompt is empty")
+    length_ms = elevenlabs_music_length_ms(music_options)
+    vocal = _music_option_value(music_options, "vocal").lower()
+    reference = music_reference_audio(music_options)
+    headers = {"xi-api-key": api_key}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0)) as client:
+            if reference:
+                content, filename, content_type = await _load_provider_media(client, reference["url"])
+                if not content:
+                    return _audio_error(provider, frontend_model, model_id, "Reference audio could not be loaded")
+                if len(content) > ELEVENLABS_MUSIC_REFERENCE_MAX_BYTES:
+                    return _audio_error(provider, frontend_model, model_id, "Reference audio is too large")
+                upload = await client.post(f"{ELEVENLABS_BASE_URL}/v1/music/upload", headers=headers,
+                                           files={"file": (filename, content, content_type or "audio/mpeg")})
+                upload_data = await _elevenlabs_music_json(upload)
+                song_id = upload_data.get("song_id") if isinstance(upload_data, dict) else ""
+                if upload.status_code >= 400 or not song_id:
+                    return _audio_error(provider, frontend_model, model_id, upload_data, status_code=upload.status_code, stage="reference_upload")
+                plan_response = await client.post(f"{ELEVENLABS_BASE_URL}/v1/music/plan", headers=headers,
+                                                  json={"prompt": prompt, "music_length_ms": length_ms, "model_id": model_id})
+                plan = await _elevenlabs_music_json(plan_response)
+                chunks = plan.get("chunks") if isinstance(plan, dict) else None
+                if plan_response.status_code >= 400 or not isinstance(chunks, list) or not chunks:
+                    return _audio_error(provider, frontend_model, model_id, plan, status_code=plan_response.status_code, stage="composition_plan")
+                reference_end = min(ELEVENLABS_MUSIC_REFERENCE_MAX_MS, reference["duration_ms"] or ELEVENLABS_MUSIC_REFERENCE_MAX_MS)
+                chunks[0]["conditioning_ref"] = {"song_id": song_id, "range": {"start_ms": 0, "end_ms": max(1000, reference_end)}}
+                chunks[0]["condition_strength"] = "high"
+                if vocal == "instrumental":
+                    for chunk in chunks:
+                        negative = [item for item in (chunk.get("negative_styles") or []) if isinstance(item, str)]
+                        if "vocals" not in negative and len(negative) < 50:
+                            chunk["negative_styles"] = negative + ["vocals"]
+                body = {"composition_plan": plan, "model_id": model_id}
+            else:
+                body = {"prompt": prompt, "music_length_ms": length_ms, "model_id": model_id,
+                        "force_instrumental": vocal == "instrumental"}
+            response = await client.post(f"{ELEVENLABS_BASE_URL}/v1/music", headers=headers, json=body)
+            if response.status_code >= 400 or not response.content:
+                return _audio_error(provider, frontend_model, model_id, await _elevenlabs_music_json(response), status_code=response.status_code, stage="compose")
+            audio_bytes = response.content
+    except Exception as exc:
+        return _audio_error(provider, frontend_model, model_id, exc, details=repr(exc))
+    audio_url = _save_audio_file(audio_bytes, ".mp3")
+    if not audio_url:
+        return _audio_error(provider, frontend_model, model_id, "ElevenLabs Music audio could not be saved")
+    return await _completed_audio_response(
+        payload, provider, frontend_model, model_id, "", "completed",
+        {"audio_url": audio_url, "duration": length_ms // 1000, "model_name": model_id, "items": []},
+        {"reference_used": bool(reference), "music_length_ms": length_ms},
+    )
+
+
 async def audio_generation(payload: dict) -> dict:
     require_billing_scope("audio_generation")
     mode = str(payload.get("mode") or payload.get("category") or "").lower()
@@ -1398,6 +1529,11 @@ async def audio_generation(payload: dict) -> dict:
         or (payload.get("music_options") or {}).get("model")
         or "suno_chirp_5"
     )
+    if music_reference_audio(payload.get("music_options") or {}) and frontend_model not in MUSIC_REFERENCE_MODELS:
+        # Never generate as if the uploaded reference did not exist.
+        return _audio_error(provider, frontend_model, "", "This music model does not support an audio reference")
+    if frontend_model in ELEVENLABS_MUSIC_MODELS:
+        return await elevenlabs_music_generation(payload, frontend_model)
     provider_model = _music_model_mapping(frontend_model)
     if provider_model in {"lyria-3-clip-preview", "lyria-3-pro-preview", "models/lyria-realtime-exp"}:
         return await lyria_music_generation(payload, frontend_model, provider_model)
