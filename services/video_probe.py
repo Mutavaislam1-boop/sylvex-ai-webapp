@@ -25,6 +25,8 @@ PROBE_SUFFIX = ".probe.json"
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _VIDEO_SIZE_RE = re.compile(r"Stream #\S+.*?Video:.*?\b(\d{2,5})x(\d{2,5})\b")
 _ROTATION_RE = re.compile(r"(?:displaymatrix: rotation of|rotate\s*:)\s*(-?\d+(?:\.\d+)?)")
+_FPS_RE = re.compile(r"Stream #\S+.*?Video:.*?(\d+(?:\.\d+)?)\s*fps")
+_AUDIO_STREAM_RE = re.compile(r"Stream #\S+.*?Audio:")
 
 
 def _ffmpeg_binary() -> str:
@@ -56,6 +58,17 @@ def parse_ffmpeg_info(stderr: str) -> dict:
             width, height = height, width
         meta["width"], meta["height"] = width, height
     return meta
+
+
+def parse_ffmpeg_stream_info(stderr: str) -> dict:
+    """Frame rate and audio presence from `ffmpeg -i` output (used by the
+    video editor to price per-frame enhancement and to transcribe)."""
+    info: dict = {}
+    fps = _FPS_RE.search(stderr or "")
+    if fps:
+        info["fps"] = round(float(fps.group(1)), 3)
+    info["has_audio"] = bool(_AUDIO_STREAM_RE.search(stderr or ""))
+    return info
 
 
 def probe_video_bytes(content: bytes, suffix: str) -> Optional[dict]:

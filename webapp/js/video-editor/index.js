@@ -1,9 +1,11 @@
 // Entry point of the SYLVEX Video Editor (Quick Access → Video).
-// Picks the rendering engine named by the server config and wires
-// UI → editor core → engine. Engines are looked up by name, so another
+// Wires SYLVEX UI → SYLVEX actions/services → editor core → engine. The
+// engine is picked by the server config and looked up by name, so another
 // engine only needs to be registered here.
 import { createVideoEditor } from './editor.js';
 import { mountVideoEditorUI } from './ui.js';
+import { createEditorActions } from './actions.js';
+import { createServices, environment as detectEnvironment } from './services.js';
 import { createImglyEngine } from './engines/imgly.js';
 
 const ENGINES = {
@@ -26,11 +28,17 @@ async function fetchConfig() {
   return data;
 }
 
-// Opens the editor inside `host`. `files` (video) are loaded first.
-export async function openVideoEditor({ host, files = [], onClose } = {}) {
+// Opens the editor inside `host`. `files` are added to a new project;
+// `projectId` (+ `token` from an "Open in browser" link) reopens a saved one.
+export async function openVideoEditor({ host, files = [], projectId = '', token = '', onClose } = {}) {
+  const services = createServices();
+  const env = detectEnvironment();
   let editor = null;
+  let actions = null;
   let ui = null;
   const close = () => {
+    if (actions) actions.destroy();
+    if (ui) ui.destroy();
     if (editor) editor.destroy();
     host.innerHTML = '';
     if (onClose) onClose();
@@ -39,26 +47,35 @@ export async function openVideoEditor({ host, files = [], onClose } = {}) {
   try {
     config = await fetchConfig();
   } catch (error) {
-    const placeholder = createVideoEditor({ engine: nullEngine() });
-    ui = mountVideoEditorUI(host, placeholder, { onClose: () => { placeholder.destroy(); host.innerHTML = ''; if (onClose) onClose(); } });
+    editor = createVideoEditor({ engine: nullEngine() });
+    actions = createEditorActions({ editor, services });
+    ui = mountVideoEditorUI(host, editor, { onClose: close, actions, services, environment: env });
     ui.setEngineError(error);
     return null;
   }
   const factory = engineFactory(config.engine);
   editor = createVideoEditor({ engine: factory ? factory(config) : nullEngine() });
-  ui = mountVideoEditorUI(host, editor, { onClose: close });
+  actions = createEditorActions({ editor, services, onState: (work) => { if (ui) ui.setWorkState(work); } });
+  ui = mountVideoEditorUI(host, editor, { onClose: close, actions, services, environment: env });
   ui.focus();
   if (!factory) { ui.setEngineError({ code: 'engine_load_failed' }); return editor; }
   try {
     await editor.mount(ui.stage);
-    const caps = editor.capabilities();
-    ui.setEngineReady(caps, config.trial ? 'Тестовый режим движка' : '');
+    ui.setEngineReady(editor.capabilities(), config.trial ? 'Видеодвижок в тестовом режиме' : '');
   } catch (error) {
     console.error('[video-editor] engine', error);
     ui.setEngineError(error);
     return editor;
   }
-  if (files.length) await ui.addFiles(files, 'video');
+  if (projectId) {
+    await ui.openProject(projectId, token);
+  } else if (files.length) {
+    await ui.addFiles(files);
+  } else {
+    // Without files the user picks a saved project or starts a new one.
+    const saved = await services.listProjects().catch(() => []);
+    if (saved.length) ui.showProjects();
+  }
   return editor;
 }
 
@@ -68,7 +85,7 @@ function nullEngine() {
   return {
     name: 'none',
     async init() {},
-    capabilities: () => ({ transitions: [], fonts: [], canExport: false, exportReason: 'engine_load_failed' }),
+    capabilities: () => ({ transitionKinds: [], fonts: [], images: false, canExport: false, exportReason: 'engine_load_failed' }),
     async sync() {},
     play() {}, pause() {}, seek() {},
     currentTime: () => 0,
