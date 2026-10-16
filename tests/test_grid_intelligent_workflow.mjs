@@ -96,6 +96,9 @@ test('managed Grid director uses Structured Outputs and priced GPT models', () =
   assert.match(main, /"gpt-6\.1-sol": \("2\.00", "10\.00"\)/);
   assert.match(main, /"_response_format": grid_plan_response_format\(\)/);
   assert.match(main, /request_payload\["text"\] = \{"format": response_format\}/);
+  assert.match(main, /request_payload\.update\(\{"background": True, "store": False\}\)/);
+  assert.match(main, /OPENAI_BACKGROUND_RESPONSE/);
+  assert.match(main, /GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS/);
 });
 
 test('Grid catalog exposes and enforces official reference capabilities', () => {

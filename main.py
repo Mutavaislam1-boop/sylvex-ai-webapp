@@ -5221,14 +5221,16 @@ def text_usage_details(metadata) -> Optional[dict]:
     }
 
 
-# A one-minute production plan normally fits well below this cap. Keeping the
-# cap bounded avoids asking a reasoning model to reserve an unnecessarily
-# large response, which was the main cause of the repeated 90-second Grid
-# Planner reads seen in production.
+# A one-minute production plan normally fits well below this cap. The Grid
+# director uses OpenAI Background mode below, so long reasoning is polled by
+# response id instead of holding one provider socket open until completion.
 GRID_PLAN_MAX_OUTPUT_TOKENS = max(4096, min(24000, int(os.getenv("GRID_PLAN_MAX_OUTPUT_TOKENS") or 12000)))
 GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS = max(2048, min(GRID_PLAN_MAX_OUTPUT_TOKENS, int(os.getenv("GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS") or 6000)))
-GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS = max(15, min(75, int(os.getenv("GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS") or 50)))
-GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS = max(10, min(45, int(os.getenv("GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS") or 25)))
+GRID_PLANNER_CREATE_TIMEOUT_SECONDS = max(10, min(45, int(os.getenv("GRID_PLANNER_CREATE_TIMEOUT_SECONDS") or 20)))
+GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS = max(30, min(240, int(os.getenv("GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS") or 150)))
+GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS") or 90)))
+_grid_planner_reasoning_effort = (os.getenv("GRID_PLANNER_REASONING_EFFORT") or "medium").strip().lower()
+GRID_PLANNER_REASONING_EFFORT = _grid_planner_reasoning_effort if _grid_planner_reasoning_effort in {"low", "medium", "high"} else "medium"
 _grid_planner_model = (os.getenv("GRID_PLANNER_MODEL") or "gpt-6-astra").strip()
 GRID_PLANNER_MODEL = _grid_planner_model if _grid_planner_model in TEXT_TOKEN_USD_PER_MILLION else "gpt-6-astra"
 _grid_planner_fallback_model = (os.getenv("GRID_PLANNER_FALLBACK_MODEL") or "gpt-6.1-sol").strip()
@@ -20312,7 +20314,17 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
     return True, text, data if isinstance(data, dict) else {}
 
 
-def openai_responses_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None, response_format: Optional[dict] = None) -> tuple[bool, str, dict]:
+def openai_responses_text_request(
+    provider_model: str,
+    messages: list,
+    max_output_tokens: Optional[int] = None,
+    request_timeout: Optional[int] = None,
+    response_format: Optional[dict] = None,
+    background: bool = False,
+    poll_timeout_seconds: Optional[int] = None,
+    reasoning_effort: Optional[str] = None,
+    idempotency_key: str = "",
+) -> tuple[bool, str, dict]:
     require_billing_scope("openai_responses_text_request")
     if not OPENAI_API_KEY:
         return False, "OPENAI API key is not configured", {}
@@ -20346,11 +20358,23 @@ def openai_responses_text_request(provider_model: str, messages: list, max_outpu
     }
     if isinstance(response_format, dict) and response_format.get("type"):
         request_payload["text"] = {"format": response_format}
+    if reasoning_effort in {"low", "medium", "high", "xhigh", "max"}:
+        request_payload["reasoning"] = {"effort": reasoning_effort}
+    if background:
+        # OpenAI Background mode returns a response id quickly and lets the
+        # caller poll. This avoids holding one provider connection open while
+        # a reasoning model builds a large Grid graph.
+        request_payload.update({"background": True, "store": False})
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+    create_headers = dict(headers)
+    if idempotency_key:
+        create_headers["Idempotency-Key"] = re.sub(r"[^a-zA-Z0-9_.:-]", "-", str(idempotency_key))[:256]
+    endpoint = OPENAI_API_BASE.rstrip("/") + "/responses"
     response = requests.post(
-        OPENAI_API_BASE.rstrip("/") + "/responses",
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+        endpoint,
+        headers=create_headers,
         data=json.dumps(request_payload),
-        timeout=max(10, min(90, int(request_timeout or 90))),
+        timeout=max(10, min(90, int(request_timeout or (20 if background else 90)))),
     )
     try:
         data = response.json() if response.content else {}
@@ -20360,6 +20384,55 @@ def openai_responses_text_request(provider_model: str, messages: list, max_outpu
         if isinstance(data, dict):
             data["_http_status"] = response.status_code
         return False, raw_error_text(data) or response.text, data if isinstance(data, dict) else {}
+
+    if background:
+        response_id = str(data.get("id") or "") if isinstance(data, dict) else ""
+        status = str(data.get("status") or "") if isinstance(data, dict) else ""
+        if not response_id:
+            return False, "OpenAI background response id is missing", data if isinstance(data, dict) else {}
+        deadline = time.monotonic() + max(30, min(600, int(poll_timeout_seconds or 180)))
+        last_status = ""
+        while status in {"queued", "in_progress"} and time.monotonic() < deadline:
+            if status != last_status:
+                print("OPENAI_BACKGROUND_RESPONSE:", json.dumps({
+                    "response_id": response_id, "model": provider_model, "status": status,
+                }))
+                last_status = status
+            time.sleep(2)
+            try:
+                polled = requests.get(
+                    f"{endpoint}/{response_id}", headers=headers,
+                    timeout=max(10, min(30, int(request_timeout or 20))),
+                )
+            except requests.RequestException:
+                if time.monotonic() < deadline:
+                    continue
+                raise
+            try:
+                polled_data = polled.json() if polled.content else {}
+            except Exception:
+                polled_data = {"raw": polled.text}
+            if polled.status_code >= 400:
+                if polled.status_code in {408, 409, 425, 429, 500, 502, 503, 504} and time.monotonic() < deadline:
+                    continue
+                if isinstance(polled_data, dict):
+                    polled_data["_http_status"] = polled.status_code
+                return False, raw_error_text(polled_data) or polled.text, polled_data if isinstance(polled_data, dict) else {}
+            data = polled_data if isinstance(polled_data, dict) else {}
+            status = str(data.get("status") or "")
+        if status in {"queued", "in_progress"}:
+            try:
+                requests.post(f"{endpoint}/{response_id}/cancel", headers=headers, timeout=15)
+            except requests.RequestException:
+                pass
+            raise requests.ReadTimeout(f"OpenAI background response exceeded {int(poll_timeout_seconds or 180)} seconds")
+        print("OPENAI_BACKGROUND_RESPONSE:", json.dumps({
+            "response_id": response_id, "model": provider_model, "status": status or "unknown",
+        }))
+        if status != "completed":
+            error_data = data.get("error") if isinstance(data.get("error"), dict) else data
+            return False, raw_error_text(error_data) or f"OpenAI background response ended with status {status or 'unknown'}", data
+
     text = str(data.get("output_text") or "") if isinstance(data, dict) else ""
     if not text and isinstance(data, dict):
         text = "\n".join(
@@ -20440,7 +20513,18 @@ def gemini_text_request(provider_model: str, messages: list, max_output_tokens: 
     return True, "\n".join(text_parts).strip(), data if isinstance(data, dict) else {}
 
 
-def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None, response_format: Optional[dict] = None) -> dict:
+def call_text_provider(
+    model: str,
+    messages: list,
+    attachment: Optional[dict] = None,
+    max_output_tokens: Optional[int] = None,
+    request_timeout: Optional[int] = None,
+    response_format: Optional[dict] = None,
+    openai_background: bool = False,
+    openai_poll_timeout_seconds: Optional[int] = None,
+    reasoning_effort: Optional[str] = None,
+    idempotency_key: str = "",
+) -> dict:
     require_billing_scope("call_text_provider")
     cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-5.5"]
     provider = cfg.get("provider") or "openai"
@@ -20471,7 +20555,13 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
         ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}, **cap_body}, request_timeout)
     else:
         if cfg.get("api") == "responses":
-            ok, text, data = openai_responses_text_request(provider_model, request_messages, max_output_tokens, request_timeout, response_format)
+            ok, text, data = openai_responses_text_request(
+                provider_model, request_messages, max_output_tokens, request_timeout, response_format,
+                background=openai_background,
+                poll_timeout_seconds=openai_poll_timeout_seconds,
+                reasoning_effort=reasoning_effort,
+                idempotency_key=idempotency_key,
+            )
         else:
             ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages,
                                                             {"max_completion_tokens": int(max_output_tokens)} if max_output_tokens else None, request_timeout)
@@ -20579,10 +20669,18 @@ def text_generation(payload: dict) -> dict:
 
     request_timeout = payload.get("_provider_timeout_seconds")
     response_format = payload.get("_response_format") if isinstance(payload.get("_response_format"), dict) else None
-    if request_timeout or response_format:
+    openai_background = bool(payload.get("_openai_background"))
+    openai_poll_timeout_seconds = payload.get("_openai_poll_timeout_seconds")
+    reasoning_effort = str(payload.get("_reasoning_effort") or "").strip().lower() or None
+    idempotency_key = str(payload.get("_openai_idempotency_key") or "").strip()
+    if request_timeout or response_format or openai_background or reasoning_effort or idempotency_key:
         generated = call_text_provider(
             model, messages, attachment,
             payload.get("output_token_cap") or text_output_cap(payload), request_timeout, response_format,
+            openai_background=openai_background,
+            openai_poll_timeout_seconds=openai_poll_timeout_seconds,
+            reasoning_effort=reasoning_effort,
+            idempotency_key=idempotency_key,
         )
     else:
         generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap") or text_output_cap(payload))
@@ -24581,14 +24679,22 @@ def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: 
     graph that GPT did not design.
     """
     attempts = [
-        (planner_model, GRID_PLAN_MAX_OUTPUT_TOKENS, GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS, "primary"),
-        (GRID_PLANNER_FALLBACK_MODEL, GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS, GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS, "fallback"),
+        (planner_model, GRID_PLAN_MAX_OUTPUT_TOKENS, GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS, "primary"),
+        (GRID_PLANNER_FALLBACK_MODEL, GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS, GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS, "fallback"),
     ]
     last_reason = "temporary_provider_failure"
     saw_temporary_failure = False
-    for attempt_number, (model, output_cap, timeout_seconds, attempt_name) in enumerate(attempts, 1):
+    for attempt_number, (model, output_cap, poll_timeout_seconds, attempt_name) in enumerate(attempts, 1):
         payload = dict(planner_payload)
-        payload.update({"model": model, "output_token_cap": output_cap, "_provider_timeout_seconds": timeout_seconds})
+        payload.update({
+            "model": model,
+            "output_token_cap": output_cap,
+            "_provider_timeout_seconds": GRID_PLANNER_CREATE_TIMEOUT_SECONDS,
+            "_openai_background": True,
+            "_openai_poll_timeout_seconds": poll_timeout_seconds,
+            "_reasoning_effort": GRID_PLANNER_REASONING_EFFORT,
+            "_openai_idempotency_key": f"{planner_payload.get('job_id') or 'grid-plan'}:{attempt_name}:{model}",
+        })
         started = time.monotonic()
         try:
             result = text_generation(payload)
@@ -24597,7 +24703,9 @@ def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: 
             last_reason = type(exc).__name__
             print("GRID_PLANNER_RETRY:", json.dumps({
                 "attempt": attempt_number, "kind": attempt_name, "model": model,
-                "timeout_seconds": timeout_seconds, "elapsed_ms": int((time.monotonic() - started) * 1000),
+                "create_timeout_seconds": GRID_PLANNER_CREATE_TIMEOUT_SECONDS,
+                "poll_timeout_seconds": poll_timeout_seconds,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
                 "reason": last_reason,
             }))
             continue
@@ -24857,7 +24965,7 @@ async def public_home_idea_realtime(request: Request):
 @app.post("/api/public/prostudio/generate")
 async def public_prostudio_generate(request: Request):
     payload = dict(await request.json())
-    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe", "_provider_timeout_seconds", "_response_format",
+    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe", "_provider_timeout_seconds", "_response_format", "_openai_background", "_openai_poll_timeout_seconds", "_reasoning_effort", "_openai_idempotency_key",
                          "output_token_cap", TEXT_ATTACHMENT_BYTES_KEY):
         payload.pop(internal_key, None)
     telegram_id = int(payload.get("telegram_id") or 0)

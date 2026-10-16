@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import requests
 import time
+from typing import Optional
 import unittest
 
 
@@ -14,16 +15,21 @@ PLANNER_FUNCTIONS = [
     if isinstance(node, ast.FunctionDef) and node.name in {
         "grid_requested_duration_seconds", "clean_grid_plan",
         "grid_planner_retryable_result", "grid_planner_generation_with_fallback",
+        "openai_responses_text_request",
     }
 ]
 PLANNER_NAMESPACE = {
-    "re": re, "json": json, "requests": requests, "time": time,
+    "re": re, "json": json, "requests": requests, "time": time, "Optional": Optional,
+    "require_billing_scope": lambda _operation: None,
+    "OPENAI_API_KEY": "test-key", "OPENAI_API_BASE": "https://api.openai.test/v1",
+    "raw_error_text": lambda value: str((value or {}).get("message") or "") if isinstance(value, dict) else str(value or ""),
     "GRID_TEXT_NODE_MODELS": ("gpt-5.6", "gpt-5.5"),
 }
 exec(compile(ast.Module(body=PLANNER_FUNCTIONS, type_ignores=[]), "main.py", "exec"), PLANNER_NAMESPACE)
 grid_requested_duration_seconds = PLANNER_NAMESPACE["grid_requested_duration_seconds"]
 clean_grid_plan = PLANNER_NAMESPACE["clean_grid_plan"]
 grid_planner_generation_with_fallback = PLANNER_NAMESPACE["grid_planner_generation_with_fallback"]
+openai_responses_text_request = PLANNER_NAMESPACE["openai_responses_text_request"]
 
 
 CATALOG = {
@@ -91,6 +97,71 @@ def video_plan(second_duration=30):
 
 
 class GridPlannerContractTests(unittest.TestCase):
+    def test_background_response_creation_is_polled_until_complete(self):
+        calls = {"post": [], "get": []}
+
+        class Response:
+            def __init__(self, data, status_code=200):
+                self._data = data
+                self.status_code = status_code
+                self.content = b"{}"
+                self.text = json.dumps(data)
+
+            def json(self):
+                return self._data
+
+        class Clock:
+            now = 0.0
+
+            @classmethod
+            def monotonic(cls):
+                return cls.now
+
+            @classmethod
+            def sleep(cls, seconds):
+                cls.now += seconds
+
+        poll_results = [
+            Response({"id": "resp_grid", "status": "in_progress"}),
+            Response({"id": "resp_grid", "status": "completed", "output_text": "{\"action\":\"plan\"}", "usage": {"input_tokens": 10, "output_tokens": 5}}),
+        ]
+
+        class FakeRequests:
+            RequestException = requests.RequestException
+            ReadTimeout = requests.ReadTimeout
+
+            @staticmethod
+            def post(url, **kwargs):
+                calls["post"].append((url, kwargs))
+                return Response({"id": "resp_grid", "status": "queued"})
+
+            @staticmethod
+            def get(url, **kwargs):
+                calls["get"].append((url, kwargs))
+                return poll_results.pop(0)
+
+        namespace = openai_responses_text_request.__globals__
+        previous_requests, previous_time = namespace["requests"], namespace["time"]
+        namespace.update({"requests": FakeRequests, "time": Clock})
+        try:
+            ok, text, metadata = openai_responses_text_request(
+                "gpt-6-astra", [{"role": "user", "content": "Build a plan"}],
+                12000, 20, {"type": "json_schema", "name": "grid", "schema": {}},
+                background=True, poll_timeout_seconds=150, reasoning_effort="medium",
+                idempotency_key="grid-plan:test",
+            )
+        finally:
+            namespace.update({"requests": previous_requests, "time": previous_time})
+        self.assertTrue(ok)
+        self.assertEqual(text, '{"action":"plan"}')
+        self.assertEqual(metadata["status"], "completed")
+        self.assertEqual(len(calls["get"]), 2)
+        payload = json.loads(calls["post"][0][1]["data"])
+        self.assertTrue(payload["background"])
+        self.assertFalse(payload["store"])
+        self.assertEqual(payload["reasoning"], {"effort": "medium"})
+        self.assertEqual(calls["post"][0][1]["headers"]["Idempotency-Key"], "grid-plan:test")
+
     def test_duration_reader_understands_common_video_briefs(self):
         self.assertEqual(grid_requested_duration_seconds("Create a one-minute sneaker ad"), 60)
         self.assertEqual(grid_requested_duration_seconds("Реклама кроссовок на 1 минуту"), 60)
@@ -161,7 +232,11 @@ class GridPlannerContractTests(unittest.TestCase):
         calls = []
 
         def fake_generation(payload):
-            calls.append((payload["model"], payload["_provider_timeout_seconds"]))
+            calls.append((
+                payload["model"], payload["_provider_timeout_seconds"],
+                payload["_openai_poll_timeout_seconds"], payload["_openai_background"],
+                payload["_reasoning_effort"],
+            ))
             if len(calls) == 1:
                 raise requests.ReadTimeout("slow")
             return {"ok": True, "text": json.dumps({"action": "clarify", "question": "Which format?"}),
@@ -170,12 +245,14 @@ class GridPlannerContractTests(unittest.TestCase):
         namespace = grid_planner_generation_with_fallback.__globals__
         previous = {key: namespace.get(key) for key in (
             "text_generation", "GRID_PLAN_MAX_OUTPUT_TOKENS", "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS",
-            "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_MODEL",
+            "GRID_PLANNER_CREATE_TIMEOUT_SECONDS", "GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS",
+            "GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS", "GRID_PLANNER_REASONING_EFFORT", "GRID_PLANNER_FALLBACK_MODEL",
         )}
         namespace.update({
             "text_generation": fake_generation, "GRID_PLAN_MAX_OUTPUT_TOKENS": 8000,
-            "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS": 50,
-            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-6.1-sol",
+            "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_CREATE_TIMEOUT_SECONDS": 20,
+            "GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS": 150, "GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS": 90,
+            "GRID_PLANNER_REASONING_EFFORT": "medium", "GRID_PLANNER_FALLBACK_MODEL": "gpt-6.1-sol",
         })
         try:
             result = grid_planner_generation_with_fallback({}, "gpt-6-astra", CATALOG, "promo")
@@ -183,7 +260,10 @@ class GridPlannerContractTests(unittest.TestCase):
             namespace.update(previous)
         self.assertTrue(result["ok"])
         self.assertEqual(result["planner_attempt"], "fallback")
-        self.assertEqual(calls, [("gpt-6-astra", 50), ("gpt-6.1-sol", 25)])
+        self.assertEqual(calls, [
+            ("gpt-6-astra", 20, 150, True, "medium"),
+            ("gpt-6.1-sol", 20, 90, True, "medium"),
+        ])
 
     def test_two_timeouts_return_real_failure_without_a_template_plan(self):
         def always_timeout(_payload):
@@ -192,12 +272,14 @@ class GridPlannerContractTests(unittest.TestCase):
         namespace = grid_planner_generation_with_fallback.__globals__
         previous = {key: namespace.get(key) for key in (
             "text_generation", "GRID_PLAN_MAX_OUTPUT_TOKENS", "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS",
-            "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_MODEL",
+            "GRID_PLANNER_CREATE_TIMEOUT_SECONDS", "GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS",
+            "GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS", "GRID_PLANNER_REASONING_EFFORT", "GRID_PLANNER_FALLBACK_MODEL",
         )}
         namespace.update({
             "text_generation": always_timeout, "GRID_PLAN_MAX_OUTPUT_TOKENS": 8000,
-            "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS": 50,
-            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-6.1-sol",
+            "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_CREATE_TIMEOUT_SECONDS": 20,
+            "GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS": 150, "GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS": 90,
+            "GRID_PLANNER_REASONING_EFFORT": "medium", "GRID_PLANNER_FALLBACK_MODEL": "gpt-6.1-sol",
         })
         try:
             result = grid_planner_generation_with_fallback({}, "gpt-6-astra", CATALOG, "Create a one-minute sneaker ad")
