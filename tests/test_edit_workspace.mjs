@@ -36,21 +36,15 @@ test('Edit offers the leading image editors, persists the selection and routes o
  h.state.editModel='grok_pro';h.context.setEditWorkspaceMode(null,'camera');h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();
  options=h.requests.at(-1)[4];assert.equal(options.provider,'openai');assert.equal(options.model,'gpt_image_2_5_sunburst');
 });
-test('Sketch opens only the unambiguous blank or single-photo canvas and hides the generic upload layer',async()=>{
+test('Sketch is penultimate and is available only in an empty Edit workspace',async()=>{
+ assert.match(source,/\['camera','Change Camera'\],\['sketch','Sketch to Image'\],\['translate','Translate'\]/);
  const blank=harness();Object.assign(blank.state,{sourceUrl:'',sourcePreview:'',width:0,height:0});blank.context.setEditWorkspaceMode(null,'sketch');
  assert.equal(blank.state.sketch.editing,true);assert.equal(blank.state.sketch.referenceUrl,'');assert.equal(blank.state.chain.length,0);
  assert.match(source,/if\(s\.mode==='sketch'\)\{world\.innerHTML='';return;\}/);
- const single=harness();single.context.setEditWorkspaceMode(null,'sketch');
- assert.equal(single.state.chain.length,1);assert.equal(single.state.sketch.editing,true);assert.equal(single.state.sketch.referenceNodeId,single.state.chain[0].id);
- single.state.sketch.items=[{type:'pen',x:1,y:1,size:2,color:'#112233',fill:'#ffffff',opacity:1,sx:1,sy:1,rotation:0,points:[[0,0,.5],[2,2,.8]]}];
- single.context.SYLVEXSketch.exportPNG=async()=>new Blob(['annotated'],{type:'image/png'});
- await single.context.generateEditWorkspace();
- assert.equal(single.state.chain.length,3);single.context.setEditWorkspaceMode(null,'lighting');single.context.setEditWorkspaceMode(null,'sketch');
- assert.equal(single.state.sketch.editing,false,'a chain must wait for the user to choose its canvas');
- assert.match(single.context.editWorkspaceValidation(),/Select an image/);
- const chosen=single.state.chain[0];single.context.selectEditWorkspaceNode(null,chosen.id);
- assert.equal(single.state.sketch.editing,true);assert.equal(single.state.sketch.referenceNodeId,chosen.id);assert.equal(single.state.sketch.referenceUrl,chosen.url);
- single.context.toggleEditSketch();assert.equal(single.state.sketch.editing,false,'the canvas can be closed without changing the chain');
+ const photo=harness();photo.context.setEditWorkspaceMode(null,'sketch');
+ assert.equal(photo.state.mode,'edit');assert.equal(photo.state.sketch,null);assert.equal(photo.context.editWorkspaceModeAvailable(photo.state,'sketch'),false);
+ await blank.context.loadEditWorkspaceImage(new File(['photo'],'photo.png',{type:'image/png'}));
+ assert.equal(blank.state.mode,'edit');assert.equal(blank.state.sketch,null);assert.equal(blank.context.editWorkspaceModeAvailable(blank.state,'sketch'),false);
 });
 function sketchHarness(){
  const h=harness();Object.assign(h.state,{sourceUrl:'',sourcePreview:'',width:0,height:0});h.context.setEditWorkspaceMode(null,'sketch');
@@ -58,7 +52,7 @@ function sketchHarness(){
  h.context.SYLVEXSketch.exportPNG=async()=>new Blob(['test PNG'],{type:'image/png'});
  return h;
 }
-test('Sketch works without a photo, uploads its PNG as the isolated source and retains the editable drawing',async()=>{
+test('Sketch generates one standalone result that becomes a clean source for other tools',async()=>{
  const h=sketchHarness(),draft=JSON.stringify(h.state.sketch.items),uploads=[];
  h.context.uploadProStudioMediaFile=async(file,type)=>{uploads.push({file,type});return 'https://cdn.example/sketch.png';};
  h.context.updateEditWorkspacePrompt({currentTarget:{value:'A realistic mountain landscape'}});
@@ -66,58 +60,42 @@ test('Sketch works without a photo, uploads its PNG as the isolated source and r
  assert.equal(uploads.length,1);assert.equal(uploads[0].file.type,'image/png');assert.equal(uploads[0].type,'image');
  assert.equal(h.requests[0][2][0],'https://cdn.example/sketch.png');assert.equal(h.requests[0][4].imageOptions.editWorkspaceMode,'sketch');
  assert.equal(h.requests[0][4].imageOptions.editWorkspacePrompt,'A realistic mountain landscape');
- assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[0].mode,'sketch-source');assert.equal(h.state.chain[1].parentId,h.state.chain[0].id);
+ assert.equal(h.state.chain.length,1);assert.equal(h.state.chain[0].mode,'sketch');assert.equal(h.state.chain[0].parentId,'');
  assert.equal(JSON.stringify(h.state.sketch.items),draft);assert.equal(h.state.sketch.editing,false);
  h.context.setEditWorkspaceMode(null,'lighting');h.context.setEditWorkspaceDimensions(1024,1024);await h.context.generateEditWorkspace();
- assert.equal(h.requests[1][2][0],'https://cdn.example/result.png');assert.equal(h.state.chain.length,3);
+ assert.equal(h.state.sketch,null);assert.equal(h.state.chain[0].mode,'source');assert.equal(h.context.editWorkspaceModeAvailable(h.state,'sketch'),false);
+ assert.equal(h.requests[1][2][0],'https://cdn.example/result.png');assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1].parentId,h.state.chain[0].id);
 });
-test('Sketch keeps the existing Edit chain and retains the annotated photo as the generated result parent',async()=>{
- const h=harness();h.context.ensureEditWorkspaceChain();h.context.setEditWorkspaceMode(null,'sketch');
- assert.equal(h.state.sketch.referenceUrl,'https://cdn.example/source.png');
- assert.equal(h.state.sketch.referencePreview,'https://cdn.example/source.png');
- assert.equal(h.state.sketch.referenceNodeId,h.state.chain[0].id);
- assert.equal(h.state.sketch.width,1200);assert.equal(h.state.sketch.height,800);
- h.state.sketch.items=[{type:'pen',x:30,y:40,size:6,color:'#112233',fill:'#ffffff',opacity:1,sx:1,sy:1,rotation:0,points:[[0,0,.5],[20,30,.8]]}];
- h.context.SYLVEXSketch.exportPNG=async doc=>{assert.equal(doc.referenceUrl,'https://cdn.example/source.png');return new Blob(['photo plus drawing'],{type:'image/png'});};
- h.context.uploadProStudioMediaFile=async()=> 'https://cdn.example/flattened.png';
- await h.context.generateEditWorkspace();
- assert.equal(h.requests[0][2][0],'https://cdn.example/flattened.png');
- assert.equal(h.requests[0][4].imageOptions.editWorkspaceSourceUrl,'https://cdn.example/flattened.png');
- assert.equal(h.state.chain.length,3,'the original, annotated photo and generated result are all retained');
- assert.equal(h.state.chain[0].url,'https://cdn.example/source.png');
- assert.equal(h.state.chain[1].mode,'sketch-source');
- assert.equal(h.state.chain[1].url,'https://cdn.example/flattened.png');
- assert.equal(h.state.chain[1].parentId,h.state.chain[0].id);
- assert.equal(h.state.chain[2].parentId,h.state.chain[1].id);
- assert.deepEqual(h.state.sketch.items,[{type:'pen',x:30,y:40,size:6,color:'#112233',fill:'#ffffff',opacity:1,sx:1,sy:1,rotation:0,points:[[0,0,.5],[20,30,.8]]}], 'editable drawing remains after Generate');
- h.context.selectEditWorkspaceNode(null,h.state.chain[2].id);
- assert.equal(h.state.sketch.referenceUrl,'https://cdn.example/result.png','the current result becomes the next drawing background');
- assert.equal(h.state.sketch.items.length,0,'old strokes are not duplicated over a new active result');
-});
-test('Sketch continues an existing multi-tool chain without replacing any earlier image',async()=>{
+test('Sketch cannot attach to an uploaded photo or an existing generation chain',async()=>{
  const h=harness();await h.context.generateEditWorkspace();
  h.context.setEditWorkspaceDimensions(1200,800);h.context.setEditWorkspaceMode(null,'camera');await h.context.generateEditWorkspace();
  h.context.setEditWorkspaceDimensions(1200,800);const retained=h.state.chain.map(node=>({id:node.id,parentId:node.parentId,url:node.url}));
  h.context.setEditWorkspaceMode(null,'sketch');assert.deepEqual(h.state.chain.map(node=>({id:node.id,parentId:node.parentId,url:node.url})),retained);
- assert.equal(h.state.sketch.editing,false);h.context.selectEditWorkspaceNode(null,h.state.activeNodeId);assert.equal(h.state.sketch.editing,true);
- const drawnParent=h.state.activeNodeId;h.state.sketch.items=[{type:'pen',x:5,y:6,size:4,color:'#112233',fill:'#ffffff',opacity:1,sx:1,sy:1,rotation:0,points:[[0,0,.5],[10,10,.8]]}];
- h.context.SYLVEXSketch.exportPNG=async()=>new Blob(['annotated'],{type:'image/png'});h.context.uploadProStudioMediaFile=async()=> 'https://cdn.example/annotated-later.png';
- await h.context.generateEditWorkspace();
- assert.deepEqual(h.state.chain.slice(0,retained.length).map(node=>({id:node.id,parentId:node.parentId,url:node.url})),retained);
- const annotated=h.state.chain.at(-2),result=h.state.chain.at(-1);
- assert.equal(annotated.parentId,drawnParent);assert.equal(annotated.url,'https://cdn.example/annotated-later.png');assert.equal(result.parentId,annotated.id);
+ assert.equal(h.state.mode,'camera');assert.equal(h.state.sketch,null);assert.equal(h.context.editWorkspaceModeAvailable(h.state,'sketch'),false);
+ h.context.selectEditWorkspaceNode(null,h.state.chain[0].id);assert.equal(h.state.sketch,null);
 });
-test('Sketch upload and generation failures keep the draft, retries reuse a single immutable source and result slot',async()=>{
+test('restoring a legacy connected Sketch session keeps only its final image as a normal source',()=>{
+ const h=harness(),saved=h.context.editSessionSnapshot();saved.mode='sketch';saved.sourceUrl='https://cdn.example/final.png';saved.activeNodeId='old-result';
+ saved.sketch={...h.context.SYLVEXSketch.create(),referenceUrl:'https://cdn.example/original.png'};
+ saved.chain=[
+  {id:'old-source',parentId:'',status:'ready',mode:'source',url:'https://cdn.example/original.png',preview:'',width:1000,height:700,x:0,y:0,slotWidth:240,slotHeight:168},
+  {id:'old-drawing',parentId:'old-source',status:'ready',mode:'sketch-source',url:'https://cdn.example/drawing.png',preview:'',width:1000,height:700,x:320,y:0,slotWidth:240,slotHeight:168},
+  {id:'old-result',parentId:'old-drawing',status:'ready',mode:'sketch',url:'https://cdn.example/final.png',preview:'',width:1000,height:700,x:640,y:0,slotWidth:240,slotHeight:168},
+ ];
+ h.context.restoreEditSessionState(saved);
+ assert.equal(h.state.mode,'edit');assert.equal(h.state.sketch,null);assert.equal(h.state.chain.length,1);
+ assert.equal(h.state.chain[0].id,'old-result');assert.equal(h.state.chain[0].mode,'source');assert.equal(h.state.chain[0].parentId,'');
+ assert.equal(h.context.editWorkspaceModeAvailable(h.state,'sketch'),false);
+});
+test('Sketch upload and generation failures retain one standalone result slot',async()=>{
  const h=sketchHarness();h.failUpload();await h.context.generateEditWorkspace();
  assert.equal(h.requests.length,0);assert.equal(h.state.chain.length,0);assert.equal(h.state.uploading,false);assert.equal(h.state.sketch.editing,true);
  let uploads=0;h.context.uploadProStudioMediaFile=async()=>{uploads++;return 'https://cdn.example/sketch.png';};h.context.callGenerate=async()=>{throw new Error('provider failed');};
- await h.context.generateEditWorkspace();assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1].status,'failed');
+ await h.context.generateEditWorkspace();assert.equal(h.state.chain.length,1);assert.equal(h.state.chain[0].status,'failed');assert.equal(h.state.chain[0].parentId,'');
  h.context.callGenerate=async(...args)=>{h.requests.push(args);return {images:['https://cdn.example/photo.png']};};
- h.context.selectEditWorkspaceNode(null,h.state.chain[0].id);
- await h.context.generateEditWorkspace();assert.equal(uploads,1);assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1].status,'ready');
- const source=h.state.chain[0];h.context.selectEditWorkspaceNode(null,source.id);h.state.sketch.items[0].color='#ff0000';h.state.sketch.revision++;
- await h.context.generateEditWorkspace();assert.equal(uploads,2);assert.equal(h.state.chain.length,3);assert.equal(source.url,'https://cdn.example/sketch.png');
- assert.equal(h.state.chain[2].parentId,source.id,'a refreshed blank drawing stays attached to its one visible source');
+ h.context.toggleEditSketch();await h.context.generateEditWorkspace();assert.equal(uploads,1);assert.equal(h.state.chain.length,1);assert.equal(h.state.chain[0].status,'ready');
+ h.context.toggleEditSketch();h.state.sketch.items[0].color='#ff0000';h.state.sketch.revision++;
+ await h.context.generateEditWorkspace();assert.equal(uploads,2);assert.equal(h.state.chain.length,1);assert.equal(h.state.chain[0].parentId,'');assert.equal(h.state.chain[0].url,'https://cdn.example/photo.png');
 });
 test('Sketch locks duplicate Generate during PNG preparation and restores drawing-only sessions',async()=>{
  const h=sketchHarness();let finish;h.context.SYLVEXSketch.exportPNG=()=>new Promise(resolve=>{finish=resolve;});
