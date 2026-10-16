@@ -28535,10 +28535,15 @@ async function waitGeneration(jobId, options) {
     studioGridCloudLoaded=true;
     try{
       const response=await fetch('/api/public/prostudio/grid-projects?offset=0',{cache:'no-store'});if(!response.ok)throw new Error();
-      const data=await response.json(),remote=Array.isArray(data.projects)?data.projects:[],local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item])),remoteNewer=new Set();
-      remote.forEach(item=>{const previous=merged.get(item.id);if(!previous||String(item.updated_at||'')>String(previous.updated_at||'')){if(previous)remoteNewer.add(item.id);merged.set(item.id,item)}});
+      const data=await response.json(),remote=Array.isArray(data.projects)?data.projects:[],local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item]));
+      remote.forEach(item=>{const previous=merged.get(item.id);if(!previous||String(item.updated_at||'')>String(previous.updated_at||''))merged.set(item.id,item)});
       saveStudioGridProjects([...merged.values()].sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||''))));
-      let current=loadStudioGridState(),remoteId=remoteNewer.has(current.projectId)?current.projectId:'';
+      // The server owns durable Grid history and re-signs every stored media
+      // path on read. Always hydrate the currently open project when it
+      // exists remotely, even when local metadata looks newer: localStorage
+      // may contain an expired media capability whose timestamp says nothing
+      // about the actual project content.
+      let current=loadStudioGridState(),remoteId=remote.some(item=>item.id===current.projectId)?current.projectId:'';
       if(remoteId&&loadRevision===studioGridProjectSwitchRevision){
         const projectResponse=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(remoteId),{cache:'no-store'});
         if(projectResponse.ok&&loadRevision===studioGridProjectSwitchRevision){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(STUDIO_GRID_KEY,JSON.stringify(studioGridState));renderStudioGrid();restoreStudioGridJobs()}}
@@ -28643,6 +28648,21 @@ async function waitGeneration(jobId, options) {
     return String(value == null ? '' : value).replace(/[&<>\"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[char]));
   }
 
+  function gridRenderableMediaUrl(value) {
+    const raw=String(value||'').trim();if(!raw)return'';
+    try{
+      const parsed=new URL(raw,window.location.origin);
+      if(parsed.pathname.includes('/api/public/storage/')&&parsed.searchParams.has('media_sig')){
+        const expires=Number(parsed.searchParams.get('media_exp')||0);
+        // Never let the browser issue a request that is already guaranteed
+        // to fail. The cloud project read below replaces it with a fresh
+        // capability and re-renders the same node.
+        if(!expires||expires*1000<=Date.now())return'';
+      }
+    }catch(_){}
+    return raw;
+  }
+
   function loadStudioGridState() {
     if (studioGridState) return studioGridState;
     try {
@@ -28716,7 +28736,7 @@ async function waitGeneration(jobId, options) {
   function gridReferenceRequestsHtml(node){
     const requests=Array.isArray(node.output?.requests)?node.output.requests:[],attachments=Array.isArray(node.attachments)?node.attachments:[],saved=gridSavedReferenceItems();
     if(!requests.length)return'';
-    return `<div class="studio-grid-reference-requests"><b>Product and identity details</b>${requests.map(request=>{const attached=attachments.find(item=>item.reference_id===request.id),skipped=!!request.skipped;return `<article data-grid-reference-card="${gridEscape(request.id)}"><span><strong>${gridEscape(request.label||request.kind||'Reference')}</strong><small>${gridEscape(request.reason||'Use the same identity throughout the project')}</small><input type="text" maxlength="120" data-grid-reference-name="${gridEscape(request.id)}" value="${gridEscape(request.user_name||'')}" placeholder="Brand or subject name (optional)"></span>${attached?`<img src="${gridEscape(attached.url)}" alt=""><button type="button" data-grid-clear-reference="${gridEscape(request.id)}">×</button>`:skipped?'<em>Generate an original identity</em>':`<button type="button" data-grid-upload-reference="${gridEscape(request.id)}">＋ Upload</button>${saved.length?`<select data-grid-reference-existing="${gridEscape(request.id)}"><option value="">Saved…</option>${saved.map(item=>`<option value="${gridEscape(item.url)}" data-name="${gridEscape(item.name)}">${gridEscape(item.name)}</option>`).join('')}</select>`:''}<button type="button" data-grid-skip-reference="${gridEscape(request.id)}">Generate without reference</button>`}</article>`}).join('')}<button type="button" class="studio-grid-reference-continue" data-grid-finalize-plan>Build production chain</button></div>`;
+    return `<div class="studio-grid-reference-requests"><b>Product and identity details</b>${requests.map(request=>{const attached=attachments.find(item=>item.reference_id===request.id),attachedUrl=gridRenderableMediaUrl(attached?.url),skipped=!!request.skipped;return `<article data-grid-reference-card="${gridEscape(request.id)}"><span><strong>${gridEscape(request.label||request.kind||'Reference')}</strong><small>${gridEscape(request.reason||'Use the same identity throughout the project')}</small><input type="text" maxlength="120" data-grid-reference-name="${gridEscape(request.id)}" value="${gridEscape(request.user_name||'')}" placeholder="Brand or subject name (optional)"></span>${attached?`${attachedUrl?`<img src="${gridEscape(attachedUrl)}" alt="">`:'<em>Refreshing reference…</em>'}<button type="button" data-grid-clear-reference="${gridEscape(request.id)}">×</button>`:skipped?'<em>Generate an original identity</em>':`<button type="button" data-grid-upload-reference="${gridEscape(request.id)}">＋ Upload</button>${saved.length?`<select data-grid-reference-existing="${gridEscape(request.id)}"><option value="">Saved…</option>${saved.map(item=>`<option value="${gridEscape(item.url)}" data-name="${gridEscape(item.name)}">${gridEscape(item.name)}</option>`).join('')}</select>`:''}<button type="button" data-grid-skip-reference="${gridEscape(request.id)}">Generate without reference</button>`}</article>`}).join('')}<button type="button" class="studio-grid-reference-continue" data-grid-finalize-plan>Build production chain</button></div>`;
   }
   function gridResultVersionsHtml(node){
     const versions=Array.isArray(node.result_versions)?node.result_versions:[];if(versions.length<2)return'';
@@ -28752,9 +28772,9 @@ async function waitGeneration(jobId, options) {
     if(node.type==='task'&&output?.type==='clarification')return `<div class="studio-grid-clarification"><b>Нужно уточнение</b><span>${gridEscape(output.value||'')}</span></div>`;
     if(node.type==='task'&&output?.type==='references')return gridReferenceRequestsHtml(node);
     if (node.type==='text'&&output?.value) return `${status==='FAILED'?`<small class="studio-grid-latest-error">${gridEscape(node.error||'Latest attempt failed')}</small>`:''}<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>${gridResultVersionsHtml(node)}`;
-    if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" data-grid-open-result class="${index===Number(output.selected_index||0)?'active':''}" aria-label="Open generated image"><img src="${gridEscape(item.preview_url||item.url)}" alt="Generated image" loading="lazy"></button>`).join('')}</div>${gridResultVersionsHtml(node)}`;
-    if (output?.type==='video'&&output.url) return `<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(output.url)}" muted playsinline preload="metadata"></video><span>▶</span></button>${gridResultVersionsHtml(node)}`;
-    if (output?.type==='audio'&&output.url) return `<audio class="studio-grid-audio" src="${gridEscape(output.url)}" controls preload="metadata"></audio>${gridResultVersionsHtml(node)}`;
+    if(output?.type==='image'&&Array.isArray(output.items)){const items=output.items.map((item,index)=>{const url=gridRenderableMediaUrl(item.preview_url||item.url);return`<button type="button" data-grid-pick-result="${index}" data-grid-open-result class="${index===Number(output.selected_index||0)?'active':''}" aria-label="Open generated image"${url?'':' disabled'}>${url?`<img src="${gridEscape(url)}" alt="Generated image" loading="lazy">`:'<span>Refreshing image…</span>'}</button>`}).join('');return`<div class="studio-grid-result-list">${items}</div>${gridResultVersionsHtml(node)}`}
+    if(output?.type==='video'&&output.url){const url=gridRenderableMediaUrl(output.url);return url?`<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(url)}" muted playsinline preload="metadata"></video><span>▶</span></button>${gridResultVersionsHtml(node)}`:'<span>Refreshing video…</span>'}
+    if(output?.type==='audio'&&output.url){const url=gridRenderableMediaUrl(output.url);return url?`<audio class="studio-grid-audio" src="${gridEscape(url)}" controls preload="metadata"></audio>${gridResultVersionsHtml(node)}`:'<span>Refreshing audio…</span>'}
     const messages={RUNNING:'Генерация…',FAILED:node.error||'Ошибка генерации',CANCELLED:node.error||'Остановлено',WAITING:node.error||'Ожидает входы',READY:'Готов к запуску',COMPLETED:'Результат готов'};
     return `<i>${(GRID_TYPES[node.type]||GRID_TYPES.text).icon}</i><span>${gridEscape(messages[status]||'Результат появится здесь')}</span>`;
   }
@@ -28776,12 +28796,12 @@ async function waitGeneration(jobId, options) {
     if(inputs.text&&!node.prompt?.trim())parts.push(`<span>Text: ${gridEscape(inputs.text.source_title)}</span>`);
     if(inputs.text&&node.prompt?.trim())parts.push('<span>Upstream text + node direction</span>');
     if(inputs.lyrics)parts.push(`<span>Lyrics: ${gridEscape(inputs.lyrics.source_title)}</span>`);
-    if(inputs.image){const image=inputs.image.value||{};parts.push(`<span class="has-image"><img src="${gridEscape(image.preview_url||image.url||'')}" alt="">Image${inputs.image.values?.length>1?'s '+inputs.image.values.length:''}: ${gridEscape(inputs.image.source_title||inputs.image.values?.[0]?.source_title||'reference')}</span>`)}
+    if(inputs.image){const image=inputs.image.value||{},url=gridRenderableMediaUrl(image.preview_url||image.url||'');parts.push(`<span class="has-image">${url?`<img src="${gridEscape(url)}" alt="">`:''}Image${inputs.image.values?.length>1?'s '+inputs.image.values.length:''}: ${gridEscape(inputs.image.source_title||inputs.image.values?.[0]?.source_title||'reference')}</span>`)}
     if(inputs.video?.values?.length)parts.push(`<span>${inputs.video.values.length} video clips</span>`);
     if(inputs.audio?.values?.length)parts.push(`<span>${inputs.audio.values.length} audio tracks</span>`);
     return parts.length?`<div class="studio-grid-input-summary">${parts.join('')}</div>`:'';
   }
-  function gridNodeAttachmentsHtml(node){const items=Array.isArray(node.attachments)?node.attachments:[];return `<div class="studio-grid-attachments"><button type="button" data-grid-upload-media><i>＋</i><span>Референс</span></button>${items.map((item,index)=>`<div class="studio-grid-attachment">${item.kind==='image'?`<img src="${gridEscape(item.url)}" alt="">`:`<i>${item.kind==='video'?'▶':item.kind==='audio'?'♫':'▤'}</i>`}<span>${gridEscape(item.name||item.kind)}</span><button type="button" data-grid-remove-media="${index}" aria-label="Удалить">×</button></div>`).join('')}</div>`}
+  function gridNodeAttachmentsHtml(node){const items=Array.isArray(node.attachments)?node.attachments:[];return `<div class="studio-grid-attachments"><button type="button" data-grid-upload-media><i>＋</i><span>Референс</span></button>${items.map((item,index)=>{const url=gridRenderableMediaUrl(item.url);return`<div class="studio-grid-attachment">${item.kind==='image'&&url?`<img src="${gridEscape(url)}" alt="">`:`<i>${!url&&item.kind==='image'?'…':item.kind==='video'?'▶':item.kind==='audio'?'♫':'▤'}</i>`}<span>${gridEscape(item.name||item.kind)}</span><button type="button" data-grid-remove-media="${index}" aria-label="Удалить">×</button></div>`}).join('')}</div>`}
 
   function renderStudioGrid() {
     const state = loadStudioGridState();
