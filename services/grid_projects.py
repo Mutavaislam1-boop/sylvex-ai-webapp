@@ -4,15 +4,21 @@ from __future__ import annotations
 import json
 import math
 import re
+from urllib.parse import quote
 
-from services.media_access import sign_media_url
+from services.media_access import media_key, sign_media_url
 
 
 PROJECT_ID_RE = re.compile(r"grid_project_[A-Za-z0-9_-]{1,120}")
 NODE_ID_RE = re.compile(r"grid_[A-Za-z0-9_-]{1,160}")
 ALLOWED_TYPES = {"task", "text", "image", "video", "music", "voice", "montage"}
 ALLOWED_STATUSES = {"IDLE", "READY", "WAITING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"}
-MEDIA_FIELDS = {"url", "preview_url", "image_url", "video_url", "audio_url", "source_url", "thumbnail_url"}
+MEDIA_FIELDS = {
+    "url", "preview", "preview_url", "image_url", "video_url", "audio_url",
+    "source_url", "thumbnail_url", "thumb_url", "media_url", "result_url",
+    "reference_url", "referenceImageUrls", "reference_image_urls",
+    "referenceImages", "reference_images", "images", "videos", "files",
+}
 
 
 def _safe_url(value: str) -> bool:
@@ -103,6 +109,24 @@ def _refresh_media(value, field=""):
     return value
 
 
+def _canonicalize_media(value, field=""):
+    """Remove expiring capabilities before a Grid project is persisted.
+
+    The private project row is the authorization boundary. It should retain
+    stable object paths, while every authenticated read receives newly signed
+    browser/provider URLs from ``_refresh_media``.
+    """
+    if isinstance(value, dict):
+        return {key: _canonicalize_media(child, key) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_canonicalize_media(child, field) for child in value]
+    if isinstance(value, str) and field in MEDIA_FIELDS:
+        key = media_key(value)
+        if key:
+            return "/api/public/storage/" + quote(key, safe="/")
+    return value
+
+
 def _preview(state):
     for node in reversed(state.get("nodes") or []):
         output = node.get("output") or {}
@@ -116,10 +140,12 @@ def _preview(state):
 
 
 def save(connect, owner, project_id, state):
-    encoded = validate_project(project_id, state)
-    title = str(state.get("title") or "Grid project")[:160]
-    preview = _preview(state)
-    node_count = len(state.get("nodes") or [])
+    validate_project(project_id, state)
+    stable_state = _canonicalize_media(state)
+    encoded = validate_project(project_id, stable_state)
+    title = str(stable_state.get("title") or "Grid project")[:160]
+    preview = _preview(stable_state)
+    node_count = len(stable_state.get("nodes") or [])
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO prostudio_grid_projects

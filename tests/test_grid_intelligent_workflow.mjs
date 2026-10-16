@@ -56,6 +56,15 @@ test('Grid history restores the saved viewport, prefers the cloud project, and p
   assert.doesNotMatch(cabinet, /renderStudioGrid\(\);resetStudioGridView\(\);restoreStudioGridJobs\(\);toast\('Grid project opened'/);
   assert.match(cabinet, /const previous=studioGridSnapshot\(loadStudioGridState\(\)\)/);
   assert.match(cabinet, /if\(studioGridAccountOwner\(\)\)void queueStudioGridCloudSave\(previous\)/);
+  assert.match(cabinet, /remote\.some\(item=>item\.id===current\.projectId\)\?current\.projectId:''/);
+  assert.doesNotMatch(cabinet, /remoteNewer\.has\(current\.projectId\)/);
+});
+
+test('Grid suppresses expired media capabilities until cloud history returns fresh URLs', () => {
+  assert.match(cabinet, /function gridRenderableMediaUrl\(value\)/);
+  assert.match(cabinet, /expires\*1000<=Date\.now\(\)/);
+  assert.match(cabinet, /Refreshing image…/);
+  assert.match(cabinet, /gridRenderableMediaUrl\(item\.url\)/);
 });
 
 test('Grid image and video results open in in-app viewers', () => {
