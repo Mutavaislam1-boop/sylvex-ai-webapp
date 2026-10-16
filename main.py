@@ -7679,6 +7679,34 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
         return {"ok": True, "items": []}
 
 
+# =====================================================
+# API ENDPOINT: public_video_editor_config
+# Settings for the Quick Access video editor engine (IMG.LY CE.SDK). The
+# licence stays in the server environment instead of the frontend source.
+# Without IMGLY_LICENSE_KEY the engine runs in IMG.LY's trial mode.
+# =====================================================
+IMGLY_ENGINE_VERSION = (os.getenv("IMGLY_ENGINE_VERSION") or "1.82.2").strip()
+
+
+@app.get("/api/public/video-editor/config")
+async def public_video_editor_config(request: Request):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    cdn = f"https://cdn.img.ly/packages/imgly/cesdk-engine/{IMGLY_ENGINE_VERSION}"
+    license_key = (os.getenv("IMGLY_LICENSE_KEY") or "").strip()
+    return JSONResponse({
+        "ok": True,
+        "engine": "imgly",
+        "version": IMGLY_ENGINE_VERSION,
+        "moduleUrl": (os.getenv("IMGLY_ENGINE_MODULE_URL") or f"{cdn}/index.js").strip(),
+        "baseURL": (os.getenv("IMGLY_ENGINE_BASE_URL") or f"{cdn}/assets").strip(),
+        "license": license_key,
+        "trial": not license_key,
+        "userId": f"sylvex-{telegram_id}",
+    }, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/public/prostudio/gallery/{message_id}/meta")
 async def update_public_prostudio_gallery_item(message_id: int, request: Request):
     """Rename and/or (un)favorite one of the owner's generated results; the

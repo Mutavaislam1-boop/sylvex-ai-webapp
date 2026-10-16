@@ -76,7 +76,7 @@
 .quick-generator-controls{display:flex;align-items:center;flex-wrap:wrap}
 .quick-select{position:relative;display:block;flex:0 1 132px;min-width:108px;height:40px}
 .quick-select.wide{flex:1 1 190px;min-width:160px}
-.quick-select select{width:100%;height:100%;padding:0 28px 0 10px;border:1px solid rgba(255,255,255,.11);border-radius:12px;outline:0;background:#292929;color:#ececec;font:600 13px/1 inherit;cursor:pointer}
+.quick-select select{width:100%;height:100%;padding:0 28px 0 10px;border:1px solid rgba(255,255,255,.11);border-radius:12px;outline:0;background:#292929;color:#ececec;font-family:inherit;font-size:13px;font-weight:600;line-height:1;cursor:pointer}
 .quick-select select:hover{background:#333}
 .quick-generator-controls .photo-generate{margin-left:auto}
 @media(max-width:700px){.quick-generator-controls{display:flex;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.quick-generator-controls::-webkit-scrollbar{display:none}.quick-select{height:38px;flex:0 0 112px;min-width:112px}.quick-select.wide{flex-basis:154px;min-width:154px}.quick-select select{border-radius:11px;font-size:12px}.quick-generator-controls .photo-generate{position:sticky;right:0;flex:0 0 auto;margin-left:0}}
@@ -443,3 +443,10 @@
 .qv-composer{grid-template-columns:minmax(0,1fr) 136px}
 }
 @media(max-width:700px){.qv-board{padding-right:18px}.qv-block,.qv-block.is-right{width:93%}}
+
+/* entry point on the Quick Access → Video page */
+.ve-entry{display:flex;align-items:center;gap:14px;margin:14px 0 4px;padding:14px 16px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#2a2a2a}
+.ve-entry>div{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}.ve-entry b{font-size:15px}.ve-entry small{color:#9a9a9a;font-size:12.5px}
+.ve-entry-btn{display:inline-flex;align-items:center;height:40px;padding:0 16px;border:0;border-radius:14px;background:#5572f5;color:#fff;font-family:inherit;font-size:13.5px;font-weight:600;line-height:1;white-space:nowrap;cursor:pointer}
+.ve-entry-open{height:40px;padding:0 14px;border:1px solid rgba(255,255,255,.13);border-radius:14px;background:transparent;color:#ececec;font-family:inherit;font-size:13px;font-weight:600;line-height:1;cursor:pointer}
+@media(max-width:700px){.ve-entry{flex-wrap:wrap}.ve-entry>div{flex-basis:100%}}
