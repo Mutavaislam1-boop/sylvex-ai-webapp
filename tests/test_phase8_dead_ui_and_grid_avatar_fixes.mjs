@@ -88,11 +88,11 @@ test('VIDEO_MODEL_CONFIG: sora_2 and sora_2_pro no longer declare sound support'
   assert.equal(config.sora_2_pro.sound, false);
 });
 
-test('VIDEO_MODELS: sora_2 and sora_2_pro entries still exist (picker list unaffected)', () => {
+test('VIDEO_MODELS: retired sora_2 and sora_2_pro are absent from the picker', () => {
   const context = loadGridModelContext();
   const models = vm.runInContext('VIDEO_MODELS', context);
-  assert.ok(models.some((item) => item.id === 'sora_2'));
-  assert.ok(models.some((item) => item.id === 'sora_2_pro'));
+  assert.ok(!models.some((item) => item.id === 'sora_2'));
+  assert.ok(!models.some((item) => item.id === 'sora_2_pro'));
 });
 
 test('gridModelsForType(video): avatar:true HeyGen models are excluded', () => {

@@ -37,6 +37,8 @@ from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services import edit_sessions as edit_sessions_service
+from services import grid_projects as grid_projects_service
+from services import grid_montage as grid_montage_service
 from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
@@ -79,7 +81,7 @@ from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, billing_scope, require_billing_scope, assert_reserved
-from services.price_engine import apply_snapshot_to_estimate, sylvex_credits
+from services.price_engine import PRICE_VERSION, apply_snapshot_to_estimate, settle_media_price_snapshot, sylvex_credits
 from decimal import Decimal
 from services import edit_workspace as edit_workspace_service
 from services import assistant_store
@@ -758,8 +760,8 @@ RECRAFT_MODEL_VARIANTS = {
         "provider_model": env_value("RECRAFT_V4_1_PRO_MODEL", "RECRAFT-V4-1-PRO-MODEL", default="recraftv4_1_pro"),
         "label": "Recraft V4.1 Pro",
         "seed": False,
-        "cost_credits": 21,
-        "cost_usd": 0.21,
+        "cost_credits": 32,
+        "cost_usd": 0.315,
         "provider_cost_usd": 0.21,
         "tools": ["image_to_image"],
     },
@@ -768,8 +770,8 @@ RECRAFT_MODEL_VARIANTS = {
         "label": "Recraft V4.1 Pro Vector",
         "seed": False,
         # $0.30 native SVG generation plus $0.005 style-reference creation.
-        "cost_credits": 31,
-        "cost_usd": 0.305,
+        "cost_credits": 46,
+        "cost_usd": 0.4575,
         "provider_cost_usd": 0.305,
         "tools": [],
     },
@@ -801,6 +803,7 @@ SEEDREAM_MODEL_VARIANTS = {
         "seed": True,
         "cost_credits": 6,
         "cost_usd": 0.0525,
+        "provider_cost_usd": 0.035,
     },
     "seedream_5_0": {
         "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0"],
@@ -808,6 +811,7 @@ SEEDREAM_MODEL_VARIANTS = {
         "seed": True,
         "cost_credits": 6,
         "cost_usd": 0.0525,
+        "provider_cost_usd": 0.035,
     },
     "seedream_4_5": {
         "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"],
@@ -815,6 +819,7 @@ SEEDREAM_MODEL_VARIANTS = {
         "seed": True,
         "cost_credits": 6,
         "cost_usd": 0.06,
+        "provider_cost_usd": 0.04,
     },
     "seedream_5_0_pro": {
         "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_pro"],
@@ -824,6 +829,7 @@ SEEDREAM_MODEL_VARIANTS = {
         # so the API estimate, reservation and final charge use one source.
         "cost_credits": {"lte_1_5k": 7, "gt_1_5k": 14},
         "cost_usd": {"lte_1_5k": 0.0675, "gt_1_5k": 0.135},
+        "provider_cost_usd": {"lte_1_5k": 0.045, "gt_1_5k": 0.09},
     },
     "seedream_4_0": {
         "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_0"],
@@ -831,6 +837,7 @@ SEEDREAM_MODEL_VARIANTS = {
         "seed": True,
         "cost_credits": 5,
         "cost_usd": 0.045,
+        "provider_cost_usd": 0.03,
     },
 }
 # Per-model BytePlus Seedream request capabilities. Every variant shares the
@@ -865,6 +872,7 @@ FLUX_MODEL_VARIANTS = {
         "seed": False,
         "cost_credits": 6,
         "cost_usd": 0.06,
+        "provider_cost_usd": 0.04,
     },
     "flux_2": {
         "provider_model": env_value("FLUX_2_MODEL", "FLUX-2-MODEL", default="flux-2-pro"),
@@ -872,13 +880,15 @@ FLUX_MODEL_VARIANTS = {
         "seed": False,
         "cost_credits": 5,
         "cost_usd": 0.045,
+        "provider_cost_usd": 0.03,
     },
     "flux_2_turbo": {
         "provider_model": env_value("FLUX_2_TURBO_MODEL", "FLUX-2-TURBO-MODEL", default="flux-2-flex"),
         "label": "FLUX.2 Turbo",
         "seed": False,
-        "cost_credits": 11,
-        "cost_usd": 0.105,
+        "cost_credits": 8,
+        "cost_usd": 0.075,
+        "provider_cost_usd": 0.05,
     },
 }
 QWEN_MODEL_VARIANTS = {
@@ -887,18 +897,21 @@ QWEN_MODEL_VARIANTS = {
         "seed": True,
         "cost_credits": 12,
         "cost_usd": 0.1125,
+        "provider_cost_usd": 0.075,
     },
     "qwen_image_2": {
         "label": "Qwen Image 2",
         "seed": True,
         "cost_credits": 6,
         "cost_usd": 0.0525,
+        "provider_cost_usd": 0.035,
     },
     "qwen_image": {
         "label": "Qwen Image",
         "seed": False,
         "cost_credits": 7,
         "cost_usd": 0.0675,
+        "provider_cost_usd": 0.045,
     },
 }
 GOOGLE_IMAGE_MODEL_VARIANTS = {
@@ -4420,6 +4433,13 @@ def ensure_prostudio_table():
                 telegram_id BIGINT NOT NULL, conversation_id TEXT NOT NULL,
                 title TEXT, pinned_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 PRIMARY KEY (telegram_id, conversation_id))""")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS prostudio_grid_projects (
+                telegram_id BIGINT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+                preview_url TEXT NOT NULL DEFAULT '', node_count INTEGER NOT NULL DEFAULT 0,
+                state_json JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (telegram_id, id))""")
+            cursor.execute("""CREATE INDEX IF NOT EXISTS idx_grid_projects_owner_updated
+                ON prostudio_grid_projects (telegram_id, updated_at DESC)""")
             cursor.execute("""
         CREATE TABLE IF NOT EXISTS prostudio_messages (
             id SERIAL PRIMARY KEY,
@@ -5089,28 +5109,54 @@ TEXT_TOKEN_USD_PER_MILLION = {
     "gemini_3_1_pro": ("2.00", "12.00"), "gemini_3_1_flash": ("0.75", "3.75"),
     "gemini_2_5_pro": ("1.25", "10.00"), "gemini_2_5_flash": ("0.30", "2.50"),
     "grok_4_1": ("2.00", "6.00"), "grok_4_fast": ("1.25", "2.50"),
-    "grok_3": ("3.00", "15.00"), "qwen_plus": ("0.40", "1.60"), "qwen_turbo": ("0.05", "0.20"), "qwen_max": ("1.60", "6.40"),
+    "grok_3": ("1.25", "2.50"), "qwen_plus": ("0.40", "1.20"), "qwen_turbo": ("0.05", "0.20"), "qwen_max": ("2.00", "6.00"),
+}
+TEXT_LONG_CONTEXT_RATES = {
+    "byteplus_seed_2_lite": (128_000, "0.50", "4.00"),
+    "gemini_3_1_pro": (200_000, "4.00", "18.00"),
+    "gemini_2_5_pro": (200_000, "2.50", "15.00"),
+    "grok_4_1": (200_000, "4.00", "12.00"),
+    "grok_4_fast": (200_000, "2.50", "5.00"),
+    "grok_3": (200_000, "2.50", "5.00"),
+    "qwen_plus": (256_000, "1.20", "3.60"),
+}
+TEXT_CACHED_INPUT_FACTOR = {
+    "byteplus_seed_2_lite": Decimal("0.20"),
+    "gemini_3_1_pro": Decimal("0.25"), "gemini_3_1_flash": Decimal("0.25"),
+    "gemini_2_5_pro": Decimal("0.25"), "gemini_2_5_flash": Decimal("0.25"),
+    "qwen_plus": Decimal("0.20"), "qwen_turbo": Decimal("0.20"), "qwen_max": Decimal("0.20"),
 }
 # Upper bound used only for reservations: an input image on the OpenAI/Gemini
 # vision paths costs fewer tokens than this at the sizes SYLVEX sends.
 HELPER_IMAGE_TOKEN_BOUND = 1600
 
 
-def text_token_rates(model: str) -> Optional[tuple]:
+def text_token_rates(model: str, input_tokens: int = 0) -> Optional[tuple]:
     raw = str(model or "").strip()
     for candidate in dict.fromkeys([raw, normalize_text_model(raw) if raw else raw, raw.replace("-", "_").replace(".", "_")]):
         rates = TEXT_TOKEN_USD_PER_MILLION.get(candidate)
         if rates:
+            long_tier = TEXT_LONG_CONTEXT_RATES.get(candidate)
+            if long_tier and int(input_tokens or 0) > int(long_tier[0]):
+                return Decimal(long_tier[1]), Decimal(long_tier[2])
             return tuple(Decimal(value) for value in rates)
     return None
 
 
-def text_tokens_credits(model: str, input_tokens: int, output_tokens: int) -> int:
+def text_tokens_credits(model: str, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0) -> int:
     """SYLVEX credits for a token count of `model`; 0 = no rate (fail closed)."""
-    rates = text_token_rates(model)
+    rates = text_token_rates(model, input_tokens)
     if not rates:
         return 0
-    cost = (Decimal(max(0, int(input_tokens or 0))) * rates[0] + Decimal(max(0, int(output_tokens or 0))) * rates[1]) / Decimal(1_000_000)
+    total_input = max(0, int(input_tokens or 0))
+    cached = min(total_input, max(0, int(cached_input_tokens or 0)))
+    uncached = total_input - cached
+    cached_factor = TEXT_CACHED_INPUT_FACTOR.get(normalize_text_model(model), Decimal("0.10"))
+    cost = (
+        Decimal(uncached) * rates[0]
+        + Decimal(cached) * rates[0] * cached_factor
+        + Decimal(max(0, int(output_tokens or 0))) * rates[1]
+    ) / Decimal(1_000_000)
     return sylvex_credits(cost)
 
 
@@ -5143,7 +5189,37 @@ def text_usage_tokens(metadata) -> Optional[tuple]:
     return None
 
 
-GRID_PLAN_MAX_OUTPUT_TOKENS = 8000
+def text_usage_details(metadata) -> Optional[dict]:
+    """Normalize usage details used by audited text settlement.
+
+    xAI's exact cost is authoritative and already includes caching, context
+    tiers, service tier and tool calls (1 USD = 10^10 ticks).
+    """
+    tokens = text_usage_tokens(metadata)
+    if tokens is None:
+        return None
+    usage = metadata.get("usage") if isinstance(metadata, dict) else {}
+    cached = 0
+    exact_cost_usd = None
+    if isinstance(usage, dict):
+        details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details") or {}
+        if isinstance(details, dict):
+            cached = int(details.get("cached_tokens") or details.get("cache_read_tokens") or 0)
+        cached = max(cached, int(usage.get("cache_read_input_tokens") or 0))
+        if usage.get("cost_in_usd_ticks") is not None:
+            exact_cost_usd = Decimal(str(usage.get("cost_in_usd_ticks") or 0)) / Decimal("10000000000")
+    gemini = metadata.get("usageMetadata") if isinstance(metadata, dict) else {}
+    if isinstance(gemini, dict):
+        cached = max(cached, int(gemini.get("cachedContentTokenCount") or 0))
+    return {
+        "input_tokens": int(tokens[0]),
+        "output_tokens": int(tokens[1]),
+        "cached_input_tokens": cached,
+        "exact_cost_usd": exact_cost_usd,
+    }
+
+
+GRID_PLAN_MAX_OUTPUT_TOKENS = 16000
 HOME_IDEA_MAX_OUTPUT_TOKENS = 4000
 ASSISTANT_MAX_OUTPUT_TOKENS = 8000
 OBJECT_VISION_MAX_OUTPUT_TOKENS = 4000
@@ -5260,10 +5336,17 @@ def text_generation_usage_credits(model: str):
 
 
 def text_usage_credits(model: str, metadata) -> Optional[int]:
-    tokens = text_usage_tokens(metadata)
-    if tokens is None:
+    details = text_usage_details(metadata)
+    if details is None:
         return None
-    return text_tokens_credits(model, tokens[0], tokens[1])
+    if details["exact_cost_usd"] is not None:
+        return sylvex_credits(details["exact_cost_usd"])
+    return text_tokens_credits(
+        model,
+        details["input_tokens"],
+        details["output_tokens"],
+        details["cached_input_tokens"],
+    )
 
 
 def release_direct_text_generation(generation_id: str) -> None:
@@ -7142,6 +7225,121 @@ async def public_save_edit_session(request: Request, session_id: str):
     await asyncio.to_thread(ensure_prostudio_table)
     await asyncio.to_thread(edit_sessions_service.save, lambda: db_connection(DATABASE_URL), owner, session_id, data["state"])
     return {"ok": True}
+
+
+def _grid_projects_owner(request: Request):
+    owner = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not owner:
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="grid_history_unavailable")
+    return owner
+
+
+@app.get("/api/public/prostudio/grid-projects")
+async def public_grid_projects(request: Request, offset: int = 0):
+    owner = _grid_projects_owner(request)
+    await asyncio.to_thread(ensure_prostudio_table)
+    items = await asyncio.to_thread(grid_projects_service.list_projects, lambda: db_connection(DATABASE_URL), owner, offset)
+    return {"ok": True, "projects": items, "hasMore": len(items) == 50}
+
+
+@app.get("/api/public/prostudio/grid-projects/{project_id}")
+async def public_grid_project(request: Request, project_id: str):
+    owner = _grid_projects_owner(request)
+    await asyncio.to_thread(ensure_prostudio_table)
+    state = await asyncio.to_thread(grid_projects_service.get, lambda: db_connection(DATABASE_URL), owner, project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="grid_project_not_found")
+    return {"ok": True, "state": state}
+
+
+@app.put("/api/public/prostudio/grid-projects/{project_id}")
+async def public_save_grid_project(request: Request, project_id: str):
+    owner = _grid_projects_owner(request)
+    data = await request.json()
+    try:
+        grid_projects_service.validate_project(project_id, data.get("state") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    await asyncio.to_thread(ensure_prostudio_table)
+    await asyncio.to_thread(grid_projects_service.save, lambda: db_connection(DATABASE_URL), owner, project_id, data["state"])
+    return {"ok": True}
+
+
+@app.delete("/api/public/prostudio/grid-projects/{project_id}")
+async def public_delete_grid_project(request: Request, project_id: str):
+    owner = _grid_projects_owner(request)
+    await asyncio.to_thread(ensure_prostudio_table)
+    deleted = await asyncio.to_thread(grid_projects_service.delete, lambda: db_connection(DATABASE_URL), owner, project_id)
+    return {"ok": True, "deleted": deleted}
+
+
+@app.post("/api/public/prostudio/grid/montage")
+async def public_grid_montage(request: Request):
+    """Start an idempotent, recoverable Final Montage without another AI charge."""
+    owner = _grid_projects_owner(request)
+    data = await request.json()
+    try:
+        clean = grid_montage_service.validate_request(data if isinstance(data, dict) else {})
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
+    client_request_id = str((data or {}).get("client_request_id") or "").strip()[:240]
+    project_id = str((data or {}).get("grid_project_id") or "")[:160]
+    node_id = str((data or {}).get("grid_node_id") or "")[:180]
+    await asyncio.to_thread(ensure_prostudio_table)
+
+    def create_job():
+        job_id = str(uuid.uuid4())
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(%s)", (owner,))
+                if client_request_id:
+                    cur.execute("""SELECT id,status FROM prostudio_generation_jobs
+                        WHERE telegram_id=%s AND request_json->>'client_request_id'=%s
+                        ORDER BY created_at DESC LIMIT 1""", (owner, client_request_id))
+                    existing = cur.fetchone()
+                    if existing:
+                        return existing[0], existing[1], False
+                stored = {**clean, "client_request_id": client_request_id,
+                          "grid_project_id": project_id, "grid_node_id": node_id}
+                cur.execute("""INSERT INTO prostudio_generation_jobs
+                    (id,telegram_id,mode,model,provider,prompt,status,cost,request_json)
+                    VALUES (%s,%s,'video','final_montage','local-ffmpeg','Final Montage','processing',0,%s::jsonb)""",
+                    (job_id, owner, _safe_json_dumps(stored)))
+                return job_id, "processing", True
+
+    try:
+        job_id, status, created = await asyncio.to_thread(create_job)
+    except Exception as exc:
+        prostudio_error("GRID_FINAL_MONTAGE_JOB_CREATE_FAILED", exc, telegram_id=owner)
+        return JSONResponse({"ok": False, "error": "grid_montage_job_create_failed"}, status_code=503)
+
+    if created:
+        def render_job():
+            stopped = threading.Event()
+            def heartbeat():
+                while not stopped.wait(30):
+                    try:
+                        with db_connection(DATABASE_URL) as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("""UPDATE prostudio_generation_jobs
+                                    SET heartbeat_at=NOW(),updated_at=NOW()
+                                    WHERE id=%s AND status='processing'""", (job_id,))
+                    except Exception as exc:
+                        prostudio_error("GRID_FINAL_MONTAGE_HEARTBEAT_FAILED", exc, job_id=job_id)
+            threading.Thread(target=heartbeat, name=f"grid-montage-heartbeat-{job_id[:8]}", daemon=True).start()
+            try:
+                result = grid_montage_service.render(clean)
+                result.update({"generation_id": job_id, "job_id": job_id})
+                update_prostudio_generation_job(job_id, "completed", result=result)
+            except Exception as exc:
+                prostudio_error("GRID_FINAL_MONTAGE_FAILED", exc, job_id=job_id, telegram_id=owner)
+                update_prostudio_generation_job(job_id, "failed", error={"error": "grid_montage_failed", "message": "Final montage could not be rendered."})
+            finally:
+                stopped.set()
+        threading.Thread(target=render_job, name=f"grid-montage-{job_id[:8]}", daemon=True).start()
+    return {"ok": True, "job_id": job_id, "generation_id": job_id, "status": status}
 
 
 @app.get("/api/public/prostudio/conversations")
@@ -16318,15 +16516,32 @@ def is_edit_workspace_sylvex_restore(payload: dict) -> bool:
 
 
 def sylvex_restore_cost_info(opts: dict) -> dict:
+    regions = opts.get("sylvexRestoreRegions") or []
     count = sylvex_restore_service.actionable_region_count(
-        opts.get("sylvexRestoreRegions") or [],
+        regions,
         opts.get("sylvexRestoreRetryRegionIds"),
         bool(opts.get("sylvexRestoreFinalOnly")),
     )
     # Sylvex Restore now makes one controlled GPT Image edit for the whole
     # photo. Manual regions and up to four mapped references are guidance for
     # that single pass, rather than separate paid generations.
-    detail = openai_image_cost_info("gpt_image_2_5_sunburst", SYLVEX_RESTORE_PROVIDER_MODEL, SYLVEX_RESTORE_PROVIDER_QUALITY, 1)
+    mapped_references = {
+        str(region.get(key)).strip()
+        for region in regions if isinstance(region, dict)
+        for key in ("reference_asset_id", "referenceAssetId", "reference_image_url", "referenceImageUrl")
+        if region.get(key)
+    }
+    # The source image is also a billed GPT Image input; region references
+    # are additional image inputs. Text notes are part of the request prompt.
+    prompt_text = "\n".join(
+        str(region.get("text_instruction") or region.get("textInstruction") or "")
+        for region in regions if isinstance(region, dict)
+    )
+    detail = openai_image_cost_info(
+        "gpt_image_2_5_sunburst", SYLVEX_RESTORE_PROVIDER_MODEL,
+        SYLVEX_RESTORE_PROVIDER_QUALITY, 1,
+        prompt_text=prompt_text, reference_count=1 + len(mapped_references),
+    )
     credits = int(detail.get("cost_credits") or 0)
     return {
         "credits": credits,
@@ -19025,7 +19240,11 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         "canvas_width": output_dimensions[0], "canvas_height": output_dimensions[1],
         "cost_credits": int(price.get("credits") or 0), "cost_usd": price.get("cost_usd") or 0,
         "generation_cost": price.get("generation_cost") or "",
+        "metadata": {"usage": response_data.get("usage") or {}},
     }
+    actual_provider_cost = openai_image_usage_cost_usd("gpt_image_2_5_sunburst", model, response_data.get("usage") or {})
+    if actual_provider_cost is not None:
+        extra["provider_cost_usd_actual"] = actual_provider_cost
     if mode == "edit":
         extra["edit_model"] = EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL
     if mode == "camera":
@@ -19592,12 +19811,12 @@ TEXT_MODEL_VARIANTS = {
     "gemini_3_1_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_FLASH_MODEL", "GEMINI-TEXT-FLASH-MODEL", default="gemini-3.1-flash-preview")},
     "gemini_2_5_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_PRO_MODEL", "GEMINI-TEXT-25-PRO-MODEL", default="gemini-2.5-pro")},
     "gemini_2_5_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_FLASH_MODEL", "GEMINI-TEXT-25-FLASH-MODEL", default="gemini-2.5-flash")},
-    "grok_4_1": {"provider": "grok", "provider_model": env_value("GROK_TEXT_4_1_MODEL", "XAI_TEXT_4_1_MODEL", default="grok-4.1")},
-    "grok_4_fast": {"provider": "grok", "provider_model": env_value("GROK_TEXT_FAST_MODEL", "XAI_TEXT_FAST_MODEL", default="grok-4-fast-reasoning")},
-    "grok_3": {"provider": "grok", "provider_model": env_value("GROK_TEXT_3_MODEL", "XAI_TEXT_3_MODEL", default="grok-3")},
+    "grok_4_1": {"provider": "grok", "provider_model": env_value("GROK_TEXT_4_1_MODEL", "XAI_TEXT_4_1_MODEL", default="grok-4.6")},
+    "grok_4_fast": {"provider": "grok", "provider_model": env_value("GROK_TEXT_FAST_MODEL", "XAI_TEXT_FAST_MODEL", default="grok-4.3")},
+    "grok_3": {"provider": "grok", "provider_model": env_value("GROK_TEXT_3_MODEL", "XAI_TEXT_3_MODEL", default="grok-4.3")},
     "qwen_plus": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_PLUS_MODEL", "QWEN-TEXT-PLUS-MODEL", default="qwen-plus")},
     "qwen_turbo": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_TURBO_MODEL", "QWEN-TEXT-TURBO-MODEL", default="qwen-turbo")},
-    "qwen_max": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_MAX_MODEL", "QWEN-TEXT-MAX-MODEL", default="qwen-max")},
+    "qwen_max": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_MAX_MODEL", "QWEN-TEXT-MAX-MODEL", default="qwen3.8-max")},
     "byteplus_seed_2_lite": {"provider": "byteplus", "provider_model": env_value("BYTEPLUS_TEXT_SEED_2_LITE_MODEL", "ARK_TEXT_MODEL", default="seed-2-0-lite-260228")},
 }
 
@@ -20181,7 +20400,13 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
     elif provider == "qwen":
         api_key = env_value("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY")
         endpoint_base = env_value("QWEN_TEXT_API_BASE", "DASHSCOPE_COMPATIBLE_API_BASE", default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
-        ok, text, data = openai_compatible_text_request("qwen", endpoint_base, api_key, provider_model, request_messages, cap_body or None)
+        # Pricing is pinned to Qwen's non-thinking tier. Sending this flag is
+        # required; otherwise the alias may enable thinking and bill a
+        # different output rate than the one reserved for the user.
+        ok, text, data = openai_compatible_text_request(
+            "qwen", endpoint_base, api_key, provider_model, request_messages,
+            {"enable_thinking": False, **cap_body},
+        )
     elif provider == "byteplus":
         endpoint_base = BYTEPLUS_ARK_ENDPOINT
         ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}, **cap_body})
@@ -21003,15 +21228,17 @@ def recraft_cost_info(frontend_model: str, provider_model: str, count: int) -> d
     key = recraft_frontend_model(frontend_model, provider_model)
     cfg = RECRAFT_MODEL_VARIANTS.get(key) or RECRAFT_MODEL_VARIANTS["recraft_v4_1"]
     image_count = max(1, int(count or 1))
-    unit_credits = int(cfg.get("cost_credits") or 0)
-    unit_usd = float(cfg.get("cost_usd") or 0)
+    unit_provider_usd = float(cfg.get("provider_cost_usd") or 0)
+    provider_cost_usd = unit_provider_usd * image_count
+    total_credits = sylvex_credits(provider_cost_usd)
+    unit_usd = unit_provider_usd * 1.5
     return {
-        "cost": unit_credits * image_count,
-        "cost_credits": unit_credits * image_count,
-        "unit_cost_credits": unit_credits,
+        "cost": total_credits,
+        "cost_credits": total_credits,
+        "unit_cost_credits": sylvex_credits(unit_provider_usd),
         "cost_usd": round(unit_usd * image_count, 4),
         "unit_cost_usd": unit_usd,
-        "provider_cost_usd": round(float(cfg.get("provider_cost_usd") or 0) * image_count, 4),
+        "provider_cost_usd": round(provider_cost_usd, 4),
         "generation_cost": f"${unit_usd * image_count:.4f}",
         "model_label": cfg.get("label") or frontend_model or provider_model,
         "recraft_tools": recraft_available_tools(frontend_model, provider_model),
@@ -21094,7 +21321,7 @@ def seedream_size_value(size: str, quality: str = "2K") -> str:
 # БАЛАНС И СТОИМОСТЬ: seedream_cost_info
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
-def seedream_cost_info(frontend_model: str, provider_model: str, count: int, size: str = "") -> dict:
+def seedream_cost_info(frontend_model: str, provider_model: str, count: int, size: str = "", reference_count: int = 0) -> dict:
     key = seedream_frontend_model(frontend_model, provider_model)
     cfg = SEEDREAM_MODEL_VARIANTS.get(key) or SEEDREAM_MODEL_VARIANTS["seedream_5_0_lite"]
     image_count = max(1, int(count or 1))
@@ -21102,17 +21329,23 @@ def seedream_cost_info(frontend_model: str, provider_model: str, count: int, siz
     normalized_size = str(size or "").lower().replace(" ", "")
     if any(value in normalized_size for value in ("2k", "4k", "2048", "2304", "2560", "2880")):
         tier = "gt_1_5k"
-    configured_credits = cfg.get("cost_credits") or 0
-    configured_usd = cfg.get("cost_usd") or 0
-    unit_credits = int(configured_credits.get(tier, 0) if isinstance(configured_credits, dict) else configured_credits)
-    unit_usd = float(configured_usd.get(tier, 0) if isinstance(configured_usd, dict) else configured_usd)
+    configured_provider_usd = cfg.get("provider_cost_usd") or 0
+    unit_provider_usd = float(configured_provider_usd.get(tier, 0) if isinstance(configured_provider_usd, dict) else configured_provider_usd)
+    # Seedream 5 Pro charges every input image after the first; the other
+    # Seedream image variants do not add a provider reference fee.
+    provider_reference_usd = max(0, int(reference_count or 0) - 1) * 0.003 if key == "seedream_5_0_pro" else 0.0
+    provider_cost_usd = unit_provider_usd * image_count + provider_reference_usd
+    total_credits = sylvex_credits(provider_cost_usd)
+    user_cost_usd = provider_cost_usd * 1.5
     return {
-        "cost": unit_credits * image_count,
-        "cost_credits": unit_credits * image_count,
-        "unit_cost_credits": unit_credits,
-        "cost_usd": round(unit_usd * image_count, 4),
-        "unit_cost_usd": unit_usd,
-        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "cost": total_credits,
+        "cost_credits": total_credits,
+        "unit_cost_credits": sylvex_credits(unit_provider_usd),
+        "cost_usd": round(user_cost_usd, 4),
+        "unit_cost_usd": round(unit_provider_usd * 1.5, 4),
+        "provider_cost_usd": round(provider_cost_usd, 6),
+        "provider_reference_cost_usd": round(provider_reference_usd, 6),
+        "generation_cost": f"{total_credits} ⚡",
         "model_label": cfg.get("label") or frontend_model or provider_model,
         "resolution_tier": tier,
     }
@@ -21132,19 +21365,52 @@ def flux_frontend_model(frontend_model: str, provider_model: str = "") -> str:
 # БАЛАНС И СТОИМОСТЬ: flux_cost_info
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
-def flux_cost_info(frontend_model: str, provider_model: str, count: int) -> dict:
+def _rounded_megapixels(value) -> int:
+    """BFL bills each output/reference image in independently rounded MP."""
+    try:
+        if isinstance(value, (int, float)):
+            return max(1, int(math.ceil(float(value))))
+        raw = str(value or "").strip().lower().replace("×", "x")
+        match = re.search(r"(\d{3,5})\s*[x*]\s*(\d{3,5})", raw)
+        if match:
+            return max(1, int(math.ceil((int(match.group(1)) * int(match.group(2))) / 1_000_000)))
+        if "4k" in raw:
+            return 16
+        if "2k" in raw:
+            return 4
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return 1
+
+
+def flux_cost_info(frontend_model: str, provider_model: str, count: int, output_size="", reference_sizes=None) -> dict:
     key = flux_frontend_model(frontend_model, provider_model)
     cfg = FLUX_MODEL_VARIANTS.get(key) or FLUX_MODEL_VARIANTS["flux_2"]
     image_count = max(1, int(count or 1))
-    unit_credits = int(cfg.get("cost_credits") or 0)
-    unit_usd = float(cfg.get("cost_usd") or 0)
+    output_mp = _rounded_megapixels(output_size)
+    ref_mps = [_rounded_megapixels(value) for value in (reference_sizes or [])]
+    if key == "flux_2":
+        output_provider_usd = 0.03 + max(0, output_mp - 1) * 0.015
+        reference_provider_usd = sum(mp * 0.015 for mp in ref_mps)
+    elif key == "flux_2_turbo":
+        output_provider_usd = output_mp * 0.05
+        reference_provider_usd = sum(mp * 0.05 for mp in ref_mps)
+    else:
+        output_provider_usd = float(cfg.get("provider_cost_usd") or 0.04)
+        reference_provider_usd = 0.0
+    provider_cost_usd = output_provider_usd * image_count + reference_provider_usd
+    total_credits = sylvex_credits(provider_cost_usd)
     return {
-        "cost": unit_credits * image_count,
-        "cost_credits": unit_credits * image_count,
-        "unit_cost_credits": unit_credits,
-        "cost_usd": round(unit_usd * image_count, 4),
-        "unit_cost_usd": unit_usd,
-        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "cost": total_credits,
+        "cost_credits": total_credits,
+        "unit_cost_credits": sylvex_credits(output_provider_usd),
+        "cost_usd": round(provider_cost_usd * 1.5, 4),
+        "unit_cost_usd": round(output_provider_usd * 1.5, 4),
+        "provider_cost_usd": round(provider_cost_usd, 6),
+        "provider_reference_cost_usd": round(reference_provider_usd, 6),
+        "output_megapixels": output_mp,
+        "reference_megapixels": ref_mps,
+        "generation_cost": f"{total_credits} ⚡",
         "model_label": cfg.get("label") or frontend_model or provider_model,
     }
 
@@ -21171,15 +21437,18 @@ def qwen_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     key = qwen_frontend_model(frontend_model, provider_model)
     cfg = QWEN_MODEL_VARIANTS.get(key) or QWEN_MODEL_VARIANTS["qwen_image"]
     image_count = max(1, int(count or 1))
-    unit_credits = int(cfg.get("cost_credits") or 0)
-    unit_usd = float(cfg.get("cost_usd") or 0)
+    unit_provider_usd = float(cfg.get("provider_cost_usd") or 0)
+    provider_cost_usd = unit_provider_usd * image_count
+    total_credits = sylvex_credits(provider_cost_usd)
+    unit_usd = unit_provider_usd * 1.5
     return {
-        "cost": unit_credits * image_count,
-        "cost_credits": unit_credits * image_count,
-        "unit_cost_credits": unit_credits,
+        "cost": total_credits,
+        "cost_credits": total_credits,
+        "unit_cost_credits": sylvex_credits(unit_provider_usd),
         "cost_usd": round(unit_usd * image_count, 4),
         "unit_cost_usd": unit_usd,
-        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "provider_cost_usd": round(provider_cost_usd, 4),
+        "generation_cost": f"{total_credits} ⚡",
         "model_label": cfg.get("label") or frontend_model or provider_model,
     }
 
@@ -21442,27 +21711,74 @@ def google_has_input_image(payload: dict) -> bool:
 # БАЛАНС И СТОИМОСТЬ: google_image_cost_info
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
-def google_image_cost_info(frontend_model: str, provider_model: str, count: int, resolution: str = "", has_input_image: bool = False) -> dict:
+def google_image_cost_info(frontend_model: str, provider_model: str, count: int, resolution: str = "", has_input_image: bool = False, *, reference_count: int = 0, prompt_text: str = "") -> dict:
     key = google_image_frontend_model(frontend_model, provider_model)
     cfg = GOOGLE_IMAGE_MODEL_VARIANTS.get(key) or GOOGLE_IMAGE_MODEL_VARIANTS["nano_banana_2"]
     res = google_image_resolution({"resolution": resolution}, key, cfg.get("provider_model") or provider_model)
     image_count = max(1, int(count or 1))
-    unit_credits = int((cfg.get("cost_credits") or {}).get(res, 0))
-    input_credits = 0
-    total_credits = unit_credits * image_count + input_credits
+    if key in {"nano_banana", "imagen_4_fast", "imagen_4_standard", "imagen_4_ultra"}:
+        return {
+            "cost": 0, "cost_credits": 0, "cost_usd": 0,
+            "generation_cost": "", "pricing_available": False,
+            "pricing_error": "retired_provider_model", "model_label": cfg.get("label") or key,
+        }
+    output_provider_prices = {
+        "nano_banana_2": {"0.5k": 0.045, "1k": 0.067, "2k": 0.101, "4k": 0.151},
+        "nano_banana_2_lite": {"1k": 0.0336},
+        "nano_banana_pro": {"1k": 0.134, "2k": 0.134, "4k": 0.24},
+    }
+    input_usd_per_million = {"nano_banana_2": 0.50, "nano_banana_2_lite": 0.25, "nano_banana_pro": 2.00}.get(key, 0)
+    unit_provider_usd = float((output_provider_prices.get(key) or {}).get(res, 0))
+    refs = max(int(bool(has_input_image)), int(reference_count or 0))
+    # UTF-8 bytes are a safe reservation bound for text tokens. Google image
+    # inputs are token billed; 1,120 tokens/reference is the conservative
+    # bound used for the sizes accepted by this product.
+    input_tokens = len(str(prompt_text or "").encode("utf-8")) + refs * 1120
+    input_provider_usd = input_tokens * input_usd_per_million / 1_000_000
+    provider_cost_usd = unit_provider_usd * image_count + input_provider_usd
+    total_credits = sylvex_credits(provider_cost_usd)
+    input_credits = sylvex_credits(input_provider_usd)
     return {
         "cost": total_credits,
         "cost_credits": total_credits,
-        "unit_cost_credits": unit_credits,
-        "cost_usd": 0,
-        "unit_cost_usd": 0,
+        "unit_cost_credits": sylvex_credits(unit_provider_usd),
+        "cost_usd": round(provider_cost_usd * 1.5, 6),
+        "unit_cost_usd": round(unit_provider_usd * 1.5, 6),
+        "provider_cost_usd": round(provider_cost_usd, 8),
+        "provider_input_cost_usd": round(input_provider_usd, 8),
         "generation_cost": f"{total_credits} ⚡" if total_credits else "",
         "model_label": cfg.get("label") or frontend_model or provider_model,
         "resolution": res.upper(),
         "input_image_credits": input_credits,
-        "input_image_cost_included": bool(has_input_image),
+        "input_image_count": refs,
+        "input_image_cost_included": bool(refs),
         "input_image_surcharge_provisional": False,
     }
+
+
+def google_image_usage_cost_usd(frontend_model: str, provider_model: str, count: int, resolution: str, metadata_items: list[dict]) -> Optional[float]:
+    key = google_image_frontend_model(frontend_model, provider_model)
+    input_rate = {"nano_banana_2": 0.50, "nano_banana_2_lite": 0.25, "nano_banana_pro": 2.00}.get(key)
+    if input_rate is None:
+        return None
+    input_tokens = 0
+    found = False
+    for metadata in metadata_items or []:
+        if not isinstance(metadata, dict):
+            continue
+        usage = metadata.get("usage") or {}
+        gemini = metadata.get("usageMetadata") or {}
+        if isinstance(usage, dict) and ("input_tokens" in usage or "prompt_tokens" in usage):
+            input_tokens += int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+            found = True
+        if isinstance(gemini, dict) and "promptTokenCount" in gemini:
+            input_tokens += int(gemini.get("promptTokenCount") or 0) + int(gemini.get("toolUsePromptTokenCount") or 0)
+            found = True
+    if not found:
+        return None
+    output_only = google_image_cost_info(frontend_model, provider_model, count, resolution)
+    output_provider_usd = float(output_only.get("provider_cost_usd") or 0)
+    return output_provider_usd + input_tokens * input_rate / 1_000_000
 
 
 def grok_frontend_model(frontend_model: str, provider_model: str = "") -> str:
@@ -21558,13 +21874,14 @@ def grok_image_edit_endpoint(endpoint: str) -> str:
 # БАЛАНС И СТОИМОСТЬ: grok_cost_info
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
-def grok_cost_info(frontend_model: str, provider_model: str, count: int, resolution: str = "1k", has_input_image: bool = False) -> dict:
+def grok_cost_info(frontend_model: str, provider_model: str, count: int, resolution: str = "1k", has_input_image: bool = False, reference_count: int = 0) -> dict:
     key = grok_frontend_model(frontend_model, provider_model)
     cfg = GROK_MODEL_VARIANTS.get(key) or GROK_MODEL_VARIANTS["grok"]
     image_count = max(1, int(count or 1))
     res = "2k" if str(resolution or "").strip().lower() in {"2", "2k"} else "1k"
     unit_credits = int((cfg.get("cost_credits") or {}).get(res, 0))
-    input_credits = int(cfg.get("input_image_credits") or 0) if has_input_image else 0
+    refs = max(int(bool(has_input_image)), int(reference_count or 0))
+    input_credits = int(cfg.get("input_image_credits") or 0) * refs
     total_credits = unit_credits * image_count + input_credits
     generation_cost = f"{total_credits} ⚡" if total_credits else ""
     return {
@@ -21577,6 +21894,7 @@ def grok_cost_info(frontend_model: str, provider_model: str, count: int, resolut
         "model_label": cfg.get("label") or frontend_model or provider_model,
         "resolution": res.upper(),
         "input_image_credits": input_credits,
+        "input_image_count": refs,
         "input_image_surcharge_provisional": bool(has_input_image and cfg.get("input_image_surcharge_provisional")),
     }
 
@@ -21585,7 +21903,7 @@ def grok_cost_info(frontend_model: str, provider_model: str, count: int, resolut
 # БАЛАНС И СТОИМОСТЬ: openai_image_cost_info
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
-def openai_image_cost_info(frontend_model: str, provider_model: str, quality: str, count: int) -> dict:
+def openai_image_cost_info(frontend_model: str, provider_model: str, quality: str, count: int, *, prompt_text: str = "", reference_count: int = 0) -> dict:
     key = openai_image_frontend_model(frontend_model, provider_model)
     cfg = OPENAI_IMAGE_MODEL_VARIANTS.get(key) or OPENAI_IMAGE_MODEL_VARIANTS["gpt_image_1"]
     image_count = max(1, int(count or 1))
@@ -21593,28 +21911,63 @@ def openai_image_cost_info(frontend_model: str, provider_model: str, quality: st
     allowed_quality = {"low", "medium", "high", "xhigh", "max"} if key == "gpt_image_2_5_sunburst" else {"low", "medium", "high"}
     if normalized_quality not in allowed_quality:
         normalized_quality = cfg.get("default_quality") or "medium"
-    unit_credits = int((cfg.get("cost_credits") or {}).get(normalized_quality, 0))
-    unit_usd = float((cfg.get("cost_usd") or {}).get(normalized_quality, 0))
+    configured_user_usd = float((cfg.get("cost_usd") or {}).get(normalized_quality, 0))
+    unit_provider_usd = configured_user_usd / 1.5
+    text_rate = 5.0
+    image_rate = 8.0 if key in {"gpt_image_2", "gpt_image_2_5_sunburst"} else 10.0
+    prompt_tokens = len(str(prompt_text or "").encode("utf-8"))
+    input_provider_usd = (prompt_tokens * text_rate + max(0, int(reference_count or 0)) * 4096 * image_rate) / 1_000_000
+    provider_cost_usd = unit_provider_usd * image_count + input_provider_usd
+    total_credits = sylvex_credits(provider_cost_usd)
     return {
-        "cost": unit_credits * image_count,
-        "cost_credits": unit_credits * image_count,
-        "unit_cost_credits": unit_credits,
-        "cost_usd": round(unit_usd * image_count, 4),
-        "unit_cost_usd": unit_usd,
-        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "cost": total_credits,
+        "cost_credits": total_credits,
+        "unit_cost_credits": sylvex_credits(unit_provider_usd),
+        "cost_usd": round(provider_cost_usd * 1.5, 6),
+        "unit_cost_usd": round(configured_user_usd, 6),
+        "provider_cost_usd": round(provider_cost_usd, 8),
+        "provider_input_cost_usd": round(input_provider_usd, 8),
+        "input_reference_count": max(0, int(reference_count or 0)),
+        "generation_cost": f"{total_credits} ⚡",
         "quality": normalized_quality,
         "model_label": cfg.get("label") or frontend_model or provider_model,
     }
+
+
+def openai_image_usage_cost_usd(frontend_model: str, provider_model: str, usage: dict) -> Optional[float]:
+    """Exact OpenAI Image token cost from response usage when available."""
+    if not isinstance(usage, dict) or not any(key in usage for key in ("input_tokens", "output_tokens")):
+        return None
+    key = openai_image_frontend_model(frontend_model, provider_model)
+    details = usage.get("input_tokens_details") or {}
+    image_tokens = int(details.get("image_tokens") or 0) if isinstance(details, dict) else 0
+    text_tokens = int(details.get("text_tokens") or 0) if isinstance(details, dict) else 0
+    total_input = int(usage.get("input_tokens") or 0)
+    if not image_tokens and not text_tokens:
+        # Unknown input modality split: reserve at the more expensive image
+        # input rate so settlement can never undercharge provider usage.
+        image_tokens = total_input
+    elif image_tokens + text_tokens < total_input:
+        text_tokens += total_input - image_tokens - text_tokens
+    output_tokens = int(usage.get("output_tokens") or 0)
+    image_input_rate = Decimal("10") if key == "gpt_image_1" else Decimal("8")
+    output_rate = Decimal("40") if key == "gpt_image_1" else Decimal("30")
+    cost = (
+        Decimal(text_tokens) * Decimal("5")
+        + Decimal(image_tokens) * image_input_rate
+        + Decimal(output_tokens) * output_rate
+    ) / Decimal(1_000_000)
+    return float(cost)
 
 
 # =====================================================
 # ЗАПРОС К AI-ПРОВАЙДЕРУ: call_grok_image
 # Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
 # =====================================================
-def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
+def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict, dict]:
     headers = grok_headers()
     if not headers:
-        return [], image_error_response("grok", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+        return [], image_error_response("grok", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}, {}
     opts = payload.get("image_options") or {}
     resolution = grok_resolution_value(opts)
     input_image = grok_input_image_url(payload)
@@ -21658,7 +22011,7 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
         response = requests.post(request_endpoint, headers=headers, json=request_payload, timeout=180)
     except requests.RequestException as exc:
         prostudio_error("GROK_PROVIDER_REQUEST_FAILED", exc, endpoint=request_endpoint, frontend_model=frontend_model, provider_model=provider_model)
-        return [], image_error_response("grok", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+        return [], image_error_response("grok", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload, {}
     data = safe_provider_json(response, "grok", request_endpoint)
     prostudio_debug(
         "GROK_PROVIDER_RESPONSE",
@@ -21668,9 +22021,9 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
         image_count=len(normalize_image_response(data)) if isinstance(data, dict) else 0,
     )
     if response.status_code >= 400 or data.get("ok") is False:
-        return [], image_error_response("grok", frontend_model, provider_model, request_endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
+        return [], image_error_response("grok", frontend_model, provider_model, request_endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload, {}
     images = normalize_image_response(data)
-    return images, {}, request_payload
+    return images, {}, request_payload, {"usage": data.get("usage") or {}}
 
 
 def google_image_headers() -> dict:
@@ -21774,10 +22127,10 @@ def google_extract_images(data: dict) -> list:
 # ЗАПРОС К AI-ПРОВАЙДЕРУ: call_google_image
 # Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
 # =====================================================
-def call_google_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
+def call_google_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict, dict]:
     headers = google_image_headers()
     if not headers:
-        return [], image_error_response("google", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+        return [], image_error_response("google", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}, {}
     opts = payload.get("image_options") or {}
     key = google_image_frontend_model(frontend_model, provider_model)
     cfg = GOOGLE_IMAGE_MODEL_VARIANTS.get(key) or GOOGLE_IMAGE_MODEL_VARIANTS["nano_banana_2"]
@@ -21835,7 +22188,7 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
         response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
     except requests.RequestException as exc:
         prostudio_error("GOOGLE_PROVIDER_REQUEST_FAILED", exc, endpoint=request_endpoint, frontend_model=frontend_model, provider_model=provider_model)
-        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload, {}
     data = safe_provider_json(response, "google", request_endpoint)
     prostudio_debug(
         "GOOGLE_PROVIDER_RESPONSE",
@@ -21846,8 +22199,11 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
     )
     if response.status_code >= 400 or data.get("ok") is False:
         provider_error = provider_error_text(data.get("error") or data.get("message") or data, "Provider request failed")
-        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, provider_error, response, data), request_payload
-    return google_extract_images(data), {}, request_payload
+        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, provider_error, response, data), request_payload, {}
+    return google_extract_images(data), {}, request_payload, {
+        "usage": data.get("usage") or {},
+        "usageMetadata": data.get("usageMetadata") or data.get("usage_metadata") or {},
+    }
 
 
 def sanitized_google_request_payload(request_payload: dict) -> dict:
@@ -22109,17 +22465,6 @@ def estimate_generation_cost(payload: dict) -> dict:
             return elevenlabs_music_cost_info(payload.get("music_options") or {})
         fixed_prices = {
             "google_lyria_3_pro": 12, "google_lyria_3_clip": 6,
-            # These 8 models were selectable in the UI and fully wired in
-            # services/audio_router.py (including a correctly-built,
-            # bounded WebSocket session for google_lyria_realtime) but had
-            # no pricing entry at all, so every request for them was
-            # rejected with pricing_not_configured before audio_generation()
-            # was ever called - regardless of API keys. Priced relative to
-            # the two existing Lyria tiers pending confirmation against the
-            # Suno/MiniMax aggregator's actual per-generation billing.
-            "suno_chirp_3_5": 8, "suno_chirp_4_0": 10, "suno_chirp_4_5": 12,
-            "suno_chirp_4_5_plus": 14, "suno_chirp_5": 16, "suno_chirp_5_5": 18,
-            "minimax_music_2_5": 10, "google_lyria_realtime": 10,
         }
         credits = fixed_prices.get(model)
         if credits is None:
@@ -22136,32 +22481,39 @@ def estimate_generation_cost(payload: dict) -> dict:
             # has no confirmed cost basis and is not priced (fail closed).
             if elevenlabs_dispatch_tool(payload) not in ELEVENLABS_PRICED_TOOLS:
                 return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
-            credits = max(1, (characters + 49) // 50 * 2)
+            usd_per_thousand = Decimal("0.05") if any(value in model for value in ("flash", "turbo")) else Decimal("0.10")
+            provider_cost = Decimal(characters) * usd_per_thousand / Decimal(1000)
+            credits = max(1, sylvex_credits(provider_cost))
         elif model in {
             "gemini_3_1_flash_tts_preview",
             "gemini_2_5_flash_preview_tts",
             "gemini-3.1-flash-tts-preview",
             "gemini-2.5-flash-preview-tts",
         }:
-            # Published Gemini Flash TTS tariff: 15 ⚡ per 1M characters.
-            # A generation is charged in whole credits, with a one-credit minimum.
-            credits = max(1, __import__("math").ceil(characters * 15 / 1_000_000))
+            input_tokens = len(str(payload.get("prompt") or "").encode("utf-8"))
+            output_tokens = duration * 25
+            provider_cost = Decimal(input_tokens) * Decimal("0.50") / Decimal(1_000_000) + Decimal(output_tokens) * Decimal("10.00") / Decimal(1_000_000)
+            if model in {"gemini_3_1_flash_tts_preview", "gemini-3.1-flash-tts-preview"}:
+                provider_cost = Decimal(input_tokens) * Decimal("1.00") / Decimal(1_000_000) + Decimal(output_tokens) * Decimal("20.00") / Decimal(1_000_000)
+            credits = max(1, sylvex_credits(provider_cost))
         elif model in {
             "gemini_2_5_pro_preview_tts",
             "gemini-2.5-pro-preview-tts",
         }:
-            # Published Gemini Pro TTS tariff: 30 ⚡ per 1M characters.
-            credits = max(1, __import__("math").ceil(characters * 30 / 1_000_000))
+            input_tokens = len(str(payload.get("prompt") or "").encode("utf-8"))
+            output_tokens = duration * 25
+            provider_cost = Decimal(input_tokens) * Decimal("1.00") / Decimal(1_000_000) + Decimal(output_tokens) * Decimal("20.00") / Decimal(1_000_000)
+            credits = max(1, sylvex_credits(provider_cost))
         elif model.startswith("runway_") and tool == "sound_effect":
-            credits = max(1, duration * 2)
+            credits = max(1, sylvex_credits(Decimal(duration) * Decimal("0.01")))
         elif model.startswith("runway_") and tool == "voice_isolation":
-            credits = max(1, (duration + 5) // 6 * 2)
+            credits = max(1, sylvex_credits(Decimal((duration + 5) // 6) * Decimal("0.01")))
         elif model.startswith("runway_") and tool == "voice_dubbing":
-            credits = max(1, (duration + 1) // 2 * 2)
+            credits = max(1, sylvex_credits(Decimal((duration + 1) // 2) * Decimal("0.01")))
         elif model.startswith("runway_") and tool == "speech_to_speech":
-            credits = max(1, (duration + 2) // 3 * 2)
+            credits = max(1, sylvex_credits(Decimal((duration + 2) // 3) * Decimal("0.01")))
         elif model.startswith("runway_"):
-            credits = max(1, (characters + 49) // 50 * 2)
+            credits = max(1, sylvex_credits(Decimal((characters + 49) // 50) * Decimal("0.01")))
         else:
             return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
         return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True}
@@ -22280,7 +22632,11 @@ def estimate_generation_cost(payload: dict) -> dict:
     if provider == "openai":
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         quality = normalize_openai_image_quality(requested_model, api_model, opts)
-        info = openai_image_cost_info(requested_model, api_model, quality, count)
+        refs = image_reference_urls(payload)
+        info = openai_image_cost_info(
+            requested_model, api_model, quality, count,
+            prompt_text=payload.get("prompt") or "", reference_count=len(refs),
+        )
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -22305,7 +22661,10 @@ def estimate_generation_cost(payload: dict) -> dict:
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         requested_size = opts.get("size") or opts.get("resolution") or ""
         quality = normalize_seedream_quality(requested_model, api_model, opts)
-        info = seedream_cost_info(requested_model, api_model, count, seedream_size_value(requested_size, quality))
+        info = seedream_cost_info(
+            requested_model, api_model, count, seedream_size_value(requested_size, quality),
+            reference_count=len(image_reference_urls(payload)),
+        )
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -22316,7 +22675,12 @@ def estimate_generation_cost(payload: dict) -> dict:
         }
     if provider == "flux":
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
-        info = flux_cost_info(requested_model, api_model, count)
+        refs = image_reference_urls(payload)
+        info = flux_cost_info(
+            requested_model, api_model, count,
+            output_size=opts.get("size") or opts.get("resolution") or "",
+            reference_sizes=[1] * len(refs),
+        )
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -22339,7 +22703,11 @@ def estimate_generation_cost(payload: dict) -> dict:
     if provider == "google":
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         resolution = google_image_resolution(opts, requested_model, api_model)
-        info = google_image_cost_info(requested_model, api_model, count, resolution, google_has_input_image(payload))
+        refs = image_reference_urls(payload)
+        info = google_image_cost_info(
+            requested_model, api_model, count, resolution, bool(refs),
+            reference_count=len(refs), prompt_text=payload.get("prompt") or "",
+        )
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -22354,7 +22722,8 @@ def estimate_generation_cost(payload: dict) -> dict:
     if provider in ("grok", "xai"):
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         resolution = grok_resolution_value(opts)
-        info = grok_cost_info(requested_model, api_model, count, resolution, grok_has_input_image(payload))
+        refs = image_reference_urls(payload)
+        info = grok_cost_info(requested_model, api_model, count, resolution, grok_has_input_image(payload), len(refs))
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -22381,6 +22750,67 @@ def estimate_generation_cost(payload: dict) -> dict:
     }
 
 
+def voice_provider_usage_cost_usd(payload: dict, result: dict) -> Optional[float]:
+    """Use provider-reported voice usage when it is available."""
+    if not isinstance(result, dict):
+        return None
+
+    nodes = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            nodes.append(value)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(result)
+    providers = {str(node.get("provider") or "").strip().lower() for node in nodes}
+    options = payload.get("voice_options") or {}
+    frontend_model = str(
+        result.get("model") or options.get("model") or payload.get("model") or ""
+    ).strip().lower()
+
+    if "elevenlabs" in providers or frontend_model.startswith("elevenlabs_"):
+        for node in nodes:
+            raw = node.get("character_cost")
+            if raw in (None, ""):
+                continue
+            try:
+                billed_characters = max(0, int(float(raw)))
+            except (TypeError, ValueError):
+                continue
+            usd_per_thousand = Decimal("0.05") if any(
+                name in frontend_model for name in ("flash", "turbo")
+            ) else Decimal("0.10")
+            return float(Decimal(billed_characters) * usd_per_thousand / Decimal(1000))
+
+    if "gemini" in providers or frontend_model.startswith("gemini"):
+        rate = None
+        if "3_1_flash" in frontend_model or "3.1-flash" in frontend_model:
+            rate = (Decimal("1.00"), Decimal("20.00"))
+        elif "2_5_flash" in frontend_model or "2.5-flash" in frontend_model:
+            rate = (Decimal("0.50"), Decimal("10.00"))
+        elif "2_5_pro" in frontend_model or "2.5-pro" in frontend_model:
+            rate = (Decimal("1.00"), Decimal("20.00"))
+        if rate:
+            for node in nodes:
+                usage = node.get("usageMetadata") or node.get("usage_metadata")
+                if not isinstance(usage, dict) or not any(
+                    key in usage for key in ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount")
+                ):
+                    continue
+                input_tokens = int(usage.get("promptTokenCount") or 0) + int(usage.get("toolUsePromptTokenCount") or 0)
+                output_tokens = int(usage.get("candidatesTokenCount") or 0) + int(usage.get("thoughtsTokenCount") or 0)
+                provider_cost = (
+                    Decimal(input_tokens) * rate[0] + Decimal(output_tokens) * rate[1]
+                ) / Decimal(1_000_000)
+                return float(provider_cost)
+    return None
+
+
 def calculate_generation_price(payload: dict) -> dict:
     """Single entry point for all new estimates, reservations and settlements."""
     estimate = estimate_generation_cost(payload)
@@ -22404,7 +22834,12 @@ def calculate_generation_price(payload: dict) -> dict:
             # and its real provider price before entering this workspace
             # override. Keep that estimate unchanged for the first Edit tool.
         else:
-            detail = openai_image_cost_info("gpt_image_2_5_sunburst", "gpt-image-2.5-sunburst", "high", 1)
+            source_url = str(opts.get("editWorkspaceSourceUrl") or opts.get("source_image_url") or "").strip()
+            detail = openai_image_cost_info(
+                "gpt_image_2_5_sunburst", "gpt-image-2.5-sunburst", "high", 1,
+                prompt_text=opts.get("editWorkspacePrompt") or payload.get("prompt") or "",
+                reference_count=1 if source_url else 0,
+            )
             credits = max(1, int(detail.get("cost_credits") or 32))
             provider_cost = float(detail.get("cost_usd") or 0.3165)
             estimate = {"credits": credits, "cost_usd": provider_cost, "generation_cost": f"{credits} ⚡", "pricing_available": True, "model_label": "GPT Image 2.5 Sunburst"}
@@ -22709,6 +23144,10 @@ async def image_generation(payload: dict) -> dict:
                 result["provider_model"] = api_model
                 result["quality"] = openai_quality
                 result["request_payload"] = {**request_data, "image_count": len(files)}
+                result["metadata"] = {"usage": data.get("usage") or {}}
+                actual_cost = openai_image_usage_cost_usd(requested_model, api_model, data.get("usage") or {})
+                if actual_cost is not None:
+                    result["provider_cost_usd_actual"] = actual_cost
                 return result
             return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
@@ -22753,6 +23192,10 @@ async def image_generation(payload: dict) -> dict:
             result["provider_model"] = api_model
             result["quality"] = openai_quality
             result["request_payload"] = last_payload
+            result["metadata"] = {"usage": data.get("usage") or {}}
+            actual_cost = openai_image_usage_cost_usd(requested_model, api_model, data.get("usage") or {})
+            if actual_cost is not None:
+                result["provider_cost_usd_actual"] = actual_cost
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
@@ -22821,8 +23264,11 @@ async def image_generation(payload: dict) -> dict:
         images = []
         error = None
         request_payload = {}
+        provider_usage = []
         for attempt in range(1, count + 1):
-            call_images, call_error, request_payload = call_google_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+            call_images, call_error, request_payload, call_usage = call_google_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+            if call_usage:
+                provider_usage.append(call_usage)
             print("GOOGLE IMAGE PAYLOAD:", {
                 "frontend_model": requested_model,
                 "provider_model": api_model,
@@ -22857,6 +23303,13 @@ async def image_generation(payload: dict) -> dict:
             result["model"] = requested_model
             result["provider_model"] = api_model
             result["request_payload"] = sanitized_google_request_payload(request_payload)
+            result["metadata"] = {"provider_usage": provider_usage}
+            actual_cost = google_image_usage_cost_usd(
+                requested_model, api_model, len(final_images) or count,
+                google_image_resolution(opts, requested_model, api_model), provider_usage,
+            )
+            if actual_cost is not None:
+                result["provider_cost_usd_actual"] = actual_cost
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
@@ -22895,7 +23348,7 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider in ("grok", "xai"):
-        images, error, request_payload = call_grok_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        images, error, request_payload, provider_metadata = call_grok_image(requested_model, api_model, endpoint, prompt, payload, size, count)
         grok_request_endpoint = (
             grok_image_edit_endpoint(endpoint)
             if isinstance(request_payload, dict) and request_payload.get("image")
@@ -22925,6 +23378,7 @@ async def image_generation(payload: dict) -> dict:
             result["model"] = requested_model
             result["provider_model"] = api_model
             result["request_payload"] = request_payload
+            result["metadata"] = provider_metadata
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
@@ -23538,7 +23992,6 @@ async def public_prostudio_pricing_catalog():
         ("BytePlus", "3D", "Hitem3D 2.0", "standard white / textured", "120 / 210 ⚡"),
         ("Google", "Фото", "Nano Banana 2", "0.5K / 1K / 2K / 4K", "7 / 11 / 16 / 23 ⚡"),
         ("Google", "Фото", "Nano Banana Pro", "1K / 2K / 4K", "21 / 21 / 36 ⚡"),
-        ("Google", "Фото", "Imagen 4 Fast / Standard / Ultra", "фото", "3 / 6 / 9 ⚡"),
         ("Google", "Видео", "Veo 3.1", "720/1080p audio / no audio", "60 / 30 ⚡"),
         ("Google", "Музыка", "Lyria 3 Pro / Lyria 3", "полная песня / 30 сек", "12 / 6 ⚡"),
         ("Google", "Текст", "Gemini 3.1 Pro", "input / output, 1M токенов", "300 / 1,800 ⚡"),
@@ -23551,7 +24004,6 @@ async def public_prostudio_pricing_catalog():
         ("Runway", "Голос", "Text-to-Sound", "за секунду", "2 ⚡"),
         ("OpenAI", "Текст", "GPT-5.6 / GPT-5.5", "input / output, 1M токенов", "600/3,000 · 750/4,500 ⚡"),
         ("OpenAI", "Текст", "GPT-5 mini / GPT-4.1 mini", "input / output, 1M токенов", "38/300 · 60/240 ⚡"),
-        ("OpenAI", "Видео", "Sora 2 / Sora 2 Pro", "720p, за секунду", "15 / 45 ⚡"),
         ("xAI", "Фото", "Grok Imagine Image 2", "1K low / medium", "6 / 9 ⚡"),
         ("xAI", "Видео", "Grok Imagine Video 1.5", "480p / 720p / 1080p, 1 сек", "12 / 21 / 37.5 ⚡"),
         ("xAI", "Текст", "Grok 4.6 / 4.5", "Input / Output, 1M токенов", "300 / 900 ⚡"),
@@ -23559,7 +24011,7 @@ async def public_prostudio_pricing_catalog():
         ("Kling", "Видео", "Kling 3.0 / 2.6 / 2.1", "режим, разрешение и длительность", "от 32 ⚡; точные варианты ниже"),
         ("Luma", "Видео", "Ray 3.2", "720p / 1080p, 5 / 10 сек", "45 / 135 · 180 / 540 ⚡"),
         ("PixVerse", "Видео", "PixVerse V6", "720p, 5 сек без / со звуком", "68 / 90 ⚡"),
-        ("MiniMax", "Музыка / видео", "H3 / H3 Max / Music", "768p, 5 сек / до 5 мин", "60 / 38 / 23 ⚡"),
+        ("MiniMax", "Видео", "H3 / H3 Max", "768p, 5 сек", "60 / 38 ⚡"),
         ("Qwen", "Фото", "Qwen Image 3 Pro / Image 3", "1K / 2K, 1 фото", "6 / 12 · 5 / 5 ⚡"),
         ("Ideogram", "Фото", "Ideogram 3 / 4", "Turbo / Default / Quality", "5 / 9 / 14–15 ⚡"),
         ("Recraft", "Фото и инструменты", "V3 / V4.1 / V4.1 Pro", "1 фото", "6 / 6 / 32 ⚡"),
@@ -23573,7 +24025,6 @@ async def public_prostudio_pricing_catalog():
         ("Google", "Текст", "Gemini 2.5 Pro", "input / output, 1M токенов", "188 / 1 500 ⚡"),
         ("Google", "Текст", "Gemini 2.5 Flash Lite", "input / output, 1M токенов", "15 / 60 ⚡"),
         ("Google", "Фото", "Nano Banana 2 Flash", "0.5K / 1K / 2K / 4K", "3 / 6 / 9 / 15 ⚡"),
-        ("Google", "Фото", "Imagen 3 / Imagen 4", "Fast / Standard / Ultra", "3 / 6 / 9 ⚡ / фото"),
         ("Google", "Видео", "Veo 3.1 Fast", "720p / 1080p, за секунду", "15 / 45 ⚡"),
         ("Google", "Видео", "Veo 2", "720p / 4K, за секунду", "15 / 30 ⚡"),
         ("Google", "Аудио", "Gemini TTS Flash / Pro", "1M символов", "15 / 30 ⚡"),
@@ -23624,10 +24075,9 @@ async def public_prostudio_pricing_catalog():
         ("HeyGen", "Видео", "Avatar V", "1 сек", "18 ⚡"),
         ("HeyGen", "Видео", "Avatar IV Photo / Custom", "5 сек", "29 / 61 ⚡"),
         ("MiniMax", "Видео", "H3 / H3 Max", "768p, 5 сек", "60 / 38 ⚡"),
-        ("MiniMax", "Музыка", "Music 3.0 / 2.6", "до 5 мин", "23 ⚡"),
         ("MiniMax", "Фото", "image-01", "1 фото", "1 ⚡"),
     ]
-    return {"ok": True, "currency": "⚡", "pricing_version": "2026-09-full", "rows": [
+    return {"ok": True, "currency": "⚡", "pricing_version": PRICE_VERSION, "rows": [
         {"provider": provider, "category": category, "model": model, "mode": price_mode, "price": price}
         for provider, category, model, price_mode, price in rows
     ]}
@@ -23645,116 +24095,230 @@ async def public_prostudio_estimate(request: Request):
         return JSONResponse({"ok": False, "error": "generation_estimate_failed"}, status_code=400)
 
 
+def grid_planner_catalog() -> dict:
+    retired = {"sora_2", "sora_2_pro", "runway_gen3a_turbo", "runway_aleph", "luma_dream_machine", "minimax_hailuo_2_3"}
+    videos = {}
+    for model_id, config in _VIDEO_MODEL_CONFIG.items():
+        modes = list(config.get("modes") or [])
+        if model_id in retired or config.get("avatar") or "video_effects" in modes:
+            continue
+        videos[model_id] = {
+            "modes": modes,
+            "durations": list(config.get("durations") or []),
+            "ratios": list(config.get("ratios") or []),
+            "resolutions": list(config.get("resolutions") or []),
+            "sound": bool(config.get("sound")),
+            "native_audio": bool(config.get("native_audio")),
+            "start_image": bool(config.get("start_image")),
+            "end_image": bool(config.get("end_image")),
+            "video_upload": bool(config.get("video_upload")),
+        }
+    return {
+        "image": {
+            "models": ["gpt_image_2", "seedream_5_0_pro", "nano_banana_2", "flux_2", "qwen_image_2_pro", "recraft_v4_1_pro", "ideogram_4_0", "grok_pro"],
+            "settings": {"size": ["1:1", "16:9", "9:16", "4:3", "3:4"], "resolution": ["1024", "2048", "4096"], "quality": ["standard", "high"], "count": [1, 2, 3, 4]},
+        },
+        "video": {"models": videos},
+        "music": {
+            "models": ["google_lyria_3_clip", "google_lyria_3_pro"],
+            "settings": {"genre": ["auto", "pop", "rock", "rap", "jazz", "ambient", "cinematic", "electronic"], "duration": [30, 60, 120, 180], "mood": ["energetic", "calm", "dramatic", "romantic", "uplifting", "dark"], "tempo": ["slow", "medium", "fast"], "vocal": ["instrumental", "female", "male", "duet", "auto"]},
+        },
+        "voice": {
+            "models": ["elevenlabs_eleven_v3", "elevenlabs_multilingual_v2", "gemini_3_1_flash_tts_preview", "gemini_2_5_pro_preview_tts", "gemini_2_5_flash_preview_tts", "runway_eleven_multilingual_v2"],
+            "settings": {"target_language": ["auto", "en", "ru", "kk", "es", "de", "fr", "it", "tr", "ar"], "speaker_mode": ["single", "dialogue"], "runway_tool": ["text_to_speech", "sound_effect"], "emotion": "text", "speed": [0.5, 2.0]},
+        },
+        "montage": {"model": "final_montage", "settings": {"resolution": ["720p", "1080p"], "transition": ["cut", "fade"], "ducking": [True, False]}},
+    }
+
+
+def grid_planner_prompt(task: str, catalog: dict, context: dict) -> str:
+    return f"""
+You are SYLVEX Grid Director, a strict professional production orchestrator. Return ONLY valid JSON, never markdown. Never start any generation or claim that media was generated.
+
+Act at the highest professional level required by the brief:
+- video/film: director, screenwriter, cinematographer, editor and continuity supervisor;
+- image: photographer, production designer, lighting and VFX specialist;
+- music: composer, producer and lyricist;
+- voice/dialogue/podcast: researcher, writer, dialogue editor and voice director;
+- mixed work: coordinate all roles as one production director.
+Reject shallow planning internally. The amount of structure, writing and technical detail must match the requested purpose and duration. A film needs a coherent story, exact individual shots, action, camera, opening/closing state and continuity. A song needs a complete concept, structure and lyrics when vocals are requested. A podcast needs a substantive, natural and logically connected script.
+
+Only use models and settings from this live capability catalog:
+{json.dumps(catalog, ensure_ascii=False)}
+
+Rules:
+1. Create only nodes that materially contribute to the result. Allowed types: text, image, video, music, voice, montage. The existing Task node is not returned.
+2. Every text node must contain finished production-ready content in `output`, not a note about what someone should write later. Every downstream media node must receive that exact content through an edge, or contain an equally complete local `prompt`.
+3. For films, commercials and clips, decide the number and duration of shots from the story and requested total duration. Create a separate text prompt and Video node per shot. Never use a fixed shot count. Keep the sum of shot durations equal to the requested duration within model limits.
+4. Put real model parameters in `settings`, never merely describe them in prose. Use only settings supported by the selected model. Select cost-conscious models unless the brief requires a higher-quality capability.
+5. Repeating people, products, locations and objects use stable `reference_ids` on every relevant node. If identity matters and the user did not supply a reference, add a concise optional `reference_requests` entry. Never request irrelevant references.
+6. If a video model cannot take the required identity reference directly, create one shared Image node for the scene/character and connect its image to the applicable video nodes. Do not regenerate the same identity separately for every shot.
+7. Decide whether native video sound is enough. Generate one shared music track or voice track when continuity calls for it. Avoid one music node per shot unless artistically required.
+8. Complex multimedia work ends in one montage node. Connect all ordered videos and shared audio to it. Its settings must include timeline entries, transitions, audio roles/offsets, ducking and final resolution.
+9. The graph must be acyclic. Independent nodes may share parents and run in parallel. Edges must represent real data transfer.
+10. If one essential fact would radically change the result and cannot be reasonably inferred, return action=clarify with one short question in the user's language. Otherwise make professional assumptions and plan.
+
+Plan JSON schema:
+{{
+  "action":"plan",
+  "title":"project title",
+  "summary":"short production approach",
+  "reference_requests":[{{"id":"product_1","kind":"character|product|object|vehicle|animal|location|logo|style","label":"localized label","reason":"why consistency needs it","required":false,"used_by":["node_key"]}}],
+  "nodes":[{{
+    "key":"stable_key","type":"text|image|video|music|voice|montage","title":"localized title","role":"shot|script|lyrics|music|voice|montage|asset",
+    "model":"exact catalog id","instruction":"what the editable node does","output":"finished content for text nodes","prompt":"finished local prompt for media nodes when no text parent is used",
+    "settings":{{}},"reference_ids":["product_1"],"timeline":{{"start":0,"duration":5,"order":1}}
+  }}],
+  "edges":[{{"from":"source_key","output":"text|image|video|audio","to":"target_key","input":"text|lyrics|image|video|audio"}}]
+}}
+
+Current editable Grid context (preserve explicitly user-selected text model and relevant existing choices):
+{json.dumps(context, ensure_ascii=False)}
+
+User brief:
+<user_brief>{task}</user_brief>
+""".strip()
+
+
+def clean_grid_plan(plan: dict, planner_model: str, catalog: dict) -> dict:
+    if not isinstance(plan, dict) or plan.get("action") not in {"clarify", "plan"}:
+        raise ValueError("invalid_planner_response")
+    if plan.get("action") == "clarify":
+        question = str(plan.get("question") or "").strip()[:500]
+        if not question:
+            raise ValueError("planner_question_missing")
+        return {"action": "clarify", "question": question}
+    allowed_types = {"text", "image", "video", "music", "voice", "montage"}
+    allowed_inputs = {"task", "text", "lyrics", "image", "video", "audio"}
+    allowed_outputs = {"text", "image", "video", "audio"}
+    catalog_models = {
+        "image": list(catalog["image"]["models"]),
+        "video": list(catalog["video"]["models"]),
+        "music": list(catalog["music"]["models"]),
+        "voice": list(catalog["voice"]["models"]),
+        "montage": ["final_montage"],
+    }
+    clean_nodes, keys = [], set()
+    for index, item in enumerate((plan.get("nodes") or [])[:60]):
+        if not isinstance(item, dict) or str(item.get("type") or "") not in allowed_types:
+            continue
+        node_type = str(item["type"])
+        key = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("key") or f"node_{index}"))[:64]
+        if not key or key in keys:
+            continue
+        keys.add(key)
+        model = planner_model if node_type == "text" else str(item.get("model") or "")
+        if node_type != "text" and model not in catalog_models[node_type]:
+            model = catalog_models[node_type][0]
+        settings = item.get("settings") if isinstance(item.get("settings"), dict) else {}
+        timeline = item.get("timeline") if isinstance(item.get("timeline"), dict) else {}
+        clean_nodes.append({
+            "key": key, "type": node_type,
+            "title": str(item.get("title") or node_type)[:100],
+            "role": str(item.get("role") or "")[:40],
+            "model": model,
+            "instruction": str(item.get("instruction") or "")[:12000],
+            "output": str(item.get("output") or "")[:30000],
+            "prompt": str(item.get("prompt") or "")[:30000],
+            "settings": settings,
+            "reference_ids": [re.sub(r"[^a-zA-Z0-9_-]", "", str(value))[:64] for value in (item.get("reference_ids") or [])[:12] if str(value).strip()],
+            "timeline": timeline,
+        })
+    if not clean_nodes:
+        raise ValueError("planner_nodes_missing")
+    clean_edges, edge_keys = [], set()
+    adjacency = {key: [] for key in keys}
+    def would_cycle(source: str, target: str) -> bool:
+        queue, seen = [target], set()
+        while queue:
+            current = queue.pop()
+            if current == source:
+                return True
+            if current in seen:
+                continue
+            seen.add(current)
+            queue.extend(adjacency.get(current, []))
+        return False
+    for item in (plan.get("edges") or [])[:240]:
+        if not isinstance(item, dict):
+            continue
+        source, target = str(item.get("from") or ""), str(item.get("to") or "")
+        output, input_name = str(item.get("output") or "text"), str(item.get("input") or "text")
+        edge_key = (source, output, target, input_name)
+        if source in keys and target in keys and source != target and output in allowed_outputs and input_name in allowed_inputs and edge_key not in edge_keys and not would_cycle(source, target):
+            edge_keys.add(edge_key)
+            clean_edges.append({"from": source, "output": output, "to": target, "input": input_name})
+            adjacency[source].append(target)
+    references = []
+    reference_ids = set()
+    for index, item in enumerate((plan.get("reference_requests") or [])[:12]):
+        if not isinstance(item, dict):
+            continue
+        ref_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("id") or f"reference_{index}"))[:64]
+        if not ref_id or ref_id in reference_ids:
+            continue
+        reference_ids.add(ref_id)
+        references.append({
+            "id": ref_id,
+            "kind": str(item.get("kind") or "object")[:30],
+            "label": str(item.get("label") or "Reference")[:100],
+            "reason": str(item.get("reason") or "")[:500],
+            "required": False,
+            "used_by": [key for key in (item.get("used_by") or []) if key in keys],
+        })
+    return {
+        "action": "plan", "title": str(plan.get("title") or "")[:160],
+        "summary": str(plan.get("summary") or "")[:2000],
+        "reference_requests": references, "nodes": clean_nodes, "edges": clean_edges,
+    }
+
+
 @app.post("/api/public/prostudio/grid/plan")
 async def public_prostudio_grid_plan(request: Request):
-    """Build an editable Grid draft with the existing SYLVEX text provider; never starts media generation."""
+    """Build a professional editable Grid plan. This call never starts media generation."""
     try:
         body = await request.json()
+        telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+        if not telegram_id:
+            raise HTTPException(status_code=401, detail="authentication_required")
         task = str((body or {}).get("task") or "").strip()
         if not task:
             return JSONResponse({"ok": False, "error": "task_required"}, status_code=400)
-        planner_prompt = f"""
-You are SYLVEX Grid Planner. Analyze the user's creative task and return ONLY valid JSON, without markdown.
-Never start generation. Build an editable draft only.
-
-If the desired final format is ambiguous, return:
-{{"action":"clarify","question":"one short question in the user's language"}}
-
-If it is clear, return:
-{{
-  "action":"plan",
-  "nodes":[
-    {{"key":"text_1","type":"text","title":"short localized title","instruction":"what this text block produces","output":"ready-to-use semantic prompt or text"}},
-    {{"key":"video_1","type":"video","title":"short localized title","prompt":"ready-to-edit final prompt"}}
-  ],
-  "edges":[{{"from":"text_1","output":"text","to":"video_1","input":"text"}}]
-}}
-
-Allowed node types: text, image, video, music, voice. The Task node already exists; never include it.
-Allowed outputs: text, image, video, audio. Allowed inputs: task, text, lyrics, image, audio.
-Use the shortest useful workflow. A clear video request normally needs Text -> Video. If an image source is materially needed, use Text -> Image -> Video and optionally a second Text -> Video motion prompt.
-For every Text node, output must contain the actual ready-to-use content, not technical settings such as aspect ratio, resolution, quality, duration or result count.
-Media generation must not start. Prompts must remain editable.
-
-User task:
-{task}
-""".strip()
-        planner_model = str((body or {}).get("model") or "gpt-5.5")
+        planner_model = str((body or {}).get("model") or "gpt-5.5").strip()
+        context = (body or {}).get("context") if isinstance((body or {}).get("context"), dict) else {}
+        catalog = grid_planner_catalog()
         planner_payload = {
-            "prompt": planner_prompt,
-            "mode": "text",
-            "category": "text",
-            "model": planner_model,
-            "provider": "sylvex-router",
-            "text_options": {"tool": "text", "style": "neutral", "format": "json", "language": "auto"},
-            "history": [],
-            "attachment": None,
-            "telegram_id": (body or {}).get("telegram_id"),
-            "job_id": f"grid-plan:{uuid.uuid4()}",
-            "output_token_cap": GRID_PLAN_MAX_OUTPUT_TOKENS,
+            "prompt": grid_planner_prompt(task, catalog, context),
+            "mode": "text", "category": "text", "model": planner_model, "provider": "sylvex-router",
+            "text_options": {"tool": "text", "style": "professional", "format": "json", "language": "auto"},
+            "history": [], "attachment": None, "telegram_id": telegram_id,
+            "job_id": f"grid-plan:{uuid.uuid4()}", "output_token_cap": GRID_PLAN_MAX_OUTPUT_TOKENS,
         }
         planner_input, planner_images = text_generation_price_input(planner_payload)
         generated = await run_billed_helper(
-            int((body or {}).get("telegram_id") or 0),
+            telegram_id,
             helper_text_reservation(planner_model, planner_input, GRID_PLAN_MAX_OUTPUT_TOKENS, planner_images),
-            "grid_plan",
-            lambda: asyncio.to_thread(text_generation, planner_payload),
+            "grid_plan", lambda: asyncio.to_thread(text_generation, planner_payload),
             client_request_id=str((body or {}).get("client_request_id") or ""),
-            model=planner_model,
-            usage_credits=text_generation_usage_credits(planner_model),
+            model=planner_model, usage_credits=text_generation_usage_credits(planner_model),
         )
         if not generated.get("ok"):
             return JSONResponse(generated, status_code=502)
         raw = str(generated.get("text") or "").strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
-        plan = json.loads(raw)
-        if not isinstance(plan, dict) or plan.get("action") not in {"clarify", "plan"}:
-            raise ValueError("invalid_planner_response")
-        if plan.get("action") == "clarify":
-            question = str(plan.get("question") or "").strip()
-            if not question:
-                raise ValueError("planner_question_missing")
-            return {"ok": True, "action": "clarify", "question": question}
-        allowed_types = {"text", "image", "video", "music", "voice"}
-        allowed_inputs = {"task", "text", "lyrics", "image", "audio"}
-        allowed_outputs = {"text", "image", "video", "audio"}
-        clean_nodes = []
-        keys = set()
-        for index, item in enumerate(plan.get("nodes") or []):
-            if not isinstance(item, dict) or str(item.get("type") or "") not in allowed_types:
-                continue
-            key = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("key") or f"node_{index}"))[:64]
-            if not key or key in keys:
-                continue
-            keys.add(key)
-            clean_nodes.append({
-                "key": key,
-                "type": str(item.get("type")),
-                "title": str(item.get("title") or item.get("type"))[:80],
-                "instruction": str(item.get("instruction") or "")[:6000],
-                "output": str(item.get("output") or "")[:12000],
-                "prompt": str(item.get("prompt") or "")[:12000],
-            })
-        clean_edges = []
-        for item in plan.get("edges") or []:
-            if not isinstance(item, dict):
-                continue
-            source, target = str(item.get("from") or ""), str(item.get("to") or "")
-            source_output, target_input = str(item.get("output") or "text"), str(item.get("input") or "text")
-            if source in keys and target in keys and source != target and source_output in allowed_outputs and target_input in allowed_inputs:
-                clean_edges.append({"from": source, "output": source_output, "to": target, "input": target_input})
-        if not clean_nodes:
-            raise ValueError("planner_nodes_missing")
-        return {"ok": True, "action": "plan", "nodes": clean_nodes, "edges": clean_edges, "provider": generated.get("provider"), "model": generated.get("model")}
+        clean = clean_grid_plan(json.loads(raw), planner_model, catalog)
+        return {"ok": True, **clean, "provider": generated.get("provider"), "model": generated.get("model") or planner_model}
     except SecurityError:
+        raise
+    except HTTPException:
         raise
     except (json.JSONDecodeError, ValueError) as exc:
         prostudio_error("GRID_PLANNER_INVALID_RESPONSE", exc)
-        return JSONResponse({"ok": False, "error": "planner_invalid_response", "message": "Не удалось построить цепочку. Попробуйте уточнить задачу."}, status_code=502)
+        return JSONResponse({"ok": False, "error": "planner_invalid_response", "message": "The production plan was incomplete. Please refine the brief and try again."}, status_code=502)
     except Exception as exc:
         prostudio_error("GRID_PLANNER_FAILED", exc)
-        return JSONResponse({"ok": False, "error": "planner_failed", "message": "Не удалось построить цепочку."}, status_code=500)
+        return JSONResponse({"ok": False, "error": "planner_failed", "message": "Could not build the production chain."}, status_code=500)
 
 
 HOME_ROUTE_MODES = ("image", "video", "music", "voice", "text", "grid", "tool")
@@ -24219,10 +24783,23 @@ async def public_prostudio_generate(request: Request):
             return complete_text_request(JSONResponse(result, status_code=502))
         # Settle on the provider-reported usage; the rest of the reservation
         # is returned. Unknown usage settles at the reserved upper bound.
-        charged_credits = settled_helper_credits(
-            required_credits, text_generation_usage_credits(normalize_text_model(payload.get("model") or "gpt-5.5"))(result), "text")
+        snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
+        project_fee = int(snapshot.get("sylvex_project_fee_credits") or snapshot.get("additions_credits") or 0)
+        provider_reservation = max(0, required_credits - project_fee)
+        provider_charge = settled_helper_credits(
+            provider_reservation,
+            text_generation_usage_credits(normalize_text_model(payload.get("model") or "gpt-5.5"))(result),
+            "text",
+        )
+        charged_credits = min(required_credits, provider_charge + project_fee)
         settle_payload = dict(payload)
-        settle_payload["price_snapshot"] = dict(payload.get("price_snapshot") or {}, final_credits=charged_credits, reserved_credits=required_credits)
+        settle_payload["price_snapshot"] = dict(
+            snapshot,
+            final_credits=charged_credits,
+            reserved_credits=required_credits,
+            provider_and_model_credits=provider_charge,
+            sylvex_project_fee_credits=project_fee,
+        )
         result["cost_credits"] = charged_credits
         result["reserved_credits"] = required_credits
         result["generation_cost"] = f"{charged_credits} ⚡"
@@ -24455,6 +25032,10 @@ async def dispatch_prostudio_provider_request(
     else:
         result = {"ok": False, "error": "Unknown generation mode", "mode": mode}
 
+    if mode == "voice" and isinstance(result, dict) and result.get("ok"):
+        actual_voice_cost = voice_provider_usage_cost_usd(payload, result)
+        if actual_voice_cost is not None:
+            result["provider_cost_usd_actual"] = actual_voice_cost
     return result
 
 
@@ -24897,10 +25478,14 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         )
         
         telegram_id = int(payload.get("telegram_id") or 0)
-        # Provider adapters never decide the customer price. The snapshot was
-        # fixed before dispatch and is the only amount shown and settled after
-        # a successful callback, even if a provider returns its own tariff.
-        snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
+        # Settle authoritative provider-reported cost when available (xAI
+        # exact USD ticks / Runway realized credits). The held reservation is
+        # still the hard ceiling, and the independent SYLVEX asset fee stays
+        # attached. Providers without exact cost retain their audited frozen
+        # estimator rather than falling back to a generic formula.
+        snapshot = settle_media_price_snapshot(payload, result)
+        payload = dict(payload)
+        payload["price_snapshot"] = snapshot
         result["cost_credits"] = int(snapshot.get("final_credits") or 0)
         result["generation_cost"] = f"{result['cost_credits']} ⚡" if result["cost_credits"] else ""
         print("PROSTUDIO RESULT BEFORE CHARGE:", {

@@ -207,12 +207,12 @@ test('fetched capability override: Motion Control picker filter and force-switch
   // and normalizeVideoStateForModel() against the same
   // fetchedModelCapabilities object - proving they derive from the same
   // shared videoModelSupportsMotionControl() function and cannot disagree.
-  // sora_2 is locally motion_control-unsupported; override the fetched
+  // grok_video is locally motion_control-unsupported; override the fetched
   // registry to say it now supports motion_control, and confirm BOTH the
   // picker includes it AND the force-switch lets it survive being picked.
   const sandbox = {
-    fetchedModelCapabilities: {version: 'v1', models: {sora_2: {modes: ['text_to_video', 'motion_control']}}},
-    videoState: {modelId: 'sora_2', section: 'motion', duration: 5, ratio: '16:9', resolution: '720p'},
+    fetchedModelCapabilities: {version: 'v1', models: {grok_video: {modes: ['text_to_video', 'motion_control']}}},
+    videoState: {modelId: 'grok_video', section: 'motion', duration: 5, ratio: '16:9', resolution: '720p'},
     S: {},
   };
   const context = vm.createContext(sandbox);
@@ -226,9 +226,9 @@ test('fetched capability override: Motion Control picker filter and force-switch
   vm.runInContext(extractFunction('normalizeVideoStateForModel'), context);
 
   const pickerIds = vm.runInContext('currentComposerModelList().map((m) => m.id)', context);
-  assert.ok(pickerIds.includes('sora_2'), 'picker must include sora_2 once the fetched registry says it supports motion_control');
+  assert.ok(pickerIds.includes('grok_video'), 'picker must include grok_video once the fetched registry says it supports motion_control');
 
   vm.runInContext('normalizeVideoStateForModel();', context);
   const modelIdAfterNormalize = vm.runInContext('videoState.modelId', context);
-  assert.equal(modelIdAfterNormalize, 'sora_2', 'force-switch must not revert a model the fetched registry says supports motion_control');
+  assert.equal(modelIdAfterNormalize, 'grok_video', 'force-switch must not revert a model the fetched registry says supports motion_control');
 });

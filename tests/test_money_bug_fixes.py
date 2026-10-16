@@ -60,17 +60,17 @@ def test_seedance_1_5_pro_duration_5_price_unchanged():
         assert result["credits"] == credits, (resolution, result)
 
 
-def test_minimax_hailuo_2_3_priced_at_its_real_default_duration():
+def test_minimax_hailuo_2_3_fails_closed_until_account_tariff_is_confirmed():
     result = video_router.estimate_video_generation_cost({
         "model": "minimax_hailuo_2_3",
         "video_options": {"model": "minimax_hailuo_2_3", "resolution": "720p", "duration": 5},
     })
-    assert result["credits"] == 42, result
+    assert result["credits"] == 0 and result["pricing_available"] is False, result
     result_10s = video_router.estimate_video_generation_cost({
         "model": "minimax_hailuo_2_3",
         "video_options": {"model": "minimax_hailuo_2_3", "resolution": "720p", "duration": 10},
     })
-    assert result_10s["credits"] == 84, result_10s
+    assert result_10s["credits"] == 0 and result_10s["pricing_available"] is False, result_10s
 
 
 def test_kling_3_0_turbo_audio_actually_requested_when_billed():

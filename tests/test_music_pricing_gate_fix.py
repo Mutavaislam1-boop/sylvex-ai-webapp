@@ -9,15 +9,15 @@ these 8 models were dead on arrival regardless of API keys."""
 import main
 
 
-def test_previously_unpriced_music_models_now_have_pricing_available():
+def test_unverified_aggregator_and_realtime_music_tariffs_fail_closed():
     models = (
         "suno_chirp_3_5", "suno_chirp_4_0", "suno_chirp_4_5", "suno_chirp_4_5_plus",
         "suno_chirp_5", "suno_chirp_5_5", "minimax_music_2_5", "google_lyria_realtime",
     )
     for model in models:
         result = main.estimate_generation_cost({"mode": "music", "model": model})
-        assert result["pricing_available"] is True, f"{model} must not be blocked by pricing_not_configured"
-        assert result["credits"] >= 1
+        assert result["pricing_available"] is False, f"{model} must stay blocked until its account tariff is confirmed"
+        assert result["credits"] == 0
 
 
 def test_existing_lyria_http_models_still_priced_correctly():

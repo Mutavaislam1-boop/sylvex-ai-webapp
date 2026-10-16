@@ -2493,7 +2493,21 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         return _audio_error(provider, frontend_model, provider_model, error_data, type="voice", status_code=response.status_code, response=error_data, tool=tool)
     if not response.content or ("audio" not in content_type and "octet-stream" not in content_type):
         return _audio_error(provider, frontend_model, provider_model, "ElevenLabs returned non-audio response", type="voice", status_code=response.status_code, body_preview=(response.text or "")[:1000], tool=tool)
-    return await _completed_elevenlabs_voice_response(payload, frontend_model, provider_model, tool, response.content, content_type, {"status_code": response.status_code, "content_type": content_type})
+    return await _completed_elevenlabs_voice_response(
+        payload,
+        frontend_model,
+        provider_model,
+        tool,
+        response.content,
+        content_type,
+        {
+            "status_code": response.status_code,
+            "content_type": content_type,
+            # The provider reports the actual debited character count on
+            # successful audio responses. Preserve it for settlement.
+            "character_cost": response.headers.get("character-cost") or response.headers.get("x-character-cost"),
+        },
+    )
 
 
 # =====================================================

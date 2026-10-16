@@ -44,7 +44,7 @@
   // balance, not separate allowances. Text is one request of 1,000 input +
   // 1,000 output tokens.
   var EXAMPLES = [
-    { key: 'photo', cost: 3, model: 'imagen_4_fast', label: 'Imagen 4 Fast' },
+    { key: 'photo', cost: 3, model: 'grok', label: 'Grok' },
     { key: 'video', cost: 9, model: 'seedance_1_5_pro', label: 'Seedance 1.5 Pro', seconds: 5, resolution: '480p' },
     { key: 'music', cost: 6, model: 'google_lyria_3_clip', label: 'Google Lyria 3 Clip', seconds: 30 },
     { key: 'voice', cost: 1, model: 'gemini_3_1_flash_tts_preview', label: 'Gemini 3.1 Flash TTS', characters: 1000 },

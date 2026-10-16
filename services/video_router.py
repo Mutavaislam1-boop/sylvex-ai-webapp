@@ -137,7 +137,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "veo_3_1": {"provider": "veo", "provider_model": os.getenv("VEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     # Estimated defaults, unlike every other provider here - verify against
     # xAI's actual published video model ids before relying on them.
-    "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL", "grok-video-1-edit"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL", "grok-imagine-video"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL", "wan2.1-vace-plus"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "runway_gen4_5": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_5_MODEL", "gen4.5"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "runway_gen4_turbo": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_TURBO_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
@@ -158,7 +158,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "gemini_omni_flash": {"provider": "gemini", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "gemini-omni-flash-preview"), "endpoint": os.getenv("GEMINI_INTERACTIONS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")},
     "sora_2": {"provider": "sora", "provider_model": "sora-2", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
-    "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL", "grok-video-1"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL", "grok-imagine-video-1.5"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "veo_3_1_fast": {"provider": "veo", "provider_model": os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     "runway_gen": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
 }
@@ -1769,6 +1769,14 @@ def estimate_video_generation_cost(payload: dict):
     )
     if not model_id:
         return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
+    model_key = str(model_id).lower()
+    # Provider endpoints removed these models. They must fail at the pricing
+    # gate instead of accepting money for a request that cannot complete.
+    if model_key in {"sora_2", "sora_2_pro", "runway_gen3a_turbo", "runway_aleph", "luma_dream_machine"}:
+        return {
+            "credits": 0, "cost_usd": 0, "generation_cost": "",
+            "pricing_available": False, "pricing_error": "retired_provider_model",
+        }
     mapping = _video_model_mapping(model_id)
     provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()
     if provider != "kling":
@@ -1789,7 +1797,17 @@ def estimate_video_generation_cost(payload: dict):
         config_resolutions = [_video_resolution_key(r) for r in (model_config.get("resolutions") or [resolution])]
         if resolution not in config_resolutions:
             resolution = config_resolutions[0] if config_resolutions else resolution
-        model_key = str(model_id).lower()
+        input_video = any(options.get(key) for key in (
+            "video_url", "input_video", "reference_video", "videoReferenceUrl",
+            "video_references", "videoReferences", "uploadedVideoUrl",
+        ))
+        try:
+            input_duration = max(1, int(float(
+                options.get("input_video_duration") or options.get("reference_video_duration")
+                or options.get("source_duration") or duration
+            ))) if input_video else 0
+        except (TypeError, ValueError):
+            input_duration = duration if input_video else 0
         per_second = None
         fixed = None
         # Prices below come from the published SYLVEX catalog.  Multiply first,
@@ -1809,9 +1827,9 @@ def estimate_video_generation_cost(payload: dict):
             per_second = seedance_15_per_second[bool(options.get("sound") or options.get("generate_audio"))].get(resolution, 4.0)
         elif model_key == "runway_gen4_5":
             per_second = 18
-        elif model_key in {"runway_gen4_turbo", "runway_gen", "runway_gen3a_turbo", "runway_act_two"}:
+        elif model_key in {"runway_gen4_turbo", "runway_gen", "runway_act_two"}:
             per_second = 7.5
-        elif model_key in {"runway_aleph2", "runway_aleph"}:
+        elif model_key == "runway_aleph2":
             per_second = 42
         elif model_key == "runway_seedance2":
             per_second = {"720p": 54, "1080p": 60, "4k": 225}.get(resolution, 54)
@@ -1819,23 +1837,35 @@ def estimate_video_generation_cost(payload: dict):
             per_second = 43.5
         elif model_key == "runway_seedance2_mini":
             per_second = 24
-        elif model_key in {"sora_2", "sora_2_pro"}:
-            per_second = 45 if model_key.endswith("_pro") else 15
-        elif model_key in {"veo_3_1", "runway_veo3_1", "runway_veo3"}:
+        elif model_key in {"runway_veo3_1", "runway_veo3"}:
             per_second = 60 if options.get("sound") or options.get("generate_audio") else 30
-        elif model_key in {"veo_3_1_fast", "runway_veo3_1_fast"}:
+        elif model_key == "runway_veo3_1_fast":
             with_audio = bool(options.get("sound") or options.get("generate_audio"))
             fast_rates = {True: {"720p": 15, "1080p": 18, "4k": 45}, False: {"720p": 12, "1080p": 15, "4k": 38}}
             per_second = fast_rates[with_audio].get(resolution, fast_rates[with_audio]["720p"])
+        elif model_key == "veo_3_1":
+            # Direct Gemini Veo pricing includes audio in the model rate;
+            # the UI sound switch cannot reduce what Google bills.
+            per_second = {"720p": 60, "1080p": 60, "4k": 90}.get(resolution, 60)
+        elif model_key == "veo_3_1_fast":
+            per_second = {"720p": 15, "1080p": 18, "4k": 45}.get(resolution, 15)
         elif model_key == "runway_happyhorse_1_0":
-            per_second = {"720p": 16.8, "1080p": 28.8}.get(resolution, 16.8)
+            per_second = {"720p": 16.8, "1080p": 45}.get(resolution, 16.8)
         elif model_key in {"runway_gemini_omni_flash", "gemini_omni_flash"}:
             per_second = 15
-        elif model_key in {"luma_ray_v3_2", "luma_dream_machine"}:
+        elif model_key == "luma_ray_v3_2":
+            operation = str(options.get("operation") or options.get("mode") or "").lower()
+            if operation in {"video_edit", "edit", "video_reframe", "reframe", "extend"} or input_video:
+                return {
+                    "credits": 0, "cost_usd": 0, "generation_cost": "",
+                    "pricing_available": False, "pricing_error": "operation_tariff_not_configured",
+                }
             luma = {"720p": {5: 45, 10: 135}, "1080p": {5: 180, 10: 540}}
             fixed = (luma.get(resolution) or luma["720p"]).get(duration)
-        elif model_key in {"grok_video", "grok_video_edit"}:
-            per_second = {"720p": 21, "1080p": 37.5}.get(resolution, 12)
+        elif model_key == "grok_video":
+            per_second = {"720p": 21, "1080p": 37.5}.get(resolution, 21)
+        elif model_key == "grok_video_edit":
+            per_second = {"720p": 10.5, "1080p": 21}.get(resolution, 10.5)
         elif model_key in {"wan_2_7", "wan_2_7_edit", "wan_2_6"}:
             per_second = {"720p": 15, "1080p": 22.5}.get(resolution, 15)
         elif model_key == "pixverse_v6":
@@ -1843,24 +1873,37 @@ def estimate_video_generation_cost(payload: dict):
             pixverse_rates = {False: {"720p": 13.5, "1080p": 27}, True: {"720p": 18, "1080p": 34.5}}
             per_second = pixverse_rates[with_audio].get(resolution, pixverse_rates[with_audio]["720p"])
         elif model_key == "minimax_hailuo_2_3":
-            # Published Hailuo 2.3 tariffs are request prices, not a flat rate.
-            # Real offered durations are 5/10s (see VIDEO_MODEL_CONFIG); the
-            # table used to be keyed on 6, which no option ever supplies.
-            minimax = {"720p": {5: 42, 10: 84}, "768p": {5: 42, 10: 84}, "1080p": {5: 74}}
-            fixed = (minimax.get(resolution) or minimax["720p"]).get(duration)
+            return {
+                "credits": 0, "cost_usd": 0, "generation_cost": "",
+                "pricing_available": False, "pricing_error": "provider_tariff_not_confirmed",
+            }
         elif model_key == "heygen_v3_video_agent":
             per_second = 14.55
+            duration = max(duration, int(math.ceil(len(str(payload.get("prompt") or "")) / 15)))
         elif model_key == "heygen_avatar_v":
             per_second = 18
+            duration = max(duration, int(math.ceil(len(str(payload.get("prompt") or "")) / 15)))
         elif model_key == "heygen_avatar_iv":
             per_second = 12.075
+            duration = max(duration, int(math.ceil(len(str(payload.get("prompt") or "")) / 15)))
         elif model_key == "heygen_image_video":
             per_second = 5.775
         elif model_key == "heygen_avatar_iii":
             per_second = 1.5
+            duration = max(duration, int(math.ceil(len(str(payload.get("prompt") or "")) / 15)))
         elif model_key == "heygen_cinematic_avatar":
             fixed = {"720p": 1098, "1080p": 2655}.get(resolution, 1098)
         credits = int(math.ceil(fixed if fixed is not None else (duration * per_second))) if (fixed is not None or per_second is not None) else 0
+        if credits and input_video:
+            if model_key in {"wan_2_7", "wan_2_7_edit", "wan_2_6", "seedance_1_5_pro", "seedance_2_fast", "seedance_2_0"}:
+                credits += int(math.ceil(input_duration * (per_second or 0)))
+            elif model_key in {"runway_seedance2", "runway_seedance2_fast", "runway_seedance2_mini"}:
+                credits += int(math.ceil(input_duration * (15 if model_key == "runway_seedance2" else (per_second or 0))))
+            elif model_key == "grok_video_edit":
+                # Legacy edit adds $0.01 per second of input video.
+                credits += int(math.ceil(input_duration * 1.5))
+            elif model_key == "pixverse_v6":
+                credits *= 2
         return {
             "credits": credits,
             "cost_usd": round(credits / 150, 4) if credits else 0,
@@ -3372,7 +3415,10 @@ def _provider_result_from_response(provider: str, model_id: str, response, endpo
         return _provider_parse_error(provider, model_id, data)
     urls = _normalize_video_urls(data)
     if urls:
-        return _provider_success(provider, model_id, urls)
+        result = _provider_success(provider, model_id, urls)
+        if provider in {"grok", "runway"}:
+            result["provider_response"] = data
+        return result
     if _task_id_from_response(data):
         return _provider_processing(provider, model_id, data, endpoint)
     return _provider_error(provider, model_id, "Provider returned no video URL or task id")
@@ -4753,7 +4799,9 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
             return _provider_parse_error("runway", model_id, data)
         urls = _normalize_video_urls(data)
         if urls:
-            return _provider_success("runway", model_id, urls, status="completed")
+            completed = _provider_success("runway", model_id, urls, status="completed")
+            completed["provider_response"] = data
+            return completed
         task_id = _task_id_from_response(data)
         if not task_id:
             return _provider_error("runway", model_id, "Runway task id not found")

@@ -103,7 +103,7 @@ test('restoreMusicStateFromGenerationMetadata: missing model falls back to a fix
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('restoreMusicStateFromGenerationMetadata'), context);
   vm.runInContext(`restoreMusicStateFromGenerationMetadata({type:'music', settings:{}})`, context);
-  assert.equal(vm.runInContext('musicState.modelId', context), 'suno_chirp_5');
+  assert.equal(vm.runInContext('musicState.modelId', context), 'google_lyria_3_clip');
 });
 
 test('restoreVoiceStateFromGenerationMetadata: missing model falls back to a fixed default, not the live composer state', () => {

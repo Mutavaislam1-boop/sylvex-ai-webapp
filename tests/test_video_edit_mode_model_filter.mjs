@@ -99,7 +99,7 @@ function extractVideoModelConfigWithKling() {
 // ['motion_control'], so the modes-based check correctly excludes it.
 const VIDEO_EDIT_CAPABLE_MODELS = new Set([
   'luma_ray_v3_2', 'grok_video_edit', 'wan_2_7_edit', 'runway_aleph2',
-  'runway_aleph', 'gemini_omni_flash', 'kling_o3_omni', 'kling_o3_edit',
+  'gemini_omni_flash', 'kling_o3_omni', 'kling_o3_edit',
   'kling_o1',
 ]);
 

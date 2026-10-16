@@ -556,7 +556,7 @@ let videoModelSettings = {};
 let activeImageStylePanelKind = 'style';
 
 let musicState = {
-  modelId: 'suno_chirp_5',
+  modelId: 'google_lyria_3_clip',
   uploads: [],
   attachment: null,
   genre: 'auto',
@@ -884,8 +884,8 @@ const IMAGE_MODEL_LIST = [
     icon:'recraft',
     providerModel:'recraftv4_1_pro',
     seed:false,
-    costUsd:0.21,
-    costCredits:21,
+    costUsd:0.315,
+    costCredits:32,
     sizes:[
       { id:'auto', label:'Auto', ratio:'auto' },
       { id:'1:1', label:'1:1', ratio:'1:1' },
@@ -1046,8 +1046,8 @@ const IMAGE_MODEL_LIST = [
     icon:'flux',
     providerModel:'flux-2-flex',
     seed:false,
-    costUsd:0.105,
-    costCredits:11,
+    costUsd:0.075,
+    costCredits:8,
     badges:['FAST','LOW COST'],
     sizes:[
       { id:'auto', label:'Auto', ratio:'auto' },
@@ -1144,47 +1144,6 @@ const IMAGE_MODEL_LIST = [
     costCredits:21,
     sizes:GOOGLE_IMAGE_SIZES
   },
-  {
-    id:'nano_banana',
-    label:'Nano Banana',
-    desc:'Google Gemini 2.5 Flash Image',
-    icon:'nanoBanana',
-    providerModel:'gemini-2.5-flash-image',
-    seed:false,
-    costCredits:6,
-    sizes:GOOGLE_IMAGE_SIZES
-  },
-  {
-    id:'imagen_4_fast',
-    label:'Imagen 4 Fast',
-    desc:'Google Imagen 4 Fast',
-    icon:'google',
-    providerModel:'imagen-4.0-fast-generate-001',
-    seed:false,
-    costCredits:3,
-    sizes:GOOGLE_IMAGE_SIZES
-  },
-  {
-    id:'imagen_4_standard',
-    label:'Imagen 4 Standard',
-    desc:'Google Imagen 4 Standard',
-    icon:'google',
-    providerModel:'imagen-4.0-generate-001',
-    seed:false,
-    costCredits:6,
-    sizes:GOOGLE_IMAGE_SIZES
-  },
-  {
-    id:'imagen_4_ultra',
-    label:'Imagen 4 Ultra',
-    desc:'Google Imagen 4 Ultra',
-    icon:'google',
-    providerModel:'imagen-4.0-ultra-generate-001',
-    seed:false,
-    costCredits:9,
-    sizes:GOOGLE_IMAGE_SIZES
-  },
-
   {
     id:'grok_pro',
     label:'Grok Pro',
@@ -2343,14 +2302,7 @@ const VIDEO_MODELS = [
   { id:'heygen_cinematic_avatar', label:'HeyGen Cinematic Avatar', desc:'HeyGen cinematic avatar generation', icon:'heygen' },
 
   { id:'luma_ray_v3_2', label:'Luma Ray v3.2', desc:'Luma AI video model', icon:'luma' },
-  { id:'luma_dream_machine', label:'Luma Dream Machine', desc:'Luma Dream Machine', icon:'dreamMachine' },
-
-  { id:'minimax_hailuo_2_3', label:'MiniMax Hailuo 2.3', desc:'MiniMax Hailuo video', icon:'hailuo' },
-
   { id:'pixverse_v6', label:'PixVerse v6', desc:'PixVerse video model', icon:'pixverse' },
-
-  { id:'sora_2', label:'Sora 2', desc:'OpenAI Sora video', icon:'sora' },
-  { id:'sora_2_pro', label:'Sora 2 Pro', desc:'OpenAI Sora video', icon:'sora' },
 
   { id:'wan_2_6', label:'Wan 2.6', desc:'Alibaba Wan video model', icon:'wan' },
   { id:'wan_2_7', label:'Wan 2.7', desc:'Alibaba Wan video model', icon:'wan' },
@@ -2365,8 +2317,6 @@ const VIDEO_MODELS = [
   { id:'runway_gen4_5', label:'Runway Gen-4.5', desc:'Runway text/image to video model', icon:'runway' },
   { id:'runway_gen4_turbo', label:'Runway Gen-4 Turbo', desc:'Runway image to video model', icon:'runway' },
   { id:'runway_aleph2', label:'Runway Aleph 2.0', desc:'Runway video to video editing model', icon:'runway' },
-  { id:'runway_aleph', label:'Runway Gen-4 Aleph', desc:'Runway deprecated video edit model', icon:'runway' },
-  { id:'runway_gen3a_turbo', label:'Runway Gen-3 Alpha Turbo', desc:'Runway deprecated image to video model', icon:'runway' },
   { id:'runway_happyhorse_1_0', label:'Runway HappyHorse 1.0', desc:'HappyHorse via Runway API', icon:'runway' },
 
   { id:'kling_3_0_turbo', label:'Kling 3.0 Turbo', desc:'Kling AI video model', icon:'kling' },
@@ -5025,10 +4975,6 @@ let styleSheetCssInjected = false;
 { id:'nano-banana-pro', label:'Nano Banana Pro', icon:'🍌', description:'Фотореалистичные изображения, идеально подходящие для рекламы и текста.' },
 { id:'nano-banana-2', label:'Nano Banana 2', icon:'🍌', description:'Современная генерация изображений с расширенным редактированием и композицией.' },
 { id:'nano-banana-2-lite', label:'Nano Banana 2 Lite', icon:'🍌', description:'Быстрая и экономичная генерация изображений через Gemini 3.1 Flash Lite Image.' },
-{ id:'nano-banana', label:'Nano Banana', icon:'🍌', description:'Потрясающие фотореалистичные изображения для любой идеи.' },
-{ id:'imagen-4-fast', label:'Imagen 4 Fast', icon:'G', description:'Быстрая генерация изображений через Google Imagen 4.' },
-{ id:'imagen-4-standard', label:'Imagen 4 Standard', icon:'G', description:'Стандартная генерация изображений через Google Imagen 4.' },
-{ id:'imagen-4-ultra', label:'Imagen 4 Ultra', icon:'G', description:'Максимальное качество генерации изображений через Google Imagen 4.' },
 { id:'gpt-image-2', label:'GPT Image 2', icon:'◎', description:'Современная генерация изображений с реализмом, типографикой и контролем.' },
 { id:'grok-pro', label:'Grok Pro', icon:'◒', description:'xAI Grok — генерация высококачественных изображений.' },
 { id:'grok', label:'Grok', icon:'◒', description:'Генерация изображений через модель Grok.' },
@@ -5111,7 +5057,7 @@ let styleSheetCssInjected = false;
     if (isVideoMode()) {
       return videoState.modelId || 'seedance_2_fast';
     }
-    if (studioMode === 'music') return musicState.modelId || 'suno_chirp_5';
+    if (studioMode === 'music') return musicState.modelId || 'google_lyria_3_clip';
     if (studioMode === 'voice') return voiceState.modelId || 'elevenlabs_eleven_v3';
     return textState.modelId || 'gpt-5.5';
   }
@@ -17468,15 +17414,15 @@ function renderGeneratedTelegramButton(url, kind) {
   function hydrateProfileGalleryCache(){if(profileGalleryItems.length)return true;try{const cached=JSON.parse(localStorage.getItem(profileGalleryCacheKey())||'null');if(cached&&Array.isArray(cached.items)){profileGalleryItems=cached.items;return true}}catch(_){}return false}
   function cacheProfileGallery(){try{localStorage.setItem(profileGalleryCacheKey(),JSON.stringify({savedAt:Date.now(),items:profileGalleryItems.slice(0,100)}))}catch(_){}}
   const HOME_AI_MODELS = [
-    ['seedream','Seedream 5.0 Lite'],['seedream','Seedream 4.5'],['ideogram','Ideogram 4.0'],['recraft','Recraft V4.1 Pro'],['openai','GPT Image 2'],['flux','FLUX.2 Turbo'],['qwen','Qwen Image 2 Pro'],['nanoBanana','Nano Banana 2'],['google','Imagen 4 Ultra'],['grok','Grok Pro'],
-    ['kling','Kling 3.0'],['veo','Veo 3.1'],['runway','Runway Gen-4.5'],['seedance','Seedance 2.0'],['sora','Sora 2 Pro'],['luma','Luma Ray v3.2'],['hailuo','Hailuo 2.3'],['pixverse','PixVerse v6'],['heygen','HeyGen V3'],
+    ['seedream','Seedream 5.0 Lite'],['seedream','Seedream 4.5'],['ideogram','Ideogram 4.0'],['recraft','Recraft V4.1 Pro'],['openai','GPT Image 2'],['flux','FLUX.2 Turbo'],['qwen','Qwen Image 2 Pro'],['nanoBanana','Nano Banana 2'],['grok','Grok Pro'],
+    ['kling','Kling 3.0'],['veo','Veo 3.1'],['runway','Runway Gen-4.5'],['seedance','Seedance 2.0'],['luma','Luma Ray v3.2'],['pixverse','PixVerse v6'],['heygen','HeyGen V3'],
     ['suno','Suno Chirp v5.5'],['minimax','MiniMax Music 2.5'],['lyria','Lyria 3 Pro'],['elevenlabs','ElevenLabs v3'],['gemini','Gemini 3.1 TTS'],
     ['openai','GPT-5.6'],['gemini','Gemini 3.1 Pro'],['grok','Grok 4.1'],['qwen','Qwen Max'],['byteplus','BytePlus Seed 2.0']
   ];
   function homeModelLogo(family){const logos={openai:'<path d="M12 3a4.5 4.5 0 0 1 4.4 3.5 4.5 4.5 0 0 1 2.1 7.8 4.5 4.5 0 0 1-6.5 4.3 4.5 4.5 0 0 1-6.4-4.4A4.5 4.5 0 0 1 7.7 6.5 4.5 4.5 0 0 1 12 3Z"/><path d="m8 8 8 5M16 8l-8 5M12 5v14"/>',gemini:'<path d="M12 2c.6 5.4 4.6 9.4 10 10-5.4.6-9.4 4.6-10 10-.6-5.4-4.6-9.4-10-10 5.4-.6 9.4-4.6 10-10Z"/>',flux:'<path d="m4 18 5-12 3 7 3-9 5 14M5 18h14"/>',qwen:'<circle cx="12" cy="12" r="8"/><path d="M9 9h6v6H9zM15 15l4 4"/>',grok:'<path d="M5 5h14L8 19h11M5 19 19 5"/>',kling:'<path d="M6 3v18M18 3 8 12l10 9"/>',veo:'<path d="m3 6 9 15 9-15h-5l-4 8-4-8Z"/>',runway:'<path d="M5 4h6a5 5 0 0 1 0 10H5zM12 14l7 6"/>',seedance:'<path d="M5 17c4-10 10-10 14 0M7 8c3-4 7-4 10 0"/>',sora:'<circle cx="12" cy="12" r="8"/><path d="M8 15c1-6 7-6 8 0"/>',suno:'<path d="M4 15V9M8 18V6M12 16V8M16 20V4M20 15V9"/>',elevenlabs:'<path d="M8 5v14M12 5v14M16 8v8"/>',ideogram:'<rect x="5" y="5" width="14" height="14" rx="4"/><path d="M9 9h6v6H9z"/>',recraft:'<path d="M6 19V5h7a4 4 0 0 1 0 8H6M12 13l6 6"/>',seedream:'<path d="M12 21V9M12 13c-5 0-7-3-7-7 5 0 7 3 7 7Zm0-3c4 0 6-2 6-6-4 0-6 2-6 6Z"/>',google:'<path d="M20 12h-8v4h4.6A6 6 0 1 1 16 7.2"/>',lyria:'<path d="M9 18V5l10-2v13M9 9l10-2"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',minimax:'<path d="M4 18V6l4 7 4-7 4 7 4-7v12"/>',hailuo:'<path d="M4 14c4-8 12-8 16 0-4 6-12 6-16 0Z"/>',pixverse:'<path d="M5 5h8a5 5 0 0 1 0 10H5zM9 9h4"/>',heygen:'<path d="M5 5v14M19 5v14M5 12h14"/>',luma:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',byteplus:'<path d="m5 3 14 9-14 9V3Zm4 7v4l4-2Z"/>'};return '<svg viewBox="0 0 24 24" aria-hidden="true">'+(logos[family]||logos.gemini)+'</svg>'}
   function existingHomeModelLogo(family){const publicLogo=PUBLIC_AI_LOGOS[family];if(publicLogo)return '<img class="public-ai-logo" src="'+S.escapeHtml(publicLogo)+'" alt="" loading="eager" decoding="async">';const aliases={lyria:'gemini',byteplus:'bytedance'},key=aliases[family]||family,value=AI_LOGOS[key];if(value==='custom-banana')return imageModelIconHtml({id:'nano-banana-2',icon:'nanoBanana'});if(value)return '<span class="ai-model-mask" style="--ai-model-icon:url(&quot;'+S.escapeHtml(value)+'&quot;)"></span>';return homeModelLogo(family)}
   function renderHomeAiModels(){const host=document.getElementById('homeAiModelStrip');if(!host)return;const chips=HOME_AI_MODELS.map(([family,label])=>'<span class="ai-chip ai-'+family+'"><i>'+existingHomeModelLogo(family)+'</i><b>'+S.escapeHtml(label)+'</b></span>').join('');host.innerHTML=chips+chips}
-  const BRAND_GENERATORS={openai:{label:'OpenAI',mode:'image',model:'gpt_image_2',logo:'assets/ai-brand-logos/openai.png'},gemini:{label:'Gemini',mode:'text',model:'gemini_3_1_pro',logo:'assets/ai-brand-logos/gemini.webp'},flux:{label:'FLUX',mode:'image',model:'flux_2',logo:''},kling:{label:'Kling AI',mode:'video',model:'kling_3_0',logo:'assets/ai-brand-logos/kling.png'},runway:{label:'Runway',mode:'video',model:'runway_gen4_5',logo:'assets/ai-brand-logos/runway.png'},suno:{label:'Suno',mode:'music',model:'suno_chirp_5_5',logo:'assets/ai-brand-logos/suno.png',headerVideo:'assets/brand-generators/suno-header.mp4'},elevenlabs:{label:'ElevenLabs',mode:'voice',model:'elevenlabs_eleven_v3',logo:'assets/ai-brand-logos/elevenlabs.jpeg'},seedream:{label:'Seedream 5.0 Pro',mode:'image',model:'seedream_5_0_pro',logo:'assets/ai-brand-logos/seedream.webp'},seedance:{label:'Seedance 2.0',mode:'video',model:'seedance_2_0',logo:'assets/ai-brand-logos/seedance.jpeg'},grok:{label:'Grok',mode:'text',model:'grok_4_1',logo:'assets/ai-brand-logos/grok.jpeg'},heygen:{label:'HeyGen Avatar',mode:'video',model:'heygen_avatar_v',logo:''},ideogram:{label:'Ideogram 4.0',mode:'image',model:'ideogram_4_0',logo:'assets/ai-brand-logos/ideogram.png'},recraft:{label:'Recraft V4.1 Pro',mode:'image',model:'recraft_v4_1_pro',logo:'assets/ai-brand-logos/recraft.png'},qwen:{label:'Qwen Image 2 Pro',mode:'image',model:'qwen_image_2_pro',logo:''},'nano-banana':{label:'Nano Banana 2',mode:'image',model:'nano_banana_2',logo:'assets/ai-brand-logos/nano-banana.png'},imagen:{label:'Imagen 4 Ultra',mode:'image',model:'imagen_4_ultra',logo:'assets/ai-brand-logos/google.jpeg'},veo:{label:'Veo 3.1',mode:'video',model:'veo_3_1',logo:'assets/ai-brand-logos/google.jpeg'}};
+  const BRAND_GENERATORS={openai:{label:'OpenAI',mode:'image',model:'gpt_image_2',logo:'assets/ai-brand-logos/openai.png'},gemini:{label:'Gemini',mode:'text',model:'gemini_3_1_pro',logo:'assets/ai-brand-logos/gemini.webp'},flux:{label:'FLUX',mode:'image',model:'flux_2',logo:''},kling:{label:'Kling AI',mode:'video',model:'kling_3_0',logo:'assets/ai-brand-logos/kling.png'},runway:{label:'Runway',mode:'video',model:'runway_gen4_5',logo:'assets/ai-brand-logos/runway.png'},suno:{label:'Suno',mode:'music',model:'suno_chirp_5_5',logo:'assets/ai-brand-logos/suno.png',headerVideo:'assets/brand-generators/suno-header.mp4'},elevenlabs:{label:'ElevenLabs',mode:'voice',model:'elevenlabs_eleven_v3',logo:'assets/ai-brand-logos/elevenlabs.jpeg'},seedream:{label:'Seedream 5.0 Pro',mode:'image',model:'seedream_5_0_pro',logo:'assets/ai-brand-logos/seedream.webp'},seedance:{label:'Seedance 2.0',mode:'video',model:'seedance_2_0',logo:'assets/ai-brand-logos/seedance.jpeg'},grok:{label:'Grok',mode:'text',model:'grok_4_1',logo:'assets/ai-brand-logos/grok.jpeg'},heygen:{label:'HeyGen Avatar',mode:'video',model:'heygen_avatar_v',logo:''},ideogram:{label:'Ideogram 4.0',mode:'image',model:'ideogram_4_0',logo:'assets/ai-brand-logos/ideogram.png'},recraft:{label:'Recraft V4.1 Pro',mode:'image',model:'recraft_v4_1_pro',logo:'assets/ai-brand-logos/recraft.png'},qwen:{label:'Qwen Image 2 Pro',mode:'image',model:'qwen_image_2_pro',logo:''},'nano-banana':{label:'Nano Banana 2',mode:'image',model:'nano_banana_2',logo:'assets/ai-brand-logos/nano-banana.png'},veo:{label:'Veo 3.1',mode:'video',model:'veo_3_1',logo:'assets/ai-brand-logos/google.jpeg'}};
   const BRAND_MUSIC_FALLBACK=[
     {title:'Pop & Vocal',genre:'Pop',coverUrl:'assets/hero-ai/suno.jpg'},
     {title:'Ambient',genre:'Ambient',coverUrl:'assets/hero-ai/gemini.jpg'},
@@ -19842,7 +19788,7 @@ function restoreMusicStateFromGenerationMetadata(meta) {
   const settings = meta.settings || {};
   // Fixed default, never the live musicState value - see
   // restoreImageStateFromGenerationMetadata's comment for why.
-  musicState.modelId = meta.model || settings.model || 'suno_chirp_5';
+  musicState.modelId = meta.model || settings.model || 'google_lyria_3_clip';
   if (settings.genre) musicState.genre = settings.genre;
   if (settings.duration !== undefined && settings.duration !== null && settings.duration !== '') musicState.duration = settings.duration;
   if (!musicState.settings || typeof musicState.settings !== 'object') musicState.settings = {};
@@ -22251,7 +22197,7 @@ function maybeShowVideoTemplateIntro(force) {
     const user=S.user||{},name=(user.display_name&&String(user.display_name).trim())||[user.first_name,user.last_name].filter(Boolean).join(' ')||user.username||'Пользователь',handle=user.username?'@'+user.username:'SYLVEX ID '+(user.telegram_id||'—'),avatarUrl=user.custom_avatar_url||user.photo_url,initials=((user.first_name||user.username||'·').slice(0,1)+(user.last_name||'').slice(0,1)).toUpperCase();
     userHost.innerHTML=`<div class="studio-grid-drawer-avatar">${avatarUrl?`<img src="${gridEscape(avatarUrl)}" alt="">`:gridEscape(initials)}</div><div><b>${gridEscape(name)}</b><span>${gridEscape(handle)}</span></div><strong>${Number(user.balance||0).toLocaleString()} ⚡️</strong>`;
     const active=loadStudioGridState(),items=loadStudioGridProjects();
-    list.innerHTML=items.length?items.map(item=>`<button type="button" class="studio-grid-drawer-project${item.id===active.projectId?' active':''}" data-grid-drawer-project="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join(''):'<div class="hd-empty">Сохранённых проектов пока нет</div>';
+    list.innerHTML=`<small class="studio-grid-drawer-sync" data-grid-sync-status>${gridEscape(studioGridCloudSync||'Saved on this device')}</small>`+(items.length?items.map(item=>`<button type="button" class="studio-grid-drawer-project${item.id===active.projectId?' active':''}" data-grid-drawer-project="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join(''):'<div class="hd-empty">Сохранённых проектов пока нет</div>');
     list.querySelectorAll('[data-grid-drawer-project]').forEach(button=>button.addEventListener('click',()=>{openStudioGridProject(button.dataset.gridDrawerProject);toggleStudioGridDrawer()}));
   }
   function toggleStudioGridDrawer(force) {
@@ -27978,7 +27924,8 @@ async function waitGeneration(jobId, options) {
     image: { title:'Изображение', icon:'▧', placeholder:'Опишите изображение…', inputs:['text','image','character','object'], outputs:['image'] },
     video: { title:'Видео', icon:'▶', placeholder:'Опишите движение и сцену…', inputs:['text','image','video','character','audio'], outputs:['video'] },
     music: { title:'Музыка', icon:'♫', placeholder:'Опишите трек, настроение и жанр…', inputs:['text','lyrics'], outputs:['audio'] },
-    voice: { title:'Голос', icon:'◉', placeholder:'Введите текст или диалог…', inputs:['text'], outputs:['audio'] }
+    voice: { title:'Голос', icon:'◉', placeholder:'Введите текст или диалог…', inputs:['text'], outputs:['audio'] },
+    montage: { title:'Final Montage', icon:'⌘', placeholder:'Порядок монтажа и финальные примечания…', inputs:['video','audio'], outputs:['video'] }
   };
   let studioGridState = null;
   let studioGridSelectedIds = new Set();
@@ -27990,13 +27937,19 @@ async function waitGeneration(jobId, options) {
   let studioGridPlannerRunning = false;
   let studioGridTextEditorNodeId = '';
   let studioGridMediaNodeId = '';
+  let studioGridMediaReferenceId = '';
+  let studioGridCloudSaveTimer = 0;
+  let studioGridCloudSaveQueue = Promise.resolve();
+  let studioGridCloudSync = '';
+  let studioGridCloudLoaded = false;
 
   function gridDefaultSettings(type) {
     if (type === 'image') return { model_mode:'manual', size:'1:1', count:1, style:'auto', quality:'standard', resolution:'1024' };
     if (type === 'video') return { model_mode:'manual', generation_mode:'text_to_video', ratio:'16:9', duration:5, resolution:'720p', sound:false };
     if (type === 'music') return { model_mode:'manual', genre:'auto', duration:'auto', mood:'auto', tempo:'auto', theme:'auto', vocal:'auto' };
-    if (type === 'voice') return { model_mode:'manual', voice:'Kore', target_language:'auto', speaker_mode:'single' };
+    if (type === 'voice') return { model_mode:'manual', voice:'Kore', target_language:'auto', speaker_mode:'single', runway_tool:'text_to_speech', emotion:'natural', speed:1 };
     if (type === 'text') return { model_mode:'manual', tool:'text', style:'neutral', format:'markdown', language:'auto' };
+    if (type === 'montage') return { model_mode:'manual', resolution:'1080p', transition:'fade', ducking:true, timeline:[], audio_tracks:[] };
     return { model_mode:'manual' };
   }
 
@@ -28082,17 +28035,19 @@ async function waitGeneration(jobId, options) {
     // that's what the main composer currently has selected - it would be
     // a default value gridModelsForType's own dropdown no longer offers.
     if (type === 'video') return gridDefaultVideoModel(videoState.modelId);
-    if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
+    if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'google_lyria_3_clip';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
     if (type === 'text') return textState.modelId || 'gpt-5.5';
+    if (type === 'task') return textState.modelId || 'gpt-5.5';
+    if (type === 'montage') return 'final_montage';
     return '';
   }
 
   function defaultStudioGridState() {
     return {
-      version:2, projectId:'grid_project_'+Date.now().toString(36), title:'Новая цепочка', panX:90, panY:150, zoom:.9,
+      version:3, projectId:'grid_project_'+Date.now().toString(36), title:'Новая цепочка', panX:90, panY:150, zoom:.9,
       nodes:[
-        { id:'grid_task_1', type:'task', subtype:'task', x:80, y:150, title:'Задача', prompt:'', status:'IDLE', locked:false, results:[] },
+        { id:'grid_task_1', type:'task', subtype:'task', x:80, y:150, title:'Задача', prompt:'', status:'IDLE', model:gridDefaultModel('task'), settings:{}, locked:false, results:[] },
         { id:'grid_text_1', type:'text', subtype:'image_prompt', x:430, y:150, title:'Промпт изображения', prompt:'', status:'IDLE', locked:false, results:[] },
         { id:'grid_image_1', type:'image', subtype:'image', x:780, y:150, title:'Изображение', prompt:'', status:'WAITING', locked:false, results:[] }
       ],
@@ -28102,7 +28057,7 @@ async function waitGeneration(jobId, options) {
 
   function emptyStudioGridState() {
     const stamp=Date.now().toString(36);
-    return normalizeStudioGridState({version:2,projectId:'grid_project_'+stamp,title:'Новый проект',panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Задача',prompt:'',status:'IDLE',position_locked:false,results:[]}],edges:[]});
+    return normalizeStudioGridState({version:3,projectId:'grid_project_'+stamp,title:'Новый проект',panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Задача',prompt:'',status:'IDLE',model:gridDefaultModel('task'),settings:{},position_locked:false,results:[]}],edges:[]});
   }
 
   function loadStudioGridProjects() {
@@ -28121,12 +28076,61 @@ async function waitGeneration(jobId, options) {
     if(!state?.projectId)return;touchStudioGridProject(state);try{localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+state.projectId,JSON.stringify(state))}catch(_){}
   }
 
+  function studioGridAccountOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):''}
+  function studioGridSnapshot(state=studioGridState){
+    if(!state)return null;
+    const snapshot=JSON.parse(JSON.stringify(state));
+    snapshot.updated_at=new Date().toISOString();
+    return snapshot;
+  }
+  function renderStudioGridCloudStatus(){
+    document.querySelectorAll('[data-grid-sync-status]').forEach(element=>{element.textContent=studioGridCloudSync||''});
+  }
+  function queueStudioGridCloudSave(rawState,owner=studioGridAccountOwner()){
+    if(!rawState||!owner)return Promise.resolve();
+    const snapshot=studioGridSnapshot(rawState);
+    const save=async()=>{
+      try{
+        if(studioGridAccountOwner()!==owner)return;
+        const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(snapshot.projectId),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:snapshot}),keepalive:true});
+        if(!response.ok)throw new Error('grid_save_failed');
+        studioGridCloudSync='Saved';
+      }catch(_){studioGridCloudSync='Saved on this device · server unavailable'}
+      renderStudioGridCloudStatus();
+    };
+    studioGridCloudSaveQueue=studioGridCloudSaveQueue.then(save,save);return studioGridCloudSaveQueue;
+  }
+  function scheduleStudioGridCloudSave(){
+    clearTimeout(studioGridCloudSaveTimer);
+    if(!studioGridAccountOwner())return;
+    studioGridCloudSync='Saving…';renderStudioGridCloudStatus();
+    studioGridCloudSaveTimer=setTimeout(()=>void queueStudioGridCloudSave(studioGridState),650);
+  }
+  function studioGridIsBlank(state){return !!state&&state.nodes?.length===1&&state.nodes[0].type==='task'&&!String(state.nodes[0].prompt||'').trim()&&!state.edges?.length}
+  async function loadStudioGridCloudProjects(){
+    const owner=studioGridAccountOwner();if(!owner||studioGridCloudLoaded)return;
+    studioGridCloudLoaded=true;
+    try{
+      const response=await fetch('/api/public/prostudio/grid-projects?offset=0',{cache:'no-store'});if(!response.ok)throw new Error();
+      const data=await response.json(),remote=Array.isArray(data.projects)?data.projects:[],local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item])),remoteNewer=new Set();
+      remote.forEach(item=>{const previous=merged.get(item.id);if(!previous||String(item.updated_at||'')>String(previous.updated_at||'')){if(previous)remoteNewer.add(item.id);merged.set(item.id,item)}});
+      saveStudioGridProjects([...merged.values()].sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||''))));
+      let current=loadStudioGridState(),remoteId=studioGridIsBlank(current)&&remote.length?remote[0].id:(remoteNewer.has(current.projectId)?current.projectId:'');
+      if(remoteId){
+        const projectResponse=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(remoteId),{cache:'no-store'});
+        if(projectResponse.ok){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(STUDIO_GRID_KEY,JSON.stringify(studioGridState));renderStudioGrid();resetStudioGridView();restoreStudioGridJobs()}}
+        current=loadStudioGridState();
+      }else if(!studioGridIsBlank(current)){void queueStudioGridCloudSave(current,owner)}
+      studioGridCloudSync='Saved';renderStudioGridProjects();renderStudioGridCloudStatus();
+    }catch(_){studioGridCloudLoaded=false;studioGridCloudSync='History on this device · server unavailable';renderStudioGridCloudStatus()}
+  }
+
   function studioGridHasActiveRun() {
     const state=loadStudioGridState();return !!studioGridWorkflowRun||state.nodes.some(node=>node.status==='RUNNING');
   }
 
   function renderStudioGridProjects() {
-    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><b>История сеток</b><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Удалить проект">🗑</button></div>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
+    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><span><b>История сеток</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Удалить проект">🗑</button></div>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
   }
 
   function closeStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(panel)panel.hidden=true}
@@ -28144,6 +28148,7 @@ async function waitGeneration(jobId, options) {
     const items = loadStudioGridProjects().filter((item) => item.id !== projectId);
     saveStudioGridProjects(items);
     try { localStorage.removeItem(STUDIO_GRID_PROJECT_PREFIX + projectId); } catch (_) {}
+    const cloudOwner=typeof studioGridAccountOwner==='function'?studioGridAccountOwner():'';if(cloudOwner)void fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{method:'DELETE'}).catch(()=>{});
     const current = loadStudioGridState();
     if (current.projectId === projectId) {
       studioGridState = emptyStudioGridState();
@@ -28162,19 +28167,25 @@ async function waitGeneration(jobId, options) {
     if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}archiveStudioGridProject();studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('Создана новая чистая сетка');
   }
 
-  function openStudioGridProject(projectId) {
-    const current=loadStudioGridState();if(!projectId||projectId===current.projectId){closeStudioGridProjects();return}if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}let stored=null;try{stored=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}if(!stored||!Array.isArray(stored.nodes)){toast('Не удалось открыть проект');return}archiveStudioGridProject(current);studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('Проект сетки открыт');
+  async function openStudioGridProject(projectId) {
+    const current=loadStudioGridState();if(!projectId||projectId===current.projectId){closeStudioGridProjects();return}if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}let stored=null;try{stored=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}
+    if((!stored||!Array.isArray(stored.nodes))&&studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)stored=(await response.json()).state}catch(_){}
+    if(!stored||!Array.isArray(stored.nodes)){toast('Не удалось открыть проект');return}archiveStudioGridProject(current);studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();restoreStudioGridJobs();toast('Проект сетки открыт');
   }
 
   function normalizeStudioGridState(state) {
-    state.version = 2; state.projectId = state.projectId || 'grid_project_'+Date.now().toString(36);
+    state.version = 3; state.projectId = state.projectId || 'grid_project_'+Date.now().toString(36);
     state.panX = Number.isFinite(Number(state.panX)) ? Number(state.panX) : 90;
     state.panY = Number.isFinite(Number(state.panY)) ? Number(state.panY) : 150;
     state.zoom = Math.max(.2,Math.min(2.5,Number(state.zoom)||.9));
     state.nodes = (state.nodes || []).map((node) => {
       const type = GRID_TYPES[node.type] ? node.type : 'text';
-      const normalized = Object.assign({subtype:type,status:'IDLE',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},attachments:[],output:null,generation_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[],selectedResultVersion:null},node);
+      const normalized = Object.assign({subtype:type,status:'IDLE',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},attachments:[],output:null,generation_id:'',request_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[],result_versions:[],selectedResultVersion:null,planner_key:'',reference_ids:[]},node);
       normalized.settings = Object.assign(gridDefaultSettings(type),node.settings || {});
+      normalized.model = normalized.model || gridDefaultModel(type);
+      normalized.reference_ids = Array.isArray(normalized.reference_ids) ? normalized.reference_ids.filter(Boolean).slice(0,12) : [];
+      normalized.result_versions = Array.isArray(normalized.result_versions) ? normalized.result_versions.slice(-50) : [];
+      if(!normalized.result_versions.length&&normalized.output&&normalized.status==='COMPLETED')normalized.result_versions=[JSON.parse(JSON.stringify(normalized.output))];
       normalized.position_locked = node.position_locked !== undefined ? !!node.position_locked : !!node.locked;
       delete normalized.locked;
       if (normalized.status === 'STALE') normalized.status = 'READY';
@@ -28209,6 +28220,8 @@ async function waitGeneration(jobId, options) {
     if (!studioGridState) return;
     try { localStorage.setItem(STUDIO_GRID_KEY, JSON.stringify(studioGridState)); } catch (_) {}
     touchStudioGridProject(studioGridState);
+    try { localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+studioGridState.projectId,JSON.stringify(studioGridState)); } catch (_) {}
+    scheduleStudioGridCloudSave();
   }
 
   function applyStudioGridTransform() {
@@ -28248,12 +28261,28 @@ async function waitGeneration(jobId, options) {
     if (type === 'video') return VIDEO_MODELS.filter((item) => gridVideoModelSupported(item.id));
     if (type === 'music') return MUSIC_MODEL_LIST;
     if (type === 'voice') return VOICE_MODEL_LIST;
-    if (type === 'text') return TEXT_MODEL_LIST;
+    if (type === 'text'||type === 'task') return TEXT_MODEL_LIST;
+    if (type === 'montage') return [{id:'final_montage',label:'SYLVEX Final Montage'}];
     return [];
   }
 
   function gridSelectOptions(items,value) {
     return (items||[]).map((item)=>`<option value="${gridEscape(item.id)}"${String(item.id)===String(value)?' selected':''}>${gridEscape(item.label||item.id)}</option>`).join('');
+  }
+
+  function gridSavedReferenceItems(){
+    const combined=[...imageCharacters().map(item=>({...item,_kind:'character'})),...imageObjects().map(item=>({...item,_kind:'object'}))],seen=new Set(),items=[];
+    combined.forEach(item=>{const normalized={id:String(item.id||''),kind:item._kind,name:String(item.name||item.title||item.label||item.id||'Reference'),url:visualPreviewUrl(item)};if(normalized.id&&normalized.url&&!seen.has(normalized.id)){seen.add(normalized.id);items.push(normalized)}});
+    return items;
+  }
+  function gridReferenceRequestsHtml(node){
+    const requests=Array.isArray(node.output?.requests)?node.output.requests:[],attachments=Array.isArray(node.attachments)?node.attachments:[],saved=gridSavedReferenceItems();
+    if(!requests.length)return'';
+    return `<div class="studio-grid-reference-requests"><b>Optional references</b>${requests.map(request=>{const attached=attachments.find(item=>item.reference_id===request.id),skipped=!!request.skipped;return `<article data-grid-reference-card="${gridEscape(request.id)}"><span><strong>${gridEscape(request.label||request.kind||'Reference')}</strong><small>${gridEscape(request.reason||'Use the same identity throughout the project')}</small></span>${attached?`<img src="${gridEscape(attached.url)}" alt=""><button type="button" data-grid-clear-reference="${gridEscape(request.id)}">×</button>`:skipped?'<em>Skipped</em>':`<button type="button" data-grid-upload-reference="${gridEscape(request.id)}">＋ Upload</button>${saved.length?`<select data-grid-reference-existing="${gridEscape(request.id)}"><option value="">Saved…</option>${saved.map(item=>`<option value="${gridEscape(item.url)}" data-name="${gridEscape(item.name)}">${gridEscape(item.name)}</option>`).join('')}</select>`:''}<button type="button" data-grid-skip-reference="${gridEscape(request.id)}">Skip</button>`}</article>`}).join('')}<button type="button" class="studio-grid-reference-continue" data-grid-finalize-plan>Continue with plan</button></div>`;
+  }
+  function gridResultVersionsHtml(node){
+    const versions=Array.isArray(node.result_versions)?node.result_versions:[];if(versions.length<2)return'';
+    return `<div class="studio-grid-result-versions">${versions.map((_,index)=>`<button type="button" data-grid-pick-version="${index}" class="${index===Number(node.selectedResultVersion)?'active':''}">${index+1}</button>`).join('')}</div>`;
   }
 
   function gridNodePreview(node,status) {
@@ -28264,32 +28293,38 @@ async function waitGeneration(jobId, options) {
     // a "task" (grid auto-build planner) node's WAITING clarification
     // question, which is itself the immediate, non-stale output of its run.
     const isClarificationWaiting=node.type==='task'&&status==='WAITING';
-    const output=(status==='COMPLETED'||isClarificationWaiting)?(node.output||null):null;
+    const versions=Array.isArray(node.result_versions)?node.result_versions:[],historical=versions[Number(node.selectedResultVersion)]||versions[versions.length-1]||null;
+    const output=(status==='COMPLETED'||isClarificationWaiting)?(node.output||historical):(status!=='RUNNING'?historical:null);
     if(node.type==='task'&&output?.type==='clarification')return `<div class="studio-grid-clarification"><b>Нужно уточнение</b><span>${gridEscape(output.value||'')}</span></div>`;
-    if (node.type==='text'&&output?.value) return `<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>`;
-    if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" class="${index===Number(output.selected_index||0)?'active':''}"><img src="${gridEscape(item.preview_url||item.url)}" alt="" loading="lazy"></button>`).join('')}</div>`;
-    if (output?.type==='video'&&output.url) return `<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(output.url)}" muted playsinline preload="metadata"></video><span>▶</span></button>`;
-    if (output?.type==='audio'&&output.url) return `<audio class="studio-grid-audio" src="${gridEscape(output.url)}" controls preload="metadata"></audio>`;
+    if(node.type==='task'&&output?.type==='references')return gridReferenceRequestsHtml(node);
+    if (node.type==='text'&&output?.value) return `${status==='FAILED'?`<small class="studio-grid-latest-error">${gridEscape(node.error||'Latest attempt failed')}</small>`:''}<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>${gridResultVersionsHtml(node)}`;
+    if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" class="${index===Number(output.selected_index||0)?'active':''}"><img src="${gridEscape(item.preview_url||item.url)}" alt="" loading="lazy"></button>`).join('')}</div>${gridResultVersionsHtml(node)}`;
+    if (output?.type==='video'&&output.url) return `<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(output.url)}" muted playsinline preload="metadata"></video><span>▶</span></button>${gridResultVersionsHtml(node)}`;
+    if (output?.type==='audio'&&output.url) return `<audio class="studio-grid-audio" src="${gridEscape(output.url)}" controls preload="metadata"></audio>${gridResultVersionsHtml(node)}`;
     const messages={RUNNING:'Генерация…',FAILED:node.error||'Ошибка генерации',CANCELLED:node.error||'Остановлено',WAITING:node.error||'Ожидает входы',READY:'Готов к запуску',COMPLETED:'Результат готов'};
     return `<i>${(GRID_TYPES[node.type]||GRID_TYPES.text).icon}</i><span>${gridEscape(messages[status]||'Результат появится здесь')}</span>`;
   }
 
   function gridNodeSettingsHtml(node) {
-    if (node.type==='task') return '';
     const settings=node.settings||{},models=gridModelsForType(node.type),model=`<select data-grid-setting="model" aria-label="Модель">${gridSelectOptions(models,node.model)}</select>`;
-    if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${['1024','2048','4096'].map(v=>`<option${String(settings.resolution)===v?' selected':''}>${v}px</option>`).join('')}</select><select data-grid-setting="quality">${['standard','high'].map(v=>`<option${settings.quality===v?' selected':''}>${v==='high'?'Высокое':'Стандарт'}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option${Number(settings.count)===v?' selected':''}>${v} фото</option>`).join('')}</select></div>`;
-    if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[node.model]||VIDEO_MODEL_CONFIG.seedance_2_fast;return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="generation_mode">${(config.modes||['text_to_video']).map(v=>`<option value="${v}"${settings.generation_mode===v?' selected':''}>${v==='image_to_video'?'Фото → Видео':v==='video_edit'?'Редактирование видео':v==='motion_control'?'Управление движением':'Текст → Видео'}</option>`).join('')}</select><select data-grid-setting="ratio">${(config.ratios||['16:9']).map(v=>`<option${settings.ratio===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${(config.resolutions||['720p']).map(v=>`<option${settings.resolution===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${(config.durations||[5]).map(v=>`<option value="${v}"${Number(settings.duration)===Number(v)?' selected':''}>${v} сек</option>`).join('')}</select>${config.sound?`<label class="studio-grid-toggle"><input type="checkbox" data-grid-setting="sound"${settings.sound?' checked':''}><span>Звук</span></label>`:''}</div>`}
-    if(node.type==='music')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="genre">${['auto','pop','rock','rap','jazz','ambient'].map(v=>`<option${settings.genre===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${['auto',30,60,120,180].map(v=>`<option value="${v}"${String(settings.duration)===String(v)?' selected':''}>${v==='auto'?'Авто':v+' сек'}</option>`).join('')}</select><select data-grid-setting="mood">${['auto','energetic','calm','dramatic','romantic'].map(v=>`<option${settings.mood===v?' selected':''}>${v}</option>`).join('')}</select></div>`;
-    if(node.type==='voice')return `<div class="studio-grid-node-settings">${model}<input data-grid-setting="voice" value="${gridEscape(settings.voice||'Kore')}" aria-label="Голос"></div>`;
+    if (node.type==='task') return `<div class="studio-grid-node-settings">${model}</div>`;
+    if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${['1024','2048','4096'].map(v=>`<option${String(settings.resolution)===v?' selected':''}>${v}px</option>`).join('')}</select><select data-grid-setting="quality">${['standard','high'].map(v=>`<option${settings.quality===v?' selected':''}>${v==='high'?'High':'Standard'}</option>`).join('')}</select><select data-grid-setting="style">${['auto','photorealistic','cinematic','editorial','illustration'].map(v=>`<option${settings.style===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option${Number(settings.count)===v?' selected':''}>${v} image${v>1?'s':''}</option>`).join('')}</select></div>`;
+    if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[node.model]||VIDEO_MODEL_CONFIG.seedance_2_fast,timeline=settings.timeline||node.timeline||{};return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="generation_mode">${(config.modes||['text_to_video']).map(v=>`<option value="${v}"${settings.generation_mode===v?' selected':''}>${v==='image_to_video'?'Image → Video':v==='video_edit'?'Video edit':v==='motion_control'?'Motion control':'Text → Video'}</option>`).join('')}</select><select data-grid-setting="ratio">${(config.ratios||['16:9']).map(v=>`<option${settings.ratio===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${(config.resolutions||['720p']).map(v=>`<option${settings.resolution===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${(config.durations||[5]).map(v=>`<option value="${v}"${Number(settings.duration)===Number(v)?' selected':''}>${v}s</option>`).join('')}</select><input type="number" min="1" data-grid-setting="timeline_order" value="${Number(timeline.order)||1}" aria-label="Timeline order" title="Timeline order">${config.sound?`<label class="studio-grid-toggle"><input type="checkbox" data-grid-setting="sound"${settings.sound?' checked':''}><span>Sound</span></label>`:''}</div>`}
+    if(node.type==='music')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="genre">${['auto','pop','rock','rap','jazz','ambient','cinematic','electronic'].map(v=>`<option${settings.genre===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${['auto',30,60,120,180].map(v=>`<option value="${v}"${String(settings.duration)===String(v)?' selected':''}>${v==='auto'?'Auto':v+'s'}</option>`).join('')}</select><select data-grid-setting="mood">${['auto','energetic','calm','dramatic','romantic','uplifting','dark'].map(v=>`<option${settings.mood===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="tempo">${['auto','slow','medium','fast'].map(v=>`<option${settings.tempo===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="vocal">${['auto','instrumental','female','male','duet'].map(v=>`<option${settings.vocal===v?' selected':''}>${v}</option>`).join('')}</select><input data-grid-setting="theme" value="${gridEscape(settings.theme||'auto')}" aria-label="Music theme"><input type="number" min="0" data-grid-setting="timeline_offset" value="${Number(settings.timeline?.offset||0)}" aria-label="Timeline offset" title="Audio offset, seconds"></div>`;
+    if(node.type==='voice')return `<div class="studio-grid-node-settings">${model}${/^runway_/.test(node.model)?`<select data-grid-setting="runway_tool">${['text_to_speech','sound_effect'].map(v=>`<option${settings.runway_tool===v?' selected':''}>${v==='sound_effect'?'Sound effect':'Text to speech'}</option>`).join('')}</select>`:''}<input data-grid-setting="voice" value="${gridEscape(settings.voice||'Kore')}" aria-label="Voice"><select data-grid-setting="target_language">${['auto','en','ru','kk','es','de','fr','it','tr','ar'].map(v=>`<option${settings.target_language===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="speaker_mode">${['single','dialogue'].map(v=>`<option${settings.speaker_mode===v?' selected':''}>${v}</option>`).join('')}</select><input data-grid-setting="emotion" value="${gridEscape(settings.emotion||'natural')}" aria-label="Emotion"><input type="number" min="0.5" max="2" step="0.1" data-grid-setting="speed" value="${Number(settings.speed||1)}" aria-label="Speech speed"><input type="number" min="0" data-grid-setting="timeline_offset" value="${Number(settings.timeline?.offset||0)}" aria-label="Timeline offset" title="Audio offset, seconds"></div>`;
+    if(node.type==='montage')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="resolution">${['720p','1080p'].map(v=>`<option${settings.resolution===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="transition">${['cut','fade'].map(v=>`<option${settings.transition===v?' selected':''}>${v}</option>`).join('')}</select><label class="studio-grid-toggle"><input type="checkbox" data-grid-setting="ducking"${settings.ducking!==false?' checked':''}><span>Ducking</span></label></div>`;
+    if(node.type==='text')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="style">${['neutral','professional','cinematic','editorial','conversational'].map(v=>`<option${settings.style===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="format">${['markdown','plain','json'].map(v=>`<option${settings.format===v?' selected':''}>${v}</option>`).join('')}</select><input data-grid-setting="language" value="${gridEscape(settings.language||'auto')}" aria-label="Language"></div>`;
     return `<div class="studio-grid-node-settings">${model}</div>`;
   }
 
   function gridNodeInputSummary(node) {
     const inputs=node.inputs||{},parts=[];
-    if(inputs.text&&!node.prompt?.trim())parts.push(`<span>Текст: ${gridEscape(inputs.text.source_title)}</span>`);
-    if(inputs.text&&node.prompt?.trim())parts.push('<span>Локальное переопределение текста</span>');
+    if(inputs.text&&!node.prompt?.trim())parts.push(`<span>Text: ${gridEscape(inputs.text.source_title)}</span>`);
+    if(inputs.text&&node.prompt?.trim())parts.push('<span>Upstream text + node direction</span>');
     if(inputs.lyrics)parts.push(`<span>Lyrics: ${gridEscape(inputs.lyrics.source_title)}</span>`);
-    if(inputs.image){const image=inputs.image.value||{};parts.push(`<span class="has-image"><img src="${gridEscape(image.preview_url||image.url||'')}" alt="">Фото: ${gridEscape(inputs.image.source_title)}</span>`)}
+    if(inputs.image){const image=inputs.image.value||{};parts.push(`<span class="has-image"><img src="${gridEscape(image.preview_url||image.url||'')}" alt="">Image${inputs.image.values?.length>1?'s '+inputs.image.values.length:''}: ${gridEscape(inputs.image.source_title||inputs.image.values?.[0]?.source_title||'reference')}</span>`)}
+    if(inputs.video?.values?.length)parts.push(`<span>${inputs.video.values.length} video clips</span>`);
+    if(inputs.audio?.values?.length)parts.push(`<span>${inputs.audio.values.length} audio tracks</span>`);
     return parts.length?`<div class="studio-grid-input-summary">${parts.join('')}</div>`:'';
   }
   function gridNodeAttachmentsHtml(node){const items=Array.isArray(node.attachments)?node.attachments:[];return `<div class="studio-grid-attachments"><button type="button" data-grid-upload-media><i>＋</i><span>Референс</span></button>${items.map((item,index)=>`<div class="studio-grid-attachment">${item.kind==='image'?`<img src="${gridEscape(item.url)}" alt="">`:`<i>${item.kind==='video'?'▶':item.kind==='audio'?'♫':'▤'}</i>`}<span>${gridEscape(item.name||item.kind)}</span><button type="button" data-grid-remove-media="${index}" aria-label="Удалить">×</button></div>`).join('')}</div>`}
@@ -28309,7 +28344,7 @@ async function waitGeneration(jobId, options) {
         ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
         <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
         <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div>
-        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Строим…':'Построить цепочку'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
+        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Строим…':'Построить цепочку'}</button>`:node.type==='text'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>Build chain</button><button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
       </article>`;
     }).join('');
     const workflowButton=document.getElementById('studioGridRunWorkflow');
@@ -28436,21 +28471,14 @@ async function waitGeneration(jobId, options) {
     applyStudioTheme(next);
   }
 
-  // Grid Mode's canvas/workspace is desktop-only - matches the 700px
-  // breakpoint the grid's own auto-layout logic below already treats as
-  // "mobile". Checked before any grid state/DOM work runs, so pressing
-  // the button on a small screen never initializes the workspace at all.
+  // Grid Mode's canvas/workspace remains the same canvas on desktop and
+  // mobile; touch panning, pinch zoom and the compact rail adapt it in place.
   function studioGridAvailableOnThisScreen() {
-    if (window.SYLVEX && window.SYLVEX.device && (window.SYLVEX.device.isMobile || window.SYLVEX.device.isTablet)) return false;
-    return !(window.matchMedia && window.matchMedia('(max-width:700px)').matches);
+    return true;
   }
 
   function setStudioLayout(layout) {
-    const mode = layout === 'grid' && !isBrowserMobileUi() ? 'grid' : 'classic';
-    if (mode === 'grid' && !studioGridAvailableOnThisScreen()) {
-      if (window.toast) window.toast('Режим Сетки доступен только на компьютерах и широких экранах');
-      return;
-    }
+    const mode = layout === 'grid' ? 'grid' : 'classic';
     const studio = document.querySelector('[data-view="tools"] .studio');
     const workspace = document.getElementById('studioGridWorkspace');
     document.querySelectorAll('#studioLayoutSwitch [data-studio-layout]').forEach((button) => button.classList.toggle('active', button.dataset.studioLayout === mode));
@@ -28503,17 +28531,25 @@ async function waitGeneration(jobId, options) {
   }
   function closeStudioGridTextEditor(){const modal=document.getElementById('studioGridTextEditor');if(modal)modal.hidden=true;document.body.classList.remove('studio-grid-editor-open');studioGridTextEditorNodeId=''}
   function saveStudioGridTextEditor(){const node=loadStudioGridState().nodes.find(item=>item.id===studioGridTextEditorNodeId),input=document.getElementById('studioGridTextEditorInput');if(!node||!input){closeStudioGridTextEditor();return}const changed=node.prompt!==input.value;node.prompt=input.value;if(changed){node.status=node.type==='task'?'IDLE':'READY';node.output=node.type==='task'?null:node.output;markStudioGridDownstreamStale(node.id)}saveStudioGridState();renderStudioGrid();closeStudioGridTextEditor();toast('Текст сохранён')}
-  function openStudioGridMediaPicker(id){studioGridMediaNodeId=id;const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.click()}}
-  async function onStudioGridMediaFiles(event){const files=[...(event?.target?.files||[])],node=loadStudioGridState().nodes.find(item=>item.id===studioGridMediaNodeId);if(!node||!files.length)return;node.attachments=Array.isArray(node.attachments)?node.attachments:[];toast('Загрузка референсов…');for(const file of files){const kind=file.type.startsWith('image/')?'image':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';try{const url=await uploadProStudioMediaFile(file,kind);node.attachments.push({url,kind,name:file.name,mime:file.type})}catch(error){toast(error?.message||`Не удалось загрузить ${file.name}`)}}node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid();studioGridMediaNodeId='';toast('Референсы добавлены')}
+  function openStudioGridMediaPicker(id,referenceId=''){studioGridMediaNodeId=id;studioGridMediaReferenceId=String(referenceId||'');const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.multiple=!studioGridMediaReferenceId;input.accept=studioGridMediaReferenceId?'image/*':'image/*,video/*,audio/*,.pdf,.txt,.doc,.docx';input.click()}}
+  function setStudioGridReferenceAttachment(node,referenceId,item){
+    if(!node||!referenceId||!item?.url)return;
+    node.attachments=(Array.isArray(node.attachments)?node.attachments:[]).filter(existing=>existing.reference_id!==referenceId);
+    node.attachments.push({...item,reference_id:referenceId});
+    const request=(node.output?.requests||[]).find(entry=>entry.id===referenceId);if(request)request.skipped=false;
+    node.status='WAITING';saveStudioGridState();renderStudioGrid();
+  }
+  function clearStudioGridReference(nodeId,referenceId,skip=false){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId);if(!node)return;node.attachments=(node.attachments||[]).filter(item=>item.reference_id!==referenceId);const request=(node.output?.requests||[]).find(item=>item.id===referenceId);if(request)request.skipped=!!skip;node.status='WAITING';saveStudioGridState();renderStudioGrid()}
+  async function onStudioGridMediaFiles(event){const files=[...(event?.target?.files||[])],node=loadStudioGridState().nodes.find(item=>item.id===studioGridMediaNodeId),referenceId=studioGridMediaReferenceId;if(!node||!files.length)return;node.attachments=Array.isArray(node.attachments)?node.attachments:[];toast('Uploading references…');for(const file of (referenceId?files.slice(0,1):files)){const kind=file.type.startsWith('image/')?'image':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';try{const url=await uploadProStudioMediaFile(file,kind),item={url,kind,name:file.name,mime:file.type};if(referenceId)setStudioGridReferenceAttachment(node,referenceId,item);else node.attachments.push(item)}catch(error){toast(error?.message||`Could not upload ${file.name}`)}}node.status=referenceId?'WAITING':(node.type==='task'?'IDLE':'READY');saveStudioGridState();renderStudioGrid();studioGridMediaNodeId='';studioGridMediaReferenceId='';toast('References added')}
   function removeStudioGridMedia(id,index){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(!node||!Array.isArray(node.attachments))return;node.attachments.splice(Number(index),1);node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid()}
 
-  function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source)),mobile=window.matchMedia('(max-width:700px)').matches;copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+(mobile?0:34);copy.y=Number(copy.y)+(mobile?330:34);copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid();if(mobile)requestAnimationFrame(resetStudioGridView) }
+  function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source)),mobile=window.matchMedia('(max-width:700px)').matches;copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+(mobile?0:34);copy.y=Number(copy.y)+(mobile?330:34);copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.request_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.result_versions=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid();if(mobile)requestAnimationFrame(resetStudioGridView) }
 
   function gridConnectionCompatible(fromNode,fromPort,toNode,toPort){if(!fromNode||!toNode||fromNode.id===toNode.id)return false;const output=fromPort||(GRID_TYPES[fromNode.type]?.outputs||[])[0],target=toPort||(GRID_TYPES[toNode.type]?.inputs||[])[0];if(output===target)return true;if(output==='text'&&['text','lyrics'].includes(target))return true;if(output==='task'&&target==='task')return true;if(output==='audio'&&toNode.type==='video')return true;return false}
 
   function gridConnectionCreatesCycle(fromId,toId){const state=loadStudioGridState(),queue=[toId],seen=new Set();while(queue.length){const current=queue.shift();if(current===fromId)return true;if(seen.has(current))continue;seen.add(current);state.edges.filter(edge=>edge.from===current).forEach(edge=>queue.push(edge.to))}return false}
 
-  function connectStudioGridNodes(fromId,fromPort,toId,toPort,fromSide='right',toSide='left'){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Этот вход несовместим с выбранным блоком');return false}if(gridConnectionCreatesCycle(fromId,toId)){toast('Соединение создаёт цикл и нарушает последовательность');return false}if(to.type==='task'){toast('Задача всегда является первым блоком');return false}state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36),from:fromId,fromPort,to:toId,toPort,fromSide,toSide,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});if(to.type==='video'&&fromPort==='image')to.settings.generation_mode='image_to_video';markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
+  function connectStudioGridNodes(fromId,fromPort,toId,toPort,fromSide='right',toSide='left'){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Этот вход несовместим с выбранным блоком');return false}if(gridConnectionCreatesCycle(fromId,toId)){toast('Соединение создаёт цикл и нарушает последовательность');return false}if(to.type==='task'){toast('Задача всегда является первым блоком');return false}const multi=(to.type==='montage'&&['video','audio'].includes(toPort))||(['image','video'].includes(to.type)&&toPort==='image');if(state.edges.some(edge=>edge.from===fromId&&edge.to===toId&&edge.fromPort===fromPort&&edge.toPort===toPort))return true;if(!multi)state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6),from:fromId,fromPort,to:toId,toPort,fromSide,toSide,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});if(to.type==='video'&&fromPort==='image')to.settings.generation_mode='image_to_video';markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
 
   function markStudioGridDownstreamStale(sourceId){const state=loadStudioGridState(),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status!=='RUNNING')node.status='READY'})}}
 
@@ -28547,7 +28583,7 @@ async function waitGeneration(jobId, options) {
     saveStudioGridState(); applyStudioGridTransform();
   }
 
-  function showStudioGridContext(clientX,clientY,position){const menu=document.getElementById('studioGridContext');if(!menu)return;const entries=['task','text','image','video','music','voice'];menu.innerHTML=entries.map(type=>`<button type="button" data-grid-add-type="${type}"><i>${GRID_TYPES[type].icon}</i><span>${GRID_TYPES[type].title}</span></button>`).join('');menu.style.left=`${clientX}px`;menu.style.top=`${clientY}px`;menu.hidden=false;menu._gridPosition=position}
+  function showStudioGridContext(clientX,clientY,position){const menu=document.getElementById('studioGridContext');if(!menu)return;const entries=['task','text','image','video','music','voice','montage'];menu.innerHTML=entries.map(type=>`<button type="button" data-grid-add-type="${type}"><i>${GRID_TYPES[type].icon}</i><span>${GRID_TYPES[type].title}</span></button>`).join('');menu.style.left=`${clientX}px`;menu.style.top=`${clientY}px`;menu.hidden=false;menu._gridPosition=position}
   function hideStudioGridContext(){const menu=document.getElementById('studioGridContext');if(menu)menu.hidden=true}
 
   function clearStudioGridConnectionMode() {
@@ -28565,34 +28601,57 @@ async function waitGeneration(jobId, options) {
     host.querySelectorAll('[data-grid-input]').forEach(port=>{const card=port.closest('.studio-grid-node'),target=state.nodes.find(node=>node.id===card?.dataset.gridId),compatible=gridConnectionCompatible(source,pending.fromPort,target,port.dataset.gridInput)&&!gridConnectionCreatesCycle(pending.from,target?.id);port.classList.add(compatible?'connection-compatible':'connection-incompatible')});
   }
 
+  function normalizeGridPlannedSettings(type,model,raw,timeline){
+    const settings=Object.assign(gridDefaultSettings(type),raw&&typeof raw==='object'?raw:{});
+    if(type==='image'){
+      if(!['1:1','16:9','9:16','4:3','3:4'].includes(settings.size))settings.size='1:1';
+      if(!['1024','2048','4096'].includes(String(settings.resolution)))settings.resolution='1024';
+      settings.count=Math.max(1,Math.min(4,Number(settings.count)||1));settings.quality=settings.quality==='high'?'high':'standard';
+    }
+    if(type==='video'){
+      const config=VIDEO_MODEL_CONFIG[model]||VIDEO_MODEL_CONFIG[gridDefaultVideoModel()]||{},pick=(value,options,fallback)=>options.includes(value)?value:(options.includes(String(value))?String(value):fallback);
+      settings.generation_mode=pick(settings.generation_mode,config.modes||['text_to_video'],(config.modes||['text_to_video'])[0]);
+      settings.ratio=pick(settings.ratio,config.ratios||['16:9'],(config.ratios||['16:9'])[0]);
+      settings.resolution=pick(settings.resolution,config.resolutions||['720p'],(config.resolutions||['720p'])[0]);
+      const durations=config.durations||[5],wanted=Number(settings.duration||timeline?.duration||durations[0]);settings.duration=durations.includes(wanted)?wanted:durations.reduce((best,value)=>Math.abs(value-wanted)<Math.abs(best-wanted)?value:best,durations[0]);
+      settings.sound=!!(config.sound&&settings.sound);settings.timeline=timeline||settings.timeline||{};
+    }
+    if(type==='music'){settings.duration=settings.duration==='auto'?'auto':Math.max(1,Math.min(300,Number(settings.duration)||60));settings.vocal=settings.vocal||'auto';}
+    if(type==='montage'){settings.resolution=settings.resolution==='720p'?'720p':'1080p';settings.transition=['cut','fade'].includes(settings.transition)?settings.transition:'fade';settings.ducking=settings.ducking!==false;settings.timeline=Array.isArray(settings.timeline)?settings.timeline:[];settings.audio_tracks=Array.isArray(settings.audio_tracks)?settings.audio_tracks:[];}
+    return settings;
+  }
+  function gridPlannerContext(source){
+    const state=loadStudioGridState();return {project_id:state.projectId,project_title:state.title,source_node:{type:source.type,model:source.model,settings:source.settings||{}},existing_nodes:state.nodes.filter(node=>node.id!==source.id&&!node.planner_generated).slice(0,30).map(node=>({id:node.id,type:node.type,title:node.title,model:node.model,settings:node.settings,attachments:(node.attachments||[]).map(item=>({kind:item.kind,name:item.name,reference_id:item.reference_id||''}))}))};
+  }
+  function finalizeStudioGridPlan(sourceId){
+    const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===sourceId),plan=source?.pending_plan;if(!source||!plan)return;
+    const previousByKey=new Map(state.nodes.filter(node=>node.planner_generated&&node.planner_key).map(node=>[node.planner_key,node])),generatedIds=new Set(state.nodes.filter(node=>node.planner_generated).map(node=>node.id));
+    state.nodes=state.nodes.filter(node=>!generatedIds.has(node.id));state.edges=state.edges.filter(edge=>!generatedIds.has(edge.from)&&!generatedIds.has(edge.to)&&edge.from!==source.id);
+    const idByKey=new Map(),created=[],stamp=Date.now().toString(36),attachments=Array.isArray(source.attachments)?source.attachments:[];
+    (plan.nodes||[]).forEach((spec,index)=>{
+      const type=GRID_TYPES[spec.type]?spec.type:'text',models=gridModelsForType(type),previous=previousByKey.get(spec.key),plannedModel=String(spec.model||gridDefaultModel(type)),model=previous?.manual_model&&models.some(item=>item.id===previous.model)?previous.model:(models.some(item=>item.id===plannedModel)?plannedModel:gridDefaultModel(type)),nodeId=`grid_plan_${stamp}_${index}`,outputText=String(spec.output||'').trim(),referenceIds=[...new Set([...(Array.isArray(spec.reference_ids)?spec.reference_ids:[]),...(plan.reference_requests||[]).filter(request=>(request.used_by||[]).includes(spec.key)).map(request=>request.id)])],nodeAttachments=attachments.filter(item=>referenceIds.includes(item.reference_id)).map(item=>({...item})),settings=normalizeGridPlannedSettings(type,model,spec.settings,spec.timeline),output=type==='text'&&outputText?{type:'text',value:outputText,generation_id:'',model,settings:{planner:true}}:null;
+      const node={id:nodeId,type,subtype:type,x:Number(source.x)+350*(index+1),y:Number(source.y),title:String(spec.title||GRID_TYPES[type].title),prompt:type==='text'?String(spec.instruction||source.prompt):String(spec.prompt||''),status:output?'COMPLETED':'READY',model,settings,inputs:{},attachments:nodeAttachments,output,generation_id:'',request_id:'',error:'',started_at:'',completed_at:output?new Date().toISOString():'',position_locked:false,results:output?[output]:[],result_versions:output?[output]:[],selectedResultVersion:output?0:null,planner_generated:true,planner_key:String(spec.key||nodeId),planner_role:String(spec.role||''),reference_ids:referenceIds,timeline:spec.timeline||{},manual_model:!!previous?.manual_model};
+      state.nodes.push(node);created.push(node);idByKey.set(String(spec.key),nodeId);
+    });
+    const addEdge=(from,fromPort,to,toPort)=>{const fromNode=state.nodes.find(node=>node.id===from),toNode=state.nodes.find(node=>node.id===to);if(!from||!to||!gridConnectionCompatible(fromNode,fromPort,toNode,toPort))return;state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),from,fromPort,to,toPort,source_node_id:from,source_output:fromPort,target_node_id:to,target_input:toPort,data_type:fromPort,dataType:fromPort,planner_generated:true})};
+    (plan.edges||[]).forEach(edge=>addEdge(idByKey.get(String(edge.from)),String(edge.output||'text'),idByKey.get(String(edge.to)),String(edge.input||'text')));
+    const incoming=new Set(state.edges.filter(edge=>created.some(node=>node.id===edge.to)).map(edge=>edge.to));created.filter(node=>!incoming.has(node.id)&&node.type==='text').forEach(node=>addEdge(source.id,source.type==='task'?'task':'text',node.id,source.type==='task'?'task':'text'));
+    source.status='COMPLETED';source.output={type:'plan',value:String(plan.summary||`Created ${created.length} production nodes`)};source.error='';source.pending_plan=null;source.completed_at=new Date().toISOString();if(plan.title)state.title=plan.title;
+    saveStudioGridState();autoLayoutStudioGrid();toast('Production chain is ready — review it or launch the workflow');
+  }
   async function buildStudioGridWorkflow(id) {
     if(studioGridPlannerRunning)return;
-    const state=loadStudioGridState(),task=state.nodes.find(node=>node.id===id&&node.type==='task');
-    if(!task||!String(task.prompt||'').trim()){toast('Сначала опишите задачу');return}
-    studioGridPlannerRunning=true;task.status='RUNNING';task.error='';task.output=null;saveStudioGridState();renderStudioGrid();
+    const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id&&(node.type==='task'||node.type==='text')),brief=String(source?.prompt||source?.output?.value||'').trim();
+    if(!source||!brief){toast('Сначала опишите задачу');return}
+    studioGridPlannerRunning=true;source.status='RUNNING';source.error='';source.output=null;source.planner_request_id=source.planner_request_id||`grid_plan_${state.projectId}_${source.id}_${Date.now().toString(36)}`;saveStudioGridState();renderStudioGrid();
     try{
-      const response=await fetch('/api/public/prostudio/grid/plan',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),task:task.prompt,model:'gpt-5.5',project_id:state.projectId})}),plan=await response.json().catch(()=>({}));
-      if(!response.ok||!plan.ok)throw new Error(plan.message||'Не удалось построить цепочку');
-      if(plan.action==='clarify'){
-        task.status='WAITING';task.output={type:'clarification',value:String(plan.question||'Уточните желаемый формат результата.')};task.error='Ответьте в поле задачи и снова нажмите «Построить цепочку»';saveStudioGridState();renderStudioGrid();return;
-      }
-      const generatedIds=new Set(state.nodes.filter(node=>node.planner_generated).map(node=>node.id));
-      state.nodes=state.nodes.filter(node=>!generatedIds.has(node.id));
-      state.edges=state.edges.filter(edge=>!generatedIds.has(edge.from)&&!generatedIds.has(edge.to)&&edge.from!==task.id);
-      const idByKey=new Map(),created=[];
-      (plan.nodes||[]).forEach((spec,index)=>{
-        const type=GRID_TYPES[spec.type]?spec.type:'text',nodeId=`grid_plan_${Date.now().toString(36)}_${index}`,outputText=String(spec.output||'').trim();
-        const node={id:nodeId,type,subtype:type,x:Number(task.x)+350*(index+1),y:Number(task.y),title:String(spec.title||GRID_TYPES[type].title),prompt:type==='text'?String(spec.instruction||task.prompt):String(spec.prompt||''),status:type==='text'&&outputText?'COMPLETED':'READY',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},output:type==='text'&&outputText?{type:'text',value:outputText,generation_id:'',model:'gpt-5.5',settings:{planner:true}}:null,generation_id:'',error:'',started_at:'',completed_at:type==='text'&&outputText?new Date().toISOString():'',position_locked:false,results:[],planner_generated:true};
-        state.nodes.push(node);created.push(node);idByKey.set(String(spec.key),nodeId);
-      });
-      const addEdge=(from,fromPort,to,toPort)=>{if(!from||!to)return;state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),from,fromPort,to,toPort,source_node_id:from,source_output:fromPort,target_node_id:to,target_input:toPort,data_type:fromPort,dataType:fromPort,planner_generated:true})};
-      (plan.edges||[]).forEach(edge=>addEdge(idByKey.get(String(edge.from)),String(edge.output||'text'),idByKey.get(String(edge.to)),String(edge.input||'text')));
-      created.filter(node=>node.type!=='text'&&state.edges.some(edge=>edge.to===node.id&&edge.toPort==='text')).forEach(node=>{node.prompt=''});
-      const incoming=new Set(state.edges.filter(edge=>created.some(node=>node.id===edge.to)).map(edge=>edge.to));
-      created.filter(node=>!incoming.has(node.id)&&node.type==='text').forEach(node=>addEdge(task.id,'task',node.id,'task'));
-      task.status='COMPLETED';task.output={type:'plan',value:`Создано блоков: ${created.length}`};task.error='';
-      saveStudioGridState();autoLayoutStudioGrid();toast('Цепочка готова — проверьте промпты и запустите нужные блоки');
-    }catch(error){task.status='FAILED';task.error=translateGenerationError(error,'Не удалось построить цепочку');saveStudioGridState();renderStudioGrid();toast(task.error)}
+      const response=await fetch('/api/public/prostudio/grid/plan',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),task:brief,model:source.model||gridDefaultModel('text'),project_id:state.projectId,client_request_id:source.planner_request_id,context:gridPlannerContext(source)})}),plan=await response.json().catch(()=>({}));
+      if(!response.ok||!plan.ok){source.planner_request_id='';throw new Error(plan.message||'Не удалось построить цепочку')}source.planner_request_id='';
+      if(plan.action==='clarify'){source.status='WAITING';source.output={type:'clarification',value:String(plan.question||'Уточните желаемый формат результата.')};source.error='Ответьте в поле и снова нажмите Build chain';saveStudioGridState();renderStudioGrid();return}
+      source.pending_plan=plan;
+      if(Array.isArray(plan.reference_requests)&&plan.reference_requests.length){source.status='WAITING';source.output={type:'references',requests:plan.reference_requests.map(item=>({...item,skipped:false}))};source.error='Add useful references or skip them, then continue';saveStudioGridState();renderStudioGrid();return}
+      finalizeStudioGridPlan(source.id);
+    }catch(error){source.status='FAILED';source.error=translateGenerationError(error,'Не удалось построить цепочку');saveStudioGridState();renderStudioGrid();toast(source.error)}
     finally{studioGridPlannerRunning=false;renderStudioGrid()}
   }
 
@@ -28617,13 +28676,16 @@ async function waitGeneration(jobId, options) {
     if(!node)return inputs;
     state.edges.filter(edge=>edge.to===nodeId).forEach(edge=>{
       const source=state.nodes.find(item=>item.id===edge.from);
-      if(!source||source.type==='task')return;
-      const value=getGridNodeOutputValue(source,edge.fromPort);
-      if(value!==null&&value!==undefined&&value!=='')inputs[edge.toPort]={value,source_node_id:source.id,source_title:source.title||GRID_TYPES[source.type]?.title||source.type,generation_id:source.generation_id||''};
+      if(!source)return;
+      const value=source.type==='task'?String(source.prompt||'').trim():getGridNodeOutputValue(source,edge.fromPort);
+      if(value===null||value===undefined||value==='')return;
+      const resolved={value,source_node_id:source.id,source_title:source.title||GRID_TYPES[source.type]?.title||source.type,source_type:source.type,planner_key:source.planner_key||'',planner_role:source.planner_role||'',timeline:source.settings?.timeline||source.timeline||{},generation_id:source.generation_id||''};
+      if((node.type==='montage'&&['video','audio'].includes(edge.toPort))||(['image','video'].includes(node.type)&&edge.toPort==='image')){const current=inputs[edge.toPort]||{values:[]};current.values.push(resolved);if(current.value===undefined)Object.assign(current,resolved);inputs[edge.toPort]=current}else inputs[edge.toPort]=resolved;
     });
-    const connectedText=inputs.text?.value||inputs.prompt?.value||'';
-    if(node.prompt&&node.prompt.trim())inputs.effective_prompt={value:node.prompt.trim(),source_node_id:node.id,local_override:true};
-    else if(connectedText)inputs.effective_prompt={value:String(connectedText),source_node_id:inputs.text?.source_node_id||inputs.prompt?.source_node_id};
+    const connectedText=inputs.text?.value||inputs.prompt?.value||inputs.task?.value||'';
+    if(connectedText&&node.prompt&&node.prompt.trim())inputs.effective_prompt={value:`${String(connectedText).trim()}\n\nAdditional node direction:\n${node.prompt.trim()}`,source_node_id:inputs.text?.source_node_id||inputs.prompt?.source_node_id||inputs.task?.source_node_id,local_override:false};
+    else if(connectedText)inputs.effective_prompt={value:String(connectedText),source_node_id:inputs.text?.source_node_id||inputs.prompt?.source_node_id||inputs.task?.source_node_id};
+    else if(node.prompt&&node.prompt.trim())inputs.effective_prompt={value:node.prompt.trim(),source_node_id:node.id,local_override:true};
     node.inputs=inputs;
     return inputs;
   }
@@ -28661,15 +28723,23 @@ async function waitGeneration(jobId, options) {
     }
     if(node.type==='voice'&&!inputs.effective_prompt?.value)missing.push('Текст озвучки');
     if(node.type==='music'&&!inputs.effective_prompt?.value&&!inputs.lyrics?.value)missing.push('Описание музыки или текст песни');
+    if(node.type==='montage'&&!inputs.video?.values?.length)missing.push('Хотя бы один готовый видеоклип');
     return {ok:missing.length===0,missing};
   }
 
+  function gridMontagePayload(node,inputs){
+    const byKey=new Map((node.settings?.timeline||[]).filter(item=>item&&typeof item==='object').map(item=>[String(item.source_key||item.key||item.source_node_id||''),item]));
+    const videos=(inputs.video?.values||[]).map((entry,index)=>{const value=entry.value||{},timeline=byKey.get(String(entry.planner_key||entry.source_node_id))||entry.timeline||{};return{url:value.url||value.preview_url,duration:Number(timeline.duration||value.metadata?.duration||value.settings?.duration||0),trim_start:Number(timeline.trim_start||0),order:Number(timeline.order||index+1)}}).filter(item=>item.url).sort((a,b)=>a.order-b.order);
+    const audioTracks=(inputs.audio?.values||[]).map(entry=>{const value=entry.value||{},timeline=byKey.get(String(entry.planner_key||entry.source_node_id))||entry.timeline||{},role=String(timeline.role||entry.planner_role||(entry.source_type==='voice'?'voice':entry.source_type)||'music');return{url:value.url||value.preview_url,role,offset:Number(timeline.offset||timeline.start||0),volume:Number(timeline.volume??1)}}).filter(item=>item.url);
+    return {videos,audio_tracks:audioTracks,settings:{resolution:node.settings?.resolution||'1080p',transition:node.settings?.transition||'fade',ducking:node.settings?.ducking!==false},client_request_id:node.request_id||'',grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
+  }
+
   function gridGenerationPayload(node,inputs) {
-    const settings=Object.assign({},node.settings||{}),mode=node.type,model=node.model||gridDefaultModel(mode),prompt=String(inputs.effective_prompt?.value||inputs.lyrics?.value||node.prompt||'').trim(),attachments=Array.isArray(node.attachments)?node.attachments:[],attachedImages=attachments.filter(item=>item.kind==='image').map(item=>item.url),attachedVideos=attachments.filter(item=>item.kind==='video').map(item=>item.url),attachedAudio=attachments.filter(item=>item.kind==='audio').map(item=>item.url);
+    const settings=Object.assign({},node.settings||{}),mode=node.type,model=node.model||gridDefaultModel(mode),attachments=Array.isArray(node.attachments)?node.attachments:[],referenceGuide=attachments.filter(item=>item.kind==='image'&&item.reference_id).map((item,index)=>`${index+1}. ${item.reference_id}: ${item.name||'uploaded reference'}`).join('\n'),basePrompt=String(inputs.effective_prompt?.value||inputs.lyrics?.value||node.prompt||'').trim(),prompt=referenceGuide&&['image','video'].includes(mode)?`${basePrompt}\n\nREFERENCE IDENTITY MAP (mandatory):\n${referenceGuide}\nUse each mapped image only for its named person, product, object or location. Preserve its identity consistently.`:basePrompt,attachedImages=attachments.filter(item=>item.kind==='image').map(item=>item.url),attachedVideos=attachments.filter(item=>item.kind==='video').map(item=>item.url),attachedAudio=attachments.filter(item=>item.kind==='audio').map(item=>item.url);
     let imageOptions=null,videoOptions=null,musicOptions=null,voiceOptions=null,textOptions=null,provider=providerHintForModel(model);
-    if(mode==='image'){const connected=inputs.image?.value,connectedUrl=connected&&(connected.url||connected.preview_url);const refs=[...(connectedUrl?[connectedUrl]:[]),...attachedImages];imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:refs,referenceImages:refs})}
+    if(mode==='image'){const connectedRefs=(inputs.image?.values||[]).map(entry=>entry.value&&(entry.value.url||entry.value.preview_url)).filter(Boolean),connected=inputs.image?.value,connectedUrl=connected&&(connected.url||connected.preview_url),refs=[...new Set([...(connectedRefs.length?connectedRefs:(connectedUrl?[connectedUrl]:[])),...attachedImages])];imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:refs,referenceImages:refs})}
     if(mode==='video'){
-      const image=inputs.image?.value,sourceUrl=(image&&(image.url||image.preview_url))||attachedImages[0]||'';
+      const connectedImages=(inputs.image?.values||[]).map(entry=>entry.value&&(entry.value.url||entry.value.preview_url)).filter(Boolean),image=inputs.image?.value,sourceUrl=connectedImages[0]||(image&&(image.url||image.preview_url))||attachedImages[0]||'',endUrl=connectedImages[1]||attachedImages[connectedImages.length?0:1]||'';
       // A connected upstream video (inputs.video, for video_edit/
       // motion_control) takes precedence over a locally attached video
       // file, mirroring how the image port above already prefers a
@@ -28678,13 +28748,13 @@ async function waitGeneration(jobId, options) {
       // and only a local attachment ever reached the request.
       const connectedVideo=inputs.video?.value,sourceVideoUrl=(connectedVideo&&(connectedVideo.url||connectedVideo.preview_url))||attachedVideos[0]||'';
       const config=VIDEO_MODEL_CONFIG[model]||VIDEO_MODEL_CONFIG.seedance_2_fast||{};
-      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:attachedImages[1]||'',image_url:sourceUrl,input_video:sourceVideoUrl,video_url:sourceVideoUrl,video_references:attachedVideos,reference_images:attachedImages,referenceImageUrls:attachedImages,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
+      const allImageRefs=[...new Set([...connectedImages,...attachedImages])];videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:endUrl,image_url:sourceUrl,input_video:sourceVideoUrl,video_url:sourceVideoUrl,video_references:attachedVideos,reference_images:allImageRefs,referenceImageUrls:allImageRefs,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
       provider=config.provider||provider;
     }
     if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
     if(mode==='voice')voiceOptions=Object.assign({model,provider:/elevenlabs/i.test(model)?'elevenlabs':(/runway/i.test(model)?'runway':'gemini'),voice:settings.voice||'Kore',elevenlabs_voice:settings.voice||'21m00Tcm4TlvDq8ikWAM',elevenlabs_tool:'text_to_speech',target_language:settings.target_language||'auto',speaker_mode:'single',num_speakers:1,speaker_voices:[settings.voice||'Kore'],uploads:attachedAudio},settings);
     if(mode==='text')textOptions=Object.assign({},settings);
-    return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:`grid_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`,language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
+    return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:node.request_id||'',language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
   }
 
   // Returns a real credits number, or null when the estimate genuinely
@@ -28695,7 +28765,7 @@ async function waitGeneration(jobId, options) {
   // cost badge, drops it from the workflow total, and skips the client-side
   // insufficient-balance pre-check below as if it truly cost nothing.
   async function estimateGridNodeCost(nodeId) {
-    const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task'||node.type==='text')return 0;
+    const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task'||node.type==='text'||node.type==='montage')return 0;
     try{const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridGenerationPayload(node,resolveGridNodeInputs(nodeId)))}),estimate=await response.json();if(response.ok&&estimate.ok){node.estimated_cost={credits:Number(estimate.credits||0),generation_cost:estimate.generation_cost||'',cost_usd:Number(estimate.cost_usd||0)};saveStudioGridState();renderStudioGrid();return node.estimated_cost.credits}}catch(_){}
     node.estimated_cost={credits:null};saveStudioGridState();renderStudioGrid();
     return null;
@@ -28726,10 +28796,16 @@ async function waitGeneration(jobId, options) {
   }
 
   async function executeGridNodeRequest(node,inputs,onJobCreated) {
+    if(node.type==='montage'){
+      const response=await fetch('/api/public/prostudio/grid/montage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridMontagePayload(node,inputs))}),body=await response.json().catch(()=>({}));
+      if(!response.ok||!body.ok){const error=new Error(body.message||body.error||'Final montage failed');error.terminalStatus='failed';throw error}
+      if(body.job_id){if(onJobCreated)onJobCreated(body.job_id);return {raw:await waitGridGeneration(body.job_id),generation_id:body.job_id}}
+      return {raw:body,generation_id:body.generation_id||''};
+    }
     const payload=gridGenerationPayload(node,inputs),response=await fetch('/api/public/prostudio/generate',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify(payload)}),body=await response.json().catch(()=>({}));
     if(response.status===402){const error=new Error(body.error||'Недостаточно токенов');error.insufficientBalance=true;error.requiredCredits=body.required_credits||0;throw error}
     if(response.status===409){const error=new Error('Дождитесь завершения другой генерации в Pro Studio');error.activeJobId=body.active_job_id||'';throw error}
-    if(!response.ok||!body.ok)throw new Error(translateGenerationError(body,'Генерация не прошла'));
+    if(!response.ok||!body.ok){const error=new Error(translateGenerationError(body,'Генерация не прошла'));error.terminalStatus='failed';throw error}
     if(body.job_id){if(onJobCreated)onJobCreated(body.job_id);return {raw:await waitGridGeneration(body.job_id),generation_id:body.job_id}}
     return {raw:body,generation_id:body.generation_id||''};
   }
@@ -28742,9 +28818,9 @@ async function waitGeneration(jobId, options) {
       if(!urls.length)throw new Error('Генерация завершилась без изображения');
       return {type:'image',items:urls.map((url,index)=>({url,preview_url:thumbs[index]||url,generation_id:generationId})),selected_index:0,generation_id:generationId,model:node.model,settings:Object.assign({},node.settings),metadata:raw.metadata||{}};
     }
-    const kind=node.type==='video'?'video':'audio',urls=generatedUrlsFromResponse(raw,kind);
+    const kind=(node.type==='video'||node.type==='montage')?'video':'audio',urls=generatedUrlsFromResponse(raw,kind);
     if(!urls.length)throw new Error(node.type==='video'?'Генерация завершилась без видео':'Генерация завершилась без аудио');
-    return {type:kind,url:urls[0],preview_url:raw.thumbnail_url||raw.thumb_url||raw.image_url||'',generation_id:generationId,model:node.model,settings:Object.assign({},node.settings),metadata:raw.metadata||{}};
+    return {type:kind,url:urls[0],preview_url:raw.thumbnail_url||raw.thumb_url||raw.image_url||'',generation_id:generationId,model:node.model,settings:Object.assign({},node.settings),metadata:Object.assign({},raw.metadata||{},raw.duration?{duration:raw.duration}:{})};
   }
 
   async function runGridNode(nodeId,options={}) {
@@ -28766,9 +28842,10 @@ async function waitGeneration(jobId, options) {
       // readable as "current" by a downstream node or by the preview while
       // this run is in flight or if it fails (see getGridNodeOutputValue/
       // gridNodePreview, both gated on status==='COMPLETED').
+      node.request_id=node.request_id||`grid_${loadStudioGridState().projectId}_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
       node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
-      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.selectedResultVersion=output.type==='image'?0:null;node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
-      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
+      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if(error?.terminalStatus||error?.insufficientBalance)node.request_id='';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
     })().finally(()=>studioGridNodeRuns.delete(nodeId));
     studioGridNodeRuns.set(nodeId,promise);return promise;
   }
@@ -28780,15 +28857,38 @@ async function waitGeneration(jobId, options) {
   function restoreStudioGridJobs() {
     if(studioGridJobsRestored)return;studioGridJobsRestored=true;const state=loadStudioGridState();
     if(['RUNNING','STOPPING'].includes(state.workflow?.status))state.workflow.status='IDLE';
-    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=translateGenerationError(error,'Не удалось восстановить генерацию');saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
+    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=translateGenerationError(error,'Не удалось восстановить генерацию');if(error?.terminalStatus)node.request_id='';saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
   }
+
+  function selectStudioGridResultVersion(nodeId,index){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId),version=node?.result_versions?.[Number(index)];if(!node||!version)return;node.output=JSON.parse(JSON.stringify(version));node.selectedResultVersion=Number(index);node.status='COMPLETED';node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid()}
 
   async function runStudioGridWorkflow() {
     const state=loadStudioGridState();
     if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();toast('Цепочка будет остановлена после текущей генерации');return}
     const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
     state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState();renderStudioGrid();
-    studioGridWorkflowRun=(async()=>{const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);for(const id of order){if(state.workflow.stop_requested)break;const node=state.nodes.find(item=>item.id===id);if(!node||node.type==='task'||node.status==='COMPLETED')continue;const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');if(parents.some(parent=>parent.status==='FAILED'||parent.status==='CANCELLED')){node.status='CANCELLED';node.error='Предыдущий узел не завершён';saveStudioGridState();renderStudioGrid();continue}if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';saveStudioGridState();renderStudioGrid();continue}await runGridNode(id,{workflow:true})}const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING','CANCELLED'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();state.nodes.filter(node=>node.status==='WAITING'&&state.workflow.stop_requested).forEach(node=>node.status='CANCELLED');saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')})().finally(()=>{studioGridWorkflowRun=null});
+    studioGridWorkflowRun=(async()=>{
+      const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);
+      const pending=new Set(order.filter(id=>{const node=state.nodes.find(item=>item.id===id);return node&&node.type!=='task'&&node.status!=='COMPLETED'})),active=new Map(),maxParallel=3;
+      studioGridNodeRuns.forEach((promise,id)=>{if(pending.has(id)){active.set(id,Promise.resolve(promise).then(()=>id));pending.delete(id)}});
+      while(pending.size||active.size){
+        if(state.workflow.stop_requested){if(!active.size)break;await Promise.race(active.values());for(const [id,promise] of [...active])if(!studioGridNodeRuns.has(id))active.delete(id);continue}
+        let launched=false,mediaActive=[...active.keys()].some(id=>{const type=state.nodes.find(node=>node.id===id)?.type;return !['text','montage'].includes(type)});
+        for(const id of order){
+          if(!pending.has(id)||active.size>=maxParallel)continue;
+          const node=state.nodes.find(item=>item.id===id);if(!node){pending.delete(id);continue}
+          const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');
+          if(parents.some(parent=>['FAILED','CANCELLED'].includes(parent.status))){node.status='CANCELLED';node.error='Предыдущий узел не завершён';pending.delete(id);saveStudioGridState();renderStudioGrid();continue}
+          if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';continue}
+          const providerMedia=!['text','montage'].includes(node.type);if(providerMedia&&mediaActive)continue;
+          node.status='READY';node.error='';const promise=runGridNode(id,{workflow:true}).then(()=>id);active.set(id,promise);pending.delete(id);mediaActive=mediaActive||providerMedia;launched=true;
+        }
+        if(active.size){const finished=await Promise.race(active.values());active.delete(finished);continue}
+        if(!launched&&pending.size){pending.forEach(id=>{const node=state.nodes.find(item=>item.id===id);if(node){node.status='WAITING';node.error='Ожидание незавершённых зависимостей'}});saveStudioGridState();renderStudioGrid();break}
+      }
+      if(state.workflow.stop_requested)state.nodes.filter(node=>node.type!=='task'&&['IDLE','READY','WAITING'].includes(node.status)).forEach(node=>{node.status='CANCELLED';node.error='Цепочка остановлена'});
+      const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING','CANCELLED'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')
+    })().finally(()=>{studioGridWorkflowRun=null});
     return studioGridWorkflowRun;
   }
 
@@ -28814,12 +28914,14 @@ async function waitGeneration(jobId, options) {
         const node = loadStudioGridState().nodes.find((item) => item.id === card.dataset.gridId);
         if(!node)return;
         if(event.target.matches('[data-grid-prompt]')){const changed=node.prompt!==event.target.value;node.prompt=event.target.value;if(changed){node.status='READY';markStudioGridDownstreamStale(node.id)}}
-        if(event.target.matches('[data-grid-output-text]')&&node.output){node.output.value=event.target.value;node.completed_at=new Date().toISOString();markStudioGridDownstreamStale(node.id)}
+        if(event.target.matches('[data-grid-output-text]')&&node.output){node.output.value=event.target.value;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='text')selected.value=event.target.value;node.completed_at=new Date().toISOString();markStudioGridDownstreamStale(node.id)}
         saveStudioGridState();
       });
       host.addEventListener('change',(event)=>{
-        if(!event.target.matches('[data-grid-setting]'))return;const card=event.target.closest('.studio-grid-node'),node=loadStudioGridState().nodes.find(item=>item.id===card?.dataset.gridId);if(!node)return;
-        const key=event.target.dataset.gridSetting,value=event.target.type==='checkbox'?event.target.checked:event.target.value;if(key==='model'){node.model=value;if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[value]||{};node.settings.generation_mode=(config.modes||['text_to_video'])[0];node.settings.ratio=(config.ratios||['16:9'])[0];node.settings.duration=(config.durations||[5])[0];node.settings.resolution=(config.resolutions||['720p'])[0]}}else node.settings[key]=['count','duration'].includes(key)&&value!=='auto'?Number(value):value;node.estimated_cost=null;node.status='READY';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();void estimateGridNodeCost(node.id);
+        const card=event.target.closest('.studio-grid-node'),node=loadStudioGridState().nodes.find(item=>item.id===card?.dataset.gridId);if(!node)return;
+        if(event.target.matches('[data-grid-reference-existing]')){const referenceId=event.target.dataset.gridReferenceExisting,option=event.target.selectedOptions?.[0],url=event.target.value;if(url)setStudioGridReferenceAttachment(node,referenceId,{url,kind:'image',name:option?.dataset.name||option?.textContent||'Saved reference',mime:'image/*'});return}
+        if(!event.target.matches('[data-grid-setting]'))return;
+        const key=event.target.dataset.gridSetting,value=event.target.type==='checkbox'?event.target.checked:event.target.value;if(key==='model'){node.model=value;node.manual_model=true;if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[value]||{};node.settings.generation_mode=(config.modes||['text_to_video'])[0];node.settings.ratio=(config.ratios||['16:9'])[0];node.settings.duration=(config.durations||[5])[0];node.settings.resolution=(config.resolutions||['720p'])[0]}}else if(key.startsWith('timeline_')){const timelineKey=key.slice(9);node.settings.timeline=Object.assign({},node.settings.timeline||node.timeline||{}, {[timelineKey]:Number(value)||0});node.timeline=Object.assign({},node.timeline||{}, {[timelineKey]:Number(value)||0})}else node.settings[key]=['count','duration','speed'].includes(key)&&value!=='auto'?Number(value):value;node.estimated_cost=null;node.status='READY';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();void estimateGridNodeCost(node.id);
       });
       host.addEventListener('click', (event) => {
         const card = event.target.closest('.studio-grid-node');
@@ -28830,10 +28932,15 @@ async function waitGeneration(jobId, options) {
         if (event.target.closest('[data-grid-delete]')) { deleteStudioGridNode(id); return; }
         if (event.target.closest('[data-grid-expand-text]')) { openStudioGridTextEditor(id); return; }
         if (event.target.closest('[data-grid-upload-media]')) { openStudioGridMediaPicker(id); return; }
+        if (event.target.closest('[data-grid-upload-reference]')) { openStudioGridMediaPicker(id,event.target.closest('[data-grid-upload-reference]').dataset.gridUploadReference); return; }
+        if (event.target.closest('[data-grid-skip-reference]')) { clearStudioGridReference(id,event.target.closest('[data-grid-skip-reference]').dataset.gridSkipReference,true); return; }
+        if (event.target.closest('[data-grid-clear-reference]')) { clearStudioGridReference(id,event.target.closest('[data-grid-clear-reference]').dataset.gridClearReference,false); return; }
+        if (event.target.closest('[data-grid-finalize-plan]')) { const source=loadStudioGridState().nodes.find(item=>item.id===id);(source?.output?.requests||[]).forEach(request=>{if(!(source.attachments||[]).some(item=>item.reference_id===request.id))request.skipped=true});finalizeStudioGridPlan(id); return; }
         if (event.target.closest('[data-grid-remove-media]')) { removeStudioGridMedia(id,event.target.closest('[data-grid-remove-media]').dataset.gridRemoveMedia); return; }
         if (event.target.closest('[data-grid-build]')) { buildStudioGridWorkflow(id); return; }
         if (event.target.closest('[data-grid-run]')) { runGridNode(id); return; }
-        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){node.output.selected_index=index;node.selectedResultVersion=index;markStudioGridDownstreamStale(id);saveStudioGridState();renderStudioGrid()}return}
+        if(event.target.closest('[data-grid-pick-version]')){selectStudioGridResultVersion(id,event.target.closest('[data-grid-pick-version]').dataset.gridPickVersion);return}
+        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();renderStudioGrid()}return}
         if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)window.open(node.output.url,'_blank','noopener');return}
         if (event.target.closest('[data-grid-more]')) { const rect=event.target.getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.position_locked?'Разблокировать позицию':'Закрепить позицию'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;return}
         if(event.shiftKey){if(studioGridSelectedIds.has(id))studioGridSelectedIds.delete(id);else studioGridSelectedIds.add(id)}else if(!studioGridSelectedIds.has(id))studioGridSelectedIds=new Set([id]);
@@ -28881,8 +28988,12 @@ async function waitGeneration(jobId, options) {
     if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
     document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext();if(!event.target.closest('#studioGridProjectsPanel')&&!event.target.closest('#studioGridProjectsButton'))closeStudioGridProjects()});
     document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode'))return;if(event.key==='Escape'){clearStudioGridConnectionMode();hideStudioGridContext();return}if(event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});
-    setStudioLayout('classic');
+    const requestedLayout = String(new URLSearchParams(window.location.search || '').get('mode') || '').toLowerCase();
+    const savedLayout = String(localStorage.getItem('sylvex-prostudio-layout') || '').toLowerCase();
+    setStudioLayout(requestedLayout === 'grid' || savedLayout === 'grid' ? 'grid' : 'classic');
     restoreStudioGridJobs();
+    void loadStudioGridCloudProjects();
+    window.addEventListener('pagehide',()=>{clearTimeout(studioGridCloudSaveTimer);if(studioGridState&&studioGridAccountOwner())void queueStudioGridCloudSave(studioGridState)});
   }
 
   /* ===== Init (called after cabinet.html is injected) ===== */
@@ -29083,6 +29194,8 @@ async function waitGeneration(jobId, options) {
       restoreActiveProStudioJob();
       restorePendingCharacterCreationJobs();
       restorePendingObjectCreationJobs();
+      studioGridCloudLoaded=false;
+      void loadStudioGridCloudProjects();
     };
     S.onWebSignedIn = () => { setBrowserGuest(false); loadAccountData(); };
     if (usesWebSessionAuth() && S.syncWebSession) {

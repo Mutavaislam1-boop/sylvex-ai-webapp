@@ -637,6 +637,20 @@ def test_text_generate_reserves_the_bound_and_settles_on_reported_usage(ledger, 
     assert ledger.balance(101) == 97
 
 
+def test_text_image_attachment_settlement_keeps_sylvex_reference_fee(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    monkeypatch.setattr(main, "text_generation", _usage_result(1000, 500))
+    payload = _text_payload(attachment={
+        "url": "https://cdn.test/photo.png", "name": "photo.png", "mime": "image/png",
+    })
+    status, body = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(payload))))
+    assert status == 200 and body["ok"]
+    # Provider usage is 3 credits; the uploaded image is a separate 1-credit
+    # SYLVEX project asset fee.
+    assert body["cost_credits"] == 4
+    assert ledger.balance(101) == 96
+
+
 def test_text_generate_client_cannot_raise_the_output_cap_or_fake_a_measurement(ledger, monkeypatch):
     _text_route(monkeypatch)
     seen = []
@@ -760,5 +774,6 @@ def test_only_elevenlabs_text_to_speech_and_dialogue_have_a_tariff(voice_options
     estimate = main.calculate_generation_price({"mode": "voice", "model": voice_options["model"], "prompt": "x" * 120, "voice_options": voice_options})
     assert bool(estimate.get("pricing_available")) is priced
     if priced:
-        # The existing TTS tariff is unchanged: 2 credits per started 50 characters.
-        assert estimate["credits"] == 6
+        # Eleven v3 is $0.10/1K characters; 120 chars -> $0.012,
+        # then the common 50% SYLVEX markup and whole-credit ceiling.
+        assert estimate["credits"] == 2

@@ -109,7 +109,9 @@ def test_edit_model_price_is_not_overridden_by_sunburst():
     request = payload('edit', editWorkspaceModel='qwen_image_2_pro', modelId='qwen_image_2_pro', quality='high', count=1)
     request.update(model='qwen_image_2_pro', provider='qwen')
     price = main.calculate_generation_price(request)
-    assert price['credits'] == main.QWEN_MODEL_VARIANTS['qwen_image_2_pro']['cost_credits']
+    # Qwen provider refs are included in its output tariff, while SYLVEX
+    # separately charges 1 credit for the uploaded workspace reference.
+    assert price['credits'] == main.QWEN_MODEL_VARIANTS['qwen_image_2_pro']['cost_credits'] + 1
     assert price['credits'] != main.OPENAI_IMAGE_MODEL_VARIANTS['gpt_image_2_5_sunburst']['cost_credits']['high']
 
 
@@ -358,7 +360,7 @@ def test_resize_route_queues_without_credits_but_requires_subscription(monkeypat
 
 def test_resize_does_not_waive_other_generation_prices():
     request = payload('resize', editWorkspaceResize={'width': 120, 'height': 80})
-    request.update(mode='music', model='suno_chirp_5')
+    request.update(mode='music', model='google_lyria_3_clip')
     assert not edit.is_free_resize(request)
     assert main.calculate_generation_price(request)['credits'] > 0
 
@@ -521,7 +523,11 @@ def test_camera_and_lighting_route_stores_sunburst_in_job_and_price_snapshot(mon
     job, = recorded
     assert job['provider'] == job['price_snapshot']['parameters']['provider'] == 'openai'
     assert job['model'] == job['price_snapshot']['parameters']['model'] == 'gpt_image_2_5_sunburst'
-    assert job['price_snapshot']['final_credits'] == main.calculate_generation_price(payload('edit'))['credits'] > 0
+    expected_provider = main.openai_image_cost_info(
+        'gpt_image_2_5_sunburst', 'gpt-image-2.5-sunburst', 'high', 1,
+        prompt_text='Make it blue', reference_count=1,
+    )['cost_credits']
+    assert job['price_snapshot']['final_credits'] == expected_provider + 1 > 0
 
 
 def test_lighting_exact_sources_reach_sunburst_and_saved_result(monkeypatch, provider, capsys):
