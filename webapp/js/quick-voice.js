@@ -81,6 +81,22 @@
 
   function shell() {
     return '<div class="qv" id="qv">'
+      + '<section class="qv-main">'
+      + '<button type="button" class="qt-menu-btn" data-qv-history aria-label="История диалогов"><span></span><span></span><span></span></button>'
+      + '<button type="button" class="qv-voices-btn" data-qv-lib-open>Голоса</button>'
+      + '<div class="qv-notice" id="qvNotice" role="status" hidden></div>'
+      + '<div class="qv-board" id="qvBoard"></div>'
+      + '<div class="qv-bottom">'
+      + '<section class="photo-generator quick-generator qv-composer">'
+      + '<div class="photo-prompt-wrap qv-input"><textarea id="qvAiBrief" rows="2" maxlength="2000" placeholder="Опишите диалог для AI…" aria-label="Описание диалога для AI"></textarea></div>'
+      + '<div class="qv-controls"><div class="qv-model" id="qvModel"></div>'
+      + '<button type="button" class="qv-ai-btn" data-qv-ai><b>✦</b><span>Текст с AI</span></button></div>'
+      + '<button type="button" class="qv-add" data-qv-add><b>＋</b><span>Добавить блок</span></button>'
+      + '<button type="button" class="qv-generate" data-qv-generate><b>➤</b><span>Сгенерировать</span></button>'
+      + '</section>'
+      + player()
+      + '</div>'
+      + '</section>'
       + '<aside class="qv-lib" id="qvLib" aria-label="Библиотека голосов">'
       + '<div class="qv-lib-head"><b>Голоса</b><button type="button" class="qv-lib-close" data-qv-lib-close aria-label="Скрыть голоса">×</button></div>'
       + '<label class="qv-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="qvSearch" type="search" placeholder="Поиск голосов" autocomplete="off"></label>'
@@ -89,24 +105,6 @@
       + '<div class="qv-voice-list" id="qvVoiceList"></div>'
       + '</aside>'
       + '<div class="qv-lib-backdrop" data-qv-lib-close hidden></div>'
-      + '<section class="qv-main">'
-      + '<header class="qv-head"><button type="button" class="qv-icon-btn" data-qv-history aria-label="История диалогов"><span></span><span></span><span></span></button>'
-      + '<div class="qv-title"><small>SYLVEX · Голос</small><h1>Диалоги</h1></div>'
-      + '<button type="button" class="qv-voices-btn" data-qv-lib-open>Голоса</button></header>'
-      + '<div class="qv-notice" id="qvNotice" role="status" hidden></div>'
-      + '<div class="qv-board" id="qvBoard"></div>'
-      + '<div class="qv-dock">'
-      + '<div class="qv-dock-row">'
-      + '<div class="qv-model" id="qvModel"></div>'
-      + '<button type="button" class="qv-ai-btn" data-qv-ai><b>✦</b><span>Текст с AI</span></button>'
-      + '<div class="qv-actions"><button type="button" class="qv-add" data-qv-add><b>＋</b><span>Добавить блок</span></button>'
-      + '<button type="button" class="qv-generate" data-qv-generate><b>➤</b><span>Сгенерировать</span></button></div>'
-      + '</div>'
-      + '<div class="qv-ai-pop" id="qvAiPop" hidden><textarea id="qvAiBrief" rows="3" maxlength="2000" placeholder="Опишите диалог: кто говорит, о чём и в каком настроении"></textarea>'
-      + '<div><button type="button" class="qv-ai-cancel" data-qv-ai-cancel>Отмена</button><button type="button" class="qv-ai-run" data-qv-ai-run>Создать диалог</button></div></div>'
-      + player()
-      + '</div>'
-      + '</section>'
       + historyDrawer()
       + '<div class="qv-emo-menu" id="qvEmoMenu" hidden></div>'
       + '<div class="qv-full" id="qvFull" hidden></div>'
@@ -116,11 +114,12 @@
   function player() {
     return '<div class="qv-player" id="qvPlayer" data-empty="1">'
       + '<button type="button" class="qv-play" data-qv-play aria-label="Воспроизвести">▶</button>'
-      + '<div class="qv-track"><b id="qvTrackTitle">Здесь появится озвученный диалог</b><input id="qvSeek" type="range" min="0" max="1000" value="0" step="1" aria-label="Позиция"></div>'
-      + '<time id="qvTime">00:00 / 00:00</time>'
-      + '<label class="qv-volume" aria-label="Громкость"><span>🔊</span><input id="qvVolume" type="range" min="0" max="1" step="0.05" value="1"></label>'
+      + '<time id="qvCurrent">00:00</time>'
+      + '<input id="qvSeek" type="range" min="0" max="1000" value="0" step="1" aria-label="Позиция">'
+      + '<time id="qvDuration">00:00</time>'
+      + '<label class="qv-volume" aria-label="Громкость"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg><input id="qvVolume" type="range" min="0" max="1" step="0.05" value="1"></label>'
       + '<select id="qvSpeed" aria-label="Скорость">' + SPEEDS.map((speed) => '<option value="' + speed + '"' + (speed === '1' ? ' selected' : '') + '>' + speed + 'x</option>').join('') + '</select>'
-      + '<button type="button" class="qv-download" data-qv-download aria-label="Скачать">⤓</button>'
+      + '<button type="button" class="qv-download" data-qv-download aria-label="Скачать"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg></button>'
       + '<audio id="qvAudio" preload="metadata"></audio>'
       + '</div>';
   }
@@ -138,7 +137,7 @@
     if (!host) return;
     const current = model();
     const logo = (item) => (safeUrl(item.icon) ? '<img class="qm-model-logo" src="' + esc(safeUrl(item.icon)) + '" alt="" data-fallback-hide>' : '');
-    host.innerHTML = '<button type="button" class="qv-model-btn" data-qv-model-open aria-haspopup="listbox">' + logo(current) + '<b>' + esc(current.label) + '</b><i>⌄</i></button>'
+    host.innerHTML = '<button type="button" class="qt-model-trigger qv-model-btn" data-qv-model-open aria-haspopup="listbox">' + logo(current) + '<b>' + esc(current.label) + '</b><i>⌄</i></button>'
       + '<div class="qv-model-menu" id="qvModelMenu" hidden>' + state.models.map((item) => '<button type="button" data-qv-model="' + esc(item.id) + '"' + (item.id === current.id ? ' class="is-selected"' : '') + '>' + logo(item) + '<span>' + esc(item.label) + '</span><i>✓</i></button>').join('') + '</div>';
   }
 
@@ -458,9 +457,6 @@
   function setPlayerLoading(loading) {
     const playerNode = $('#qvPlayer');
     if (playerNode) playerNode.classList.toggle('is-loading', !!loading);
-    const title = $('#qvTrackTitle');
-    if (title && loading) title.textContent = 'Озвучиваем диалог…';
-    else if (title) title.textContent = state.audioUrl ? (state.audioTitle || 'Диалог') : 'Здесь появится озвученный диалог';
   }
 
   function loadAudio(url, title, autoplay) {
@@ -487,25 +483,29 @@
 
   function runScript() {
     const brief = ($('#qvAiBrief') || {}).value || '';
-    if (!brief.trim()) { notice('Опишите, какой диалог нужен'); return; }
+    if (!brief.trim()) { notice('Опишите диалог в поле ввода, затем нажмите «Текст с AI»'); const field = $('#qvAiBrief'); if (field) field.focus(); return; }
     if (state.scriptJob) return;
     state.scriptJob = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    const run = $('[data-qv-ai-run]');
-    if (run) { run.disabled = true; run.textContent = 'Пишем диалог…'; }
+    setScriptBusy(true);
     post({ action: 'quick-voice-script', clientId: state.scriptJob, brief: brief.trim() });
+  }
+
+  function setScriptBusy(busy) {
+    const button = $('[data-qv-ai]');
+    if (!button) return;
+    button.disabled = busy;
+    button.classList.toggle('is-busy', busy);
+    button.querySelector('span').textContent = busy ? 'Пишем диалог…' : 'Текст с AI';
   }
 
   function finishScript(ok, blocks, message) {
     state.scriptJob = '';
-    const run = $('[data-qv-ai-run]');
-    if (run) { run.disabled = false; run.textContent = 'Создать диалог'; }
+    setScriptBusy(false);
     if (!ok) { notice(message || 'Не удалось создать диалог'); return; }
     const replaceAll = state.blocks.every((block) => !block.text.trim() && !block.voiceId);
     if (replaceAll) state.blocks = [];
     blocks.forEach((item) => addBlock({ text: String(item.text || ''), hint: String(item.speaker || '').slice(0, 40) }));
     state.selectedKey = (state.blocks.find((block) => !block.voiceId) || {}).key || '';
-    const pop = $('#qvAiPop');
-    if (pop) pop.hidden = true;
     const field = $('#qvAiBrief');
     if (field) field.value = '';
     renderBoard();
@@ -559,9 +559,7 @@
       const modelChoice = target.closest('[data-qv-model]');
       if (modelChoice) { state.modelId = modelChoice.dataset.qvModel; renderModel(); renderBoard(); return; }
       if (target.closest('[data-qv-generate]')) { generate(); return; }
-      if (target.closest('[data-qv-ai]')) { const pop = $('#qvAiPop'); if (pop) { pop.hidden = !pop.hidden; if (!pop.hidden) $('#qvAiBrief').focus(); } return; }
-      if (target.closest('[data-qv-ai-cancel]')) { $('#qvAiPop').hidden = true; return; }
-      if (target.closest('[data-qv-ai-run]')) { runScript(); return; }
+      if (target.closest('[data-qv-ai]')) { runScript(); return; }
       const filter = target.closest('[data-qv-filter]');
       if (filter) {
         state.filter = filter.dataset.qvFilter;
@@ -686,9 +684,12 @@
     const audio = $('#qvAudio');
     const playButton = $('[data-qv-play]');
     const updateTime = () => {
-      const time = $('#qvTime');
+      const current = $('#qvCurrent');
+      const duration = $('#qvDuration');
       const seek = $('#qvSeek');
-      if (time) time.textContent = formatTime(audio.currentTime) + ' / ' + formatTime(audio.duration);
+      if (current) current.textContent = formatTime(audio.currentTime);
+      if (duration) duration.textContent = formatTime(audio.duration);
+      if (seek) seek.style.setProperty('--qv-progress', (audio.duration ? audio.currentTime / audio.duration * 100 : 0) + '%');
       if (seek && audio.duration) seek.value = String(Math.round(audio.currentTime / audio.duration * 1000));
     };
     audio.addEventListener('timeupdate', updateTime);
