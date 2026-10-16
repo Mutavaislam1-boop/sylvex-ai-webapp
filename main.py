@@ -5228,8 +5228,14 @@ def text_usage_details(metadata) -> Optional[dict]:
 GRID_PLAN_MAX_OUTPUT_TOKENS = max(4096, min(24000, int(os.getenv("GRID_PLAN_MAX_OUTPUT_TOKENS") or 12000)))
 GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS = max(2048, min(GRID_PLAN_MAX_OUTPUT_TOKENS, int(os.getenv("GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS") or 6000)))
 GRID_PLANNER_CREATE_TIMEOUT_SECONDS = max(10, min(45, int(os.getenv("GRID_PLANNER_CREATE_TIMEOUT_SECONDS") or 20)))
-GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS = max(30, min(240, int(os.getenv("GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS") or 150)))
-GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS") or 90)))
+# Background responses are already detached from the provider connection, so
+# the Grid request must wait for a terminal provider status rather than impose
+# the old 150s/90s per-model cut-offs. Keep one deliberately generous safety
+# limit for both attempts. The new variable also prevents stale Railway values
+# for the two retired per-model settings from reintroducing early cancellation.
+GRID_PLANNER_POLL_SAFETY_LIMIT_SECONDS = max(
+    300, min(600, int(os.getenv("GRID_PLANNER_POLL_SAFETY_LIMIT_SECONDS") or 600))
+)
 _grid_planner_reasoning_effort = (os.getenv("GRID_PLANNER_REASONING_EFFORT") or "medium").strip().lower()
 GRID_PLANNER_REASONING_EFFORT = _grid_planner_reasoning_effort if _grid_planner_reasoning_effort in {"low", "medium", "high"} else "medium"
 _grid_planner_model = (os.getenv("GRID_PLANNER_MODEL") or "gpt-6-astra").strip()
@@ -24680,8 +24686,8 @@ def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: 
     graph that GPT did not design.
     """
     attempts = [
-        (planner_model, GRID_PLAN_MAX_OUTPUT_TOKENS, GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS, "primary"),
-        (GRID_PLANNER_FALLBACK_MODEL, GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS, GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS, "fallback"),
+        (planner_model, GRID_PLAN_MAX_OUTPUT_TOKENS, GRID_PLANNER_POLL_SAFETY_LIMIT_SECONDS, "primary"),
+        (GRID_PLANNER_FALLBACK_MODEL, GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS, GRID_PLANNER_POLL_SAFETY_LIMIT_SECONDS, "fallback"),
     ]
     last_reason = "temporary_provider_failure"
     saw_temporary_failure = False

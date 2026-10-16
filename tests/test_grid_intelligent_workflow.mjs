@@ -115,7 +115,10 @@ test('managed Grid director uses Structured Outputs and priced GPT models', () =
   assert.match(main, /request_payload\["text"\] = \{"format": response_format\}/);
   assert.match(main, /request_payload\.update\(\{"background": True, "store": False\}\)/);
   assert.match(main, /OPENAI_BACKGROUND_RESPONSE/);
-  assert.match(main, /GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS/);
+  assert.match(main, /GRID_PLANNER_POLL_SAFETY_LIMIT_SECONDS/);
+  assert.match(main, /300, min\(600, int\(os\.getenv\("GRID_PLANNER_POLL_SAFETY_LIMIT_SECONDS"\) or 600\)\)/);
+  assert.doesNotMatch(main, /GRID_PLANNER_PRIMARY_POLL_TIMEOUT_SECONDS/);
+  assert.doesNotMatch(main, /GRID_PLANNER_FALLBACK_POLL_TIMEOUT_SECONDS/);
 });
 
 test('Grid catalog exposes and enforces official reference capabilities', () => {
