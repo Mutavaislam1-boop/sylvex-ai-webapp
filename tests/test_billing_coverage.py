@@ -744,7 +744,7 @@ def test_text_generation_always_sends_the_output_cap(monkeypatch):
     assert sent == [main.TEXT_MAX_OUTPUT_TOKENS, 700]
 
 
-# ------------------------------------------------- ElevenLabs: TTS only
+# ------------------------------------------- ElevenLabs: TTS and dialogue
 
 @pytest.mark.parametrize("voice_options,priced", [
     ({"model": "elevenlabs_eleven_v3"}, True),
@@ -752,10 +752,11 @@ def test_text_generation_always_sends_the_output_cap(monkeypatch):
     ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "speech_to_speech"}, False),
     ({"model": "elevenlabs_multilingual_sts_v2"}, False),
     ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dubbing"}, False),
-    ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dialogue"}, False),
+    # Text to Dialogue is billed per character like TTS (same tariff).
+    ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dialogue"}, True),
     ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "voice_design"}, False),
 ])
-def test_only_elevenlabs_text_to_speech_has_a_tariff(voice_options, priced):
+def test_only_elevenlabs_text_to_speech_and_dialogue_have_a_tariff(voice_options, priced):
     estimate = main.calculate_generation_price({"mode": "voice", "model": voice_options["model"], "prompt": "x" * 120, "voice_options": voice_options})
     assert bool(estimate.get("pricing_available")) is priced
     if priced:

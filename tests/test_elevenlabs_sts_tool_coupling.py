@@ -64,7 +64,6 @@ def test_sts_model_or_tool_resolves_to_speech_to_speech(payload):
     {"prompt": "hello there", "voice_options": {"model": "elevenlabs_multilingual_sts_v2"}, "model": "elevenlabs_multilingual_sts_v2"},
     {"voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "speech_to_speech"}, "model": "elevenlabs_eleven_v3"},
     {"prompt": "hi", "voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dubbing"}, "model": "elevenlabs_eleven_v3"},
-    {"prompt": "hi", "voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dialogue"}, "model": "elevenlabs_eleven_v3"},
     {"prompt": "hi", "voice_options": {"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "voice_design"}, "model": "elevenlabs_eleven_v3"},
 ])
 async def test_unpriced_elevenlabs_tools_never_reach_the_provider(monkeypatch, payload):

@@ -1612,7 +1612,9 @@ const MUSIC_MODEL_LIST = [
 ];
 
 const VOICE_MODEL_LIST = [
-  { id:'elevenlabs_eleven_v3', label:'ElevenLabs Eleven v3', providerModel:'eleven_v3', desc:'Эмоциональная озвучка и диалоги', icon:'elevenlabs' },
+  { id:'elevenlabs_eleven_v3', label:'ElevenLabs Eleven v3', providerModel:'eleven_v3', desc:'Эмоциональная озвучка и диалоги', icon:'elevenlabs', dialogue:true,
+    // Eleven v3 audio tags (same list as ELEVENLABS_V3_AUDIO_TAGS on the server).
+    audioTags:[['excited','Восторг'],['happy','Радость'],['sad','Грусть'],['angry','Злость'],['calm','Спокойно'],['curious','Любопытство'],['sarcastic','Сарказм'],['whispers','Шёпот'],['laughs','Смех'],['sighs','Вздох'],['crying','Плач'],['thoughtful','Задумчиво'],['surprised','Удивление'],['nervous','Нервно']] },
   { id:'gemini_3_1_flash_tts_preview', label:'Gemini 3.1 Flash TTS Preview', providerModel:'gemini-3.1-flash-tts-preview', desc:'Один или два диктора', icon:'gemini' },
   { id:'gemini_2_5_flash_preview_tts', label:'Gemini 2.5 Flash Preview TTS', providerModel:'gemini-2.5-flash-preview-tts', desc:'Быстрая озвучка Gemini', icon:'gemini' },
   { id:'gemini_2_5_pro_preview_tts', label:'Gemini 2.5 Pro Preview TTS', providerModel:'gemini-2.5-pro-preview-tts', desc:'Выразительная озвучка Gemini Pro', icon:'gemini' },
@@ -18426,6 +18428,128 @@ function renderGeneratedTelegramButton(url, kind) {
     quickMusicRefreshHistory();
   }
 
+  // ===== Quick Access → Voice: dialogue blocks =====
+  const quickVoiceJobs = new Set();
+
+  function quickVoiceFrame() {
+    const frame = document.getElementById('knowledgeWorkspaceFrame');
+    const modal = document.getElementById('knowledgeWorkspaceModal');
+    if (!frame || !modal || modal.hidden || !/[?&]mode=voice\b/.test(frame.getAttribute('src') || '')) return null;
+    return frame.contentWindow || null;
+  }
+
+  function quickVoicePost(data) {
+    const target = quickVoiceFrame();
+    if (target) target.postMessage(Object.assign({ source: 'sylvex-knowledge-parent' }, data), location.origin);
+  }
+
+  function quickVoiceModels() {
+    return VOICE_MODEL_LIST.filter((model) => model.dialogue).map((model) => {
+      const icon = AI_LOGOS[model.icon] || '';
+      return { id: model.id, label: model.label, icon: icon === 'custom-banana' ? '' : icon, audioTags: (model.audioTags || []).map((tag) => tag.slice(0, 2)) };
+    });
+  }
+
+  async function quickVoiceHistory() {
+    try {
+      const response = await fetch('/api/public/prostudio/gallery?telegram_id=' + encodeURIComponent(getTelegramId() || 0) + '&limit=100', { cache:'no-store' });
+      const data = await response.json();
+      return (Array.isArray(data.items) ? data.items : [])
+        .filter((item) => String(item.type || '').toLowerCase() === 'voice' && item.media_url && Array.isArray(item.dialogue) && item.dialogue.length)
+        .map((item) => ({
+          id: item.id,
+          title: String(item.title || item.prompt || 'Диалог').replace(/\[[^\]]{1,40}\]\s*/g, '').slice(0, 80),
+          audioUrl: String(item.media_url),
+          model: item.model || '',
+          createdAt: item.created_at || '',
+          blocks: item.dialogue.map((block) => ({ voiceId: String(block.voice_id || ''), voiceName: String(block.voice_name || ''), text: String(block.text || '') })),
+        }));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function quickVoiceRefreshHistory() {
+    quickVoicePost({ action: 'voice-history', items: await quickVoiceHistory(), user: quickTextUserCard() });
+  }
+
+  async function quickVoiceGenerate(message) {
+    const clientId = String(message.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    if (!clientId || quickVoiceJobs.has(clientId)) return;
+    const fail = (text) => quickVoicePost({ action: 'quick-voice-error', clientId, message: text });
+    if (guestNeedsAccount()) { fail('Войдите, чтобы озвучить диалог'); return; }
+    const model = VOICE_MODEL_LIST.find((item) => item.dialogue && item.id === String(message.model || ''));
+    if (!model) { fail('Эта модель не поддерживает диалог по ролям'); return; }
+    const blocks = (Array.isArray(message.blocks) ? message.blocks : []).map((block) => ({
+      voice_id: String(block && block.voiceId || '').trim(),
+      voice_name: String(block && block.voiceName || '').trim().slice(0, 80),
+      text: String(block && block.text || '').trim(),
+    }));
+    if (!blocks.length) { fail('Добавьте хотя бы одну реплику'); return; }
+    if (blocks.some((block) => !block.voice_id)) { fail('Назначьте голос каждой реплике'); return; }
+    if (blocks.some((block) => !block.text)) { fail('Заполните текст каждой реплики'); return; }
+    quickVoiceJobs.add(clientId);
+    try {
+      const response = await fetch('/api/public/prostudio/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          telegram_id: getTelegramId(),
+          prompt: blocks.map((block) => block.text).join('\n'),
+          mode: 'voice',
+          category: 'voice',
+          model: model.id,
+          provider: 'elevenlabs',
+          voice_options: { model: model.id, provider: 'elevenlabs', elevenlabs_tool: 'dialogue', dialogue_blocks: blocks, source: 'quick_voice' },
+          history: [],
+          attachment: null,
+          conversation_id: null,
+          client_request_id: 'quick-voice-' + clientId,
+          language: uiLang(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 409) throw new Error('Дождитесь окончания текущей генерации');
+      if (response.status === 403 && data && data.subscription_required) throw new Error('Генерация голоса доступна после активации подписки.');
+      if (response.status === 402 && data && data.paywall) throw new Error(data.error || 'Недостаточно токенов');
+      if (response.status === 400 && data && data.message) throw new Error(data.message);
+      if (!response.ok || !data.ok || !data.job_id) throw new Error(translateGenerationError(data, 'Не удалось начать озвучку'));
+      const result = await pollCreationJob(data.job_id, null, 'Не удалось озвучить диалог');
+      const audioUrl = result.audio_url || (Array.isArray(result.audios) ? result.audios[0] : '') || '';
+      if (!audioUrl) throw new Error('Аудио не получено. Попробуйте ещё раз.');
+      quickVoicePost({ action: 'quick-voice-result', clientId, audioUrl: String(audioUrl), id: String(result.job_id || data.job_id) });
+    } catch (error) {
+      fail((error && error.message) || 'Не удалось озвучить диалог');
+    } finally {
+      quickVoiceJobs.delete(clientId);
+    }
+    quickVoiceRefreshHistory();
+  }
+
+  async function quickVoiceScript(message) {
+    const clientId = String(message.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    const brief = String(message.brief || '').trim().slice(0, 2000);
+    if (!clientId || !brief) return;
+    if (guestNeedsAccount()) { quickVoicePost({ action: 'quick-voice-script-error', clientId, message: 'Войдите, чтобы создать диалог с AI' }); return; }
+    try {
+      const response = await fetch('/api/public/prostudio/voice/text-tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: getTelegramId(), action: 'dialogue', brief, client_request_id: 'quick-voice-script-' + clientId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok || !Array.isArray(data.blocks) || !data.blocks.length) throw new Error(data.error || data.message || 'Не удалось создать диалог');
+      quickVoicePost({
+        action: 'quick-voice-script-result',
+        clientId,
+        blocks: data.blocks.map((block) => ({ speaker: String(block.speaker || '').slice(0, 40), text: String(block.text || '') })),
+      });
+    } catch (error) {
+      quickVoicePost({ action: 'quick-voice-script-error', clientId, message: translateGenerationError(error, 'Не удалось создать диалог') });
+    }
+  }
+
   async function handleKnowledgeWorkspaceMessage(event) {
     const message = event.data || {};
     if (message.source !== 'sylvex-knowledge') return;
@@ -18448,10 +18572,11 @@ function renderGeneratedTelegramButton(url, kind) {
         });
         const providerVoices = applyVoiceAvatarsToList(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES, 'elevenlabs').map(normalizeQuickVoice).filter((voice) => voice.id);
         const voices = applyVoiceAvatarsToList(mergeUserVoicesWithProvider(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES), 'elevenlabs').map(normalizeQuickVoice).filter((voice) => voice.id);
-        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices, demoVoices:providerVoices.slice(0, 7) }, location.origin);
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices, demoVoices:providerVoices.slice(0, 7), models:quickVoiceModels(), user:quickTextUserCard() }, location.origin);
       } catch (_) {
-        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices:[] }, location.origin);
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices:[], models:quickVoiceModels(), user:quickTextUserCard() }, location.origin);
       }
+      quickVoiceRefreshHistory();
       return;
     }
     if (message.action === 'music-library-request') {
@@ -18465,6 +18590,10 @@ function renderGeneratedTelegramButton(url, kind) {
       return;
     }
     if (message.action === 'quick-music-generate') { quickMusicGenerate(message); return; }
+    if (message.action === 'quick-voice-generate') { quickVoiceGenerate(message); return; }
+    if (message.action === 'quick-voice-script') { quickVoiceScript(message); return; }
+    if (message.action === 'quick-voice-download') { quickMusicDownload(String(message.url || ''), String(message.title || 'sylvex-dialogue')); return; }
+    if (message.action === 'voice-history-request') { quickVoiceRefreshHistory(); return; }
     if (message.action === 'quick-music-track') { quickMusicTrackAction(message); return; }
     if (message.action === 'image-catalog-item') {
       await loadPhotoCatalog(false);

@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from routers.video_templates import router as video_templates_router
 
-from services.audio_router import ELEVENLABS_PRICED_TOOLS, ELEVENLABS_MUSIC_MODELS, ELEVENLABS_MUSIC_REFERENCE_MAX_MS, MUSIC_REFERENCE_MODELS, elevenlabs_music_length_ms, music_reference_audio, audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_dispatch_tool, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
+from services.audio_router import ELEVENLABS_DIALOGUE_MODELS, ELEVENLABS_PRICED_TOOLS, ELEVENLABS_V3_AUDIO_TAGS, dialogue_blocks_from_options, ELEVENLABS_MUSIC_MODELS, ELEVENLABS_MUSIC_REFERENCE_MAX_MS, MUSIC_REFERENCE_MODELS, elevenlabs_music_length_ms, music_reference_audio, audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_dispatch_tool, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
@@ -7454,6 +7454,7 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
                 "prompt": prompt or metadata.get("prompt") or "", "text": response_text or "",
                 "title": metadata.get("title") or response_data.get("title") or prompt or "",
                 "favorite": bool(metadata.get("favorite")),
+                "dialogue": gallery_dialogue_blocks(metadata) if kind == "voice" else [],
                 "genre": metadata.get("genre") or response_data.get("genre") or "",
                 "media_url": media_url, "media_urls": media_urls, "preview_url": preview_url,
                 "job_id": metadata.get("job_id") or response_data.get("job_id") or "",
@@ -22036,6 +22037,63 @@ def validate_music_reference_request(payload: dict) -> Optional[dict]:
     return None
 
 
+VOICE_DIALOGUE_ERRORS = {
+    "dialogue_empty": "Добавьте хотя бы одну реплику",
+    "dialogue_too_many_blocks": "Слишком много реплик в одном диалоге",
+    "dialogue_invalid_block": "Реплика диалога повреждена. Обновите страницу",
+    "dialogue_voice_missing": "Назначьте голос каждой реплике",
+    "dialogue_text_missing": "Заполните текст каждой реплики",
+    "dialogue_too_many_voices": "В одном диалоге можно использовать до 10 голосов",
+    "dialogue_too_long": "Диалог длиннее 2000 символов. Сократите текст",
+    "dialogue_model_not_supported": "Эта модель не поддерживает диалог по ролям",
+}
+
+
+def gallery_dialogue_blocks(metadata: dict) -> list:
+    """Saved Quick Voice blocks (order, voice, text with inline tags) so a
+    dialogue can be reopened and edited from history."""
+    settings = metadata.get("settings") if isinstance(metadata.get("settings"), dict) else {}
+    blocks = settings.get("dialogue_blocks")
+    if not isinstance(blocks, list):
+        return []
+    return [
+        {"voice_id": str(block.get("voice_id") or "")[:64], "voice_name": str(block.get("voice_name") or "")[:80], "text": str(block.get("text") or "")[:2000]}
+        for block in blocks[:60] if isinstance(block, dict)
+    ]
+
+
+def normalize_voice_dialogue_request(payload: dict) -> Optional[dict]:
+    """Quick Voice sends an ordered list of blocks, each with its own voice.
+    The blocks are validated, the request is pinned to Text to Dialogue and
+    the billed prompt is rebuilt from the blocks so the price always matches
+    the text that is really voiced."""
+    voice_options = payload.get("voice_options")
+    if not isinstance(voice_options, dict) or "dialogue_blocks" not in voice_options:
+        return None
+    try:
+        blocks = dialogue_blocks_from_options(voice_options)
+    except ValueError as exc:
+        code = str(exc)
+        return {"ok": False, "type": "voice", "error": code, "message": VOICE_DIALOGUE_ERRORS.get(code, "Диалог не удалось отправить")}
+    model = str(voice_options.get("model") or payload.get("model") or "").lower()
+    if model not in ELEVENLABS_DIALOGUE_MODELS:
+        return {"ok": False, "type": "voice", "error": "dialogue_model_not_supported", "message": VOICE_DIALOGUE_ERRORS["dialogue_model_not_supported"]}
+    voices = list(dict.fromkeys(block["voice_id"] for block in blocks))
+    voice_options.update({
+        "model": model,
+        "provider": "elevenlabs",
+        "elevenlabs_tool": "dialogue",
+        "dialogue_blocks": blocks,
+        "speaker_voices": voices,
+        "num_speakers": len(voices),
+        "elevenlabs_voice": voices[0],
+    })
+    payload["model"] = model
+    payload["provider"] = "elevenlabs"
+    payload["prompt"] = "\n".join(block["text"] for block in blocks)
+    return None
+
+
 def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
     if mode == "music":
@@ -23940,6 +23998,13 @@ async def public_prostudio_generate(request: Request):
                 prostudio_error("TEXT_ATTACHMENT_MEASURE_FAILED", exc, telegram_id=telegram_id)
             else:
                 payload[TEXT_ATTACHMENT_BYTES_KEY] = len(str(document_text or "").encode("utf-8"))
+    if mode == "voice":
+        dialogue_error = normalize_voice_dialogue_request(payload)
+        if dialogue_error:
+            return JSONResponse(dialogue_error, status_code=400)
+        prompt = (payload.get("prompt") or "").strip()
+        selected_model = (payload.get("model") or "").strip()
+        selected_provider = (payload.get("provider") or selected_provider).strip().lower()
     cost_estimate = calculate_generation_price(payload)
     payload["price_snapshot"] = cost_estimate.get("price_snapshot") or {}
     if not cost_estimate.get("pricing_available", mode in {"image", "video"}):
@@ -25601,6 +25666,59 @@ async def public_prostudio_transcribe(request: Request):
     return {"ok": True, "text": text}
 
 
+def voice_dialogue_script_instruction(brief: str) -> str:
+    tags = ", ".join(f"[{tag}]" for tag in ELEVENLABS_V3_AUDIO_TAGS)
+    return (
+        "Write a short spoken dialogue for an AI voice studio from this brief:\n"
+        f"{brief}\n\n"
+        "Rules:\n"
+        "- One line per turn, formatted exactly as `Name: text`. Each line becomes one voiced block.\n"
+        "- Use the language of the brief. Keep it natural to speak aloud.\n"
+        f"- Where it helps the delivery, put an emotion tag right before the words it colours. Use only these tags: {tags}.\n"
+        "- Several tags inside one turn are fine. Never invent other bracketed tags or stage directions.\n"
+        "- At most 20 turns and 1800 characters in total.\n"
+        "- Return only the dialogue lines, without a title, notes or Markdown."
+    )
+
+
+_DIALOGUE_LINE_RE = re.compile(r"^\s*(?:[-*•]\s*)?\**([^:\n\[\]]{1,40}?)\**\s*:\s*(.+)$")
+_DIALOGUE_TAG_RE = re.compile(r"\[([^\[\]\n]{1,40})\]")
+
+
+def parse_voice_dialogue_script(text: str) -> list:
+    """Split an AI-written `Name: text` script into ordered blocks. Only the
+    supported Eleven v3 tags survive; voices are never assigned here."""
+    allowed = set(ELEVENLABS_V3_AUDIO_TAGS)
+
+    def clean(value: str) -> str:
+        value = _DIALOGUE_TAG_RE.sub(lambda m: f"[{m.group(1).strip().lower()}]" if m.group(1).strip().lower() in allowed else "", value)
+        return re.sub(r"[ \t]{2,}", " ", value).strip()
+
+    blocks = []
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip().strip("`")
+        if not line:
+            continue
+        match = _DIALOGUE_LINE_RE.match(line)
+        if match:
+            body = clean(match.group(2))
+            if body:
+                blocks.append({"speaker": match.group(1).strip()[:40], "text": body})
+        elif blocks:
+            body = clean(line)
+            if body:
+                blocks[-1]["text"] = (blocks[-1]["text"] + " " + body).strip()
+    total = 0
+    kept = []
+    for block in blocks[:40]:
+        block["text"] = block["text"][:2000]
+        if total + len(block["text"]) > 2000:
+            break
+        total += len(block["text"])
+        kept.append(block)
+    return kept
+
+
 @app.post("/api/public/prostudio/voice/text-tool")
 async def public_prostudio_voice_text_tool(request: Request):
     """Small editor actions for Voice Studio; never starts audio generation."""
@@ -25611,11 +25729,11 @@ async def public_prostudio_voice_text_tool(request: Request):
     format_name = str(payload.get("format") or "script").strip()
     source_language = str(payload.get("source_language") or "auto").strip()
     target_language = str(payload.get("target_language") or "en").strip()
-    if action not in {"create", "improve", "translate"}:
+    if action not in {"create", "improve", "translate", "dialogue"}:
         return JSONResponse({"ok": False, "error": "Unsupported text action"}, status_code=400)
-    if action == "create" and not brief:
+    if action in {"create", "dialogue"} and not brief:
         return JSONResponse({"ok": False, "error": "Описание текста обязательно"}, status_code=400)
-    if action != "create" and not text:
+    if action not in {"create", "dialogue"} and not text:
         return JSONResponse({"ok": False, "error": "Текст обязателен"}, status_code=400)
     if len(text) + len(brief) > 60000:
         return JSONResponse({"ok": False, "error": "Текст слишком длинный"}, status_code=413)
@@ -25624,7 +25742,9 @@ async def public_prostudio_voice_text_tool(request: Request):
         "en": "English", "de": "German", "fr": "French", "ru": "Russian",
         "es": "Spanish", "it": "Italian", "tr": "Turkish",
     }
-    if action == "create":
+    if action == "dialogue":
+        instruction = voice_dialogue_script_instruction(brief)
+    elif action == "create":
         instruction = (
             f"Create a {format_name} voice-over script from this brief:\n{brief}\n\n"
             "Write polished, natural spoken text. Return only the finished script, without headings, notes or Markdown."
@@ -25710,6 +25830,11 @@ async def public_prostudio_voice_text_tool(request: Request):
             {"ok": False, "error": "AI-редактор временно недоступен. Попробуйте немного позже."},
             status_code=503,
         )
+    if action == "dialogue":
+        blocks = parse_voice_dialogue_script(result_text)
+        if not blocks:
+            return JSONResponse({"ok": False, "error": "AI не смог разбить диалог на реплики. Попробуйте описать иначе."}, status_code=422)
+        return {"ok": True, "text": result_text.strip(), "action": action, "blocks": blocks}
     return {"ok": True, "text": result_text.strip(), "action": action}
 
 # =====================================================
