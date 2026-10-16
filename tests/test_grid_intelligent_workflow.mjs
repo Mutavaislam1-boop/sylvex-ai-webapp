@@ -6,11 +6,14 @@ const cabinet = readFileSync(new URL('../webapp/js/cabinet.js', import.meta.url)
 const html = readFileSync(new URL('../webapp/cabinet.html', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../main.py', import.meta.url), 'utf8');
 
-test('Grid planner is professional, universal and uses the selected text model', () => {
-  assert.match(main, /You are SYLVEX Grid Director, a strict professional production orchestrator/);
+test('Grid planner is a hidden autonomous GPT director instead of a Task model picker', () => {
+  assert.match(main, /You are SYLVEX Grid Director\. You are the autonomous production brain/);
   assert.match(main, /video\/film: director, screenwriter, cinematographer, editor and continuity supervisor/);
-  assert.match(main, /Never use a fixed shot count/);
-  assert.match(cabinet, /model:source\.model\|\|gridDefaultModel\('text'\)/);
+  assert.match(main, /GRID_PLANNER_MODEL = .*gpt-6-astra/);
+  assert.match(main, /planner_model = GRID_PLANNER_MODEL/);
+  assert.match(cabinet, /if \(type === 'task'\) return '';/);
+  assert.doesNotMatch(cabinet, /task:brief,model:source\.model/);
+  assert.match(cabinet, /AI production director/);
 });
 
 test('planned references can be uploaded, selected, skipped and mapped by id', () => {
@@ -70,7 +73,34 @@ test('Grid captures an optional brand name and maps reviewed identity into every
 test('Grid passes only the dedicated text result into each planned media node', () => {
   assert.match(cabinet, /created\.filter\(node=>\['image','video','music','voice'\]/);
   assert.match(cabinet, /node\.prompt=''/);
-  assert.match(main, /Create exactly one dedicated Text node and one Video node per shot/);
+  assert.match(main, /Each shot gets its own finished Text prompt and Video node/);
   assert.match(main, /grid_requested_duration_seconds/);
   assert.match(main, /planner_video_duration_mismatch/);
+});
+
+test('Grid supports arbitrary parallel comparisons and never substitutes a local template', () => {
+  assert.match(main, /A request to compare N generators must produce one fair shared prompt and N parallel media nodes/);
+  assert.match(main, /No local\/template plan is permitted/);
+  assert.match(main, /planner_temporarily_unavailable/);
+  assert.doesNotMatch(main, /def grid_local_fallback_plan/);
+});
+
+test('Task references keep explicit ids and flow into GPT-planned nodes', () => {
+  assert.match(cabinet, /item\.reference_id=`task_upload_\$\{node\.attachments\.length\+1\}`/);
+  assert.match(cabinet, /if\(!item\.reference_id\)item\.reference_id=`task_upload_\$\{index\+1\}`/);
+  assert.match(main, /Reuse their exact reference_id on every relevant node/);
+});
+
+test('managed Grid director uses Structured Outputs and priced GPT models', () => {
+  assert.match(main, /"gpt-6-astra": \("10\.00", "50\.00"\)/);
+  assert.match(main, /"gpt-6\.1-sol": \("2\.00", "10\.00"\)/);
+  assert.match(main, /"_response_format": grid_plan_response_format\(\)/);
+  assert.match(main, /request_payload\["text"\] = \{"format": response_format\}/);
+});
+
+test('Grid catalog exposes and enforces official reference capabilities', () => {
+  assert.match(main, /"character_reference": bool\(features\.get\("character"\)\)/);
+  assert.match(main, /"object_reference": bool\(features\.get\("object"\)\)/);
+  assert.match(main, /planner_image_reference_unsupported/);
+  assert.match(main, /planner_video_reference_unsupported/);
 });

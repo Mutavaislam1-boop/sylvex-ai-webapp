@@ -28039,7 +28039,7 @@ async function waitGeneration(jobId, options) {
     if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'google_lyria_3_clip';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
     if (type === 'text') return textState.modelId || 'gpt-5.5';
-    if (type === 'task') return textState.modelId || 'gpt-5.5';
+    if (type === 'task') return '';
     if (type === 'montage') return 'final_montage';
     return '';
   }
@@ -28048,14 +28048,14 @@ async function waitGeneration(jobId, options) {
     const stamp=Date.now().toString(36);
     return {
       version:3, projectId:'grid_project_'+stamp, title:'New intelligent project', panX:90, panY:150, zoom:.9,
-      nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:gridDefaultModel('task'),settings:{},position_locked:false,results:[]}],
+      nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:'',settings:{},position_locked:false,results:[]}],
       edges:[]
     };
   }
 
   function emptyStudioGridState() {
     const stamp=Date.now().toString(36);
-    return normalizeStudioGridState({version:3,projectId:'grid_project_'+stamp,title:'New intelligent project',panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:gridDefaultModel('task'),settings:{},position_locked:false,results:[]}],edges:[]});
+    return normalizeStudioGridState({version:3,projectId:'grid_project_'+stamp,title:'New intelligent project',panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:'',settings:{},position_locked:false,results:[]}],edges:[]});
   }
 
   function loadStudioGridProjects() {
@@ -28177,12 +28177,12 @@ async function waitGeneration(jobId, options) {
     state.panY = Number.isFinite(Number(state.panY)) ? Number(state.panY) : 150;
     state.zoom = Math.max(.2,Math.min(2.5,Number(state.zoom)||.9));
     const legacyStarter=Array.isArray(state.nodes)&&state.nodes.length===3&&Array.isArray(state.edges)&&state.edges.length===2&&['grid_task_1','grid_text_1','grid_image_1'].every(id=>state.nodes.some(node=>node.id===id))&&state.nodes.every(node=>!String(node.prompt||'').trim()&&!node.output&&!(node.attachments||[]).length&&!(node.results||[]).length);
-    if(legacyStarter){const task=state.nodes.find(node=>node.id==='grid_task_1')||{},stamp=Date.now().toString(36);state.nodes=[{...task,id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',status:'IDLE',model:task.model||gridDefaultModel('task'),settings:task.settings||{},position_locked:false,results:[]}];state.edges=[];state.title='New intelligent project'}
+    if(legacyStarter){const task=state.nodes.find(node=>node.id==='grid_task_1')||{},stamp=Date.now().toString(36);state.nodes=[{...task,id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',status:'IDLE',model:'',settings:task.settings||{},position_locked:false,results:[]}];state.edges=[];state.title='New intelligent project'}
     state.nodes = (state.nodes || []).map((node) => {
       const type = GRID_TYPES[node.type] ? node.type : 'text';
       const normalized = Object.assign({subtype:type,status:'IDLE',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},attachments:[],output:null,generation_id:'',request_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[],result_versions:[],selectedResultVersion:null,planner_key:'',reference_ids:[]},node);
       normalized.settings = Object.assign(gridDefaultSettings(type),node.settings || {});
-      normalized.model = normalized.model || gridDefaultModel(type);
+      normalized.model = type==='task' ? '' : (normalized.model || gridDefaultModel(type));
       normalized.reference_ids = Array.isArray(normalized.reference_ids) ? normalized.reference_ids.filter(Boolean).slice(0,12) : [];
       normalized.result_versions = Array.isArray(normalized.result_versions) ? normalized.result_versions.slice(-50) : [];
       if(!normalized.result_versions.length&&normalized.output&&normalized.status==='COMPLETED')normalized.result_versions=[JSON.parse(JSON.stringify(normalized.output))];
@@ -28261,7 +28261,8 @@ async function waitGeneration(jobId, options) {
     if (type === 'video') return VIDEO_MODELS.filter((item) => gridVideoModelSupported(item.id));
     if (type === 'music') return MUSIC_MODEL_LIST;
     if (type === 'voice') return VOICE_MODEL_LIST;
-    if (type === 'text'||type === 'task') return TEXT_MODEL_LIST;
+    if (type === 'text') return TEXT_MODEL_LIST;
+    if (type === 'task') return [];
     if (type === 'montage') return [{id:'final_montage',label:'SYLVEX Final Montage'}];
     return [];
   }
@@ -28307,7 +28308,7 @@ async function waitGeneration(jobId, options) {
 
   function gridNodeSettingsHtml(node) {
     const settings=node.settings||{},models=gridModelsForType(node.type),model=`<select data-grid-setting="model" aria-label="Модель">${gridSelectOptions(models,node.model)}</select>`;
-    if (node.type==='task') return `<div class="studio-grid-node-settings">${model}</div>`;
+    if (node.type==='task') return `<div class="studio-grid-node-settings"><span class="studio-grid-director-label">AI production director</span></div>`;
     if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${['1024','2048','4096'].map(v=>`<option${String(settings.resolution)===v?' selected':''}>${v}px</option>`).join('')}</select><select data-grid-setting="quality">${['standard','high'].map(v=>`<option${settings.quality===v?' selected':''}>${v==='high'?'High':'Standard'}</option>`).join('')}</select><select data-grid-setting="style">${['auto','photorealistic','cinematic','editorial','illustration'].map(v=>`<option${settings.style===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option${Number(settings.count)===v?' selected':''}>${v} image${v>1?'s':''}</option>`).join('')}</select></div>`;
     if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[node.model]||VIDEO_MODEL_CONFIG.seedance_2_fast,timeline=settings.timeline||node.timeline||{};return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="generation_mode">${(config.modes||['text_to_video']).map(v=>`<option value="${v}"${settings.generation_mode===v?' selected':''}>${v==='image_to_video'?'Image → Video':v==='video_edit'?'Video edit':v==='motion_control'?'Motion control':'Text → Video'}</option>`).join('')}</select><select data-grid-setting="ratio">${(config.ratios||['16:9']).map(v=>`<option${settings.ratio===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${(config.resolutions||['720p']).map(v=>`<option${settings.resolution===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${(config.durations||[5]).map(v=>`<option value="${v}"${Number(settings.duration)===Number(v)?' selected':''}>${v}s</option>`).join('')}</select><input type="number" min="1" data-grid-setting="timeline_order" value="${Number(timeline.order)||1}" aria-label="Timeline order" title="Timeline order">${config.sound?`<label class="studio-grid-toggle"><input type="checkbox" data-grid-setting="sound"${settings.sound?' checked':''}><span>Sound</span></label>`:''}</div>`}
     if(node.type==='music')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="genre">${['auto','pop','rock','rap','jazz','ambient','cinematic','electronic'].map(v=>`<option${settings.genre===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${['auto',30,60,120,180].map(v=>`<option value="${v}"${String(settings.duration)===String(v)?' selected':''}>${v==='auto'?'Auto':v+'s'}</option>`).join('')}</select><select data-grid-setting="mood">${['auto','energetic','calm','dramatic','romantic','uplifting','dark'].map(v=>`<option${settings.mood===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="tempo">${['auto','slow','medium','fast'].map(v=>`<option${settings.tempo===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="vocal">${['auto','instrumental','female','male','duet'].map(v=>`<option${settings.vocal===v?' selected':''}>${v}</option>`).join('')}</select><input data-grid-setting="theme" value="${gridEscape(settings.theme||'auto')}" aria-label="Music theme"><input type="number" min="0" data-grid-setting="timeline_offset" value="${Number(settings.timeline?.offset||0)}" aria-label="Timeline offset" title="Audio offset, seconds"></div>`;
@@ -28540,7 +28541,7 @@ async function waitGeneration(jobId, options) {
     node.status='WAITING';saveStudioGridState();renderStudioGrid();
   }
   function clearStudioGridReference(nodeId,referenceId,skip=false){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId);if(!node)return;node.attachments=(node.attachments||[]).filter(item=>item.reference_id!==referenceId);const request=(node.output?.requests||[]).find(item=>item.id===referenceId);if(request)request.skipped=!!skip;node.status='WAITING';saveStudioGridState();renderStudioGrid()}
-  async function onStudioGridMediaFiles(event){const files=[...(event?.target?.files||[])],node=loadStudioGridState().nodes.find(item=>item.id===studioGridMediaNodeId),referenceId=studioGridMediaReferenceId;if(!node||!files.length)return;node.attachments=Array.isArray(node.attachments)?node.attachments:[];toast('Uploading references…');for(const file of (referenceId?files.slice(0,1):files)){const kind=file.type.startsWith('image/')?'image':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';try{const url=await uploadProStudioMediaFile(file,kind),item={url,kind,name:file.name,mime:file.type};if(referenceId)setStudioGridReferenceAttachment(node,referenceId,item);else node.attachments.push(item)}catch(error){toast(error?.message||`Could not upload ${file.name}`)}}node.status=referenceId?'WAITING':(node.type==='task'?'IDLE':'READY');saveStudioGridState();renderStudioGrid();studioGridMediaNodeId='';studioGridMediaReferenceId='';toast('References added')}
+  async function onStudioGridMediaFiles(event){const files=[...(event?.target?.files||[])],node=loadStudioGridState().nodes.find(item=>item.id===studioGridMediaNodeId),referenceId=studioGridMediaReferenceId;if(!node||!files.length)return;node.attachments=Array.isArray(node.attachments)?node.attachments:[];toast('Uploading references…');for(const file of (referenceId?files.slice(0,1):files)){const kind=file.type.startsWith('image/')?'image':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';try{const url=await uploadProStudioMediaFile(file,kind),item={url,kind,name:file.name,mime:file.type};if(referenceId)setStudioGridReferenceAttachment(node,referenceId,item);else{if(node.type==='task')item.reference_id=`task_upload_${node.attachments.length+1}`;node.attachments.push(item)}}catch(error){toast(error?.message||`Could not upload ${file.name}`)}}node.status=referenceId?'WAITING':(node.type==='task'?'IDLE':'READY');saveStudioGridState();renderStudioGrid();studioGridMediaNodeId='';studioGridMediaReferenceId='';toast('References added')}
   function removeStudioGridMedia(id,index){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(!node||!Array.isArray(node.attachments))return;node.attachments.splice(Number(index),1);node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid()}
 
   function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source)),mobile=window.matchMedia('(max-width:700px)').matches;copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+(mobile?0:34);copy.y=Number(copy.y)+(mobile?330:34);copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.request_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.result_versions=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid();if(mobile)requestAnimationFrame(resetStudioGridView) }
@@ -28621,7 +28622,8 @@ async function waitGeneration(jobId, options) {
     return settings;
   }
   function gridPlannerContext(source){
-    const state=loadStudioGridState();return {project_id:state.projectId,project_title:state.title,source_node:{type:source.type,model:source.model,settings:source.settings||{}},existing_nodes:state.nodes.filter(node=>node.id!==source.id&&!node.planner_generated).slice(0,30).map(node=>({id:node.id,type:node.type,title:node.title,model:node.model,settings:node.settings,attachments:(node.attachments||[]).map(item=>({kind:item.kind,name:item.name,reference_id:item.reference_id||''}))}))};
+    const state=loadStudioGridState(),sourceNode={type:source.type,settings:source.settings||{}};if(source.type!=='task')sourceNode.model=source.model;
+    return {project_id:state.projectId,project_title:state.title,source_node:sourceNode,existing_nodes:state.nodes.filter(node=>node.id!==source.id&&!node.planner_generated).slice(0,30).map(node=>({id:node.id,type:node.type,title:node.title,...(node.type==='task'?{}:{model:node.model}),settings:node.settings,attachments:(node.attachments||[]).map(item=>({kind:item.kind,name:item.name,reference_id:item.reference_id||''}))}))};
   }
   function finalizeStudioGridPlan(sourceId){
     const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===sourceId),plan=source?.pending_plan;if(!source||!plan)return;
@@ -28646,9 +28648,9 @@ async function waitGeneration(jobId, options) {
     if(studioGridPlannerRunning)return;
     const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id&&(node.type==='task'||node.type==='text')),brief=String(source?.prompt||source?.output?.value||'').trim();
     if(!source||!brief){toast('Сначала опишите задачу');return}
-    studioGridPlannerRunning=true;source.status='RUNNING';source.error='';source.output=null;source.planner_request_id=source.planner_request_id||`grid_plan_${state.projectId}_${source.id}_${Date.now().toString(36)}`;saveStudioGridState();renderStudioGrid();
+    studioGridPlannerRunning=true;source.status='RUNNING';source.error='';source.output=null;(source.attachments||[]).forEach((item,index)=>{if(!item.reference_id)item.reference_id=`task_upload_${index+1}`});source.planner_request_id=source.planner_request_id||`grid_plan_${state.projectId}_${source.id}_${Date.now().toString(36)}`;saveStudioGridState();renderStudioGrid();
     try{
-      const response=await fetch('/api/public/prostudio/grid/plan',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),task:brief,model:source.model||gridDefaultModel('text'),project_id:state.projectId,client_request_id:source.planner_request_id,context:gridPlannerContext(source)})}),plan=await response.json().catch(()=>({}));
+      const response=await fetch('/api/public/prostudio/grid/plan',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),task:brief,project_id:state.projectId,client_request_id:source.planner_request_id,context:gridPlannerContext(source)})}),plan=await response.json().catch(()=>({}));
       if(!response.ok||!plan.ok){source.planner_request_id='';throw new Error(plan.message||'Не удалось построить цепочку')}source.planner_request_id='';
       if(plan.action==='clarify'){source.status='WAITING';source.output={type:'clarification',value:String(plan.question||'Уточните желаемый формат результата.')};source.error='Ответьте в поле и снова нажмите Build chain';saveStudioGridState();renderStudioGrid();return}
       source.pending_plan=plan;

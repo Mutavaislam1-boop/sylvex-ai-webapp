@@ -12,21 +12,24 @@ MAIN_TREE = ast.parse(MAIN_SOURCE)
 PLANNER_FUNCTIONS = [
     node for node in MAIN_TREE.body
     if isinstance(node, ast.FunctionDef) and node.name in {
-        "grid_requested_duration_seconds", "clean_grid_plan", "grid_local_fallback_plan",
+        "grid_requested_duration_seconds", "clean_grid_plan",
         "grid_planner_retryable_result", "grid_planner_generation_with_fallback",
     }
 ]
-PLANNER_NAMESPACE = {"re": re, "json": json, "requests": requests, "time": time}
+PLANNER_NAMESPACE = {
+    "re": re, "json": json, "requests": requests, "time": time,
+    "GRID_TEXT_NODE_MODELS": ("gpt-5.6", "gpt-5.5"),
+}
 exec(compile(ast.Module(body=PLANNER_FUNCTIONS, type_ignores=[]), "main.py", "exec"), PLANNER_NAMESPACE)
 grid_requested_duration_seconds = PLANNER_NAMESPACE["grid_requested_duration_seconds"]
 clean_grid_plan = PLANNER_NAMESPACE["clean_grid_plan"]
-grid_local_fallback_plan = PLANNER_NAMESPACE["grid_local_fallback_plan"]
 grid_planner_generation_with_fallback = PLANNER_NAMESPACE["grid_planner_generation_with_fallback"]
 
 
 CATALOG = {
-    "image": {"models": ["gpt_image_2"]},
-    "video": {"models": {"seedance_2_0": {"durations": list(range(4, 16))}}},
+    "text": {"models": ["gpt-5.6", "gpt-5.5"], "default": "gpt-5.6"},
+    "image": {"models": ["gpt_image_2"], "capabilities": {"gpt_image_2": {"character_reference": True, "object_reference": True}}},
+    "video": {"models": {"seedance_2_0": {"durations": list(range(4, 16)), "start_image": True}}},
     "music": {"models": ["google_lyria_3_clip"]},
     "voice": {"models": ["elevenlabs_eleven_v3"]},
     "montage": {"model": "final_montage"},
@@ -48,17 +51,24 @@ def video_plan(second_duration=30):
         ],
         "nodes": [
             {
-                "key": "shared_script",
+                "key": "shot_1_text",
                 "type": "text",
-                "title": "Full script",
-                "output": "A complete advertising script.",
+                "title": "Opening prompt",
+                "model": "gpt-5.6",
+                "output": "Macro reveal of the exact sneaker, then a runner launches forward.",
+            },
+            {
+                "key": "shot_2_text",
+                "type": "text",
+                "title": "Closing prompt",
+                "model": "gpt-5.6",
+                "output": "The same sneaker lands on a clean hero podium for the final packshot.",
             },
             {
                 "key": "video_1",
                 "type": "video",
                 "title": "Opening shot",
                 "model": "seedance_2_0",
-                "prompt": "Macro reveal of the exact sneaker, then a runner launches forward.",
                 "reference_ids": ["sneaker_1"],
                 "settings": {"duration": 10},
                 "timeline": {"start": 0, "duration": 30, "order": 1},
@@ -68,15 +78,14 @@ def video_plan(second_duration=30):
                 "type": "video",
                 "title": "Closing shot",
                 "model": "seedance_2_0",
-                "prompt": "The same sneaker lands on a clean hero podium for the final packshot.",
                 "reference_ids": ["sneaker_1"],
                 "settings": {"duration": 10},
                 "timeline": {"start": 30, "duration": second_duration, "order": 2},
             },
         ],
         "edges": [
-            {"from": "shared_script", "output": "text", "to": "video_1", "input": "text"},
-            {"from": "shared_script", "output": "text", "to": "video_2", "input": "text"},
+            {"from": "shot_1_text", "output": "text", "to": "video_1", "input": "text"},
+            {"from": "shot_2_text", "output": "text", "to": "video_2", "input": "text"},
         ],
     }
 
@@ -106,17 +115,47 @@ class GridPlannerContractTests(unittest.TestCase):
             clean_grid_plan(video_plan(second_duration=10), "gpt-5.5", CATALOG, task="Create a one-minute sneaker ad")
 
     def test_generic_product_brief_requests_optional_identity_and_can_continue(self):
-        self.assertIn("optional product/brand name or product reference", MAIN_SOURCE)
-        self.assertIn("do not block the plan if the user skips it", MAIN_SOURCE)
+        self.assertIn("add one concise optional reference_requests item", MAIN_SOURCE)
+        self.assertIn("explicitly continue without it", MAIN_SOURCE)
 
-    def test_local_timeout_fallback_builds_a_complete_one_minute_video_chain(self):
-        fallback = grid_local_fallback_plan("Create a one-minute sneaker ad", "gpt-5.5", CATALOG)
-        clean = clean_grid_plan(fallback, "gpt-5.5", CATALOG, task="Create a one-minute sneaker ad")
-        videos = [node for node in clean["nodes"] if node["type"] == "video"]
-        self.assertEqual(sum(node["timeline"]["duration"] for node in videos), 60)
-        self.assertEqual(len(videos), 6)
-        self.assertEqual(len([node for node in clean["nodes"] if node["type"] == "text"]), 6)
-        self.assertEqual(clean["reference_requests"][0]["id"], "primary_identity")
+    def test_image_comparison_can_share_one_prompt_across_distinct_models(self):
+        catalog = {**CATALOG, "image": {
+            "models": ["gpt_image_2", "flux_2"],
+            "capabilities": {
+                "gpt_image_2": {"character_reference": True, "object_reference": True},
+                "flux_2": {"character_reference": True, "object_reference": True},
+            },
+        }}
+        plan = {
+            "action": "plan", "nodes": [
+                {"key": "prompt", "type": "text", "model": "gpt-5.6", "output": "Same fair prompt"},
+                {"key": "a", "type": "image", "model": "gpt_image_2", "settings": {}},
+                {"key": "b", "type": "image", "model": "flux_2", "settings": {}},
+            ], "edges": [
+                {"from": "prompt", "output": "text", "to": "a", "input": "text"},
+                {"from": "prompt", "output": "text", "to": "b", "input": "text"},
+            ],
+        }
+        clean = clean_grid_plan(plan, "gpt-5.6", catalog)
+        self.assertEqual(len(clean["nodes"]), 3)
+        self.assertEqual({node["model"] for node in clean["nodes"] if node["type"] == "image"}, {"gpt_image_2", "flux_2"})
+
+    def test_reference_plan_must_use_a_compatible_model(self):
+        catalog = {**CATALOG, "image": {
+            "models": ["gpt_image_2", "prompt_only"],
+            "capabilities": {
+                "gpt_image_2": {"character_reference": True, "object_reference": True},
+                "prompt_only": {"character_reference": False, "object_reference": False},
+            },
+        }}
+        plan = {
+            "action": "plan", "nodes": [
+                {"key": "prompt", "type": "text", "model": "gpt-5.6", "output": "Keep the product identity"},
+                {"key": "image", "type": "image", "model": "prompt_only", "reference_ids": ["product_1"]},
+            ], "edges": [{"from": "prompt", "output": "text", "to": "image", "input": "text"}],
+        }
+        with self.assertRaisesRegex(ValueError, "planner_image_reference_unsupported"):
+            clean_grid_plan(plan, "gpt-5.6", catalog)
 
     def test_timeout_retries_once_with_fast_model(self):
         calls = []
@@ -136,17 +175,17 @@ class GridPlannerContractTests(unittest.TestCase):
         namespace.update({
             "text_generation": fake_generation, "GRID_PLAN_MAX_OUTPUT_TOKENS": 8000,
             "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS": 50,
-            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-4.1-mini",
+            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-6.1-sol",
         })
         try:
-            result = grid_planner_generation_with_fallback({}, "gpt-5.5", CATALOG, "promo")
+            result = grid_planner_generation_with_fallback({}, "gpt-6-astra", CATALOG, "promo")
         finally:
             namespace.update(previous)
         self.assertTrue(result["ok"])
         self.assertEqual(result["planner_attempt"], "fallback")
-        self.assertEqual(calls, [("gpt-5.5", 50), ("gpt-4.1-mini", 25)])
+        self.assertEqual(calls, [("gpt-6-astra", 50), ("gpt-6.1-sol", 25)])
 
-    def test_two_timeouts_return_a_free_local_plan_instead_of_failure(self):
+    def test_two_timeouts_return_real_failure_without_a_template_plan(self):
         def always_timeout(_payload):
             raise requests.ReadTimeout("slow")
 
@@ -158,16 +197,16 @@ class GridPlannerContractTests(unittest.TestCase):
         namespace.update({
             "text_generation": always_timeout, "GRID_PLAN_MAX_OUTPUT_TOKENS": 8000,
             "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS": 50,
-            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-4.1-mini",
+            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-6.1-sol",
         })
         try:
-            result = grid_planner_generation_with_fallback({}, "gpt-5.5", CATALOG, "Create a one-minute sneaker ad")
+            result = grid_planner_generation_with_fallback({}, "gpt-6-astra", CATALOG, "Create a one-minute sneaker ad")
         finally:
             namespace.update(previous)
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["provider"], "sylvex-local")
-        self.assertEqual(result["planner_attempt"], "local_fallback")
-        self.assertEqual(result["metadata"]["usage"]["output_tokens"], 0)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["provider"], "openai")
+        self.assertEqual(result["error"], "planner_temporarily_unavailable")
+        self.assertEqual(result["planner_attempt"], "failed")
 
 
 if __name__ == "__main__":

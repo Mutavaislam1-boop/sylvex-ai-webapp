@@ -5103,7 +5103,8 @@ def unpriced_helper_response(operation: str) -> JSONResponse:
 # grok_3 / qwen_* were estimated from each provider's published tier when
 # they were first priced; verify against xAI / DashScope before relying on them.
 TEXT_TOKEN_USD_PER_MILLION = {
-    "byteplus_seed_2_lite": ("0.25", "2.00"), "gpt-5.6": ("4.00", "20.00"), "gpt-5.5": ("5.00", "30.00"),
+    "byteplus_seed_2_lite": ("0.25", "2.00"), "gpt-6-astra": ("10.00", "50.00"), "gpt-6.1-sol": ("2.00", "10.00"),
+    "gpt-5.6": ("4.00", "20.00"), "gpt-5.5": ("5.00", "30.00"),
     "gpt-5": ("1.25", "10.00"), "gpt-5-mini": ("0.25", "2.00"), "gpt-4.1": ("2.00", "8.00"),
     "gpt-4.1-mini": ("0.40", "1.60"), "gpt-4o": ("2.50", "10.00"), "gpt-4o-mini": ("0.15", "0.60"),
     "gemini_3_1_pro": ("2.00", "12.00"), "gemini_3_1_flash": ("0.75", "3.75"),
@@ -5121,6 +5122,7 @@ TEXT_LONG_CONTEXT_RATES = {
     "qwen_plus": (256_000, "1.20", "3.60"),
 }
 TEXT_CACHED_INPUT_FACTOR = {
+    "gpt-6-astra": Decimal("0.10"), "gpt-6.1-sol": Decimal("0.05"),
     "byteplus_seed_2_lite": Decimal("0.20"),
     "gemini_3_1_pro": Decimal("0.25"), "gemini_3_1_flash": Decimal("0.25"),
     "gemini_2_5_pro": Decimal("0.25"), "gemini_2_5_flash": Decimal("0.25"),
@@ -5223,12 +5225,14 @@ def text_usage_details(metadata) -> Optional[dict]:
 # cap bounded avoids asking a reasoning model to reserve an unnecessarily
 # large response, which was the main cause of the repeated 90-second Grid
 # Planner reads seen in production.
-GRID_PLAN_MAX_OUTPUT_TOKENS = max(2048, min(12000, int(os.getenv("GRID_PLAN_MAX_OUTPUT_TOKENS") or 8000)))
+GRID_PLAN_MAX_OUTPUT_TOKENS = max(4096, min(24000, int(os.getenv("GRID_PLAN_MAX_OUTPUT_TOKENS") or 12000)))
 GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS = max(2048, min(GRID_PLAN_MAX_OUTPUT_TOKENS, int(os.getenv("GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS") or 6000)))
 GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS = max(15, min(75, int(os.getenv("GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS") or 50)))
 GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS = max(10, min(45, int(os.getenv("GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS") or 25)))
-_grid_planner_fallback_model = (os.getenv("GRID_PLANNER_FALLBACK_MODEL") or "gpt-4.1-mini").strip()
-GRID_PLANNER_FALLBACK_MODEL = _grid_planner_fallback_model if _grid_planner_fallback_model in TEXT_TOKEN_USD_PER_MILLION else "gpt-4.1-mini"
+_grid_planner_model = (os.getenv("GRID_PLANNER_MODEL") or "gpt-6-astra").strip()
+GRID_PLANNER_MODEL = _grid_planner_model if _grid_planner_model in TEXT_TOKEN_USD_PER_MILLION else "gpt-6-astra"
+_grid_planner_fallback_model = (os.getenv("GRID_PLANNER_FALLBACK_MODEL") or "gpt-6.1-sol").strip()
+GRID_PLANNER_FALLBACK_MODEL = _grid_planner_fallback_model if _grid_planner_fallback_model in TEXT_TOKEN_USD_PER_MILLION else "gpt-6.1-sol"
 HOME_IDEA_MAX_OUTPUT_TOKENS = 4000
 ASSISTANT_MAX_OUTPUT_TOKENS = 8000
 OBJECT_VISION_MAX_OUTPUT_TOKENS = 4000
@@ -19808,6 +19812,11 @@ async def generate_try_on_image(payload: dict) -> dict:
 # ТЕКСТОВАЯ ГЕНЕРАЦИЯ: модели, транскрибация и PDF
 # =====================================================
 TEXT_MODEL_VARIANTS = {
+    # Internal Grid Director models. They are intentionally absent from the
+    # client model picker: Task is a brief, while the server owns the
+    # production orchestrator and its retry model.
+    "gpt-6-astra": {"provider": "openai", "provider_model": env_value("OPENAI_GRID_PLANNER_MODEL", default="gpt-6-astra"), "api": "responses"},
+    "gpt-6.1-sol": {"provider": "openai", "provider_model": env_value("OPENAI_GRID_PLANNER_FALLBACK_MODEL", default="gpt-6.1-sol"), "api": "responses"},
     "gpt-5.6": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT56_MODEL", default="gpt-5.6"), "api": "responses"},
     "gpt-5.5": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT55_MODEL", default="gpt-5.5"), "api": "responses"},
     "gpt-5": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT5_MODEL", default="gpt-5")},
@@ -20118,6 +20127,7 @@ def save_text_pdf(text: str, title: str = "SYLVEX Text") -> str:
 # Display name and maker of each selectable Text model, so the model can
 # state its real identity (the SYLVEX Assistant is a separate mode).
 TEXT_MODEL_IDENTITY = {
+    "gpt-6-astra": ("GPT-6 Astra", "OpenAI"), "gpt-6.1-sol": ("GPT-6.1 Sol", "OpenAI"),
     "gpt-5.6": ("GPT-5.6", "OpenAI"), "gpt-5.5": ("GPT-5.5", "OpenAI"), "gpt-5": ("GPT-5", "OpenAI"),
     "gpt-5-mini": ("GPT-5 mini", "OpenAI"), "gpt-4.1": ("GPT-4.1", "OpenAI"), "gpt-4.1-mini": ("GPT-4.1 mini", "OpenAI"),
     "gpt-4o": ("GPT-4o", "OpenAI"), "gpt-4o-mini": ("GPT-4o mini", "OpenAI"),
@@ -20274,7 +20284,7 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
     return True, text, data if isinstance(data, dict) else {}
 
 
-def openai_responses_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None) -> tuple[bool, str, dict]:
+def openai_responses_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None, response_format: Optional[dict] = None) -> tuple[bool, str, dict]:
     require_billing_scope("openai_responses_text_request")
     if not OPENAI_API_KEY:
         return False, "OPENAI API key is not configured", {}
@@ -20301,11 +20311,17 @@ def openai_responses_text_request(provider_model: str, messages: list, max_outpu
         else:
             content = [{"type": text_part_type, "text": str(raw_content or "")}]
         response_input.append({"role": role, "content": content})
+    request_payload = {
+        "model": provider_model,
+        "input": response_input,
+        **({"max_output_tokens": int(max_output_tokens)} if max_output_tokens else {}),
+    }
+    if isinstance(response_format, dict) and response_format.get("type"):
+        request_payload["text"] = {"format": response_format}
     response = requests.post(
         OPENAI_API_BASE.rstrip("/") + "/responses",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-        data=json.dumps({"model": provider_model, "input": response_input,
-                         **({"max_output_tokens": int(max_output_tokens)} if max_output_tokens else {})}),
+        data=json.dumps(request_payload),
         timeout=max(10, min(90, int(request_timeout or 90))),
     )
     try:
@@ -20396,7 +20412,7 @@ def gemini_text_request(provider_model: str, messages: list, max_output_tokens: 
     return True, "\n".join(text_parts).strip(), data if isinstance(data, dict) else {}
 
 
-def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None) -> dict:
+def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None, response_format: Optional[dict] = None) -> dict:
     require_billing_scope("call_text_provider")
     cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-5.5"]
     provider = cfg.get("provider") or "openai"
@@ -20427,7 +20443,7 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
         ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}, **cap_body}, request_timeout)
     else:
         if cfg.get("api") == "responses":
-            ok, text, data = openai_responses_text_request(provider_model, request_messages, max_output_tokens, request_timeout)
+            ok, text, data = openai_responses_text_request(provider_model, request_messages, max_output_tokens, request_timeout, response_format)
         else:
             ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages,
                                                             {"max_completion_tokens": int(max_output_tokens)} if max_output_tokens else None, request_timeout)
@@ -20534,8 +20550,12 @@ def text_generation(payload: dict) -> dict:
     messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
     request_timeout = payload.get("_provider_timeout_seconds")
-    if request_timeout:
-        generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap") or text_output_cap(payload), request_timeout)
+    response_format = payload.get("_response_format") if isinstance(payload.get("_response_format"), dict) else None
+    if request_timeout or response_format:
+        generated = call_text_provider(
+            model, messages, attachment,
+            payload.get("output_token_cap") or text_output_cap(payload), request_timeout, response_format,
+        )
     else:
         generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap") or text_output_cap(payload))
     if not generated.get("ok"):
@@ -24114,6 +24134,34 @@ async def public_prostudio_estimate(request: Request):
         return JSONResponse({"ok": False, "error": "generation_estimate_failed"}, status_code=400)
 
 
+GRID_TEXT_NODE_MODELS = (
+    "gpt-5.6", "gpt-5.5", "gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini",
+    "gpt-4o", "gpt-4o-mini", "gemini_3_1_pro", "gemini_3_1_flash",
+    "gemini_2_5_pro", "gemini_2_5_flash", "grok_4_1", "grok_4_fast", "grok_3",
+    "qwen_plus", "qwen_turbo", "qwen_max", "byteplus_seed_2_lite",
+)
+
+
+def grid_planner_cost_hint(mode: str, model: str, settings: Optional[dict] = None) -> dict:
+    """Small, non-binding catalog estimate so the director can honor budget.
+
+    Actual reservations still use calculate_generation_price() when a node
+    runs. This hint never authorizes or charges a generation.
+    """
+    settings = dict(settings or {})
+    payload = {"mode": mode, "category": mode, "model": model, "prompt": "Production prompt"}
+    payload[f"{mode}_options"] = {"model": model, **settings}
+    try:
+        estimate = calculate_generation_price(payload)
+        available = bool(estimate.get("pricing_available", estimate.get("credits")))
+        return {
+            "sample_credits": int(estimate.get("credits") or estimate.get("cost_credits") or 0) if available else None,
+            "sample_settings": settings,
+        }
+    except Exception:
+        return {"sample_credits": None, "sample_settings": settings}
+
+
 def grid_planner_catalog() -> dict:
     retired = {"sora_2", "sora_2_pro", "runway_gen3a_turbo", "runway_aleph", "luma_dream_machine", "minimax_hailuo_2_3"}
     videos = {}
@@ -24121,6 +24169,8 @@ def grid_planner_catalog() -> dict:
         modes = list(config.get("modes") or [])
         if model_id in retired or config.get("avatar") or "video_effects" in modes:
             continue
+        default_duration = next(iter(config.get("durations") or [5]), 5)
+        default_resolution = next(iter(config.get("resolutions") or ["720p"]), "720p")
         videos[model_id] = {
             "modes": modes,
             "durations": list(config.get("durations") or []),
@@ -24131,67 +24181,126 @@ def grid_planner_catalog() -> dict:
             "start_image": bool(config.get("start_image")),
             "end_image": bool(config.get("end_image")),
             "video_upload": bool(config.get("video_upload")),
+            "cost_hint": grid_planner_cost_hint("video", model_id, {
+                "duration": default_duration, "resolution": default_resolution, "sound": False,
+            }),
         }
+    image_models = ["gpt_image_2", "seedream_5_0_pro", "nano_banana_2", "flux_2", "qwen_image_2_pro", "recraft_v4_1_pro", "ideogram_4_0", "grok_pro"]
+    image_capabilities = {}
+    for model_id in image_models:
+        features = IMAGE_MODEL_FEATURES.get(model_id) or {}
+        capability = {
+            "character_reference": bool(features.get("character")),
+            "object_reference": bool(features.get("object")),
+            "seed": bool(features.get("seed")),
+        }
+        if model_id in SEEDREAM_MODEL_CAPABILITIES:
+            capability["max_references"] = int(SEEDREAM_MODEL_CAPABILITIES[model_id].get("max_references") or 0)
+        image_capabilities[model_id] = capability
+    music_models = ["google_lyria_3_clip", "google_lyria_3_pro"]
+    voice_models = ["elevenlabs_eleven_v3", "elevenlabs_multilingual_v2", "gemini_3_1_flash_tts_preview", "gemini_2_5_pro_preview_tts", "gemini_2_5_flash_preview_tts", "runway_eleven_multilingual_v2"]
     return {
+        "graph_limits": {"max_nodes": 100, "max_edges": 400, "max_reference_requests": 24},
+        "text": {
+            "models": [model for model in GRID_TEXT_NODE_MODELS if model in TEXT_MODEL_VARIANTS],
+            "default": "gpt-5.6",
+            "note": "These are editable/rerunnable Text-node models. They do not control Grid planning.",
+        },
         "image": {
-            "models": ["gpt_image_2", "seedream_5_0_pro", "nano_banana_2", "flux_2", "qwen_image_2_pro", "recraft_v4_1_pro", "ideogram_4_0", "grok_pro"],
+            "models": image_models,
+            "capabilities": image_capabilities,
             "settings": {"size": ["1:1", "16:9", "9:16", "4:3", "3:4"], "resolution": ["1024", "2048", "4096"], "quality": ["standard", "high"], "count": [1, 2, 3, 4]},
+            "cost_hints": {model: grid_planner_cost_hint("image", model, {"size": "16:9", "resolution": "1024", "quality": "standard", "count": 1}) for model in image_models},
         },
         "video": {"models": videos},
         "music": {
-            "models": ["google_lyria_3_clip", "google_lyria_3_pro"],
+            "models": music_models,
             "settings": {"genre": ["auto", "pop", "rock", "rap", "jazz", "ambient", "cinematic", "electronic"], "duration": [30, 60, 120, 180], "mood": ["energetic", "calm", "dramatic", "romantic", "uplifting", "dark"], "tempo": ["slow", "medium", "fast"], "vocal": ["instrumental", "female", "male", "duet", "auto"]},
+            "cost_hints": {model: grid_planner_cost_hint("music", model, {"duration": 60}) for model in music_models},
         },
         "voice": {
-            "models": ["elevenlabs_eleven_v3", "elevenlabs_multilingual_v2", "gemini_3_1_flash_tts_preview", "gemini_2_5_pro_preview_tts", "gemini_2_5_flash_preview_tts", "runway_eleven_multilingual_v2"],
+            "models": voice_models,
             "settings": {"target_language": ["auto", "en", "ru", "kk", "es", "de", "fr", "it", "tr", "ar"], "speaker_mode": ["single", "dialogue"], "runway_tool": ["text_to_speech", "sound_effect"], "emotion": "text", "speed": [0.5, 2.0]},
+            "cost_hints": {model: grid_planner_cost_hint("voice", model, {"duration": 30}) for model in voice_models},
         },
         "montage": {"model": "final_montage", "settings": {"resolution": ["720p", "1080p"], "transition": ["cut", "fade"], "ducking": [True, False]}},
     }
 
 
+def grid_plan_response_format() -> dict:
+    """Responses API schema for the director's graph, not a fixed workflow."""
+    string = {"type": "string"}
+    return {
+        "type": "json_schema", "name": "sylvex_grid_plan", "strict": False,
+        "schema": {
+            "type": "object", "additionalProperties": False, "required": ["action"],
+            "properties": {
+                "action": {"type": "string", "enum": ["plan", "clarify"]},
+                "question": string, "title": string, "summary": string,
+                "reference_requests": {"type": "array", "items": {
+                    "type": "object", "additionalProperties": False,
+                    "properties": {
+                        "id": string, "kind": string, "label": string, "reason": string,
+                        "required": {"type": "boolean"}, "used_by": {"type": "array", "items": string},
+                    },
+                }},
+                "nodes": {"type": "array", "items": {
+                    "type": "object", "additionalProperties": False,
+                    "properties": {
+                        "key": string, "type": string, "title": string, "role": string,
+                        "model": string, "instruction": string, "output": string, "prompt": string,
+                        "settings": {"type": "object", "additionalProperties": True},
+                        "reference_ids": {"type": "array", "items": string},
+                        "timeline": {"type": "object", "additionalProperties": True},
+                    },
+                }},
+                "edges": {"type": "array", "items": {
+                    "type": "object", "additionalProperties": False,
+                    "properties": {"from": string, "output": string, "to": string, "input": string},
+                }},
+            },
+        },
+    }
+
+
 def grid_planner_prompt(task: str, catalog: dict, context: dict) -> str:
     return f"""
-You are SYLVEX Grid Director, a strict professional production orchestrator. Return ONLY valid JSON, never markdown. Never start any generation or claim that media was generated.
+You are SYLVEX Grid Director. You are the autonomous production brain for an open-ended node canvas. Return only the requested JSON object. Never generate media or claim that media has already been generated.
 
-Act at the highest professional level required by the brief:
+The Task block is only the user's brief. There is no user-selected planner model and there is no fixed workflow. You must infer the complete executable DAG in real time: what work is needed, how many nodes are needed, which node types and catalog models to use, every production-ready prompt, every supported setting, all references, and every edge. Do not force a brief into a predefined image chain, video chain, shot count, or template.
+
+Work as the relevant professional team:
 - video/film: director, screenwriter, cinematographer, editor and continuity supervisor;
 - image: photographer, production designer, lighting and VFX specialist;
 - music: composer, producer and lyricist;
 - voice/dialogue/podcast: researcher, writer, dialogue editor and voice director;
-- mixed work: coordinate all roles as one production director.
-Reject shallow planning internally. The amount of structure, writing and technical detail must match the requested purpose and duration. A film needs a coherent story, exact individual shots, action, camera, opening/closing state and continuity. A song needs a complete concept, structure and lyrics when vocals are requested. A podcast needs a substantive, natural and logically connected script.
+- mixed or multi-part briefs: split the work into independent or connected branches and coordinate them as one director.
 
-Only use models and settings from this live capability catalog:
+Only choose IDs and supported settings from this live catalog. Its cost hints are estimates for relative budget decisions; actual price is checked when each node runs:
 {json.dumps(catalog, ensure_ascii=False)}
 
-Rules:
-1. Create only nodes that materially contribute to the result. Allowed types: text, image, video, music, voice, montage. The existing Task node is not returned.
-2. Every text node must contain finished production-ready content in `output`, not a note about what someone should write later. Every downstream media node must receive that exact content through an edge, or contain an equally complete local `prompt`.
-3. For films, commercials and clips, decide the number and duration of shots from the story and requested total duration. Create exactly one dedicated Text node and one Video node per shot. Connect only that shot's Text node to that shot's Video node. Never send the full screenplay or another shot's text to a Video node. Never use a fixed shot count. Keep the sum of shot timeline durations exactly equal to the requested total duration. If a provider only supports longer fixed clips, request the supported clip duration and put the exact shorter used duration in `timeline.duration` so Final Montage trims it correctly.
-4. Put real model parameters in `settings`, never merely describe them in prose. Use only settings supported by the selected model. Select cost-conscious models unless the brief requires a higher-quality capability.
-5. Repeating people, products, locations and objects use stable `reference_ids` on every relevant node. If identity matters and the user did not supply a reference, add a concise optional `reference_requests` entry. For a generic request such as "a one-minute sneaker advertisement", request an optional product/brand name or product reference, but do not block the plan if the user skips it. When skipped, invent one original product with concrete stable visual characteristics and preserve that same identity in every relevant shot. Never request irrelevant references.
-6. If a video model cannot take the required identity reference directly, create one shared Image node for the scene/character and connect its image to the applicable video nodes. Do not regenerate the same identity separately for every shot.
-7. Decide whether native video sound is enough. Generate one shared music track or voice track when continuity calls for it. Avoid one music node per shot unless artistically required. Voice, dialogue and podcast requests must contain finished spoken copy in Text nodes and pass that exact copy into the appropriate Voice node. Music requests must pass the finished concept or lyrics from Text into Music.
-8. Complex multimedia work ends in one montage node. Connect all ordered videos and shared audio to it. Its settings must include timeline entries, transitions, audio roles/offsets, ducking and final resolution.
-9. The graph must be acyclic. Independent nodes may share parents and run in parallel. Edges must represent real data transfer.
-10. If one essential fact would radically change the result and cannot be reasonably inferred, return action=clarify with one short question in the user's language. Otherwise make professional assumptions and plan.
+Director rules:
+1. Allowed node types are text, image, video, music, voice and montage. Do not return the existing Task node. Create as many or as few nodes as the brief actually requires, up to the catalog limits.
+2. A Text node is editable by the user and may use any text model from catalog.text. Its `output` must already contain finished production content, not a promise or instruction to write it later. The hidden Grid Director model is never exposed as a Task setting.
+3. A request to compare N generators must produce one fair shared prompt and N parallel media nodes using N distinct compatible models, unless the user asks for another comparison method. Connect the shared Text node to every compared node so all receive exactly the same prompt.
+4. A brief containing several deliverables must become the corresponding separate branches. Preserve intentional dependencies and let independent branches run in parallel. Never collapse multiple requested tasks into one generic block.
+5. For a requested video duration, design the story and rhythm first, then choose compatible clip models and calculate the exact number of clips from their supported durations. The used `timeline.duration` values must sum to the requested total. Each shot gets its own finished Text prompt and Video node. `settings.duration` is the supported provider duration; `timeline.duration` is the amount used in the final edit. A 300-second project made of 10-second clips therefore needs 30 clips, not 3.
+6. If the user requests a budget result, minimize the total estimated credits while still meeting required capabilities and duration. If quality is the priority, choose stronger compatible models. Never select a model merely because it appears first in the catalog.
+7. Put real parameters in `settings`. Do not describe duration, ratio, resolution, sound or generation mode only in prose. Use only values supported by that model.
+8. Repeating people, products, locations, logos and objects must have stable reference_ids on every relevant node. If a supplied reference is absent and identity matters, add one concise optional reference_requests item. The UI lets the user upload it, name it, or explicitly continue without it. If skipped, invent one original identity with concrete stable visual traits and reuse it unchanged.
+   Attachments already listed in context.source_node.attachments are uploaded. Reuse their exact reference_id on every relevant node and do not ask the user to upload them again.
+9. For continuity, use only officially supported reference capabilities. If a chosen video model cannot accept the needed image, choose another compatible model or create one shared Image asset and connect it to compatible Video nodes. Never route work to evade a provider's policy, identity restriction or safety control.
+10. Decide whether native video sound is enough. Add shared music or voice only when the brief needs it. Spoken copy and lyrics must be finished in Text nodes and connected to Voice or Music. Multi-clip productions that need one final deliverable end in a montage with ordered timeline and audio settings.
+11. Every edge represents real data transfer and the graph must be acyclic. Image references connect through image edges; exact shot prompts through text edges; clips and audio through video/audio edges.
+12. Ask one short question in the user's language only when one missing fact makes a responsible plan impossible. Product/character/logo references are normally optional reference_requests, not blocking clarification. Otherwise make explicit professional assumptions and return action=plan.
 
-Plan JSON schema:
-{{
-  "action":"plan",
-  "title":"project title",
-  "summary":"short production approach",
-  "reference_requests":[{{"id":"product_1","kind":"character|product|object|vehicle|animal|location|logo|style","label":"localized label","reason":"why consistency needs it","required":false,"used_by":["node_key"]}}],
-  "nodes":[{{
-    "key":"stable_key","type":"text|image|video|music|voice|montage","title":"localized title","role":"shot|script|lyrics|music|voice|montage|asset",
-    "model":"exact catalog id","instruction":"what the editable node does","output":"finished content for text nodes","prompt":"finished local prompt for media nodes when no text parent is used",
-    "settings":{{}},"reference_ids":["product_1"],"timeline":{{"start":0,"duration":5,"order":1}}
-  }}],
-  "edges":[{{"from":"source_key","output":"text|image|video|audio","to":"target_key","input":"text|lyrics|image|video|audio"}}]
-}}
+Plan fields:
+- action: plan or clarify; clarify also has question.
+- plan: title, summary, reference_requests, nodes, edges.
+- node: key, type, title, role, exact catalog model, instruction, finished output for Text, optional local prompt for media, settings, reference_ids, timeline.
+- edge: from, output (text/image/video/audio), to, input (task/text/lyrics/image/video/audio).
 
-Current editable Grid context (preserve explicitly user-selected text model and relevant existing choices):
+Current editable Grid context. Preserve relevant explicit user choices, but do not treat a Task model from an old saved project as the director model:
 {json.dumps(context, ensure_ascii=False)}
 
 User brief:
@@ -24245,26 +24354,61 @@ def clean_grid_plan(plan: dict, planner_model: str, catalog: dict, task: str = "
     allowed_inputs = {"task", "text", "lyrics", "image", "video", "audio"}
     allowed_outputs = {"text", "image", "video", "audio"}
     catalog_models = {
+        "text": list(catalog.get("text", {}).get("models") or GRID_TEXT_NODE_MODELS),
         "image": list(catalog["image"]["models"]),
         "video": list(catalog["video"]["models"]),
         "music": list(catalog["music"]["models"]),
         "voice": list(catalog["voice"]["models"]),
         "montage": ["final_montage"],
     }
+    raw_nodes = plan.get("nodes") or []
+    raw_edges = plan.get("edges") or []
+    if not isinstance(raw_nodes, list) or len(raw_nodes) > 100:
+        raise ValueError("planner_node_limit")
+    if not isinstance(raw_edges, list) or len(raw_edges) > 400:
+        raise ValueError("planner_edge_limit")
     clean_nodes, keys = [], set()
-    for index, item in enumerate((plan.get("nodes") or [])[:60]):
+    for index, item in enumerate(raw_nodes):
         if not isinstance(item, dict) or str(item.get("type") or "") not in allowed_types:
-            continue
+            raise ValueError("planner_node_invalid")
         node_type = str(item["type"])
         key = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("key") or f"node_{index}"))[:64]
         if not key or key in keys:
-            continue
+            raise ValueError("planner_node_key_invalid")
         keys.add(key)
-        model = planner_model if node_type == "text" else str(item.get("model") or "")
-        if node_type != "text" and model not in catalog_models[node_type]:
-            model = catalog_models[node_type][0]
+        model = str(item.get("model") or "").strip()
+        if node_type == "text" and not model:
+            model = planner_model if planner_model in catalog_models["text"] else str(catalog.get("text", {}).get("default") or "gpt-5.6")
+        if model not in catalog_models[node_type]:
+            raise ValueError(f"planner_{node_type}_model_invalid")
         settings = item.get("settings") if isinstance(item.get("settings"), dict) else {}
         timeline = item.get("timeline") if isinstance(item.get("timeline"), dict) else {}
+        if node_type == "video":
+            capability = (catalog.get("video", {}).get("models") or {}).get(model) or {}
+            duration = settings.get("duration")
+            if duration is not None and capability.get("durations") and duration not in capability["durations"]:
+                raise ValueError("planner_video_duration_unsupported")
+            ratio = settings.get("ratio")
+            if ratio is not None and capability.get("ratios") and ratio not in capability["ratios"]:
+                raise ValueError("planner_video_ratio_unsupported")
+            resolution = settings.get("resolution")
+            if resolution is not None and capability.get("resolutions") and resolution not in capability["resolutions"]:
+                raise ValueError("planner_video_resolution_unsupported")
+            generation_mode = settings.get("generation_mode")
+            if generation_mode is not None and capability.get("modes") and generation_mode not in capability["modes"]:
+                raise ValueError("planner_video_mode_unsupported")
+        reference_ids = [re.sub(r"[^a-zA-Z0-9_-]", "", str(value))[:64] for value in (item.get("reference_ids") or [])[:12] if str(value).strip()]
+        if reference_ids and node_type == "image":
+            capability = (catalog.get("image", {}).get("capabilities") or {}).get(model) or {}
+            if not (capability.get("character_reference") or capability.get("object_reference")):
+                raise ValueError("planner_image_reference_unsupported")
+            max_references = int(capability.get("max_references") or 0)
+            if max_references and len(reference_ids) > max_references:
+                raise ValueError("planner_image_reference_limit")
+        if reference_ids and node_type == "video":
+            capability = (catalog.get("video", {}).get("models") or {}).get(model) or {}
+            if not (capability.get("start_image") or capability.get("video_upload")):
+                raise ValueError("planner_video_reference_unsupported")
         clean_nodes.append({
             "key": key, "type": node_type,
             "title": str(item.get("title") or node_type)[:100],
@@ -24274,7 +24418,7 @@ def clean_grid_plan(plan: dict, planner_model: str, catalog: dict, task: str = "
             "output": str(item.get("output") or "")[:30000],
             "prompt": str(item.get("prompt") or "")[:30000],
             "settings": settings,
-            "reference_ids": [re.sub(r"[^a-zA-Z0-9_-]", "", str(value))[:64] for value in (item.get("reference_ids") or [])[:12] if str(value).strip()],
+            "reference_ids": reference_ids,
             "timeline": timeline,
         })
     if not clean_nodes:
@@ -24292,74 +24436,63 @@ def clean_grid_plan(plan: dict, planner_model: str, catalog: dict, task: str = "
             seen.add(current)
             queue.extend(adjacency.get(current, []))
         return False
-    for item in (plan.get("edges") or [])[:240]:
+    node_by_key = {node["key"]: node for node in clean_nodes}
+    node_outputs = {"text": {"text"}, "image": {"image"}, "video": {"video"}, "music": {"audio"}, "voice": {"audio"}, "montage": {"video"}}
+    node_inputs = {"text": {"task", "text"}, "image": {"text", "image"}, "video": {"text", "image", "video", "audio"}, "music": {"text", "lyrics"}, "voice": {"text"}, "montage": {"video", "audio"}}
+    for item in raw_edges:
         if not isinstance(item, dict):
-            continue
+            raise ValueError("planner_edge_invalid")
         source, target = str(item.get("from") or ""), str(item.get("to") or "")
         output, input_name = str(item.get("output") or "text"), str(item.get("input") or "text")
         edge_key = (source, output, target, input_name)
-        if source in keys and target in keys and source != target and output in allowed_outputs and input_name in allowed_inputs and edge_key not in edge_keys and not would_cycle(source, target):
-            edge_keys.add(edge_key)
-            clean_edges.append({"from": source, "output": output, "to": target, "input": input_name})
-            adjacency[source].append(target)
+        source_node, target_node = node_by_key.get(source), node_by_key.get(target)
+        compatible = bool(
+            source_node and target_node
+            and output in node_outputs.get(source_node["type"], set())
+            and input_name in node_inputs.get(target_node["type"], set())
+            and (output == input_name or (output == "text" and input_name == "lyrics") or (output == "audio" and input_name == "audio"))
+        )
+        if source not in keys or target not in keys or source == target or output not in allowed_outputs or input_name not in allowed_inputs or not compatible:
+            raise ValueError("planner_edge_incompatible")
+        if edge_key in edge_keys:
+            continue
+        if would_cycle(source, target):
+            raise ValueError("planner_edge_cycle")
+        edge_keys.add(edge_key)
+        clean_edges.append({"from": source, "output": output, "to": target, "input": input_name})
+        adjacency[source].append(target)
 
-    # Every generator must receive the finished content of a Text node. In
-    # particular, each video shot gets its own exclusive text parent so the
-    # full screenplay can never leak into every video request. The planner is
-    # asked to produce this shape; this repair/validation layer makes the
-    # contract deterministic when a model omits an edge or shares one prompt.
-    node_by_key = {node["key"]: node for node in clean_nodes}
+    # Validate the director's graph as returned. Do not invent nodes, prompts
+    # or edges here: that would make Python templates, rather than GPT, the
+    # actual Grid brain.
     media_types = {"image", "video", "music", "voice"}
-    video_text_usage = {}
-    for edge in clean_edges:
-        target = node_by_key.get(edge["to"])
-        source = node_by_key.get(edge["from"])
-        if target and target["type"] == "video" and source and source["type"] == "text" and edge["output"] == "text":
-            video_text_usage[edge["from"]] = video_text_usage.get(edge["from"], 0) + 1
-
-    for node in list(clean_nodes):
+    for node in clean_nodes:
         if node["type"] not in media_types:
             continue
         text_edges = [
             edge for edge in clean_edges
             if edge["to"] == node["key"] and edge["output"] == "text" and edge["input"] in {"text", "lyrics"}
         ]
-        needs_dedicated = node["type"] == "video" and (
-            len(text_edges) != 1 or (text_edges and video_text_usage.get(text_edges[0]["from"], 0) > 1)
-        )
-        if text_edges and not needs_dedicated:
-            continue
-        content = str(node.get("prompt") or "").strip()
-        if not content and text_edges:
-            source_node = node_by_key.get(text_edges[0]["from"])
-            content = str((source_node or {}).get("output") or "").strip()
-        if not content:
+        if not text_edges and not str(node.get("prompt") or "").strip():
             raise ValueError(f"planner_{node['type']}_prompt_missing")
-        base_key = re.sub(r"[^a-zA-Z0-9_-]", "", f"{node['key']}_prompt")[:58] or "media_prompt"
-        prompt_key, suffix = base_key, 2
-        while prompt_key in keys:
-            prompt_key = f"{base_key[:54]}_{suffix}"
-            suffix += 1
-        keys.add(prompt_key)
-        prompt_node = {
-            "key": prompt_key, "type": "text",
-            "title": ("Shot prompt — " if node["type"] == "video" else "Generation prompt — ") + node["title"],
-            "role": "shot" if node["type"] == "video" else "script",
-            "model": planner_model, "instruction": "Edit the finished production prompt.",
-            "output": content[:30000], "prompt": "", "settings": {},
-            "reference_ids": list(node.get("reference_ids") or []),
-            "timeline": dict(node.get("timeline") or {}),
-        }
-        clean_nodes.append(prompt_node)
-        node_by_key[prompt_key] = prompt_node
-        if needs_dedicated:
-            clean_edges = [edge for edge in clean_edges if not (edge["to"] == node["key"] and edge in text_edges)]
-        clean_edges.append({
-            "from": prompt_key, "output": "text", "to": node["key"],
-            "input": "lyrics" if node["type"] == "music" and node.get("role") == "lyrics" else "text",
-        })
+        for edge in text_edges:
+            source_text = node_by_key.get(edge["from"])
+            if not str((source_text or {}).get("output") or "").strip():
+                raise ValueError("planner_text_output_missing")
 
+    # Video productions use one independently editable finished prompt per
+    # shot. Parallel image comparisons may intentionally share one prompt.
     video_nodes = [node for node in clean_nodes if node["type"] == "video"]
+    if len(video_nodes) > 1:
+        video_text_parents = []
+        for node in video_nodes:
+            parents = [edge["from"] for edge in clean_edges if edge["to"] == node["key"] and edge["output"] == "text"]
+            if len(parents) != 1:
+                raise ValueError("planner_video_text_parent_missing")
+            video_text_parents.append(parents[0])
+        if len(set(video_text_parents)) != len(video_text_parents):
+            raise ValueError("planner_video_text_parent_shared")
+
     requested_duration = grid_requested_duration_seconds(task)
     if requested_duration and video_nodes:
         timeline_total = 0.0
@@ -24374,9 +24507,12 @@ def clean_grid_plan(plan: dict, planner_model: str, catalog: dict, task: str = "
             timeline_total += duration
         if abs(timeline_total - requested_duration) > 1:
             raise ValueError("planner_video_duration_mismatch")
+    raw_references = plan.get("reference_requests") or []
+    if not isinstance(raw_references, list) or len(raw_references) > 24:
+        raise ValueError("planner_reference_limit")
     references = []
     reference_ids = set()
-    for index, item in enumerate((plan.get("reference_requests") or [])[:12]):
+    for index, item in enumerate(raw_references):
         if not isinstance(item, dict):
             continue
         ref_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("id") or f"reference_{index}"))[:64]
@@ -24398,120 +24534,6 @@ def clean_grid_plan(plan: dict, planner_model: str, catalog: dict, task: str = "
     }
 
 
-def grid_local_fallback_plan(task: str, planner_model: str, catalog: dict) -> dict:
-    """Return a conservative editable Grid when both remote planner attempts
-    fail transiently. It never launches media. The user can review every
-    generated prompt before running a paid node, and the original brief is
-    preserved verbatim in every relevant prompt.
-    """
-    brief = re.sub(r"\s+", " ", str(task or "")).strip()[:12000]
-    folded = brief.casefold()
-    requested_duration = grid_requested_duration_seconds(brief)
-    video_markers = ("video", "film", "clip", "commercial", "advert", "trailer", "ролик", "видео", "фильм", "реклам")
-    voice_markers = ("voice", "voiceover", "narration", "podcast", "dialogue", "audio dialogue", "озвуч", "голос", "подкаст", "диалог")
-    music_markers = ("music", "song", "track", "soundtrack", "музык", "песн", "трек", "саундтрек")
-    image_markers = ("image", "photo", "picture", "poster", "logo", "illustration", "фото", "изображ", "картин", "постер", "логотип", "иллюстрац")
-    identity_markers = ("sneaker", "shoe", "product", "brand", "logo", "character", "кроссов", "обув", "товар", "продукт", "бренд", "логотип", "персонаж")
-
-    def has(markers):
-        return any(marker in folded for marker in markers)
-
-    title = (brief[:96] or "Grid production").rstrip(" .,:;-")
-    nodes, edges, references = [], [], []
-    if has(video_markers) or re.search(r"\bad\b", folded):
-        video_models = catalog.get("video", {}).get("models") or {}
-        video_model = "seedance_2_0" if "seedance_2_0" in video_models else next(iter(video_models), "")
-        config = video_models.get(video_model) or {}
-        durations = sorted({int(value) for value in (config.get("durations") or [5]) if str(value).isdigit() and int(value) > 0}) or [5]
-        target_duration = max((value for value in durations if value <= 10), default=durations[0])
-        total_duration = requested_duration or target_duration
-        shot_count = max(1, (total_duration + target_duration - 1) // target_duration)
-        # The validated plan accepts at most 60 nodes. Very long projects are
-        # better split into chapters than represented by invalid fake clips.
-        if shot_count > 24:
-            return {
-                "action": "clarify",
-                "question": "The planner is temporarily using recovery mode. Please split this long video into chapters of up to 4 minutes and build each chapter separately.",
-            }
-        cursor = 0
-        video_keys = []
-        timeline_entries = []
-        for index in range(shot_count):
-            used_duration = min(target_duration, total_duration - cursor)
-            provider_duration = next((value for value in durations if value >= used_duration), durations[-1])
-            text_key, video_key = f"recovery_shot_{index + 1}_text", f"recovery_shot_{index + 1}_video"
-            continuity = (
-                f"Shot {index + 1} of {shot_count}, seconds {cursor}-{cursor + used_duration}. "
-                f"Create a coherent production shot for this exact brief: {brief}. "
-                "Preserve the same people, product, branding, wardrobe, materials, colors and location continuity from adjacent shots. "
-                "Describe the visible action, composition, camera position and movement, lighting, beginning state and ending state. "
-                "Do not duplicate frames, split the image, add collages, captions or unrelated subjects."
-            )
-            reference_ids = ["primary_identity"] if has(identity_markers) else []
-            timeline = {"start": cursor, "duration": used_duration, "order": index + 1}
-            nodes.extend([
-                {"key": text_key, "type": "text", "title": f"Shot {index + 1} prompt", "role": "shot", "model": planner_model,
-                 "instruction": "Review and edit this production-ready shot prompt.", "output": continuity,
-                 "reference_ids": reference_ids, "timeline": timeline},
-                {"key": video_key, "type": "video", "title": f"Shot {index + 1}", "role": "shot", "model": video_model,
-                 "settings": {"duration": provider_duration, "resolution": "720p", "ratio": "16:9", "sound": False},
-                 "reference_ids": reference_ids, "timeline": timeline},
-            ])
-            edges.append({"from": text_key, "output": "text", "to": video_key, "input": "text"})
-            video_keys.append(video_key)
-            timeline_entries.append({"node_key": video_key, **timeline})
-            cursor += used_duration
-        if has(identity_markers):
-            references.append({
-                "id": "primary_identity", "kind": "product", "label": "Product, brand or main subject",
-                "reason": "Optional reference or name keeps the same identity in every shot.", "required": False,
-                "used_by": video_keys,
-            })
-        if len(video_keys) > 1:
-            nodes.append({
-                "key": "recovery_final_montage", "type": "montage", "title": "Final montage", "role": "montage",
-                "model": "final_montage", "settings": {"resolution": "1080p", "transition": "fade", "ducking": True, "timeline": timeline_entries},
-            })
-            edges.extend({"from": key, "output": "video", "to": "recovery_final_montage", "input": "video"} for key in video_keys)
-    elif has(voice_markers):
-        voice_model = (catalog.get("voice", {}).get("models") or ["elevenlabs_eleven_v3"])[0]
-        text = f"Production script brief: {brief}\n\nKeep the requested language, speakers, meaning, tone and pacing. Review or replace this text with the exact spoken copy before running Voice."
-        nodes = [
-            {"key": "recovery_voice_text", "type": "text", "title": "Voice or podcast script", "role": "script", "model": planner_model,
-             "instruction": "Review the exact spoken copy.", "output": text},
-            {"key": "recovery_voice", "type": "voice", "title": "Voice generation", "role": "voice", "model": voice_model,
-             "settings": {"speaker_mode": "dialogue" if has(("podcast", "dialogue", "подкаст", "диалог")) else "single", "target_language": "auto"}},
-        ]
-        edges = [{"from": "recovery_voice_text", "output": "text", "to": "recovery_voice", "input": "text"}]
-    elif has(music_markers):
-        music_model = (catalog.get("music", {}).get("models") or ["google_lyria_3_clip"])[0]
-        nodes = [
-            {"key": "recovery_music_text", "type": "text", "title": "Music concept and lyrics", "role": "lyrics", "model": planner_model,
-             "instruction": "Review the musical direction and exact lyrics.", "output": brief},
-            {"key": "recovery_music", "type": "music", "title": "Music generation", "role": "music", "model": music_model,
-             "settings": {"duration": requested_duration or 60, "genre": "auto", "vocal": "auto"}},
-        ]
-        edges = [{"from": "recovery_music_text", "output": "text", "to": "recovery_music", "input": "lyrics"}]
-    elif has(image_markers):
-        image_model = (catalog.get("image", {}).get("models") or ["gpt_image_2"])[0]
-        nodes = [
-            {"key": "recovery_image_text", "type": "text", "title": "Image prompt", "role": "script", "model": planner_model,
-             "instruction": "Review the production prompt.", "output": brief},
-            {"key": "recovery_image", "type": "image", "title": "Image generation", "role": "asset", "model": image_model,
-             "settings": {"size": "1:1", "resolution": "2048", "quality": "high"}},
-        ]
-        edges = [{"from": "recovery_image_text", "output": "text", "to": "recovery_image", "input": "text"}]
-    else:
-        nodes = [{
-            "key": "recovery_text", "type": "text", "title": "Production brief", "role": "script", "model": planner_model,
-            "instruction": "Review and expand this brief before adding a generator.", "output": brief,
-        }]
-    return {
-        "action": "plan", "title": title, "summary": "Recovery plan created after a temporary planner timeout. Review every block before generation.",
-        "reference_requests": references, "nodes": nodes, "edges": edges,
-    }
-
-
 def grid_planner_retryable_result(result: dict) -> bool:
     if not isinstance(result, dict):
         return True
@@ -24524,12 +24546,11 @@ def grid_planner_retryable_result(result: dict) -> bool:
 
 
 def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: str, catalog: dict, task: str) -> dict:
-    """Run one bounded primary attempt and one short, fast-model retry.
+    """Run the hidden GPT director, then one hidden GPT retry.
 
-    Only temporary transport/provider failures and structurally invalid model
-    output trigger the retry. After two such failures a local editable plan is
-    returned, so Grid never stays failed merely because OpenAI exceeded its
-    read window.
+    No local/template plan is permitted: after both attempts fail the Task
+    remains retryable and the real failure is shown instead of fabricating a
+    graph that GPT did not design.
     """
     attempts = [
         (planner_model, GRID_PLAN_MAX_OUTPUT_TOKENS, GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS, "primary"),
@@ -24557,9 +24578,9 @@ def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: 
             if raw.startswith("```"):
                 raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
             try:
-                clean_grid_plan(json.loads(raw), planner_model, catalog, task=task)
+                clean_grid_plan(json.loads(raw), str(catalog.get("text", {}).get("default") or "gpt-5.6"), catalog, task=task)
                 result["planner_attempt"] = attempt_name
-                result["planner_selected_model"] = planner_model
+                result["planner_selected_model"] = model
                 return result
             except (json.JSONDecodeError, ValueError) as exc:
                 saw_temporary_failure = True
@@ -24584,22 +24605,22 @@ def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: 
         last_reason = str(result.get("error") or last_reason)[:120]
         break
 
-    local_plan = grid_local_fallback_plan(task, planner_model, catalog)
-    print("GRID_PLANNER_LOCAL_FALLBACK:", json.dumps({
-        "selected_model": planner_model, "fallback_model": GRID_PLANNER_FALLBACK_MODEL,
-        "reason": last_reason, "action": local_plan.get("action"),
+    print("GRID_PLANNER_UNAVAILABLE:", json.dumps({
+        "primary_model": planner_model, "fallback_model": GRID_PLANNER_FALLBACK_MODEL,
+        "reason": last_reason,
     }))
     return {
-        "ok": True, "type": "text", "text": json.dumps(local_plan, ensure_ascii=False),
-        "provider": "sylvex-local", "model": planner_model,
+        "ok": False, "type": "text", "error": "planner_temporarily_unavailable",
+        "message": "The Grid Director could not build a reliable plan. Please try again.",
+        "provider": "openai", "model": planner_model,
         "metadata": {"usage": {"input_tokens": 0, "output_tokens": 0}},
-        "planner_attempt": "local_fallback", "planner_selected_model": planner_model,
+        "planner_attempt": "failed", "planner_selected_model": planner_model,
     }
 
 
 def grid_planner_usage_credits(selected_model: str):
     def _credits(result):
-        if not isinstance(result, dict) or result.get("provider") == "sylvex-local":
+        if not isinstance(result, dict):
             return 0
         return text_usage_credits(str(result.get("model") or selected_model), result.get("metadata"))
     return _credits
@@ -24616,7 +24637,11 @@ async def public_prostudio_grid_plan(request: Request):
         task = str((body or {}).get("task") or "").strip()
         if not task:
             return JSONResponse({"ok": False, "error": "task_required"}, status_code=400)
-        planner_model = str((body or {}).get("model") or "gpt-5.5").strip()
+        # Task is a pure brief. The caller cannot downgrade, replace or
+        # expose the director by submitting a model field from a saved or
+        # modified client.
+        planner_model = GRID_PLANNER_MODEL
+        text_node_model = "gpt-5.6"
         context = (body or {}).get("context") if isinstance((body or {}).get("context"), dict) else {}
         catalog = grid_planner_catalog()
         planner_payload = {
@@ -24625,14 +24650,15 @@ async def public_prostudio_grid_plan(request: Request):
             "text_options": {"tool": "text", "style": "professional", "format": "json", "language": "auto"},
             "history": [], "attachment": None, "telegram_id": telegram_id,
             "job_id": f"grid-plan:{uuid.uuid4()}", "output_token_cap": GRID_PLAN_MAX_OUTPUT_TOKENS,
+            "_response_format": grid_plan_response_format(),
         }
         planner_input, planner_images = text_generation_price_input(planner_payload)
         primary_reservation = helper_text_reservation(planner_model, planner_input, GRID_PLAN_MAX_OUTPUT_TOKENS, planner_images)
         fallback_payload = {**planner_payload, "model": GRID_PLANNER_FALLBACK_MODEL, "output_token_cap": GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS}
         fallback_input, fallback_images = text_generation_price_input(fallback_payload)
         fallback_reservation = helper_text_reservation(GRID_PLANNER_FALLBACK_MODEL, fallback_input, GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS, fallback_images)
-        # Preserve fail-closed pricing for an unknown selected model. For a
-        # priced model reserve whichever single successful attempt could cost
+        # Preserve fail-closed pricing for the managed director. Reserve
+        # whichever single successful attempt could cost
         # more; the user is never charged twice for a transport retry.
         reservation = max(primary_reservation, fallback_reservation) if primary_reservation > 0 else 0
         generated = await run_billed_helper(
@@ -24647,9 +24673,9 @@ async def public_prostudio_grid_plan(request: Request):
         raw = str(generated.get("text") or "").strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
-        clean = clean_grid_plan(json.loads(raw), planner_model, catalog, task=task)
+        clean = clean_grid_plan(json.loads(raw), text_node_model, catalog, task=task)
         return {
-            "ok": True, **clean, "provider": generated.get("provider"), "model": planner_model,
+            "ok": True, **clean, "provider": generated.get("provider"),
             "planner_attempt": generated.get("planner_attempt") or "primary",
         }
     except SecurityError:
@@ -24803,7 +24829,7 @@ async def public_home_idea_realtime(request: Request):
 @app.post("/api/public/prostudio/generate")
 async def public_prostudio_generate(request: Request):
     payload = dict(await request.json())
-    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe", "_provider_timeout_seconds",
+    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe", "_provider_timeout_seconds", "_response_format",
                          "output_token_cap", TEXT_ATTACHMENT_BYTES_KEY):
         payload.pop(internal_key, None)
     telegram_id = int(payload.get("telegram_id") or 0)
