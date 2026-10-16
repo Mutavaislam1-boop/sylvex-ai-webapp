@@ -1618,11 +1618,11 @@ const VOICE_MODEL_LIST = [
   { id:'gemini_3_1_flash_tts_preview', label:'Gemini 3.1 Flash TTS Preview', providerModel:'gemini-3.1-flash-tts-preview', desc:'Один или два диктора', icon:'gemini' },
   { id:'gemini_2_5_flash_preview_tts', label:'Gemini 2.5 Flash Preview TTS', providerModel:'gemini-2.5-flash-preview-tts', desc:'Быстрая озвучка Gemini', icon:'gemini' },
   { id:'gemini_2_5_pro_preview_tts', label:'Gemini 2.5 Pro Preview TTS', providerModel:'gemini-2.5-pro-preview-tts', desc:'Выразительная озвучка Gemini Pro', icon:'gemini' },
-  { id:'elevenlabs_multilingual_v2', label:'ElevenLabs Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Стабильная многоязычная озвучка', icon:'elevenlabs' },
-  { id:'elevenlabs_flash_v2_5', label:'ElevenLabs Flash v2.5', providerModel:'eleven_flash_v2_5', desc:'Быстрая озвучка с низкой задержкой', icon:'elevenlabs' },
-  { id:'elevenlabs_flash_v2', label:'ElevenLabs Flash v2', providerModel:'eleven_flash_v2', desc:'Быстрая озвучка с низкой задержкой', icon:'elevenlabs' },
-  { id:'elevenlabs_turbo_v2_5', label:'ElevenLabs Turbo v2.5', providerModel:'eleven_turbo_v2_5', desc:'Ускоренная генерация речи', icon:'elevenlabs' },
-  { id:'elevenlabs_turbo_v2', label:'ElevenLabs Turbo v2', providerModel:'eleven_turbo_v2', desc:'Ускоренная генерация речи', icon:'elevenlabs' },
+  { id:'elevenlabs_multilingual_v2', label:'ElevenLabs Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Стабильная многоязычная озвучка', icon:'elevenlabs', dialogue:true },
+  { id:'elevenlabs_flash_v2_5', label:'ElevenLabs Flash v2.5', providerModel:'eleven_flash_v2_5', desc:'Быстрая озвучка с низкой задержкой', icon:'elevenlabs', dialogue:true },
+  { id:'elevenlabs_flash_v2', label:'ElevenLabs Flash v2', providerModel:'eleven_flash_v2', desc:'Быстрая озвучка с низкой задержкой', icon:'elevenlabs', dialogue:true },
+  { id:'elevenlabs_turbo_v2_5', label:'ElevenLabs Turbo v2.5', providerModel:'eleven_turbo_v2_5', desc:'Ускоренная генерация речи', icon:'elevenlabs', dialogue:true },
+  { id:'elevenlabs_turbo_v2', label:'ElevenLabs Turbo v2', providerModel:'eleven_turbo_v2', desc:'Ускоренная генерация речи', icon:'elevenlabs', dialogue:true },
   { id:'elevenlabs_english_sts_v2', label:'ElevenLabs English STS v2', providerModel:'eleven_english_sts_v2', desc:'Изменение английского голоса', icon:'elevenlabs' },
   { id:'elevenlabs_multilingual_sts_v2', label:'ElevenLabs Multilingual STS v2', providerModel:'eleven_multilingual_sts_v2', desc:'Многоязычное изменение голоса', icon:'elevenlabs' },
   { id:'runway_eleven_multilingual_v2', label:'Runway Eleven Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Озвучка текста через Runway', icon:'runway' },
@@ -17810,6 +17810,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const modal = document.getElementById('knowledgeWorkspaceModal');
     const frame = document.getElementById('knowledgeWorkspaceFrame');
     if (!modal || !frame) return;
+    modal.classList.remove('kw-close-covered');
     const modes = { images:'image', video:'video', music:'music', voice:'voice', text:'text', general:'general' };
     const nextSrc = 'knowledge-workspace.html?mode=' + encodeURIComponent(modes[section] || 'image');
     frame.src = nextSrc;
@@ -17824,6 +17825,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const modal = document.getElementById('knowledgeWorkspaceModal');
     const frame = document.getElementById('knowledgeWorkspaceFrame');
     if (!modal) return;
+    modal.classList.remove('kw-close-covered');
     modal.classList.remove('show');
     modal.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('knowledge-workspace-open');
@@ -18592,6 +18594,13 @@ function renderGeneratedTelegramButton(url, kind) {
     if (message.action === 'quick-music-generate') { quickMusicGenerate(message); return; }
     if (message.action === 'quick-voice-generate') { quickVoiceGenerate(message); return; }
     if (message.action === 'quick-voice-script') { quickVoiceScript(message); return; }
+    if (message.action === 'quick-voice-library') {
+      // The phone voice library covers the tool: its own × is the only
+      // close button, the tool's close button goes underneath it.
+      const modal = document.getElementById('knowledgeWorkspaceModal');
+      if (modal) modal.classList.toggle('kw-close-covered', !!message.open);
+      return;
+    }
     if (message.action === 'quick-voice-download') { quickMusicDownload(String(message.url || ''), String(message.title || 'sylvex-dialogue')); return; }
     if (message.action === 'voice-history-request') { quickVoiceRefreshHistory(); return; }
     if (message.action === 'quick-music-track') { quickMusicTrackAction(message); return; }
