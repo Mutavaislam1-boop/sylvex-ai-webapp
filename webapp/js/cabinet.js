@@ -18540,6 +18540,13 @@ function renderGeneratedTelegramButton(url, kind) {
     if (message.action === 'quick-music-generate') { quickMusicGenerate(message); return; }
     if (message.action === 'quick-voice-generate') { quickVoiceGenerate(message); return; }
     if (message.action === 'quick-voice-script') { quickVoiceScript(message); return; }
+    if (message.action === 'workspace-cover') {
+      // A full-screen layer inside the tool (e.g. the video editor) has its
+      // own close button; the tool's close button goes underneath it.
+      const modal = document.getElementById('knowledgeWorkspaceModal');
+      if (modal) modal.classList.toggle('kw-close-covered', !!message.open);
+      return;
+    }
     if (message.action === 'quick-voice-library') {
       // The phone voice library covers the tool: its own × is the only
       // close button, the tool's close button goes underneath it.
