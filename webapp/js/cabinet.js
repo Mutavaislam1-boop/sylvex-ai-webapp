@@ -17752,19 +17752,30 @@ function renderGeneratedTelegramButton(url, kind) {
     updatePrice();
   }
 
-  function openKnowledgeWorkspace(section) {
+  function openKnowledgeWorkspace(section, params) {
     const modal = document.getElementById('knowledgeWorkspaceModal');
     const frame = document.getElementById('knowledgeWorkspaceFrame');
     if (!modal || !frame) return;
     modal.classList.remove('kw-close-covered');
     const modes = { images:'image', video:'video', music:'music', voice:'voice', text:'text', general:'general' };
-    const nextSrc = 'knowledge-workspace.html?mode=' + encodeURIComponent(modes[section] || 'image');
+    const extra = params && typeof params === 'object' ? Object.entries(params).filter(([, value]) => value).map(([key, value]) => '&' + encodeURIComponent(key) + '=' + encodeURIComponent(value)).join('') : '';
+    const nextSrc = 'knowledge-workspace.html?mode=' + encodeURIComponent(modes[section] || 'image') + extra;
     frame.src = nextSrc;
     modal.hidden = false;
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('knowledge-workspace-open');
     if (S.syncTelegramHeader) S.syncTelegramHeader();
+  }
+
+  // "Open in browser" from the video editor in Telegram: the link carries
+  // the saved project (?ve_project=…&ve_token=…) and reopens it here.
+  function openVideoEditorFromLink() {
+    const params = new URLSearchParams(window.location.search || '');
+    const projectId = String(params.get('ve_project') || '');
+    if (!/^project_[A-Za-z0-9_]{4,80}$/.test(projectId)) return;
+    const token = String(params.get('ve_token') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+    openKnowledgeWorkspace('video', { ve_project: projectId, ve_token: token });
   }
 
   function closeKnowledgeWorkspace() {
@@ -29201,6 +29212,7 @@ async function waitGeneration(jobId, options) {
     initAudioPlayer();
     restoreLocalActiveGeneration();
     initializeProStudioComposerMode();
+    openVideoEditorFromLink();
     initStudioGrid();
     applyLang();       // triggers renderDynamic
     initHero();

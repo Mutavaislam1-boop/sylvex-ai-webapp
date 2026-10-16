@@ -48,6 +48,8 @@ from services import admin_auth
 from services import admin_rbac
 from services import notifications as notifications_service
 from services import video_probe
+from services import video_editor as video_editor_service
+from services.media_access import sign_media_url as media_sign_url
 from services import payment_inbox, shop_catalog, shop_orders, stripe_billing, telegram_catalog
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
@@ -4441,6 +4443,17 @@ def ensure_prostudio_table():
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (telegram_id, id))""")
             cursor.execute("""CREATE INDEX IF NOT EXISTS idx_grid_projects_owner_updated
                 ON prostudio_grid_projects (telegram_id, updated_at DESC)""")
+            # SYLVEX Video Editor projects (webapp/js/video-editor/project.js).
+            # share_token reopens the same project outside Telegram.
+            cursor.execute("""CREATE TABLE IF NOT EXISTS prostudio_video_projects (
+                telegram_id BIGINT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+                preview_url TEXT NOT NULL DEFAULT '', share_token TEXT NOT NULL,
+                state_json JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (telegram_id, id))""")
+            cursor.execute("""CREATE INDEX IF NOT EXISTS idx_video_projects_owner_updated
+                ON prostudio_video_projects (telegram_id, updated_at DESC)""")
+            cursor.execute("""CREATE INDEX IF NOT EXISTS idx_video_projects_share
+                ON prostudio_video_projects (id, share_token)""")
             cursor.execute("""
         CREATE TABLE IF NOT EXISTS prostudio_messages (
             id SERIAL PRIMARY KEY,
@@ -7714,6 +7727,172 @@ async def public_video_editor_config(request: Request):
         "trial": not license_key,
         "userId": f"sylvex-{telegram_id}",
     }, headers={"Cache-Control": "no-store"})
+
+
+# =====================================================
+# SYLVEX Video Editor: projects, AI actions, transcript, enhancement price.
+# The editor UI only names actions ("Generate Video", "Voice-over", ...);
+# which model performs each action is decided here.
+# =====================================================
+def _video_editor_owner(request: Request) -> int:
+    owner = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not owner:
+        raise HTTPException(status_code=401, detail="login_required")
+    return owner
+
+
+def video_editor_actions() -> dict:
+    return {
+        "generateVideo": {
+            "model": (os.getenv("VIDEO_EDITOR_VIDEO_MODEL") or "seedance_2_0").strip(),
+            "durations": [5, 10], "duration": 5, "resolution": "720p",
+            "ratios": ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"],
+        },
+        "animatePhoto": {
+            "model": "runway_gen4_5_animate_photo", "provider": "runway", "tool": ANIMATE_PHOTO_TOOL_KEY,
+            "credits": animate_photo_cost_info()["credits"], "duration": ANIMATE_PHOTO_DURATION_SECONDS,
+            "promptMaxLength": ANIMATE_PHOTO_PROMPT_MAX_LENGTH,
+        },
+        "generateMusic": {"model": (os.getenv("VIDEO_EDITOR_MUSIC_MODEL") or "suno_chirp_5_5").strip()},
+        "voiceOver": {"model": (os.getenv("VIDEO_EDITOR_VOICE_MODEL") or "elevenlabs_eleven_v3").strip()},
+        "enhanceVideo": {
+            "tool": ENHANCE_VIDEO_TOOL_KEY, "maxSeconds": video_editor_service.ENHANCE_MAX_SECONDS,
+            "levels": [{"id": key, **value} for key, value in video_editor_service.ENHANCE_LEVELS.items()],
+        },
+        "transcribe": {
+            "maxSeconds": video_editor_service.TRANSCRIBE_MAX_SECONDS,
+            "creditsPerMinute": float(video_editor_service.TRANSCRIBE_USD_PER_MINUTE * video_editor_service.MARKUP * 100),
+        },
+    }
+
+
+@app.get("/api/public/video-editor/actions")
+async def public_video_editor_actions(request: Request):
+    _video_editor_owner(request)
+    return JSONResponse({"ok": True, "actions": video_editor_actions()}, headers={"Cache-Control": "no-store"})
+
+
+def _video_editor_db():
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="video_projects_unavailable")
+    ensure_prostudio_table()
+    return lambda: db_connection(DATABASE_URL)
+
+
+@app.get("/api/public/video-editor/projects")
+async def public_video_editor_projects(request: Request):
+    owner = _video_editor_owner(request)
+    connect = await asyncio.to_thread(_video_editor_db)
+    items = await asyncio.to_thread(video_editor_service.list_projects, connect, owner)
+    return {"ok": True, "projects": items}
+
+
+@app.get("/api/public/video-editor/projects/{project_id}")
+async def public_video_editor_project(request: Request, project_id: str, token: str = ""):
+    """The owner's project, or - with the project's share token - the same
+    project reopened outside Telegram ("Open in browser")."""
+    owner = _video_editor_owner(request)
+    connect = await asyncio.to_thread(_video_editor_db)
+    found = await asyncio.to_thread(video_editor_service.get_project, connect, owner, project_id, token)
+    if not found:
+        return JSONResponse({"ok": False, "error": "video_project_not_found"}, status_code=404)
+    return {"ok": True, **found}
+
+
+@app.put("/api/public/video-editor/projects/{project_id}")
+async def public_video_editor_save_project(request: Request, project_id: str):
+    owner = _video_editor_owner(request)
+    body = await request.json()
+    project = body.get("project") if isinstance(body, dict) else None
+    connect = await asyncio.to_thread(_video_editor_db)
+    try:
+        token = await asyncio.to_thread(video_editor_service.save_project, connect, owner, project_id, project)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
+    return {"ok": True, "shareToken": token}
+
+
+@app.delete("/api/public/video-editor/projects/{project_id}")
+async def public_video_editor_delete_project(request: Request, project_id: str):
+    owner = _video_editor_owner(request)
+    connect = await asyncio.to_thread(_video_editor_db)
+    deleted = await asyncio.to_thread(video_editor_service.delete_project, connect, owner, project_id)
+    return {"ok": True, "deleted": deleted}
+
+
+@app.post("/api/public/video-editor/enhance-estimate")
+async def public_video_editor_enhance_estimate(request: Request):
+    _video_editor_owner(request)
+    body = await request.json()
+    url = str((body or {}).get("url") or "")
+    if not storage_key_from_url(url):
+        return JSONResponse(enhance_video_error("enhance_source_invalid"), status_code=400)
+    try:
+        info = await asyncio.to_thread(video_editor_service.estimate_enhance, url, body.get("start"), body.get("end"))
+    except ValueError as exc:
+        return JSONResponse(enhance_video_error(str(exc)), status_code=400)
+    except Exception as exc:
+        prostudio_error("ENHANCE_VIDEO_ESTIMATE_FAILED", exc)
+        return JSONResponse(enhance_video_error("enhance_prepare_failed"), status_code=502)
+    if not info.get("levels"):
+        return JSONResponse(enhance_video_error("enhance_source_unreadable"), status_code=400)
+    return {"ok": True, **info}
+
+
+TRANSCRIBE_ERRORS = {
+    "transcribe_source_invalid": "Расшифровать можно только медиа, загруженное в проект.",
+    "transcribe_source_unreadable": "Не удалось прочитать звук из этого файла.",
+    "transcribe_too_long": "Расшифровка доступна для файлов до 30 минут.",
+    "transcribe_failed": "Не удалось расшифровать речь. Попробуйте ещё раз.",
+}
+
+
+@app.post("/api/public/video-editor/transcribe")
+async def public_video_editor_transcribe(request: Request):
+    """Timestamped editing transcript of one project media file (OpenAI
+    whisper-1 segments). Billed by audio length at the SYLVEX rule; a file
+    without an audio track returns an empty transcript and costs nothing."""
+    owner = _video_editor_owner(request)
+    body = await request.json()
+    url = str((body or {}).get("url") or "")
+
+    def fail(code: str, status: int = 400):
+        return JSONResponse({"ok": False, "error": code, "message": TRANSCRIBE_ERRORS[code]}, status_code=status)
+
+    if not storage_key_from_url(url):
+        return fail("transcribe_source_invalid")
+    if not OPENAI_API_KEY:
+        return fail("transcribe_failed", 503)
+    suffix = video_probe.url_extension(url) or ".mp4"
+    try:
+        content = await asyncio.to_thread(video_editor_service.load_media_bytes, url)
+        meta = await asyncio.to_thread(video_editor_service.probe_media, content, suffix)
+    except Exception as exc:
+        prostudio_error("VIDEO_EDITOR_TRANSCRIBE_LOAD_FAILED", exc)
+        return fail("transcribe_source_unreadable")
+    duration = float(meta.get("duration") or 0)
+    if duration <= 0:
+        return fail("transcribe_source_unreadable")
+    if duration > video_editor_service.TRANSCRIBE_MAX_SECONDS:
+        return fail("transcribe_too_long")
+    if not meta.get("has_audio"):
+        return {"ok": True, "segments": [], "duration": duration, "language": "", "cost_credits": 0}
+    try:
+        audio = await asyncio.to_thread(video_editor_service.extract_speech_audio, content, suffix)
+    except Exception as exc:
+        prostudio_error("VIDEO_EDITOR_TRANSCRIBE_EXTRACT_FAILED", exc)
+        return fail("transcribe_source_unreadable")
+    language = str((body or {}).get("language") or "")[:2].lower()
+    result = await run_billed_helper(
+        owner, video_editor_service.transcribe_credits(duration), "video_editor_transcribe",
+        lambda: asyncio.to_thread(video_editor_service.transcribe_segments, audio, OPENAI_API_KEY, OPENAI_API_BASE, language),
+        client_request_id=str((body or {}).get("client_request_id") or ""), model="whisper-1", provider="openai",
+    )
+    if not result.get("ok"):
+        print("VIDEO EDITOR TRANSCRIBE FAILED:", result.get("error"))
+        return fail("transcribe_failed", 502)
+    return {"ok": True, "segments": result.get("segments") or [], "duration": duration,
+            "language": result.get("language") or "", "cost_credits": result.get("cost_credits")}
 
 
 @app.post("/api/public/prostudio/gallery/{message_id}/meta")
@@ -17445,6 +17624,130 @@ async def generate_animate_photo_video(payload: dict) -> dict:
     return result
 
 
+# =====================================================
+# SYLVEX Video Editor → "Enhance Video": Runway's video upscaler
+# (POST /v1/video_upscale, model magnific_video_upscaler_creative) on the
+# exact clip the user selected. Like Animate Photo it is an isolated tool:
+# the server measures and (when only part of the file is used) cuts the
+# source before pricing, and the result is persisted to SYLVEX storage
+# before the job completes, so the editor never keeps a temporary URL.
+# =====================================================
+ENHANCE_VIDEO_TOOL_KEY = "enhance_video"
+ENHANCE_VIDEO_MODEL_ID = "sylvex_enhance_video"
+RUNWAY_VIDEO_UPSCALE_ENDPOINT = "https://api.dev.runwayml.com/v1/video_upscale"
+RUNWAY_VIDEO_UPSCALE_MODEL = (os.getenv("RUNWAY_VIDEO_UPSCALE_MODEL") or "magnific_video_upscaler_creative").strip()
+# Leaves room inside the job's hard runtime limit (PROSTUDIO_MAX_JOB_RUNTIME_SECONDS).
+RUNWAY_VIDEO_UPSCALE_POLL_ATTEMPTS = 70
+ENHANCE_VIDEO_ERRORS = {
+    "enhance_level_invalid": "Выберите уровень улучшения.",
+    "enhance_source_invalid": "Улучшить можно только видео, загруженное в проект.",
+    "enhance_source_unreadable": "Не удалось прочитать это видео.",
+    "enhance_segment_too_short": "Фрагмент слишком короткий для улучшения.",
+    "enhance_too_long": f"Улучшить можно фрагмент до {video_editor_service.ENHANCE_MAX_SECONDS} секунд. Разрежьте клип и выберите часть.",
+    "enhance_prepare_failed": "Не удалось подготовить видео к улучшению.",
+}
+
+
+def is_enhance_video_request(payload: dict) -> bool:
+    opts = payload.get("video_options") if isinstance(payload.get("video_options"), dict) else {}
+    return str(opts.get("tool") or "").strip().lower() == ENHANCE_VIDEO_TOOL_KEY
+
+
+def video_editor_request(payload: dict) -> bool:
+    """A generation started by an action inside the SYLVEX Video Editor."""
+    return any(
+        isinstance(payload.get(key), dict) and payload[key].get("source") == "video_editor"
+        for key in ("video_options", "music_options", "voice_options")
+    )
+
+
+def enhance_video_error(code: str) -> dict:
+    return {"ok": False, "type": "video", "error": code, "message": ENHANCE_VIDEO_ERRORS.get(code, ENHANCE_VIDEO_ERRORS["enhance_prepare_failed"])}
+
+
+async def prepare_enhance_video_request(payload: dict) -> Optional[dict]:
+    """Server-measured source for pricing and dispatch. Everything the price
+    depends on is written here, never taken from the client."""
+    opts = dict(payload.get("video_options") or {})
+    for key in ("enhanceInputUrl", "source_meta", "enhanceResolution"):
+        opts.pop(key, None)
+    level = str(opts.get("enhanceLevel") or "").strip().lower()
+    if level not in video_editor_service.ENHANCE_LEVELS:
+        return enhance_video_error("enhance_level_invalid")
+    source = str(opts.get("enhanceSourceUrl") or "").strip()
+    if not storage_key_from_url(source):
+        return enhance_video_error("enhance_source_invalid")
+    try:
+        prepared = await asyncio.to_thread(video_editor_service.prepare_enhance_source, source, opts.get("enhanceStart"), opts.get("enhanceEnd"))
+    except ValueError as exc:
+        return enhance_video_error(str(exc))
+    except Exception as exc:
+        prostudio_error("ENHANCE_VIDEO_PREPARE_FAILED", exc)
+        return enhance_video_error("enhance_prepare_failed")
+    meta = prepared["meta"]
+    opts.update({
+        "tool": ENHANCE_VIDEO_TOOL_KEY,
+        "enhanceLevel": level,
+        "enhanceInputUrl": prepared["url"],
+        "enhanceResolution": video_editor_service.enhance_resolution(level, meta.get("width"), meta.get("height")),
+        "source_meta": {key: meta.get(key) for key in ("duration", "fps", "width", "height", "has_audio")},
+    })
+    payload["video_options"] = opts
+    payload["model"] = ENHANCE_VIDEO_MODEL_ID
+    payload["provider"] = "runway"
+    payload["prompt"] = "SYLVEX Enhance: " + video_editor_service.ENHANCE_LEVELS[level]["label"]
+    return None
+
+
+def enhance_video_cost_info(payload: dict) -> dict:
+    opts = payload.get("video_options") or {}
+    return video_editor_service.enhance_cost_info(opts.get("source_meta") or {}, str(opts.get("enhanceLevel") or ""))
+
+
+async def generate_enhance_video(payload: dict) -> dict:
+    headers = runway_animate_photo_headers()
+    failed = {"ok": False, "type": "video", "error": "Не удалось улучшить видео. Попробуйте ещё раз."}
+    if not headers:
+        return failed
+    opts = payload.get("video_options") or {}
+    input_url = public_media_url(media_sign_url(str(opts.get("enhanceInputUrl") or "")))
+    resolution = str(opts.get("enhanceResolution") or "")
+    if not input_url.startswith("https://") or resolution not in video_editor_service.ENHANCE_RATES:
+        return failed
+    request_body = {"model": RUNWAY_VIDEO_UPSCALE_MODEL, "videoUri": input_url, "resolution": resolution, "flavor": "natural", "creativity": 0}
+    print("ENHANCE VIDEO REQUEST:", {"provider_model": RUNWAY_VIDEO_UPSCALE_MODEL, "resolution": resolution, "level": opts.get("enhanceLevel"),
+                                     "duration": (opts.get("source_meta") or {}).get("duration")})
+    try:
+        response = requests.post(RUNWAY_VIDEO_UPSCALE_ENDPOINT, headers=headers, json=request_body,
+                                 timeout=int(os.getenv("RUNWAY_ANIMATE_PHOTO_TIMEOUT", "60")))
+    except requests.RequestException as exc:
+        print("ENHANCE VIDEO SUBMIT FAILED:", type(exc).__name__)
+        return failed
+    if response.status_code >= 400:
+        print(f"ENHANCE VIDEO SUBMIT ERROR HTTP {response.status_code}:", response.text[:2000])
+        return failed
+    data = safe_provider_json(response, "runway", RUNWAY_VIDEO_UPSCALE_ENDPOINT)
+    task_id = str(data.get("id") or "").strip()
+    if not task_id:
+        return failed
+    status_ok, output_url, _poll_error = poll_animate_photo_task(task_id, headers, max_attempts=RUNWAY_VIDEO_UPSCALE_POLL_ATTEMPTS)
+    if not status_ok or not output_url:
+        return failed
+    persisted_url = _persist_remote_media_url(output_url, "videos", provider="runway")
+    if not storage_key_from_url(persisted_url):
+        print("ENHANCE VIDEO STORAGE PERSIST FAILED")
+        return {"ok": False, "type": "video", "error": "Не удалось сохранить результат. Попробуйте ещё раз."}
+    cost = enhance_video_cost_info(payload)
+    return {
+        "ok": True, "type": "video", "provider": "runway", "model": ENHANCE_VIDEO_MODEL_ID,
+        "provider_model": RUNWAY_VIDEO_UPSCALE_MODEL, "tool": ENHANCE_VIDEO_TOOL_KEY, "status": "completed",
+        "videos": [persisted_url], "video_url": persisted_url, "task_id": task_id,
+        "duration": (opts.get("source_meta") or {}).get("duration"),
+        "cost_credits": cost.get("credits"), "cost_usd": cost.get("cost_usd"), "generation_cost": cost.get("generation_cost"),
+        "storage_status": "completed", "sent_to_telegram": False,
+    }
+
+
 def build_image_prompt(payload: dict) -> str:
     opts = payload.get("image_options") or {}
 
@@ -22698,6 +23001,10 @@ def estimate_generation_cost(payload: dict) -> dict:
         credits = max(1, credits)
         return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True,
                 "billing": "usage", "max_credits": credits, "max_input_tokens": input_tokens, "output_token_cap": output_tokens}
+    if mode == "video" and is_enhance_video_request(payload):
+        info = enhance_video_cost_info(payload)
+        info["operation"] = ENHANCE_VIDEO_TOOL_KEY
+        return info
     if mode == "video" and is_animate_photo_request(payload):
         # Animate Photo is a flat 5-second Runway Gen-4.5 clip (unlike the
         # generic per-second/per-model video pricing table below) - always
@@ -25089,6 +25396,17 @@ async def public_prostudio_generate(request: Request):
                 prostudio_error("TEXT_ATTACHMENT_MEASURE_FAILED", exc, telegram_id=telegram_id)
             else:
                 payload[TEXT_ATTACHMENT_BYTES_KEY] = len(str(document_text or "").encode("utf-8"))
+    if video_editor_request(payload):
+        # Editor actions return their media into the editor project; the
+        # result is not also posted to the Telegram chat.
+        payload["skip_telegram"] = True
+    if mode == "video" and is_enhance_video_request(payload):
+        enhance_error = await prepare_enhance_video_request(payload)
+        if enhance_error:
+            return JSONResponse(enhance_error, status_code=400)
+        prompt = payload["prompt"]
+        selected_model = payload["model"]
+        selected_provider = "runway"
     if mode == "voice":
         dialogue_error = normalize_voice_dialogue_request(payload)
         if dialogue_error:
@@ -25506,6 +25824,9 @@ async def dispatch_prostudio_provider_request(
         # Recraft, Gemini, Qwen, Grok, Ideogram) that block on requests.post; keep
         # them off the shared event loop, same as video_generation below.
         result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
+    elif mode == "video" and is_enhance_video_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="runway", model=selected_model, route="generate_enhance_video")
+        result = await run_provider_coroutine_off_loop(lambda: generate_enhance_video(payload))
     elif mode == "video" and is_animate_photo_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="runway", model=selected_model, route="generate_animate_photo_video")
         # Isolated Quick Tool flow - never falls through to the normal

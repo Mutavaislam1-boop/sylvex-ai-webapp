@@ -3,14 +3,20 @@
 // it receives the SYLVEX project and keeps an engine scene in sync with it.
 //
 // Engine reference: @cesdk/engine (headless CreativeEngine), video scenes
-// with a page, a 'track' for sequential clips, 'audio' blocks, 'text'
-// blocks and clip-to-clip transitions (createTransition / setTransition).
+// with a page, a 'track' for sequential clips (video and image blocks),
+// 'audio' blocks, 'text' blocks and clip-to-clip transitions
+// (createTransition / setTransition).
+//
+// Transitions arrive as SYLVEX library entries (../transitions.js: kind,
+// direction, colour); this adapter maps them onto IMG.LY transition types
+// and their properties.
+import { transitionById } from '../transitions.js';
 
-const TRANSITION_LABELS = {
-  'cross-fade': 'Наплыв', 'cross-blur': 'Размытие', 'cross-spin': 'Вращение', 'cross-zoom': 'Зум', 'cross-warp': 'Деформация',
-  push: 'Сдвиг', slide: 'Скольжение', stack: 'Стопка', splice: 'Разрез', 'diagonal-splice': 'Диагональный разрез',
-  fade: 'Затухание', 'fade-to-white': 'Через белый', 'fade-to-black': 'Через чёрный', 'color-wipe': 'Цветная шторка',
-  'line-wipe': 'Линия', wipe: 'Шторка', 'clock-wipe': 'Часы', chop: 'Нарезка', 'gradient-fade': 'Градиент', 'two-stripes': 'Две полосы',
+// SYLVEX directions -> IMG.LY enum values of 'transition/<type>/direction'.
+const DIRECTION_VALUES = {
+  left: 'Left', right: 'Right', up: 'Up', down: 'Down',
+  clockwise: 'Clockwise', counterclockwise: 'CounterClockwise',
+  horizontal: 'Horizontal', vertical: 'Vertical',
 };
 // Typeface used when the engine's typeface library cannot be loaded
 // (font files from IMG.LY's documentation).
@@ -44,7 +50,7 @@ export function createImglyEngine(config = {}) {
   let track = 0;
   let canExport = false;
   let exportReason = '';
-  let transitions = [];
+  let engineTransitions = [];
   let typefaces = [];
   let frame = { width: 0, height: 0 };
   const clips = new Map(); // clipId -> { block, fill, url }
@@ -58,11 +64,11 @@ export function createImglyEngine(config = {}) {
 
   // The engine can wait forever on a file it cannot decode; give up after a
   // while and report which media failed so the editor can roll it back.
-  async function loadResource(block, mediaId) {
+  async function withTimeout(promise, mediaId) {
     let timer = 0;
     try {
       await Promise.race([
-        engine.block.forceLoadAVResource(block),
+        promise,
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), MEDIA_LOAD_TIMEOUT); }),
       ]);
     } catch (error) {
@@ -71,6 +77,8 @@ export function createImglyEngine(config = {}) {
       clearTimeout(timer);
     }
   }
+
+  const loadResource = (block, mediaId) => withTimeout(engine.block.forceLoadAVResource(block), mediaId);
 
   function fitCamera() {
     if (!engine || !page || !stage || !stage.clientWidth || !stage.clientHeight) return;
@@ -102,29 +110,63 @@ export function createImglyEngine(config = {}) {
       || fonts[0];
   }
 
+  const sourceOf = (media) => media.previewUrl || media.url;
+
   async function ensureClip(clip, media) {
     let entry = clips.get(clip.id);
-    if (entry && (!valid(entry.block) || entry.url !== media.url)) {
+    const url = sourceOf(media);
+    if (entry && (!valid(entry.block) || entry.url !== url)) {
       if (valid(entry.block)) engine.block.destroy(entry.block);
+      transitionBlocks.delete(clip.id);
       entry = null;
     }
     if (!entry) {
       let block = 0;
       let fill = 0;
+      const duration = Math.max(0.1, clip.sourceEnd - clip.sourceStart);
       try {
-        block = await engine.block.addVideo(media.url, frame.width, frame.height, { timeline: { duration: Math.max(0.1, clip.sourceEnd - clip.sourceStart) } });
-        engine.block.appendChild(track, block);
-        fill = engine.block.getFill(block);
-        await loadResource(fill, media.id);
+        if (media.kind === 'image') {
+          block = await engine.block.addImage(url, { size: { width: frame.width, height: frame.height }, timeline: { duration } });
+          engine.block.appendChild(track, block);
+          fill = engine.block.getFill(block);
+          await withTimeout(engine.block.forceLoadResources([fill]), media.id);
+        } else {
+          block = await engine.block.addVideo(url, frame.width, frame.height, { timeline: { duration } });
+          engine.block.appendChild(track, block);
+          fill = engine.block.getFill(block);
+          await loadResource(fill, media.id);
+        }
       } catch (error) {
         if (valid(block)) engine.block.destroy(block);
         throw error.code ? error : Object.assign(new VideoEngineError('media_unsupported', error), { mediaId: media.id });
       }
       try { engine.block.setContentFillMode(block, 'Contain'); } catch (_) {}
-      entry = { block, fill, url: media.url };
+      entry = { block, fill, url, kind: media.kind };
       clips.set(clip.id, entry);
     }
     return entry;
+  }
+
+  // IMG.LY transition of a SYLVEX library entry (or of an older project's
+  // bare IMG.LY type).
+  function transitionSpec(transitionOut) {
+    if (!transitionOut || !transitionOut.type) return null;
+    const item = transitionById(transitionOut.type);
+    const kind = item ? item.kind : transitionOut.type;
+    if (!engineTransitions.includes(kind)) return null;
+    const color = transitionOut.color || (item && item.color) || '';
+    return { kind, dir: item ? item.dir || '' : '', color, key: [kind, item ? item.dir || '' : '', color].join('|') };
+  }
+
+  function applyTransitionProperties(block, spec) {
+    const base = 'transition/' + spec.kind + '/';
+    const props = new Set(engine.block.findAllProperties(block));
+    if (spec.dir && props.has(base + 'direction') && DIRECTION_VALUES[spec.dir]) {
+      try { engine.block.setEnum(block, base + 'direction', DIRECTION_VALUES[spec.dir]); } catch (_) {}
+    }
+    if (spec.color && props.has(base + 'color')) {
+      try { engine.block.setColor(block, base + 'color', hexToColor(spec.color)); } catch (_) {}
+    }
   }
 
   async function syncVideo(project, layout) {
@@ -140,11 +182,13 @@ export function createImglyEngine(config = {}) {
       const clip = project.videoClips[index];
       const entry = await ensureClip(clip, project.media[clip.mediaId]);
       const duration = Math.max(0.1, clip.sourceEnd - clip.sourceStart);
-      engine.block.setTrimOffset(entry.fill, clip.sourceStart);
-      engine.block.setTrimLength(entry.fill, duration);
+      if (entry.kind !== 'image') {
+        engine.block.setTrimOffset(entry.fill, clip.sourceStart);
+        engine.block.setTrimLength(entry.fill, duration);
+        engine.block.setVolume(entry.fill, clip.volume);
+        engine.block.setMuted(entry.fill, !!clip.muted);
+      }
       engine.block.setDuration(entry.block, duration);
-      engine.block.setVolume(entry.fill, clip.volume);
-      engine.block.setMuted(entry.fill, !!clip.muted);
       engine.block.insertChild(track, entry.block, index);
     }
     engine.block.fillParent(track);
@@ -152,10 +196,10 @@ export function createImglyEngine(config = {}) {
     project.videoClips.forEach((clip, index) => {
       const entry = clips.get(clip.id);
       const current = transitionBlocks.get(clip.id);
-      const wantedType = clip.transitionOut && clip.transitionOut.type;
+      const spec = transitionSpec(clip.transitionOut);
       const duration = layout.video[index] ? layout.video[index].transition : 0;
       const stale = current && !valid(current.block);
-      if (current && (stale || current.type !== wantedType || !duration)) {
+      if (current && (stale || !spec || current.key !== spec.key || !duration)) {
         if (!stale) {
           engine.block.removeTransition(entry.block);
           engine.block.destroy(current.block);
@@ -163,13 +207,14 @@ export function createImglyEngine(config = {}) {
         transitionBlocks.delete(clip.id);
       }
       const next = project.videoClips[index + 1] && clips.get(project.videoClips[index + 1].id);
-      if (!wantedType || !duration || !next) return;
+      if (!spec || !duration || !next) return;
       if (!engine.block.supportsTransition(entry.block) || !engine.block.supportsTransition(next.block)) return;
       let assigned = transitionBlocks.get(clip.id);
       if (!assigned) {
-        const block = engine.block.createTransition(wantedType);
+        const block = engine.block.createTransition(spec.kind);
+        applyTransitionProperties(block, spec);
         engine.block.setTransition(entry.block, block);
-        assigned = { block, type: wantedType };
+        assigned = { block, key: spec.key };
         transitionBlocks.set(clip.id, assigned);
       }
       engine.block.setDuration(assigned.block, duration);
@@ -183,11 +228,13 @@ export function createImglyEngine(config = {}) {
     }
     for (const clip of project.audioClips) {
       const media = project.media[clip.mediaId];
+      const url = sourceOf(media);
       let entry = audios.get(clip.id);
-      if (entry && (!valid(entry.block) || entry.url !== media.url)) { if (valid(entry.block)) engine.block.destroy(entry.block); entry = null; }
+      if (entry && (!valid(entry.block) || entry.url !== url)) { if (valid(entry.block)) engine.block.destroy(entry.block); entry = null; }
       if (!entry) {
+        // Audio files, or the sound of a video file (detached original audio).
         const block = engine.block.create('audio');
-        engine.block.setString(block, 'audio/fileURI', media.url);
+        engine.block.setString(block, 'audio/fileURI', url);
         engine.block.appendChild(page, block);
         try {
           await loadResource(block, media.id);
@@ -195,7 +242,7 @@ export function createImglyEngine(config = {}) {
           engine.block.destroy(block);
           throw error;
         }
-        entry = { block, url: media.url };
+        entry = { block, url };
         audios.set(clip.id, entry);
       }
       const duration = Math.max(0.1, clip.sourceEnd - clip.sourceStart);
@@ -284,7 +331,7 @@ export function createImglyEngine(config = {}) {
       resizeObserver = new ResizeObserver(() => fitCamera());
       resizeObserver.observe(container);
       const types = Array.isArray(sdk.TRANSITION_TYPES) ? sdk.TRANSITION_TYPES : [];
-      transitions = types.filter((type) => type !== 'none').map((id) => ({ id, label: TRANSITION_LABELS[id] || id }));
+      engineTransitions = types.filter((type) => type !== 'none');
       typefaces = await loadTypefaces();
       try {
         canExport = typeof sdk.supportsVideoExport === 'function' ? await sdk.supportsVideoExport() : true;
@@ -297,7 +344,8 @@ export function createImglyEngine(config = {}) {
 
     capabilities() {
       return {
-        transitions: transitions.slice(),
+        transitionKinds: engineTransitions.slice(),
+        images: true,
         fonts: typefaces.map((face) => ({ id: face.name, label: face.name })),
         canExport,
         exportReason,
