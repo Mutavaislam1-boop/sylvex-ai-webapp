@@ -255,3 +255,16 @@
   .knowledge-workspace[data-mode="music"].qt-drawer-open{padding-left:calc(var(--qt-drawer-w) + 28px)}
 }
 @media(max-width:700px){.knowledge-workspace[data-mode="music"]{--qt-drawer-w:min(300px,84vw)}}
+/* Quick Access Music: model logos, audio reference, track menu. */
+.qm-model-logo{flex:0 0 16px;width:16px;height:16px;margin-right:7px;object-fit:contain;filter:brightness(0) invert(1);opacity:.96;vertical-align:-3px}
+.photo-picker[hidden],.qm-ref-row[hidden],.qm-ref-chip[hidden],.qm-ref-add[hidden]{display:none!important}
+.qm-ref-row{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+.qm-ref-add{height:34px;padding:0 14px;border:1px dashed rgba(255,255,255,.22);border-radius:17px;background:transparent;color:#e6e6e6;font:600 13px/1 inherit;cursor:pointer}
+.qm-ref-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:34px;padding:0 6px 0 12px;border-radius:17px;background:#262626;color:#eee;font-size:13px}
+.qm-ref-chip span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.qm-ref-chip button{width:24px;height:24px;border:0;border-radius:50%;background:#3a3a3a;color:#fff;cursor:pointer}
+.qm-row{position:relative;display:flex;align-items:center;border-radius:12px}
+.qm-row:hover,.qm-row.menu-open{background:#242424}
+.qm-row .qm-item{flex:1;min-width:0}
+.qm-row .qm-item:hover{background:none}
+.qm-star{margin-right:5px;color:#f5c542;font-style:normal}

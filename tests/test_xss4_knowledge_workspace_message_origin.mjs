@@ -56,6 +56,7 @@ function makeContext() {
     renderVoiceSpeakers: 0,
     setVoicePreview: [],
     quickText: [],
+    musicMeta: [],
   };
   const parent = {}; // the trusted source - the real parent window
   const foreignWindow = {}; // any other window reference - never trusted
@@ -68,6 +69,7 @@ function makeContext() {
     renderVoiceSpeakers: () => { calls.renderVoiceSpeakers++; },
     setVoicePreview: (voice, autoplay) => calls.setVoicePreview.push([voice, autoplay]),
     handleQuickTextParentMessage: (message) => calls.quickText.push(message),
+    qmApplyMeta: (message) => calls.musicMeta.push(message),
   });
   // The real module's closed-over `let` state these actions read/reassign.
   context.voiceLibrary = [];

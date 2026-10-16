@@ -153,6 +153,7 @@ EXAMPLE_MUSIC_MODELS = (
     ('suno_chirp_4_5_plus', 'Suno Chirp v4.5 Plus'),
     ('suno_chirp_5', 'Suno Chirp v5'),
     ('suno_chirp_5_5', 'Suno Chirp v5.5'),
+    ('elevenlabs_music', 'ElevenLabs Music'),
     ('minimax_music_2_5', 'MiniMax Music 2.5'),
     ('google_lyria_3_clip', 'Google Lyria 3 Clip'),
     ('google_lyria_3_pro', 'Google Lyria 3 Pro'),

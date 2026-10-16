@@ -1604,6 +1604,7 @@ const MUSIC_MODEL_LIST = [
   { id:'suno_chirp_4_5_plus', label:'Suno Chirp v4.5 Plus', providerModel:'chirp-v4-5-plus', desc:'Suno music generation · расширенный стиль', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_5', label:'Suno Chirp v5', providerModel:'chirp-v5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'elevenlabs_music', label:'ElevenLabs Music', providerModel:'music_v2_5', desc:'ElevenLabs Music v2.5 · цена по длительности · аудио-референс до 30 сек', icon:'elevenlabs', durations:[0.5,1,2,3,4], referenceAudio:true },
   { id:'minimax_music_2_5', label:'MiniMax Music 2.5', providerModel:'minimax-music-2.5', desc:'MiniMax text-to-music · отдельный API', icon:'minimax', durations:[1,2,3,4], capabilities:{ duration:false } },
   { id:'google_lyria_3_clip', label:'Google Lyria 3 Clip', providerModel:'lyria-3-clip-preview', desc:'Фиксированный музыкальный клип · 30 секунд · MP3', icon:'gemini', durations:[0.5], fixedDurationSeconds:30, capabilities:{ duration:false } },
   { id:'google_lyria_3_pro', label:'Google Lyria 3 Pro', providerModel:'lyria-3-pro-preview', desc:'Полноценные композиции · вокал и тексты · MP3', icon:'gemini', durations:[1,2] },
@@ -18204,7 +18205,13 @@ function renderGeneratedTelegramButton(url, kind) {
   // the tool's carousel. The tool's history is the account's music gallery.
   // =====================================================
   const quickMusicJobs = new Map();
-  const QUICK_MUSIC_GENRES = { pop: 'pop', electronic: 'electronic', 'hip-hop': 'hip_hop', cinematic: 'cinematic', ambient: 'ambient' };
+  // Genre labels of the tool -> the same genre ids Pro Studio sends.
+  function quickMusicGenreId(label) {
+    const value = String(label || '').trim().toLowerCase();
+    if (!value) return 'auto';
+    const match = MUSIC_GENRES.find((genre) => genre.id !== 'auto' && String(genre.label).toLowerCase() === value);
+    return match ? match.id : (value.replace(/[^a-z0-9&]+/g, '_').replace(/^_+|_+$/g, '') || 'auto');
+  }
   const QUICK_MUSIC_VOCALS = { 'инструментал': 'instrumental', 'женский вокал': 'female', 'мужской вокал': 'male' };
 
   function quickMusicFrame() {
@@ -18237,6 +18244,7 @@ function renderGeneratedTelegramButton(url, kind) {
           coverUrl: item.preview_url || '',
           model: item.model || '',
           provider: item.provider || 'suno',
+          favorite: !!item.favorite,
         }));
     } catch (_) {
       return [];
@@ -18244,22 +18252,118 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   // music_options for the Quick Access choices (genre / vocal labels).
-  function quickMusicOptions(model, options) {
+  function quickMusicOptions(model, options, reference) {
     const opts = options && typeof options === 'object' ? options : {};
     const fixed = Number(model.fixedDurationSeconds) || 0;
     let vocal = QUICK_MUSIC_VOCALS[String(opts.vocal || '').trim().toLowerCase()] || 'auto';
     if (Array.isArray(model.vocalModes) && !model.vocalModes.includes(vocal)) vocal = 'instrumental';
-    return {
+    // Duration-priced models (ElevenLabs Music) take the tool's length choice.
+    const chosen = model.referenceAudio ? (Number.parseInt(String(opts.duration || ''), 10) || 60) : 0;
+    const seconds = fixed || chosen || null;
+    const result = {
       model: model.id,
-      genre: QUICK_MUSIC_GENRES[String(opts.genre || '').trim().toLowerCase()] || 'auto',
-      duration: fixed || 'auto',
-      duration_seconds: fixed || null,
-      duration_minutes: fixed ? Number((fixed / 60).toFixed(2)) : null,
+      genre: quickMusicGenreId(opts.genre),
+      duration: seconds || 'auto',
+      duration_seconds: seconds,
+      duration_minutes: seconds ? Number((seconds / 60).toFixed(2)) : null,
       mood: 'auto',
       tempo: 'auto',
       theme: 'auto',
       vocal,
     };
+    if (reference) result.reference_audio = reference;
+    return result;
+  }
+
+  // Reference audio is uploaded first; a reference that cannot be uploaded
+  // stops the generation instead of being dropped.
+  async function quickMusicUploadReference(file, durationMs) {
+    const form = new FormData();
+    form.append('file', file, String(file.name || 'reference.mp3'));
+    const response = await fetch('/api/public/prostudio/upload-media?kind=audio', { method: 'POST', body: form });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok || !data.url) throw new Error('Не удалось загрузить аудио-референс');
+    return { url: String(data.url), duration_ms: Math.max(0, Math.round(Number(durationMs) || 0)), name: String(file.name || 'reference').slice(0, 120) };
+  }
+
+  function quickMusicModels() {
+    return MUSIC_MODEL_LIST.map((model) => {
+      const icon = AI_LOGOS[model.icon] || '';
+      return { id: model.id, label: model.label, icon: icon === 'custom-banana' ? '' : icon, referenceAudio: !!model.referenceAudio };
+    });
+  }
+
+  function quickMusicLibraryMessage(tracks) {
+    return { action: 'music-history', tracks, user: quickTextUserCard(), models: quickMusicModels() };
+  }
+
+  async function quickMusicRefreshHistory() {
+    quickMusicPost(quickMusicLibraryMessage(await quickMusicLibrary()));
+  }
+
+  // Track menu actions on the account's music history (gallery items).
+  async function quickMusicTrackAction(message) {
+    const id = Number(message.id) || 0;
+    const tg = getTelegramId();
+    if (!id || !tg) { if (!tg) guestNeedsAccount(); return; }
+    try {
+      if (message.op === 'favorite' || message.op === 'rename') {
+        const body = message.op === 'favorite' ? { favorite: !!message.favorite } : { title: String(message.title || '') };
+        await fetch('/api/public/prostudio/gallery/' + id + '/meta', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.assign({ telegram_id: tg }, body)),
+        });
+      } else if (message.op === 'delete') {
+        await fetch('/api/public/prostudio/gallery/' + id + '?telegram_id=' + encodeURIComponent(tg), { method: 'DELETE' });
+      } else if (message.op === 'download') {
+        await quickMusicDownload(String(message.url || ''), String(message.title || ''));
+        return;
+      }
+    } catch (_) {}
+    quickMusicRefreshHistory();
+  }
+
+  // Saves the real audio file: Telegram's native download dialog, the
+  // browser's save picker where supported, otherwise a normal download.
+  async function quickMusicDownload(url, title) {
+    if (!url) return;
+    const name = (String(title || 'sylvex-music').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'sylvex-music');
+    const ext = ((/\.(mp3|wav|m4a|ogg|flac|aac)(?:[?#]|$)/i.exec(url) || [])[1] || 'mp3').toLowerCase();
+    const filename = name + '.' + ext;
+    const absoluteUrl = new URL(url, window.location.origin).toString();
+    const tg = S.tg;
+    if (tg && typeof tg.downloadFile === 'function') {
+      try {
+        tg.downloadFile({ url: absoluteUrl, file_name: filename }, (accepted) => { if (accepted === false) toast('Telegram не разрешил скачать файл'); });
+        return;
+      } catch (_) {}
+    }
+    let handle = null;
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: 'Audio', accept: { ['audio/' + (ext === 'mp3' ? 'mpeg' : ext)]: ['.' + ext] } }] });
+      } catch (error) {
+        if (error && error.name === 'AbortError') return;
+        handle = null;
+      }
+    }
+    try {
+      const response = await fetch('/api/public/prostudio/download-content?kind=audio&url=' + encodeURIComponent(absoluteUrl), { cache: 'no-store' });
+      if (!response.ok) throw new Error('download_failed');
+      const blob = await response.blob();
+      if (handle) {
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        toast('Трек сохранён');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      browserDownload(objectUrl, filename);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (_) {
+      browserDownload(absoluteUrl, filename);
+    }
   }
 
   async function quickMusicGenerate(message) {
@@ -18274,6 +18378,9 @@ function renderGeneratedTelegramButton(url, kind) {
       || MUSIC_MODEL_LIST.find((item) => item.id === 'suno_chirp_5_5') || MUSIC_MODEL_LIST[0];
     quickMusicJobs.set(clientId, { prompt });
     try {
+      const referenceFile = message.reference instanceof Blob ? message.reference : null;
+      if (referenceFile && !model.referenceAudio) throw new Error('Эта модель не поддерживает аудио-референс');
+      const reference = referenceFile ? await quickMusicUploadReference(referenceFile, message.referenceDurationMs) : null;
       const response = await fetch('/api/public/prostudio/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
@@ -18285,7 +18392,7 @@ function renderGeneratedTelegramButton(url, kind) {
           category: 'music',
           model: model.id,
           provider: providerHintForModel(model.id),
-          music_options: quickMusicOptions(model, message.options),
+          music_options: quickMusicOptions(model, message.options, reference),
           history: [],
           attachment: null,
           conversation_id: null,
@@ -18316,7 +18423,7 @@ function renderGeneratedTelegramButton(url, kind) {
     } finally {
       quickMusicJobs.delete(clientId);
     }
-    quickMusicPost({ action: 'music-history', tracks: await quickMusicLibrary() });
+    quickMusicRefreshHistory();
   }
 
   async function handleKnowledgeWorkspaceMessage(event) {
@@ -18350,7 +18457,7 @@ function renderGeneratedTelegramButton(url, kind) {
     if (message.action === 'music-library-request') {
       const replyTarget = event.source;
       const tracks = await quickMusicLibrary();
-      replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'music-library', tracks }, location.origin);
+      replyTarget?.postMessage(Object.assign({ source:'sylvex-knowledge-parent' }, quickMusicLibraryMessage(tracks), { action:'music-library' }), location.origin);
       // Generations still running when the tool was reopened.
       quickMusicJobs.forEach((job, clientId) => {
         replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'quick-music-pending', clientId, prompt: job.prompt }, location.origin);
@@ -18358,6 +18465,7 @@ function renderGeneratedTelegramButton(url, kind) {
       return;
     }
     if (message.action === 'quick-music-generate') { quickMusicGenerate(message); return; }
+    if (message.action === 'quick-music-track') { quickMusicTrackAction(message); return; }
     if (message.action === 'image-catalog-item') {
       await loadPhotoCatalog(false);
       quickImageCatalogSection = String(message.kind || 'references');
