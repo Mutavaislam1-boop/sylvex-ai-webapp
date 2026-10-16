@@ -487,7 +487,39 @@ ELEVENLABS_PRICED_TOOLS = frozenset({"text_to_speech", "dialogue"})
 # Text to Dialogue only accepts the Eleven v3 family.
 ELEVENLABS_DIALOGUE_PROVIDER_MODEL = "eleven_v3"
 # Frontend models that may carry a block-by-block dialogue (Quick Voice).
-ELEVENLABS_DIALOGUE_MODELS = frozenset({"elevenlabs_eleven_v3"})
+# Eleven v3 voices the whole dialogue in one Text to Dialogue request and
+# understands audio tags. The other ElevenLabs speech models have no
+# dialogue endpoint: each block is voiced with text-to-speech in its own
+# voice and the clips are joined in order. They do not support audio tags.
+ELEVENLABS_DIALOGUE_TAG_MODELS = frozenset({"elevenlabs_eleven_v3"})
+ELEVENLABS_BLOCK_TTS_MODELS = frozenset({
+    "elevenlabs_multilingual_v2",
+    "elevenlabs_flash_v2_5",
+    "elevenlabs_flash_v2",
+    "elevenlabs_turbo_v2_5",
+    "elevenlabs_turbo_v2",
+})
+ELEVENLABS_DIALOGUE_MODELS = ELEVENLABS_DIALOGUE_TAG_MODELS | ELEVENLABS_BLOCK_TTS_MODELS
+_AUDIO_TAG_RE = re.compile(r"\[[^\[\]\n]{1,40}\]")
+
+
+def strip_audio_tags(text: str) -> str:
+    """Remove [tag] markers for models that would read them aloud."""
+    return re.sub(r"[ \t]{2,}", " ", _AUDIO_TAG_RE.sub("", str(text or ""))).strip()
+
+
+def _join_mp3_segments(segments: list[bytes]) -> bytes:
+    """Concatenate MP3 clips of the same format (one ElevenLabs output
+    format per request) into one stream; ID3 headers after the first clip
+    are dropped so players read one continuous file."""
+    joined = bytearray()
+    for index, segment in enumerate(segments):
+        data = bytes(segment or b"")
+        if index and data[:3] == b"ID3" and len(data) > 10:
+            size = (data[6] & 0x7F) << 21 | (data[7] & 0x7F) << 14 | (data[8] & 0x7F) << 7 | (data[9] & 0x7F)
+            data = data[10 + size:]
+        joined.extend(data)
+    return bytes(joined)
 ELEVENLABS_DIALOGUE_MAX_CHARS = 2000
 ELEVENLABS_DIALOGUE_MAX_VOICES = 10
 ELEVENLABS_DIALOGUE_MAX_BLOCKS = 60
@@ -2225,7 +2257,12 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         tool = "speech_to_speech"
     elif tool == "speech_to_speech" and provider_model not in ELEVENLABS_STS_MODELS:
         provider_model = ELEVENLABS_DEFAULT_STS_MODEL
-    if tool == "dialogue" and provider_model != ELEVENLABS_DIALOGUE_PROVIDER_MODEL:
+    try:
+        dialogue_blocks = dialogue_blocks_from_options(voice_options) if tool == "dialogue" else None
+    except ValueError as exc:
+        return _audio_error(provider, frontend_model, provider_model, str(exc), type="voice", tool=tool)
+    block_tts = bool(dialogue_blocks) and frontend_model in ELEVENLABS_BLOCK_TTS_MODELS
+    if tool == "dialogue" and not block_tts and provider_model != ELEVENLABS_DIALOGUE_PROVIDER_MODEL:
         # Text to Dialogue rejects every other model id; the tariff is the
         # same per-character rate, so the request goes to Eleven v3.
         provider_model = ELEVENLABS_DIALOGUE_PROVIDER_MODEL
@@ -2250,6 +2287,9 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
     voice_id = str(voice_options.get("elevenlabs_voice") or voice_options.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID)
     output_format = str(voice_options.get("output_format") or voice_options.get("outputFormat") or ELEVENLABS_DEFAULT_OUTPUT_FORMAT)
     voice_settings = _elevenlabs_voice_settings(voice_options)
+    if block_tts and not output_format.startswith("mp3_"):
+        # Clips are joined as one MP3 stream.
+        output_format = ELEVENLABS_DEFAULT_OUTPUT_FORMAT if ELEVENLABS_DEFAULT_OUTPUT_FORMAT.startswith("mp3_") else "mp3_44100_128"
 
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
@@ -2373,6 +2413,31 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
                     data=form_data,
                     files={"audio": (filename, audio_bytes, content_type)},
                 )
+            elif block_tts:
+                # One text-to-speech request per block, each in its own
+                # voice, joined in the block order.
+                segments = []
+                for index, block in enumerate(dialogue_blocks):
+                    text = strip_audio_tags(block["text"])
+                    if not text:
+                        continue
+                    endpoint = f"{ELEVENLABS_BASE_URL}/v1/text-to-speech/{block['voice_id']}"
+                    response = await client.post(
+                        endpoint,
+                        headers=_elevenlabs_headers(),
+                        params={"output_format": output_format},
+                        json={"text": text, "model_id": provider_model, "voice_settings": voice_settings},
+                    )
+                    content_type = response.headers.get("content-type") or ""
+                    if response.status_code >= 400 or not response.content or ("audio" not in content_type and "octet-stream" not in content_type):
+                        error_data = await safe_audio_json_response(response, provider, getattr(response, "url", "")) if response.status_code >= 400 else "ElevenLabs returned non-audio response"
+                        return _audio_error(provider, frontend_model, provider_model, error_data, type="voice", status_code=response.status_code, tool=tool, block=index + 1)
+                    segments.append(response.content)
+                if not segments:
+                    return _audio_error(provider, frontend_model, provider_model, "Dialogue prompt is empty", type="voice", tool=tool)
+                print("ELEVENLABS BLOCK DIALOGUE:", {"model": provider_model, "blocks": len(segments)})
+                joined = _join_mp3_segments(segments)
+                return await _completed_elevenlabs_voice_response(payload, frontend_model, provider_model, tool, joined, "audio/mpeg", {"status_code": 200, "content_type": "audio/mpeg", "blocks": len(segments)})
             elif tool == "dialogue":
                 if not prompt:
                     return _audio_error(provider, frontend_model, provider_model, "Dialogue prompt is empty", type="voice", tool=tool)

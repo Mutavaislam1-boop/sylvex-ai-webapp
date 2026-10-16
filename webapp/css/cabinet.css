@@ -10195,3 +10195,4 @@ html.browser-app:is(.device-mobile,.device-tablet) #studioLayoutSwitch{display:n
   border-radius:999px;background:var(--st-bg-2,#16161b);color:var(--st-text,#ececf1);font:600 13px/1.2 inherit;cursor:pointer
 }
 .sylvex-chat-link:hover{border-color:#1687ff}
+.knowledge-workspace-modal.kw-close-covered .knowledge-workspace-close{visibility:hidden;pointer-events:none}

@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from routers.video_templates import router as video_templates_router
 
-from services.audio_router import ELEVENLABS_DIALOGUE_MODELS, ELEVENLABS_PRICED_TOOLS, ELEVENLABS_V3_AUDIO_TAGS, dialogue_blocks_from_options, ELEVENLABS_MUSIC_MODELS, ELEVENLABS_MUSIC_REFERENCE_MAX_MS, MUSIC_REFERENCE_MODELS, elevenlabs_music_length_ms, music_reference_audio, audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_dispatch_tool, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
+from services.audio_router import ELEVENLABS_DIALOGUE_MODELS, ELEVENLABS_DIALOGUE_TAG_MODELS, strip_audio_tags, ELEVENLABS_PRICED_TOOLS, ELEVENLABS_V3_AUDIO_TAGS, dialogue_blocks_from_options, ELEVENLABS_MUSIC_MODELS, ELEVENLABS_MUSIC_REFERENCE_MAX_MS, MUSIC_REFERENCE_MODELS, elevenlabs_music_length_ms, music_reference_audio, audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_dispatch_tool, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
@@ -22078,6 +22078,13 @@ def normalize_voice_dialogue_request(payload: dict) -> Optional[dict]:
     model = str(voice_options.get("model") or payload.get("model") or "").lower()
     if model not in ELEVENLABS_DIALOGUE_MODELS:
         return {"ok": False, "type": "voice", "error": "dialogue_model_not_supported", "message": VOICE_DIALOGUE_ERRORS["dialogue_model_not_supported"]}
+    if model not in ELEVENLABS_DIALOGUE_TAG_MODELS:
+        # Only Eleven v3 understands [tags]; other models would read them
+        # aloud, so they are removed before voicing and before pricing.
+        for block in blocks:
+            block["text"] = strip_audio_tags(block["text"])
+        if any(not block["text"] for block in blocks):
+            return {"ok": False, "type": "voice", "error": "dialogue_text_missing", "message": VOICE_DIALOGUE_ERRORS["dialogue_text_missing"]}
     voices = list(dict.fromkeys(block["voice_id"] for block in blocks))
     voice_options.update({
         "model": model,
