@@ -5219,7 +5219,16 @@ def text_usage_details(metadata) -> Optional[dict]:
     }
 
 
-GRID_PLAN_MAX_OUTPUT_TOKENS = 16000
+# A one-minute production plan normally fits well below this cap. Keeping the
+# cap bounded avoids asking a reasoning model to reserve an unnecessarily
+# large response, which was the main cause of the repeated 90-second Grid
+# Planner reads seen in production.
+GRID_PLAN_MAX_OUTPUT_TOKENS = max(2048, min(12000, int(os.getenv("GRID_PLAN_MAX_OUTPUT_TOKENS") or 8000)))
+GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS = max(2048, min(GRID_PLAN_MAX_OUTPUT_TOKENS, int(os.getenv("GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS") or 6000)))
+GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS = max(15, min(75, int(os.getenv("GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS") or 50)))
+GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS = max(10, min(45, int(os.getenv("GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS") or 25)))
+_grid_planner_fallback_model = (os.getenv("GRID_PLANNER_FALLBACK_MODEL") or "gpt-4.1-mini").strip()
+GRID_PLANNER_FALLBACK_MODEL = _grid_planner_fallback_model if text_token_rates(_grid_planner_fallback_model) else "gpt-4.1-mini"
 HOME_IDEA_MAX_OUTPUT_TOKENS = 4000
 ASSISTANT_MAX_OUTPUT_TOKENS = 8000
 OBJECT_VISION_MAX_OUTPUT_TOKENS = 4000
@@ -20240,7 +20249,7 @@ def quick_text_reply(prompt: str, attachment: dict, history: list, tool: str, ou
     return ""
 
 
-def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: str, provider_model: str, messages: list, extra_body: Optional[dict] = None) -> tuple[bool, str, dict]:
+def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: str, provider_model: str, messages: list, extra_body: Optional[dict] = None, request_timeout: Optional[int] = None) -> tuple[bool, str, dict]:
     require_billing_scope("openai_compatible_text_request")
     if not api_key:
         return False, f"{provider.upper()} API key is not configured", {}
@@ -20249,13 +20258,15 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
         endpoint,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         data=json.dumps({"model": provider_model, "messages": messages, **(extra_body or {})}),
-        timeout=45,
+        timeout=max(10, min(90, int(request_timeout or 45))),
     )
     try:
         data = response.json() if response.content else {}
     except Exception:
         data = {"raw": response.text}
     if response.status_code >= 400:
+        if isinstance(data, dict):
+            data["_http_status"] = response.status_code
         return False, raw_error_text(data) or response.text, data if isinstance(data, dict) else {}
     text = ""
     if isinstance(data, dict):
@@ -20263,7 +20274,7 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
     return True, text, data if isinstance(data, dict) else {}
 
 
-def openai_responses_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None) -> tuple[bool, str, dict]:
+def openai_responses_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None) -> tuple[bool, str, dict]:
     require_billing_scope("openai_responses_text_request")
     if not OPENAI_API_KEY:
         return False, "OPENAI API key is not configured", {}
@@ -20295,13 +20306,15 @@ def openai_responses_text_request(provider_model: str, messages: list, max_outpu
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
         data=json.dumps({"model": provider_model, "input": response_input,
                          **({"max_output_tokens": int(max_output_tokens)} if max_output_tokens else {})}),
-        timeout=90,
+        timeout=max(10, min(90, int(request_timeout or 90))),
     )
     try:
         data = response.json() if response.content else {}
     except Exception:
         data = {"raw": response.text}
     if response.status_code >= 400:
+        if isinstance(data, dict):
+            data["_http_status"] = response.status_code
         return False, raw_error_text(data) or response.text, data if isinstance(data, dict) else {}
     text = str(data.get("output_text") or "") if isinstance(data, dict) else ""
     if not text and isinstance(data, dict):
@@ -20313,7 +20326,7 @@ def openai_responses_text_request(provider_model: str, messages: list, max_outpu
     return True, text, data if isinstance(data, dict) else {}
 
 
-def gemini_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None) -> tuple[bool, str, dict]:
+def gemini_text_request(provider_model: str, messages: list, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None) -> tuple[bool, str, dict]:
     require_billing_scope("gemini_text_request")
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
@@ -20365,13 +20378,15 @@ def gemini_text_request(provider_model: str, messages: list, max_output_tokens: 
         endpoint,
         headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
         data=json.dumps(request_payload),
-        timeout=45,
+        timeout=max(10, min(90, int(request_timeout or 45))),
     )
     try:
         data = response.json() if response.content else {}
     except Exception:
         data = {"raw": response.text}
     if response.status_code >= 400:
+        if isinstance(data, dict):
+            data["_http_status"] = response.status_code
         return False, raw_error_text(data) or response.text, data if isinstance(data, dict) else {}
     text_parts = []
     for candidate in (data.get("candidates") or []) if isinstance(data, dict) else []:
@@ -20381,7 +20396,7 @@ def gemini_text_request(provider_model: str, messages: list, max_output_tokens: 
     return True, "\n".join(text_parts).strip(), data if isinstance(data, dict) else {}
 
 
-def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None, max_output_tokens: Optional[int] = None) -> dict:
+def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None, max_output_tokens: Optional[int] = None, request_timeout: Optional[int] = None) -> dict:
     require_billing_scope("call_text_provider")
     cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-5.5"]
     provider = cfg.get("provider") or "openai"
@@ -20391,11 +20406,11 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
     # so the provider must never return more.
     cap_body = {"max_tokens": int(max_output_tokens)} if max_output_tokens else {}
     if provider == "gemini":
-        ok, text, data = gemini_text_request(provider_model, request_messages, max_output_tokens)
+        ok, text, data = gemini_text_request(provider_model, request_messages, max_output_tokens, request_timeout)
     elif provider in {"grok", "xai"}:
         api_key = env_value("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
         endpoint_base = env_value("XAI_API_BASE", "GROK_API_BASE", default="https://api.x.ai/v1")
-        ok, text, data = openai_compatible_text_request("grok", endpoint_base, api_key, provider_model, request_messages, cap_body or None)
+        ok, text, data = openai_compatible_text_request("grok", endpoint_base, api_key, provider_model, request_messages, cap_body or None, request_timeout)
         provider = "grok"
     elif provider == "qwen":
         api_key = env_value("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY")
@@ -20405,17 +20420,17 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
         # different output rate than the one reserved for the user.
         ok, text, data = openai_compatible_text_request(
             "qwen", endpoint_base, api_key, provider_model, request_messages,
-            {"enable_thinking": False, **cap_body},
+            {"enable_thinking": False, **cap_body}, request_timeout,
         )
     elif provider == "byteplus":
         endpoint_base = BYTEPLUS_ARK_ENDPOINT
-        ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}, **cap_body})
+        ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}, **cap_body}, request_timeout)
     else:
         if cfg.get("api") == "responses":
-            ok, text, data = openai_responses_text_request(provider_model, request_messages, max_output_tokens)
+            ok, text, data = openai_responses_text_request(provider_model, request_messages, max_output_tokens, request_timeout)
         else:
             ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages,
-                                                            {"max_completion_tokens": int(max_output_tokens)} if max_output_tokens else None)
+                                                            {"max_completion_tokens": int(max_output_tokens)} if max_output_tokens else None, request_timeout)
         provider = "openai"
     if not ok:
         return {"ok": False, "error": text, "provider": provider, "model": model, "provider_model": provider_model, "metadata": data}
@@ -20518,7 +20533,11 @@ def text_generation(payload: dict) -> dict:
         prompt = (prompt + f"\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')})").strip()
     messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
-    generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap") or text_output_cap(payload))
+    request_timeout = payload.get("_provider_timeout_seconds")
+    if request_timeout:
+        generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap") or text_output_cap(payload), request_timeout)
+    else:
+        generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap") or text_output_cap(payload))
     if not generated.get("ok"):
         return generated
     text = generated.get("text") or ""
@@ -24379,6 +24398,213 @@ def clean_grid_plan(plan: dict, planner_model: str, catalog: dict, task: str = "
     }
 
 
+def grid_local_fallback_plan(task: str, planner_model: str, catalog: dict) -> dict:
+    """Return a conservative editable Grid when both remote planner attempts
+    fail transiently. It never launches media. The user can review every
+    generated prompt before running a paid node, and the original brief is
+    preserved verbatim in every relevant prompt.
+    """
+    brief = re.sub(r"\s+", " ", str(task or "")).strip()[:12000]
+    folded = brief.casefold()
+    requested_duration = grid_requested_duration_seconds(brief)
+    video_markers = ("video", "film", "clip", "commercial", "advert", "trailer", "ролик", "видео", "фильм", "реклам")
+    voice_markers = ("voice", "voiceover", "narration", "podcast", "dialogue", "audio dialogue", "озвуч", "голос", "подкаст", "диалог")
+    music_markers = ("music", "song", "track", "soundtrack", "музык", "песн", "трек", "саундтрек")
+    image_markers = ("image", "photo", "picture", "poster", "logo", "illustration", "фото", "изображ", "картин", "постер", "логотип", "иллюстрац")
+    identity_markers = ("sneaker", "shoe", "product", "brand", "logo", "character", "кроссов", "обув", "товар", "продукт", "бренд", "логотип", "персонаж")
+
+    def has(markers):
+        return any(marker in folded for marker in markers)
+
+    title = (brief[:96] or "Grid production").rstrip(" .,:;-")
+    nodes, edges, references = [], [], []
+    if has(video_markers) or re.search(r"\bad\b", folded):
+        video_models = catalog.get("video", {}).get("models") or {}
+        video_model = "seedance_2_0" if "seedance_2_0" in video_models else next(iter(video_models), "")
+        config = video_models.get(video_model) or {}
+        durations = sorted({int(value) for value in (config.get("durations") or [5]) if str(value).isdigit() and int(value) > 0}) or [5]
+        target_duration = max((value for value in durations if value <= 10), default=durations[0])
+        total_duration = requested_duration or target_duration
+        shot_count = max(1, (total_duration + target_duration - 1) // target_duration)
+        # The validated plan accepts at most 60 nodes. Very long projects are
+        # better split into chapters than represented by invalid fake clips.
+        if shot_count > 24:
+            return {
+                "action": "clarify",
+                "question": "The planner is temporarily using recovery mode. Please split this long video into chapters of up to 4 minutes and build each chapter separately.",
+            }
+        cursor = 0
+        video_keys = []
+        timeline_entries = []
+        for index in range(shot_count):
+            used_duration = min(target_duration, total_duration - cursor)
+            provider_duration = next((value for value in durations if value >= used_duration), durations[-1])
+            text_key, video_key = f"recovery_shot_{index + 1}_text", f"recovery_shot_{index + 1}_video"
+            continuity = (
+                f"Shot {index + 1} of {shot_count}, seconds {cursor}-{cursor + used_duration}. "
+                f"Create a coherent production shot for this exact brief: {brief}. "
+                "Preserve the same people, product, branding, wardrobe, materials, colors and location continuity from adjacent shots. "
+                "Describe the visible action, composition, camera position and movement, lighting, beginning state and ending state. "
+                "Do not duplicate frames, split the image, add collages, captions or unrelated subjects."
+            )
+            reference_ids = ["primary_identity"] if has(identity_markers) else []
+            timeline = {"start": cursor, "duration": used_duration, "order": index + 1}
+            nodes.extend([
+                {"key": text_key, "type": "text", "title": f"Shot {index + 1} prompt", "role": "shot", "model": planner_model,
+                 "instruction": "Review and edit this production-ready shot prompt.", "output": continuity,
+                 "reference_ids": reference_ids, "timeline": timeline},
+                {"key": video_key, "type": "video", "title": f"Shot {index + 1}", "role": "shot", "model": video_model,
+                 "settings": {"duration": provider_duration, "resolution": "720p", "ratio": "16:9", "sound": False},
+                 "reference_ids": reference_ids, "timeline": timeline},
+            ])
+            edges.append({"from": text_key, "output": "text", "to": video_key, "input": "text"})
+            video_keys.append(video_key)
+            timeline_entries.append({"node_key": video_key, **timeline})
+            cursor += used_duration
+        if has(identity_markers):
+            references.append({
+                "id": "primary_identity", "kind": "product", "label": "Product, brand or main subject",
+                "reason": "Optional reference or name keeps the same identity in every shot.", "required": False,
+                "used_by": video_keys,
+            })
+        if len(video_keys) > 1:
+            nodes.append({
+                "key": "recovery_final_montage", "type": "montage", "title": "Final montage", "role": "montage",
+                "model": "final_montage", "settings": {"resolution": "1080p", "transition": "fade", "ducking": True, "timeline": timeline_entries},
+            })
+            edges.extend({"from": key, "output": "video", "to": "recovery_final_montage", "input": "video"} for key in video_keys)
+    elif has(voice_markers):
+        voice_model = (catalog.get("voice", {}).get("models") or ["elevenlabs_eleven_v3"])[0]
+        text = f"Production script brief: {brief}\n\nKeep the requested language, speakers, meaning, tone and pacing. Review or replace this text with the exact spoken copy before running Voice."
+        nodes = [
+            {"key": "recovery_voice_text", "type": "text", "title": "Voice or podcast script", "role": "script", "model": planner_model,
+             "instruction": "Review the exact spoken copy.", "output": text},
+            {"key": "recovery_voice", "type": "voice", "title": "Voice generation", "role": "voice", "model": voice_model,
+             "settings": {"speaker_mode": "dialogue" if has(("podcast", "dialogue", "подкаст", "диалог")) else "single", "target_language": "auto"}},
+        ]
+        edges = [{"from": "recovery_voice_text", "output": "text", "to": "recovery_voice", "input": "text"}]
+    elif has(music_markers):
+        music_model = (catalog.get("music", {}).get("models") or ["google_lyria_3_clip"])[0]
+        nodes = [
+            {"key": "recovery_music_text", "type": "text", "title": "Music concept and lyrics", "role": "lyrics", "model": planner_model,
+             "instruction": "Review the musical direction and exact lyrics.", "output": brief},
+            {"key": "recovery_music", "type": "music", "title": "Music generation", "role": "music", "model": music_model,
+             "settings": {"duration": requested_duration or 60, "genre": "auto", "vocal": "auto"}},
+        ]
+        edges = [{"from": "recovery_music_text", "output": "text", "to": "recovery_music", "input": "lyrics"}]
+    elif has(image_markers):
+        image_model = (catalog.get("image", {}).get("models") or ["gpt_image_2"])[0]
+        nodes = [
+            {"key": "recovery_image_text", "type": "text", "title": "Image prompt", "role": "script", "model": planner_model,
+             "instruction": "Review the production prompt.", "output": brief},
+            {"key": "recovery_image", "type": "image", "title": "Image generation", "role": "asset", "model": image_model,
+             "settings": {"size": "1:1", "resolution": "2048", "quality": "high"}},
+        ]
+        edges = [{"from": "recovery_image_text", "output": "text", "to": "recovery_image", "input": "text"}]
+    else:
+        nodes = [{
+            "key": "recovery_text", "type": "text", "title": "Production brief", "role": "script", "model": planner_model,
+            "instruction": "Review and expand this brief before adding a generator.", "output": brief,
+        }]
+    return {
+        "action": "plan", "title": title, "summary": "Recovery plan created after a temporary planner timeout. Review every block before generation.",
+        "reference_requests": references, "nodes": nodes, "edges": edges,
+    }
+
+
+def grid_planner_retryable_result(result: dict) -> bool:
+    if not isinstance(result, dict):
+        return True
+    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    status = int(metadata.get("_http_status") or 0)
+    if status in {408, 409, 425, 429, 500, 502, 503, 504}:
+        return True
+    error = str(result.get("error") or result.get("message") or "").casefold()
+    return any(marker in error for marker in ("timeout", "timed out", "temporarily", "rate limit", "overload", "connection", "try again"))
+
+
+def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: str, catalog: dict, task: str) -> dict:
+    """Run one bounded primary attempt and one short, fast-model retry.
+
+    Only temporary transport/provider failures and structurally invalid model
+    output trigger the retry. After two such failures a local editable plan is
+    returned, so Grid never stays failed merely because OpenAI exceeded its
+    read window.
+    """
+    attempts = [
+        (planner_model, GRID_PLAN_MAX_OUTPUT_TOKENS, GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS, "primary"),
+        (GRID_PLANNER_FALLBACK_MODEL, GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS, GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS, "fallback"),
+    ]
+    last_reason = "temporary_provider_failure"
+    saw_temporary_failure = False
+    for attempt_number, (model, output_cap, timeout_seconds, attempt_name) in enumerate(attempts, 1):
+        payload = dict(planner_payload)
+        payload.update({"model": model, "output_token_cap": output_cap, "_provider_timeout_seconds": timeout_seconds})
+        started = time.monotonic()
+        try:
+            result = text_generation(payload)
+        except requests.RequestException as exc:
+            saw_temporary_failure = True
+            last_reason = type(exc).__name__
+            print("GRID_PLANNER_RETRY:", json.dumps({
+                "attempt": attempt_number, "kind": attempt_name, "model": model,
+                "timeout_seconds": timeout_seconds, "elapsed_ms": int((time.monotonic() - started) * 1000),
+                "reason": last_reason,
+            }))
+            continue
+        if result.get("ok"):
+            raw = str(result.get("text") or "").strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
+            try:
+                clean_grid_plan(json.loads(raw), planner_model, catalog, task=task)
+                result["planner_attempt"] = attempt_name
+                result["planner_selected_model"] = planner_model
+                return result
+            except (json.JSONDecodeError, ValueError) as exc:
+                saw_temporary_failure = True
+                last_reason = str(exc)[:120] or "invalid_planner_response"
+                print("GRID_PLANNER_RETRY:", json.dumps({
+                    "attempt": attempt_number, "kind": attempt_name, "model": model,
+                    "elapsed_ms": int((time.monotonic() - started) * 1000), "reason": last_reason,
+                }))
+                continue
+        if grid_planner_retryable_result(result):
+            saw_temporary_failure = True
+            last_reason = str(result.get("error") or "temporary_provider_failure")[:120]
+            print("GRID_PLANNER_RETRY:", json.dumps({
+                "attempt": attempt_number, "kind": attempt_name, "model": model,
+                "elapsed_ms": int((time.monotonic() - started) * 1000), "reason": last_reason,
+            }))
+            continue
+        # A real configuration/authentication/validation error must remain
+        # visible unless it occurred only in the emergency fallback itself.
+        if not saw_temporary_failure:
+            return result
+        last_reason = str(result.get("error") or last_reason)[:120]
+        break
+
+    local_plan = grid_local_fallback_plan(task, planner_model, catalog)
+    print("GRID_PLANNER_LOCAL_FALLBACK:", json.dumps({
+        "selected_model": planner_model, "fallback_model": GRID_PLANNER_FALLBACK_MODEL,
+        "reason": last_reason, "action": local_plan.get("action"),
+    }))
+    return {
+        "ok": True, "type": "text", "text": json.dumps(local_plan, ensure_ascii=False),
+        "provider": "sylvex-local", "model": planner_model,
+        "metadata": {"usage": {"input_tokens": 0, "output_tokens": 0}},
+        "planner_attempt": "local_fallback", "planner_selected_model": planner_model,
+    }
+
+
+def grid_planner_usage_credits(selected_model: str):
+    def _credits(result):
+        if not isinstance(result, dict) or result.get("provider") == "sylvex-local":
+            return 0
+        return text_usage_credits(str(result.get("model") or selected_model), result.get("metadata"))
+    return _credits
+
+
 @app.post("/api/public/prostudio/grid/plan")
 async def public_prostudio_grid_plan(request: Request):
     """Build a professional editable Grid plan. This call never starts media generation."""
@@ -24401,12 +24627,20 @@ async def public_prostudio_grid_plan(request: Request):
             "job_id": f"grid-plan:{uuid.uuid4()}", "output_token_cap": GRID_PLAN_MAX_OUTPUT_TOKENS,
         }
         planner_input, planner_images = text_generation_price_input(planner_payload)
+        primary_reservation = helper_text_reservation(planner_model, planner_input, GRID_PLAN_MAX_OUTPUT_TOKENS, planner_images)
+        fallback_payload = {**planner_payload, "model": GRID_PLANNER_FALLBACK_MODEL, "output_token_cap": GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS}
+        fallback_input, fallback_images = text_generation_price_input(fallback_payload)
+        fallback_reservation = helper_text_reservation(GRID_PLANNER_FALLBACK_MODEL, fallback_input, GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS, fallback_images)
+        # Preserve fail-closed pricing for an unknown selected model. For a
+        # priced model reserve whichever single successful attempt could cost
+        # more; the user is never charged twice for a transport retry.
+        reservation = max(primary_reservation, fallback_reservation) if primary_reservation > 0 else 0
         generated = await run_billed_helper(
             telegram_id,
-            helper_text_reservation(planner_model, planner_input, GRID_PLAN_MAX_OUTPUT_TOKENS, planner_images),
-            "grid_plan", lambda: asyncio.to_thread(text_generation, planner_payload),
+            reservation,
+            "grid_plan", lambda: asyncio.to_thread(grid_planner_generation_with_fallback, planner_payload, planner_model, catalog, task),
             client_request_id=str((body or {}).get("client_request_id") or ""),
-            model=planner_model, usage_credits=text_generation_usage_credits(planner_model),
+            model=planner_model, usage_credits=grid_planner_usage_credits(planner_model),
         )
         if not generated.get("ok"):
             return JSONResponse(generated, status_code=502)
@@ -24414,7 +24648,10 @@ async def public_prostudio_grid_plan(request: Request):
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
         clean = clean_grid_plan(json.loads(raw), planner_model, catalog, task=task)
-        return {"ok": True, **clean, "provider": generated.get("provider"), "model": generated.get("model") or planner_model}
+        return {
+            "ok": True, **clean, "provider": generated.get("provider"), "model": planner_model,
+            "planner_attempt": generated.get("planner_attempt") or "primary",
+        }
     except SecurityError:
         raise
     except HTTPException:
@@ -24566,7 +24803,7 @@ async def public_home_idea_realtime(request: Request):
 @app.post("/api/public/prostudio/generate")
 async def public_prostudio_generate(request: Request):
     payload = dict(await request.json())
-    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe",
+    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe", "_provider_timeout_seconds",
                          "output_token_cap", TEXT_ATTACHMENT_BYTES_KEY):
         payload.pop(internal_key, None)
     telegram_id = int(payload.get("telegram_id") or 0)

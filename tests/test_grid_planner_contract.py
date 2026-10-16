@@ -1,6 +1,9 @@
 import ast
+import json
 from pathlib import Path
 import re
+import requests
+import time
 import unittest
 
 
@@ -8,17 +11,22 @@ MAIN_SOURCE = Path(__file__).resolve().parents[1].joinpath("main.py").read_text(
 MAIN_TREE = ast.parse(MAIN_SOURCE)
 PLANNER_FUNCTIONS = [
     node for node in MAIN_TREE.body
-    if isinstance(node, ast.FunctionDef) and node.name in {"grid_requested_duration_seconds", "clean_grid_plan"}
+    if isinstance(node, ast.FunctionDef) and node.name in {
+        "grid_requested_duration_seconds", "clean_grid_plan", "grid_local_fallback_plan",
+        "grid_planner_retryable_result", "grid_planner_generation_with_fallback",
+    }
 ]
-PLANNER_NAMESPACE = {"re": re}
+PLANNER_NAMESPACE = {"re": re, "json": json, "requests": requests, "time": time}
 exec(compile(ast.Module(body=PLANNER_FUNCTIONS, type_ignores=[]), "main.py", "exec"), PLANNER_NAMESPACE)
 grid_requested_duration_seconds = PLANNER_NAMESPACE["grid_requested_duration_seconds"]
 clean_grid_plan = PLANNER_NAMESPACE["clean_grid_plan"]
+grid_local_fallback_plan = PLANNER_NAMESPACE["grid_local_fallback_plan"]
+grid_planner_generation_with_fallback = PLANNER_NAMESPACE["grid_planner_generation_with_fallback"]
 
 
 CATALOG = {
     "image": {"models": ["gpt_image_2"]},
-    "video": {"models": {"seedance_2_0": {}}},
+    "video": {"models": {"seedance_2_0": {"durations": list(range(4, 16))}}},
     "music": {"models": ["google_lyria_3_clip"]},
     "voice": {"models": ["elevenlabs_eleven_v3"]},
     "montage": {"model": "final_montage"},
@@ -100,6 +108,66 @@ class GridPlannerContractTests(unittest.TestCase):
     def test_generic_product_brief_requests_optional_identity_and_can_continue(self):
         self.assertIn("optional product/brand name or product reference", MAIN_SOURCE)
         self.assertIn("do not block the plan if the user skips it", MAIN_SOURCE)
+
+    def test_local_timeout_fallback_builds_a_complete_one_minute_video_chain(self):
+        fallback = grid_local_fallback_plan("Create a one-minute sneaker ad", "gpt-5.5", CATALOG)
+        clean = clean_grid_plan(fallback, "gpt-5.5", CATALOG, task="Create a one-minute sneaker ad")
+        videos = [node for node in clean["nodes"] if node["type"] == "video"]
+        self.assertEqual(sum(node["timeline"]["duration"] for node in videos), 60)
+        self.assertEqual(len(videos), 6)
+        self.assertEqual(len([node for node in clean["nodes"] if node["type"] == "text"]), 6)
+        self.assertEqual(clean["reference_requests"][0]["id"], "primary_identity")
+
+    def test_timeout_retries_once_with_fast_model(self):
+        calls = []
+
+        def fake_generation(payload):
+            calls.append((payload["model"], payload["_provider_timeout_seconds"]))
+            if len(calls) == 1:
+                raise requests.ReadTimeout("slow")
+            return {"ok": True, "text": json.dumps({"action": "clarify", "question": "Which format?"}),
+                    "provider": "openai", "model": payload["model"], "metadata": {}}
+
+        namespace = grid_planner_generation_with_fallback.__globals__
+        previous = {key: namespace.get(key) for key in (
+            "text_generation", "GRID_PLAN_MAX_OUTPUT_TOKENS", "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS",
+            "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_MODEL",
+        )}
+        namespace.update({
+            "text_generation": fake_generation, "GRID_PLAN_MAX_OUTPUT_TOKENS": 8000,
+            "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS": 50,
+            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-4.1-mini",
+        })
+        try:
+            result = grid_planner_generation_with_fallback({}, "gpt-5.5", CATALOG, "promo")
+        finally:
+            namespace.update(previous)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["planner_attempt"], "fallback")
+        self.assertEqual(calls, [("gpt-5.5", 50), ("gpt-4.1-mini", 25)])
+
+    def test_two_timeouts_return_a_free_local_plan_instead_of_failure(self):
+        def always_timeout(_payload):
+            raise requests.ReadTimeout("slow")
+
+        namespace = grid_planner_generation_with_fallback.__globals__
+        previous = {key: namespace.get(key) for key in (
+            "text_generation", "GRID_PLAN_MAX_OUTPUT_TOKENS", "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS",
+            "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS", "GRID_PLANNER_FALLBACK_MODEL",
+        )}
+        namespace.update({
+            "text_generation": always_timeout, "GRID_PLAN_MAX_OUTPUT_TOKENS": 8000,
+            "GRID_PLAN_FALLBACK_MAX_OUTPUT_TOKENS": 6000, "GRID_PLANNER_PRIMARY_TIMEOUT_SECONDS": 50,
+            "GRID_PLANNER_FALLBACK_TIMEOUT_SECONDS": 25, "GRID_PLANNER_FALLBACK_MODEL": "gpt-4.1-mini",
+        })
+        try:
+            result = grid_planner_generation_with_fallback({}, "gpt-5.5", CATALOG, "Create a one-minute sneaker ad")
+        finally:
+            namespace.update(previous)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "sylvex-local")
+        self.assertEqual(result["planner_attempt"], "local_fallback")
+        self.assertEqual(result["metadata"]["usage"]["output_tokens"], 0)
 
 
 if __name__ == "__main__":
