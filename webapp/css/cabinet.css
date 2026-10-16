@@ -9982,10 +9982,18 @@ body.edit-workspace-open{overflow:hidden}
 body.edit-workspace-open #sxSidebar.has-edit-history{z-index:1000021}
 body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:1000022}
 .sx-sidebar.has-edit-history #sxSidebarHistory{display:none!important}
+.sx-sidebar.has-grid-history #sxSidebarHistory{display:none!important}
 #editSidebarHistory .sx-sidebar-history-item{flex-shrink:0;border:0;background:transparent;text-align:left;font-family:inherit;cursor:pointer}
 #editSidebarHistory .sx-sidebar-history-item:hover,#editSidebarHistory .sx-sidebar-history-item.active{background:var(--sx-bg-2);color:var(--sx-text)}
 #editSidebarHistory button:disabled{opacity:.5;cursor:default}
 #editSidebarHistory :is(.edit-sidebar-history-heading,#editSessionSync){position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#studioGridSidebarHistory .sx-sidebar-history-item{width:100%;flex-shrink:0;border:0;background:transparent;text-align:left;font-family:inherit;cursor:pointer}
+#studioGridSidebarHistory .sx-sidebar-history-item:hover,#studioGridSidebarHistory .sx-sidebar-history-item.active{background:var(--sx-bg-2);color:var(--sx-text)}
+#studioGridSidebarHistory .sx-sidebar-history-item.active{box-shadow:inset 2px 0 0 var(--sx-accent)}
+#studioGridSidebarHistory button:disabled{opacity:.5;cursor:default}
+.studio-grid-sidebar-history-heading{padding:2px 6px 0;color:var(--sx-text-mute);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+#studioGridSidebarHistory>[data-grid-sync-status]{padding:0 6px;color:var(--sx-text-mute);font-size:10px;line-height:1.35}
+.sx-sidebar.is-collapsed #studioGridSidebarHistory :is(.studio-grid-sidebar-history-heading,[data-grid-sync-status]){display:none}
 .edit-workspace[data-shared-sidebar="true"] :is(.edit-workspace-action,.edit-workspace-status,.edit-workspace-dock){left:calc(50% + var(--sx-sidebar-w,256px)/2);max-width:calc(100% - var(--sx-sidebar-w,256px) - 36px)}
 .edit-workspace[data-shared-sidebar="true"] .edit-workspace-action{width:min(880px,calc(100% - var(--sx-sidebar-w,256px) - 60px))}
 .edit-workspace[data-shared-sidebar="true"] .edit-workspace-canvas-actions{max-width:calc(100% - var(--sx-sidebar-w,256px) - 100px)}

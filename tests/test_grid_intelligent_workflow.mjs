@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 
 const cabinet = readFileSync(new URL('../webapp/js/cabinet.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../webapp/cabinet.html', import.meta.url), 'utf8');
+const cabinetCss = readFileSync(new URL('../webapp/css/cabinet.css', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../main.py', import.meta.url), 'utf8');
 
 test('Grid planner is a hidden autonomous GPT director instead of a Task model picker', () => {
@@ -47,6 +48,21 @@ test('Grid projects autosave to private server history and remain mobile', () =>
   assert.match(cabinet, /loadStudioGridCloudProjects\(\)/);
   assert.match(cabinet, /window\.addEventListener\('pagehide'/);
   assert.match(cabinet, /function studioGridAvailableOnThisScreen\(\) \{\s*return true;/);
+});
+
+test('website sidebar shows only Grid projects while Grid Mode is open', () => {
+  const renderStart=cabinet.indexOf('function renderStudioGridSidebarHistory()');
+  const renderEnd=cabinet.indexOf('function mountStudioGridSidebarHistory()',renderStart);
+  const renderBody=cabinet.slice(renderStart,renderEnd);
+  assert.ok(renderStart>0&&renderEnd>renderStart);
+  assert.match(renderBody,/loadStudioGridProjects\(\)/);
+  assert.match(renderBody,/data-grid-sidebar-project/);
+  assert.doesNotMatch(renderBody,/renderConvList|chatMessages|conversationsCache|sxHistoryList/);
+  assert.match(cabinet,/history\.id='studioGridSidebarHistory'/);
+  assert.match(cabinet,/sidebar\.classList\.add\('has-grid-history'\)/);
+  assert.match(cabinet,/sidebar\.classList\.remove\('has-grid-history'\)/);
+  assert.match(cabinet,/if\(mode==='grid'\)[\s\S]*?mountStudioGridSidebarHistory\(\)[\s\S]*?unmountStudioGridSidebarHistory\(\)/);
+  assert.match(cabinetCss,/\.sx-sidebar\.has-grid-history #sxSidebarHistory\{display:none!important\}/);
 });
 
 test('Grid history restores the saved viewport, prefers the cloud project, and protects a new blank project from stale sync', () => {

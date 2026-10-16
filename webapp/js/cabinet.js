@@ -22181,7 +22181,12 @@ function maybeShowVideoTemplateIntro(force) {
   // =====================================================
   function toggleHistory(e) {
     if (e) e.stopPropagation();
-    if (document.querySelector('[data-view="tools"] .studio.grid-mode')) { toggleStudioGridDrawer(); return; }
+    if (document.querySelector('[data-view="tools"] .studio.grid-mode')) {
+      // The website owns the persistent sidebar. Grid replaces only its
+      // history slot, so the Pro Studio gallery can never appear here.
+      if (document.getElementById('sxSidebar')) { mountStudioGridSidebarHistory(); renderStudioGridSidebarHistory(); return; }
+      toggleStudioGridDrawer(); return;
+    }
     const d = document.getElementById('histDrawer');
     const b = document.getElementById('histBackdrop');
     if (!d || !b) return;
@@ -27952,6 +27957,7 @@ async function waitGeneration(jobId, options) {
   let studioGridCloudLoaded = false;
   let studioGridProjectSwitchRevision = 0;
   let studioGridVideoViewerKeyBound = false;
+  let studioGridSidebarCleanup = null;
 
   function gridDefaultSettings(type) {
     if (type === 'image') return { model_mode:'manual', size:'1:1', count:1, style:'auto', quality:'standard', resolution:'1024' };
@@ -28075,8 +28081,42 @@ async function waitGeneration(jobId, options) {
     try{localStorage.setItem(STUDIO_GRID_PROJECTS_KEY,JSON.stringify(items.slice(0,40)))}catch(_){}
   }
 
+  function renderStudioGridSidebarHistory() {
+    const history=document.getElementById('studioGridSidebarHistory'),list=document.getElementById('studioGridSidebarProjectList');
+    if(!history||!list)return;
+    const active=loadStudioGridState(),items=loadStudioGridProjects();
+    list.innerHTML=items.length?items.map(item=>{
+      const current=item.id===active.projectId,title=gridEscape(item.title||'Untitled project');
+      const updated=new Date(item.updated_at||Date.now()),details=current?'Open now':(Number.isNaN(updated.getTime())?'Saved project':updated.toLocaleString());
+      return `<button type="button" class="sx-sidebar-history-item${current?' active':''}" data-grid-sidebar-project="${gridEscape(item.id)}" ${current?'aria-current="true" ':''}title="${title} · ${gridEscape(details)}"><span class="sx-sidebar-history-text">${title}</span></button>`;
+    }).join(''):'<p class="sx-sidebar-history-empty">No saved Grid projects yet</p>';
+    list.onclick=event=>{const button=event.target.closest('[data-grid-sidebar-project]');if(button)void openStudioGridProject(button.dataset.gridSidebarProject)};
+    const button=document.getElementById('studioGridSidebarNew');if(button)button.disabled=studioGridHasActiveRun();
+    const status=history.querySelector('[data-grid-sync-status]');if(status)status.textContent=studioGridCloudSync||'Saved on this device';
+  }
+
+  function mountStudioGridSidebarHistory() {
+    const sidebar=document.getElementById('sxSidebar');if(!sidebar)return false;
+    if(studioGridSidebarCleanup){renderStudioGridSidebarHistory();return true}
+    const history=document.createElement('section');history.id='studioGridSidebarHistory';history.className='sx-sidebar-history';history.setAttribute('aria-label','Grid Mode history');
+    history.innerHTML='<button type="button" id="studioGridSidebarNew" class="sx-sidebar-newchat" title="New Grid project" aria-label="New Grid project"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New project</span></button><div class="studio-grid-sidebar-history-heading">Grid Mode history</div><div id="studioGridSidebarProjectList" class="sx-sidebar-history-list"></div><small data-grid-sync-status aria-live="polite"></small>';
+    sidebar.insertBefore(history,sidebar.querySelector('.sx-sidebar-bottom'));
+    sidebar.classList.add('has-grid-history');
+    history.querySelector('#studioGridSidebarNew')?.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();createStudioGridProject()});
+    const links=Array.from(sidebar.querySelectorAll('.sx-sidebar-studio-link')).map(link=>({link,active:link.classList.contains('is-active')}));
+    links.forEach(({link})=>link.classList.toggle('is-active',new URL(link.href,location.href).searchParams.get('mode')==='grid'));
+    studioGridSidebarCleanup=()=>{
+      history.remove();sidebar.classList.remove('has-grid-history');
+      links.forEach(({link,active})=>link.classList.toggle('is-active',active));
+      studioGridSidebarCleanup=null;
+    };
+    renderStudioGridSidebarHistory();return true;
+  }
+
+  function unmountStudioGridSidebarHistory(){if(studioGridSidebarCleanup)studioGridSidebarCleanup()}
+
   function touchStudioGridProject(state) {
-    if(!state?.projectId)return;const items=loadStudioGridProjects(),now=new Date().toISOString(),existing=items.find(item=>item.id===state.projectId),meta={id:state.projectId,title:String(state.title||'Без названия'),updated_at:now};if(existing)Object.assign(existing,meta);else items.unshift(meta);items.sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));saveStudioGridProjects(items);
+    if(!state?.projectId)return;const items=loadStudioGridProjects(),now=new Date().toISOString(),existing=items.find(item=>item.id===state.projectId),meta={id:state.projectId,title:String(state.title||'Untitled project'),updated_at:now};if(existing)Object.assign(existing,meta);else items.unshift(meta);items.sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));saveStudioGridProjects(items);if(typeof renderStudioGridSidebarHistory==='function')renderStudioGridSidebarHistory();
   }
 
   function archiveStudioGridProject(state=studioGridState) {
@@ -28143,6 +28183,7 @@ async function waitGeneration(jobId, options) {
   }
 
   function renderStudioGridProjects() {
+    if(typeof renderStudioGridSidebarHistory==='function')renderStudioGridSidebarHistory();
     const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><span><b>Grid project history</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Close">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Untitled project')}</b><small>${item.id===active.projectId?'Open now':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Delete project">🗑</button></div>`).join('')||'<p>No saved Grid projects yet</p>'}</div>`;
   }
 
@@ -28545,9 +28586,11 @@ async function waitGeneration(jobId, options) {
     if (workspace) workspace.hidden = mode !== 'grid';
     if(mode==='grid'){
       document.getElementById('histDrawer')?.classList.remove('show');document.getElementById('histBackdrop')?.classList.remove('show');
-    }else toggleStudioGridDrawer(false);
+      mountStudioGridSidebarHistory();
+    }else{toggleStudioGridDrawer(false);unmountStudioGridSidebarHistory()}
     localStorage.setItem('sylvex-prostudio-layout', mode);
     if (mode === 'grid') requestAnimationFrame(()=>{
+      mountStudioGridSidebarHistory();
       const state=loadStudioGridState();
       if(window.matchMedia('(max-width:700px)').matches&&!state.mobile_layout_version)autoLayoutStudioGrid();
       else renderStudioGrid();
