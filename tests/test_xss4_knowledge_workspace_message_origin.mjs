@@ -52,9 +52,7 @@ const TRUSTED_ORIGIN = 'https://sylvex.ai';
 function makeContext() {
   const calls = {
     loadMusicSlides: [],
-    renderFixedDemoAvatars: 0,
-    renderVoiceSpeakers: 0,
-    setVoicePreview: [],
+    quickVoice: [],
     quickText: [],
     musicMeta: [],
   };
@@ -65,31 +63,23 @@ function makeContext() {
     window: {parent},
     mode: 'text',
     loadMusicSlides: (tracks) => calls.loadMusicSlides.push(tracks),
-    renderFixedDemoAvatars: () => { calls.renderFixedDemoAvatars++; },
-    renderVoiceSpeakers: () => { calls.renderVoiceSpeakers++; },
-    setVoicePreview: (voice, autoplay) => calls.setVoicePreview.push([voice, autoplay]),
+    handleQuickVoiceMessage: (message) => calls.quickVoice.push(message),
     handleQuickTextParentMessage: (message) => calls.quickText.push(message),
     qmApplyMeta: (message) => calls.musicMeta.push(message),
   });
-  // The real module's closed-over `let` state these actions read/reassign.
-  context.voiceLibrary = [];
-  context.demoVoiceLibrary = ['d0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6'];
-  context.selectedSpeakers = [{id: 'v1', name: 'One'}, {id: '', name: 'Two'}];
   vm.runInContext('globalThis.__listener = ' + LISTENER_SRC + ';', context);
   return {context, calls, parent, foreignWindow};
 }
 
-test('trusted origin + real parent window: voice-library message is accepted and applied', () => {
+test('trusted origin + real parent window: voice-library message is handed to Quick Voice', () => {
   const {context, calls, parent} = makeContext();
   context.__listener({
     origin: TRUSTED_ORIGIN,
     source: parent,
-    data: {source: 'sylvex-knowledge-parent', action: 'voice-library', voices: [{id: 'v1', name: 'One'}], demoVoices: ['a', 'b', 'c', 'd', 'e', 'f', 'g']},
+    data: {source: 'sylvex-knowledge-parent', action: 'voice-library', voices: [{id: 'v1', name: 'One'}]},
   });
-  assert.equal(calls.renderFixedDemoAvatars, 1);
-  assert.equal(calls.renderVoiceSpeakers, 1);
-  assert.equal(calls.setVoicePreview.length, 1);
-  assert.deepEqual(context.demoVoiceLibrary, ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+  context.__listener({origin: TRUSTED_ORIGIN, source: parent, data: {source: 'sylvex-knowledge-parent', action: 'quick-voice-result', clientId: 'c1', audioUrl: '/a.mp3'}});
+  assert.deepEqual(calls.quickVoice.map((message) => message.action), ['voice-library', 'quick-voice-result']);
 });
 
 test('trusted origin + real parent window: music-library and quick-text-state still work', () => {
@@ -109,8 +99,9 @@ test('foreign origin is rejected without any side effects, even with a correctly
     source: parent,
     data: {source: 'sylvex-knowledge-parent', action: 'music-library', tracks: [{id: 'malicious'}]},
   });
+  context.__listener({origin: 'https://evil.example', source: parent, data: {source: 'sylvex-knowledge-parent', action: 'quick-voice-result', clientId: 'c1', audioUrl: 'https://evil.example/a.mp3'}});
   assert.deepEqual(calls.loadMusicSlides, []);
-  assert.equal(calls.renderVoiceSpeakers, 0);
+  assert.equal(calls.quickVoice.length, 0);
   assert.equal(calls.quickText.length, 0);
 });
 

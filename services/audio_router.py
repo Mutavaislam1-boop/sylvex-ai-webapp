@@ -10,6 +10,7 @@ import base64
 import json
 import os
 import pathlib
+import re
 import mimetypes
 import urllib.parse
 import shutil
@@ -476,11 +477,64 @@ def _elevenlabs_audio_tool(payload: dict) -> str:
     return tool if tool in ELEVENLABS_AUDIO_TOOLS else "text_to_speech"
 
 
-# Only text-to-speech has a confirmed SYLVEX cost basis (per character).
-# Speech-to-speech, dialogue, dubbing and voice design are billed by
-# ElevenLabs on other units (audio minutes, generations); until their cost
-# basis is confirmed they stay blocked, in pricing and at dispatch.
-ELEVENLABS_PRICED_TOOLS = frozenset({"text_to_speech"})
+# Text-to-speech and Text to Dialogue are billed by ElevenLabs per
+# character, so both use the per-character SYLVEX tariff. Speech-to-speech,
+# dubbing and voice design are billed on other units (audio minutes,
+# generations); until their cost basis is confirmed they stay blocked, in
+# pricing and at dispatch.
+ELEVENLABS_PRICED_TOOLS = frozenset({"text_to_speech", "dialogue"})
+
+# Text to Dialogue only accepts the Eleven v3 family.
+ELEVENLABS_DIALOGUE_PROVIDER_MODEL = "eleven_v3"
+# Frontend models that may carry a block-by-block dialogue (Quick Voice).
+ELEVENLABS_DIALOGUE_MODELS = frozenset({"elevenlabs_eleven_v3"})
+ELEVENLABS_DIALOGUE_MAX_CHARS = 2000
+ELEVENLABS_DIALOGUE_MAX_VOICES = 10
+ELEVENLABS_DIALOGUE_MAX_BLOCKS = 60
+
+# Eleven v3 audio tags offered in the Quick Voice emotion menu and allowed
+# in AI-written dialogue. The Mini App keeps the same list on the Eleven v3
+# model entry (tests keep the two in sync).
+ELEVENLABS_V3_AUDIO_TAGS = (
+    "excited", "happy", "sad", "angry", "calm", "curious", "sarcastic",
+    "whispers", "laughs", "sighs", "crying", "thoughtful", "surprised", "nervous",
+)
+_VOICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def dialogue_blocks_from_options(voice_options: dict) -> Optional[list[dict[str, str]]]:
+    """Ordered Quick Voice dialogue blocks, or None when the request is not
+    block-based. Raises ValueError with a short code when blocks are present
+    but unusable, so a broken dialogue is never sent as one flat voice."""
+    raw = (voice_options or {}).get("dialogue_blocks")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("dialogue_empty")
+    if len(raw) > ELEVENLABS_DIALOGUE_MAX_BLOCKS:
+        raise ValueError("dialogue_too_many_blocks")
+    blocks = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("dialogue_invalid_block")
+        voice_id = str(item.get("voice_id") or "").strip()
+        text = str(item.get("text") or "").strip()
+        if not voice_id:
+            raise ValueError("dialogue_voice_missing")
+        if not _VOICE_ID_RE.match(voice_id):
+            raise ValueError("dialogue_invalid_block")
+        if not text:
+            raise ValueError("dialogue_text_missing")
+        blocks.append({
+            "voice_id": voice_id,
+            "voice_name": str(item.get("voice_name") or "").strip()[:80],
+            "text": text,
+        })
+    if len({block["voice_id"] for block in blocks}) > ELEVENLABS_DIALOGUE_MAX_VOICES:
+        raise ValueError("dialogue_too_many_voices")
+    if sum(len(block["text"]) for block in blocks) > ELEVENLABS_DIALOGUE_MAX_CHARS:
+        raise ValueError("dialogue_too_long")
+    return blocks
 
 
 def elevenlabs_dispatch_tool(payload: dict) -> str:
@@ -1735,6 +1789,14 @@ def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[s
     for index in range(7):
         if not voices[index]:
             voices[index] = primary if index == 0 else fallback
+    try:
+        blocks = dialogue_blocks_from_options(voice_options)
+    except ValueError:
+        blocks = None
+    if blocks:
+        # Block-based dialogue: one input per block, in order, each with its
+        # own voice. Consecutive blocks are never merged.
+        return [{"text": block["text"], "voice_id": block["voice_id"]} for block in blocks]
     inputs = []
     active_voice_id = voices[0]
     for raw_line in str(prompt or "").splitlines():
@@ -2163,6 +2225,10 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         tool = "speech_to_speech"
     elif tool == "speech_to_speech" and provider_model not in ELEVENLABS_STS_MODELS:
         provider_model = ELEVENLABS_DEFAULT_STS_MODEL
+    if tool == "dialogue" and provider_model != ELEVENLABS_DIALOGUE_PROVIDER_MODEL:
+        # Text to Dialogue rejects every other model id; the tariff is the
+        # same per-character rate, so the request goes to Eleven v3.
+        provider_model = ELEVENLABS_DIALOGUE_PROVIDER_MODEL
     if tool not in ELEVENLABS_PRICED_TOOLS:
         print("UNPRICED_HELPER_BLOCKED:", {"operation": f"elevenlabs_{tool}"})
         return _audio_error(provider, frontend_model, provider_model, "pricing_not_configured", type="voice", tool=tool)
