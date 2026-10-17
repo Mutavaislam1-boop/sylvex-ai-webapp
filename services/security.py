@@ -33,6 +33,7 @@ PUBLIC_GETS = frozenset({
  # authenticates itself off its own cookie (see verify_web_session_token)
  # instead of going through this middleware's Telegram check.
  '/api/web/session/me',
+ '/api/web/account/usage',
  # Public, non-secret OAuth client id - fetched before any session exists.
  '/api/web/auth/config',
  # Emailed link, opened directly in a browser - no cookie or initData

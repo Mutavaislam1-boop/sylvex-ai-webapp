@@ -78,6 +78,7 @@ from services.security import (
     current_web_session_generation, revoke_web_sessions, website_origins,
 )
 from services import account_identity as account_identity_service
+from services import account_usage as account_usage_service
 STORAGE_ID_FLOOR = account_identity_service.STORAGE_ID_FLOOR
 from services.account_identity import AccountError
 from services import oauth_verify
@@ -15060,6 +15061,34 @@ async def web_session_me(request: Request):
     if account_id is None:
         return {"authenticated": False}
     return await asyncio.to_thread(_web_session_payload, account_id)
+
+
+@app.get("/api/web/account/usage")
+async def web_account_usage(request: Request, period: str = "30d"):
+    """The signed-in user's real generation charges, confirmed payments and
+    subscriptions, aggregated for the Usage & Billing dashboard."""
+    if period not in account_usage_service.PERIODS:
+        return JSONResponse({"ok": False, "error": "invalid_period"}, status_code=400)
+    account_id = await _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "usage_unavailable"}, status_code=503)
+    try:
+        summary = await asyncio.to_thread(account_identity_service.get_account_summary, DATABASE_URL, account_id)
+        telegram_id = int((summary or {}).get("active_telegram_id") or 0)
+        if not telegram_id:
+            return JSONResponse({"ok": False, "error": "account_not_found"}, status_code=404)
+        await asyncio.to_thread(ensure_prostudio_table)
+        await asyncio.to_thread(ensure_payment_tables)
+        payload = await asyncio.to_thread(
+            account_usage_service.load_usage_snapshot,
+            lambda: db_connect(DATABASE_URL), telegram_id, period,
+        )
+        return JSONResponse({"ok": True, **payload}, headers={"Cache-Control": "private, no-store"})
+    except Exception as exc:
+        prostudio_error("ACCOUNT_USAGE_FAILED", exc, account_id=account_id, period=period)
+        return JSONResponse({"ok": False, "error": "usage_unavailable"}, status_code=503)
 
 
 # =====================================================
