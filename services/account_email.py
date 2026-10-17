@@ -188,6 +188,29 @@ def send_merge_code_email(to_addr: str, code: str) -> bool:
     )
 
 
+def send_registration_code_email(to_addr: str, code: str) -> bool:
+    html_body = _html_wrapper(
+        preheader=f"Your SYLVEX verification code is {code}.",
+        heading="Confirm your email",
+        body_html=(
+            "<p style=\"margin:0 0 18px\">Enter this code in SYLVEX to finish creating your account:</p>"
+            f"<div style=\"text-align:center;margin:0 0 6px\"><span style=\"display:inline-block;padding:14px 26px;"
+            f"font-size:28px;font-weight:800;letter-spacing:.12em;color:#0b0b0d;background:#f4f4f6;"
+            f"border-radius:10px;border:1px solid #e4e4e9\">{code}</span></div>"
+        ),
+        footer_note="This code expires in 10 minutes. If you didn't try to create a SYLVEX account, "
+                    "you can safely ignore this email.",
+    )
+    return _send(
+        to_addr,
+        f"{code} is your SYLVEX verification code",
+        f"Enter this code in SYLVEX to finish creating your account:\n\n{code}\n\n"
+        "This code expires in 10 minutes. If you didn't try to create a SYLVEX account, "
+        "you can safely ignore this email.",
+        html_body,
+    )
+
+
 def send_password_reset_email(to_addr: str, token: str) -> bool:
     link = f"{_website_base_url()}/reset-password.html?token={token}"
     html_body = _html_wrapper(

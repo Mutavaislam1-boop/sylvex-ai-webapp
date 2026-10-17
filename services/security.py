@@ -58,6 +58,7 @@ PUBLIC_GETS = frozenset({
 PUBLIC_POSTS = frozenset({
  '/api/web/auth/telegram', '/api/web/auth/google', '/api/web/auth/apple', '/api/web/auth/logout',
  '/api/web/auth/register', '/api/web/auth/login',
+ '/api/web/auth/register/start', '/api/web/auth/register/resend', '/api/web/auth/register/verify',
  '/api/web/auth/forgot-password', '/api/web/auth/reset-password',
  '/api/web/auth/resend-verification',
  '/api/web/account/password/change', '/api/web/account/email/set', '/api/web/account/delete',

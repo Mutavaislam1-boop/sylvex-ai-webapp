@@ -1,0 +1,90 @@
+/* Standalone browser Mini App sign-in page (js/account-auth.js,
+   openBrowserAuthScreen). Always light - white page, black type - whatever
+   the app theme is. */
+html.sxAuth-open,html.sxAuth-open body{overflow:hidden}
+.sxAuth{position:fixed;inset:0;z-index:2147483000;background:#fff;color:#0b0b0d;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;color-scheme:light}
+.sxAuth *,.sxAuth *::before,.sxAuth *::after{box-sizing:border-box}
+.sxAuth-scroll{display:flex;flex-direction:column;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:max(20px,env(safe-area-inset-top)) 20px max(14px,env(safe-area-inset-bottom))}
+.sxAuth-close{position:absolute;z-index:2;top:max(12px,env(safe-area-inset-top));right:12px;display:grid;place-items:center;width:40px;height:40px;padding:0;border:0;border-radius:50%;background:transparent;color:#6b6c75;cursor:pointer;transition:background .15s,color .15s}
+.sxAuth-close:hover{background:#f2f2f4;color:#0b0b0d}
+.sxAuth-main{display:flex;flex:1 0 auto;flex-direction:column;align-items:stretch;justify-content:center;width:100%;max-width:400px;margin:0 auto;padding:12px 0 28px}
+
+/* intro video: page design, never a player */
+.sxAuth-hero{display:flex;justify-content:center;margin:0 0 14px}
+.sxAuth-video{display:block;width:clamp(116px,32vw,152px);height:auto;aspect-ratio:1;border-radius:22%;background:#fff;object-fit:cover;pointer-events:none;user-select:none;-webkit-user-select:none}
+.sxAuth-video::-webkit-media-controls,.sxAuth-video::-webkit-media-controls-enclosure,.sxAuth-video::-webkit-media-controls-panel,.sxAuth-video::-webkit-media-controls-start-playback-button,.sxAuth-video::-webkit-media-controls-overlay-play-button{display:none!important;-webkit-appearance:none;opacity:0}
+
+.sxAuth-head{text-align:center;margin-bottom:22px}
+.sxAuth-title{margin:0;font-size:24px;font-weight:750;line-height:1.2;letter-spacing:-.02em;color:#0b0b0d}
+.sxAuth-sub{margin:8px 0 0;font-size:14.5px;line-height:1.5;color:#5c5d66}
+.sxAuth-sub b{color:#0b0b0d;font-weight:650;word-break:break-all}
+
+.sxAuth-social{display:flex;flex-direction:column;gap:10px}
+.sxAuth-social[hidden]{display:none}
+.sxAuth-social>div:empty{display:none}
+.sxAuth-google{position:relative;min-height:48px}
+.sxAuth-gis{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none}
+/* Google's own button takes over once it has rendered. */
+.sxAuth-google.is-ready .sxAuth-gis{opacity:1;pointer-events:auto}
+.sxAuth-google.is-ready .sxAuth-gbtn{visibility:hidden}
+.sxAuth-or{display:flex;align-items:center;gap:12px;margin:8px 0 6px;color:#8b8c96;font-size:12.5px;text-transform:lowercase}
+.sxAuth-or::before,.sxAuth-or::after{content:"";flex:1;height:1px;background:#e7e7eb}
+
+.sxAuth-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:48px;padding:0 18px;border:1px solid transparent;border-radius:999px;font:inherit;font-size:15px;font-weight:650;line-height:1;cursor:pointer;transition:background .15s,border-color .15s,opacity .15s,transform .1s}
+.sxAuth-btn:active{transform:scale(.99)}
+.sxAuth-btn:focus-visible,.sxAuth-link:focus-visible,.sxAuth-eye:focus-visible,.sxAuth-close:focus-visible,.sxAuth-footer a:focus-visible{outline:2px solid #0b0b0d;outline-offset:2px}
+.sxAuth-gbtn{border-color:#dadce0;background:#fff;color:#1f1f1f}
+.sxAuth-gbtn:hover{background:#f8f9fa;border-color:#c8cad0}
+.sxAuth-primary{margin-top:6px;background:#0b0b0d;color:#fff}
+.sxAuth-primary:hover{background:#26262b}
+.sxAuth-btn[disabled]{opacity:.55;cursor:default;transform:none}
+.sxAuth-btn.is-busy span::after{content:"";display:inline-block;width:12px;height:12px;margin-left:9px;vertical-align:-1px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sxAuth-spin .7s linear infinite}
+@keyframes sxAuth-spin{to{transform:rotate(360deg)}}
+
+.sxAuth-form{display:flex;flex-direction:column;gap:10px;margin:0}
+.sxAuth-input{display:block;width:100%;height:50px;padding:0 16px;border:1px solid #dcdce2;border-radius:14px;background:#fff;color:#0b0b0d;font:inherit;font-size:16px;outline:none;transition:border-color .15s,box-shadow .15s;-webkit-appearance:none;appearance:none}
+.sxAuth-input::placeholder{color:#9a9ba4}
+.sxAuth-input:focus{border-color:#0b0b0d;box-shadow:0 0 0 3px rgba(11,11,13,.08)}
+.sxAuth-pass{position:relative}
+.sxAuth-pass .sxAuth-input{padding-right:50px}
+.sxAuth-eye{position:absolute;top:5px;right:5px;display:grid;place-items:center;width:40px;height:40px;padding:0;border:0;border-radius:10px;background:transparent;color:#8b8c96;cursor:pointer}
+.sxAuth-eye:hover,.sxAuth-eye.is-on{color:#0b0b0d}
+.sxAuth-code{height:60px;font-size:28px;font-weight:700;letter-spacing:.42em;text-align:center;text-indent:.42em;font-variant-numeric:tabular-nums}
+.sxAuth-code::placeholder{color:#d4d4da;letter-spacing:.42em}
+.sxAuth-hint,.sxAuth-meta{margin:-2px 2px 0;color:#8b8c96;font-size:12.5px;line-height:1.4}
+.sxAuth-meta{text-align:center}
+.sxAuth-meta.is-expired{color:#c4312b}
+.sxAuth-error{margin:0 2px;min-height:0;color:#c4312b;font-size:13.5px;line-height:1.45}
+.sxAuth-error:empty{display:none}
+.sxAuth-error.is-info{color:#2e7d4f}
+
+.sxAuth-link{display:block;margin:12px auto 0;padding:4px 6px;border:0;background:none;color:#5c5d66;font:inherit;font-size:14px;cursor:pointer;text-align:center}
+.sxAuth-link:hover{color:#0b0b0d;text-decoration:underline;text-underline-offset:3px}
+.sxAuth-link[disabled]{color:#9a9ba4;cursor:default;text-decoration:none}
+.sxAuth-link.is-strong{display:inline;margin:0;padding:2px 0;color:#0b0b0d;font-weight:650}
+.sxAuth-switch{margin:14px 0 0;color:#5c5d66;font-size:14px;text-align:center}
+.sxAuth-tg{display:flex;justify-content:center;margin-top:18px;min-height:0}
+.sxAuth-tg:empty,.sxAuth-tg>div:empty{display:none}
+
+.sxAuth-footer{flex:0 0 auto;width:100%;max-width:400px;margin:0 auto;padding-top:12px;text-align:center;color:#8b8c96;font-size:12px;line-height:1.5}
+.sxAuth-footer nav{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 16px;margin-bottom:4px}
+.sxAuth-footer a{color:#6b6c75;text-decoration:none}
+.sxAuth-footer a:hover{color:#0b0b0d;text-decoration:underline;text-underline-offset:3px}
+.sxAuth-footer p{margin:0}
+
+@media (min-width:720px){
+  .sxAuth-scroll{padding-top:max(28px,env(safe-area-inset-top))}
+  .sxAuth-close{top:20px;right:20px}
+  .sxAuth-title{font-size:26px}
+  .sxAuth-hero{margin-bottom:18px}
+}
+@media (max-height:700px){
+  .sxAuth-video{width:clamp(96px,24vw,120px)}
+  .sxAuth-hero{margin-bottom:8px}
+  .sxAuth-head{margin-bottom:16px}
+  .sxAuth-main{padding-bottom:18px}
+}
+@media (prefers-reduced-motion:reduce){
+  .sxAuth-btn,.sxAuth-close,.sxAuth-input{transition:none}
+  .sxAuth-btn.is-busy span::after{animation:none}
+}
