@@ -54,7 +54,7 @@ from db_pool import db_connect
 from services.password_auth import (
     hash_password, verify_password, new_token, is_valid_email, normalize_email, password_strength_error,
 )
-from services.account_email import send_verification_email, send_password_reset_email, send_merge_code_email
+from services.account_email import send_verification_email, send_password_reset_email, send_merge_code_email, send_registration_code_email
 from services import oauth_verify
 from services.login_rate_limit import check_lockout as _check_rate_limit_lockout, record_failure as _record_rate_limit_failure, record_success as _record_rate_limit_success
 
@@ -62,6 +62,14 @@ VERIFICATION_TOKEN_TTL = "24 hours"
 RESET_TOKEN_TTL = "1 hour"
 LINK_CODE_TTL = "10 minutes"
 LINK_CODE_MAX_ATTEMPTS = 5
+
+# Code-verified email registration (start_email_registration below): the
+# account is only created once the emailed code is entered.
+REGISTRATION_CODE_TTL_SECONDS = 600
+REGISTRATION_CODE_MAX_ATTEMPTS = 5
+REGISTRATION_RESEND_COOLDOWN_SECONDS = 60
+REGISTRATION_MAX_CODES_PER_HOUR = 5
+REGISTRATION_PENDING_MAX_AGE = "24 hours"
 
 # The real SYLVEX product currently has one subscription tier ("Pro") sold
 # at two billing periods. `tier` is compared first (higher tier always wins,
@@ -270,6 +278,24 @@ def ensure_account_tables(database_url, connect=None):
                     attempts INTEGER NOT NULL DEFAULT 0,
                     expires_at TIMESTAMP NOT NULL,
                     consumed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            # A registration waiting for its emailed code. Not an account:
+            # no SYLVEX ID, no users row, no login until verified. One row
+            # per email; a new start replaces it (and its code).
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS account_pending_registrations (
+                    email TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    display_name TEXT,
+                    token_hash TEXT NOT NULL,
+                    code_hash TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    code_expires_at TIMESTAMP NOT NULL,
+                    last_sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    send_count INTEGER NOT NULL DEFAULT 1,
+                    send_window_started_at TIMESTAMP NOT NULL DEFAULT NOW(),
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
@@ -627,6 +653,199 @@ def login_email_account(database_url, email, password):
         raise AccountError("invalid_credentials", 401)
     _record_rate_limit_success(database_url, identity)
     return int(row[0])
+
+
+# ---------------------------------------------------------------------------
+# Code-verified email registration (browser Mini App)
+#
+# start -> a 6-digit code is emailed -> verify creates the account. Until the
+# code is entered there is no account at all, only a pending row holding the
+# password hash. The client gets a random registration token at start; resend
+# and verify need it, so a later start for the same email (which replaces the
+# row and its code) cannot be completed with an older tab's token, and nobody
+# can finish a registration without the code from that inbox.
+#
+# Abuse limits, all per normalized email: a new code at most every
+# REGISTRATION_RESEND_COOLDOWN_SECONDS and REGISTRATION_MAX_CODES_PER_HOUR
+# per hour (start and resend share the budget), and
+# REGISTRATION_CODE_MAX_ATTEMPTS wrong guesses per code.
+# ---------------------------------------------------------------------------
+
+class RegistrationError(AccountError):
+    """AccountError plus the numbers the code screen shows."""
+    def __init__(self, code, status=400, **details):
+        super().__init__(code, status)
+        self.details = details
+
+
+def _code_hash(value):
+    return hashlib.sha256((value or "").encode()).hexdigest()
+
+
+def _new_registration_code():
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def _registration_send_budget(cur, email):
+    """Raises if `email` may not be sent another code yet; otherwise returns
+    the (send_count, window_started) the next send should store."""
+    cur.execute(
+        "SELECT GREATEST(0, %s - EXTRACT(EPOCH FROM (NOW() - last_sent_at))), "
+        "send_count, EXTRACT(EPOCH FROM (NOW() - send_window_started_at)) "
+        "FROM account_pending_registrations WHERE email = %s FOR UPDATE",
+        (REGISTRATION_RESEND_COOLDOWN_SECONDS, email),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    wait, send_count, window_age = float(row[0] or 0), int(row[1] or 0), float(row[2] or 0)
+    if wait > 0:
+        raise RegistrationError("code_recently_sent", 429, retry_after=int(wait + 0.999))
+    if window_age >= 3600:
+        return 1, True
+    if send_count >= REGISTRATION_MAX_CODES_PER_HOUR:
+        raise RegistrationError("too_many_codes", 429, retry_after=int(3600 - window_age + 0.999))
+    return send_count + 1, False
+
+
+def _registration_timers():
+    return {"expires_in": REGISTRATION_CODE_TTL_SECONDS, "resend_in": REGISTRATION_RESEND_COOLDOWN_SECONDS}
+
+
+def start_email_registration(database_url, email, password, display_name=None):
+    email = normalize_email(email or "")
+    if not is_valid_email(email):
+        raise AccountError("invalid_email")
+    pw_error = password_strength_error(password)
+    if pw_error:
+        raise AccountError(pw_error)
+    ensure_account_tables(database_url)
+    code = _new_registration_code()
+    token = secrets.token_urlsafe(24)
+    name = (display_name or "").strip()[:64] or None
+    conn = db_connect(database_url)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"DELETE FROM account_pending_registrations WHERE created_at < NOW() - INTERVAL '{REGISTRATION_PENDING_MAX_AGE}'"
+        )
+        cur.execute("SELECT 1 FROM account_emails WHERE email = %s", (email,))
+        if cur.fetchone():
+            raise AccountError("email_already_registered", 409)
+        budget = _registration_send_budget(cur, email)
+        send_count, new_window = budget if budget else (1, True)
+        cur.execute(
+            "INSERT INTO account_pending_registrations "
+            "(email, password_hash, display_name, token_hash, code_hash, attempts, code_expires_at, last_sent_at, send_count, send_window_started_at, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, 0, NOW() + (%s * INTERVAL '1 second'), NOW(), %s, NOW(), NOW()) "
+            "ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, "
+            "token_hash = EXCLUDED.token_hash, code_hash = EXCLUDED.code_hash, attempts = 0, "
+            "code_expires_at = EXCLUDED.code_expires_at, last_sent_at = NOW(), send_count = EXCLUDED.send_count, "
+            "send_window_started_at = CASE WHEN %s THEN NOW() ELSE account_pending_registrations.send_window_started_at END, "
+            "created_at = NOW()",
+            (email, hash_password(password), name, _code_hash(token), _code_hash(code),
+             REGISTRATION_CODE_TTL_SECONDS, send_count, new_window),
+        )
+        conn.commit()
+    except AccountError:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    send_registration_code_email(email, code)
+    return {"email": email, "registration_token": token, **_registration_timers()}
+
+
+def _pending_registration(cur, email, token):
+    cur.execute(
+        "SELECT token_hash FROM account_pending_registrations WHERE email = %s "
+        f"AND created_at > NOW() - INTERVAL '{REGISTRATION_PENDING_MAX_AGE}' FOR UPDATE",
+        (email,),
+    )
+    row = cur.fetchone()
+    if not row or not hmac.compare_digest(_code_hash(token), row[0]):
+        raise AccountError("registration_expired", 400)
+
+
+def resend_registration_code(database_url, email, token):
+    email = normalize_email(email or "")
+    ensure_account_tables(database_url)
+    code = _new_registration_code()
+    conn = db_connect(database_url)
+    cur = conn.cursor()
+    try:
+        _pending_registration(cur, email, token)
+        send_count, new_window = _registration_send_budget(cur, email)
+        cur.execute(
+            "UPDATE account_pending_registrations SET code_hash = %s, attempts = 0, "
+            "code_expires_at = NOW() + (%s * INTERVAL '1 second'), last_sent_at = NOW(), send_count = %s, "
+            "send_window_started_at = CASE WHEN %s THEN NOW() ELSE send_window_started_at END "
+            "WHERE email = %s",
+            (_code_hash(code), REGISTRATION_CODE_TTL_SECONDS, send_count, new_window, email),
+        )
+        conn.commit()
+    except AccountError:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    send_registration_code_email(email, code)
+    return _registration_timers()
+
+
+def verify_email_registration(database_url, email, token, code):
+    """Checks the emailed code and, only then, creates the account with its
+    email already verified. Returns the new account_id."""
+    email = normalize_email(email or "")
+    code = "".join(ch for ch in str(code or "") if ch.isdigit())
+    ensure_account_tables(database_url)
+    conn = db_connect(database_url)
+    cur = conn.cursor()
+    try:
+        _pending_registration(cur, email, token)
+        cur.execute(
+            "SELECT password_hash, display_name, code_hash, attempts, code_expires_at > NOW() "
+            "FROM account_pending_registrations WHERE email = %s",
+            (email,),
+        )
+        password_hash, display_name, code_hash, attempts, live = cur.fetchone()
+        if not live:
+            raise RegistrationError("code_expired", 400)
+        if attempts >= REGISTRATION_CODE_MAX_ATTEMPTS:
+            raise RegistrationError("too_many_attempts", 429)
+        if len(code) != 6 or not hmac.compare_digest(_code_hash(code), code_hash):
+            cur.execute("UPDATE account_pending_registrations SET attempts = attempts + 1 WHERE email = %s", (email,))
+            conn.commit()
+            left = REGISTRATION_CODE_MAX_ATTEMPTS - attempts - 1
+            if left <= 0:
+                raise RegistrationError("too_many_attempts", 429)
+            raise RegistrationError("invalid_code", 400, attempts_left=left)
+        cur.execute("SELECT 1 FROM account_emails WHERE email = %s", (email,))
+        if cur.fetchone():
+            cur.execute("DELETE FROM account_pending_registrations WHERE email = %s", (email,))
+            conn.commit()
+            raise AccountError("email_already_registered", 409)
+        account_id = _new_web_account(cur, display_name, email)
+        cur.execute(
+            "INSERT INTO account_emails (account_id, email, password_hash, email_verified) VALUES (%s, %s, %s, TRUE)",
+            (account_id, email, password_hash),
+        )
+        cur.execute("DELETE FROM account_pending_registrations WHERE email = %s", (email,))
+        conn.commit()
+    except pg_errors.UniqueViolation as exc:
+        conn.rollback()
+        if _violates_constraint(exc, "email"):
+            raise AccountError("email_already_registered", 409)
+        raise AccountError("registration_failed", 500)
+    except AccountError:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    return account_id
 
 
 # ---------------------------------------------------------------------------

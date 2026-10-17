@@ -15772,6 +15772,64 @@ async def web_auth_register(request: Request):
     return response
 
 
+def _registration_error_response(exc: AccountError) -> JSONResponse:
+    details = getattr(exc, "details", None) or {}
+    headers = {"Retry-After": str(details["retry_after"])} if details.get("retry_after") else None
+    return JSONResponse({"ok": False, "error": exc.code, **details}, status_code=exc.status, headers=headers)
+
+
+# Code-verified registration (the browser Mini App's sign-up): /start emails
+# a 6-digit code and creates nothing; /verify creates the account - email
+# already verified - and signs it in. Same accounts, sessions and SYLVEX IDs
+# as every other web sign-in; see account_identity.start_email_registration.
+@app.post("/api/web/auth/register/start")
+async def web_auth_register_start(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        result = await asyncio.to_thread(
+            account_identity_service.start_email_registration,
+            DATABASE_URL, payload.get("email"), payload.get("password"), payload.get("display_name"),
+        )
+    except AccountError as exc:
+        return _registration_error_response(exc)
+    return {"ok": True, **result}
+
+
+@app.post("/api/web/auth/register/resend")
+async def web_auth_register_resend(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        result = await asyncio.to_thread(
+            account_identity_service.resend_registration_code,
+            DATABASE_URL, payload.get("email"), payload.get("registration_token"),
+        )
+    except AccountError as exc:
+        return _registration_error_response(exc)
+    return {"ok": True, **result}
+
+
+@app.post("/api/web/auth/register/verify")
+async def web_auth_register_verify(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.verify_email_registration,
+            DATABASE_URL, payload.get("email"), payload.get("registration_token"), payload.get("code"),
+        )
+    except AccountError as exc:
+        return _registration_error_response(exc)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    await _set_web_session_cookie(response, account_id)
+    return response
+
+
 @app.post("/api/web/auth/login")
 async def web_auth_login(request: Request):
     payload = await request.json()
