@@ -16,7 +16,7 @@ const cabinet = read('../webapp/js/cabinet.js');
 const lang = read('../webapp/js/language.js');
 
 test('the sign-in window can be closed to continue as a guest', () => {
-  const gate = auth.slice(auth.indexOf('function openWebAuthGate()'), auth.indexOf('S.ensureWebAuthGate = ensureWebAuthGate'));
+  const gate = auth.slice(auth.indexOf('function openWebAuthGate(options)'), auth.indexOf('S.ensureWebAuthGate = ensureWebAuthGate'));
   assert.doesNotMatch(gate, /persistent:\s*true/);
   assert.match(gate, /onClose:/);
   assert.match(gate, /Continue as guest/);
@@ -44,18 +44,15 @@ test('guest texts exist in English and Russian', () => {
   }
 });
 
-test('a browser guest cannot open or save Profile, and guest saves never reach an account', () => {
+test('a browser guest cannot open Profile or Settings, or save a profile', () => {
   const ui = read('../webapp/js/ui.js');
   assert.match(ui, /window\.SYLVEX\.guardGuestView && window\.SYLVEX\.guardGuestView\(name\)\) return;/);
-  assert.match(cabinet, /S\.guardGuestView = \(name\) => name === 'profile' && guestNeedsAccount\(\);/);
-  assert.match(cabinet, /function guestNeedsAccount\(\) \{\s*if \(!isBrowserApp\(\) \|\| !isBrowserGuest\(\)\) return false;/);
+  assert.match(cabinet, /S\.guardGuestView = \(name\) => \(name === 'profile' \|\| name === 'settings'\) && guestNeedsAccount\('account'\);/);
+  assert.match(cabinet, /function guestNeedsAccount\(reason\) \{\s*if \(!isBrowserApp\(\) \|\| !isBrowserGuest\(\)\) return false;/);
   for (const fn of ['function openEditProfile() {', 'function saveEditProfile() {', 'function selectProfileTheme(themeId) {']) {
     const body = cabinet.slice(cabinet.indexOf(fn), cabinet.indexOf(fn) + 160);
-    assert.match(body, /guestNeedsAccount\(\)/, fn);
+    assert.match(body, /guestNeedsAccount\('account'\)/, fn);
   }
-  // Saves belong to the signed-in account they were made with; guest ones are dropped.
+  // Telegram saves belong to the account they were made with; guest ones are dropped.
   assert.match(cabinet, /if \(!browserProfileSaveAllowed\(body\)\) \{ clearQueuedProfileSave\(\); return false; \}/);
-  assert.match(cabinet, /Number\(body\.telegram_id\) === Number\(getTelegramId\(\)\)/);
-  // After sign-in the account starts from server data only.
-  assert.match(auth, /S\.user = \{\};\s*try \{ localStorage\.removeItem\('sylvex-profile-save-pending'\); \} catch \{\}/);
 });

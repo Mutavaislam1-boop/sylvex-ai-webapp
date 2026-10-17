@@ -4091,6 +4091,7 @@ function selectVoiceAiFormat(event, format) {
 }
 
 async function runVoiceTextTool(event, action) {
+  if (guestNeedsAccount('create')) { if (event && event.preventDefault) event.preventDefault(); return; }
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const input = document.getElementById('chatInput');
   if (!input) return;
@@ -8401,6 +8402,7 @@ async function recoverEditSessionJob(){
   }finally{if(s.sessionId===sessionId&&owner===editSessionOwner()){s.busy=false;renderEditWorkspace();void saveEditWorkspaceSession();}}
 }
 async function generateEditWorkspace(e){
+  if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if(e){e.preventDefault();e.stopPropagation()}
   const state=editWorkspaceState;if(editWorkspaceLocked())return;
   if(state.chain.some(node=>node.status==='pending'&&node.jobId)){void recoverEditSessionJob();return;}
@@ -8449,6 +8451,7 @@ async function generateEditWorkspace(e){
 function useEditWorkspaceResult(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const node=editWorkspaceState.chain.find(item=>item.id===editWorkspaceState.activeNodeId&&item.status==='ready'&&item.url);if(!node)return;const url=node.url;closeEditWorkspace();switchView('tools');updateComposerMode('image');imageState.uploadedImageUrls=[url];imageState.referenceImageUrls=[url];imageState.referenceImageUrl=url;renderImageControls();renderComposerImageDraft();renderUploadedPhotoGrid();updateImageUploadButtonPreview()}
 
 async function generateQuickImageDetail(e) {
+  if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const state = quickImageDetailState; if (!state || !state.uploadedUrl || state.uploading) return;
   const item = state.item; const extra = String((document.getElementById('quickImageDetailPrompt') || {}).value || '').trim();
@@ -9857,6 +9860,7 @@ function removeTryOnGarment(e, index) {
 // the isolated request.
 // =====================================================
 async function generateTryOnTool(e) {
+  if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const state = photoToolState.try_on;
   if (!state || state.generating) return;
@@ -10213,6 +10217,7 @@ function hairBeardOutputSize(sourceFile) {
 }
 
 async function generateTattooReference(e) {
+  if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const promptText = String(tattooState.prompt || '').trim();
   const state = photoToolState.tattoo;
@@ -10259,6 +10264,7 @@ async function generateTattooReference(e) {
 }
 
 async function generateHairBeardReference(e) {
+  if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const promptText = String(hairBeardState.referencePrompt || '').trim();
   const state = photoToolState.hair_beard;
@@ -10320,6 +10326,7 @@ async function generateHairBeardReference(e) {
 }
 
 async function generatePhotoTool(e) {
+  if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) {
     e.preventDefault();
     e.stopPropagation();
@@ -11209,6 +11216,7 @@ function clearCharacterReplaceIdentity(e) {
 // builds the isolated request.
 // =====================================================
 async function generateCharacterReplaceTool(e) {
+  if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const state = photoToolState.replace_character;
   if (!state || state.generating) return;
@@ -12126,6 +12134,7 @@ function removeVisualCreatePhoto(e, index) {
 // even if this browser disconnects), so this function only ever returns
 // a job_id - callers must poll it with pollCharacterCreationJob().
 async function createCharacterCreationJob(name, photos, gender, description) {
+  if (guestNeedsAccount('create')) return;
   const tg = getTelegramId();
   if (!tg) {
     // Browser guest: creating needs a SYLVEX account - offer sign-in.
@@ -12619,6 +12628,7 @@ async function restorePendingCharacterCreationJobs() {
 // actual reference-image generation + objectPrompt analysis keeps
 // running server-side even if this browser disconnects.
 async function createObjectCreationJob(name, photos, description) {
+  if (guestNeedsAccount('create')) return;
   const tg = getTelegramId();
   if (!tg) {
     // Browser guest: creating needs a SYLVEX account - offer sign-in.
@@ -16554,8 +16564,9 @@ function imageModelButton(model) {
 function renderGeneratedTelegramButton(url, kind) {
     // "Open in Telegram" lets a Mini App user get the file delivered as a
     // normal Telegram message from the bot - meaningless (and a Website ->
-    // Telegram redirect) when Pro Studio is hosted by the website instead.
-    if (isWebEmbed()) return '';
+    // Telegram redirect) when Pro Studio is hosted by the website instead,
+    // and in the standalone browser app, which has no Telegram identity.
+    if (usesWebSessionAuth()) return '';
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
     return '<button class="gen-action-btn gen-telegram-btn" type="button" data-result-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.openTelegramBot(event)">'
@@ -17886,7 +17897,7 @@ function renderGeneratedTelegramButton(url, kind) {
     return {
       signedIn,
       name,
-      handle: user.username ? '@' + user.username : (signedIn ? 'SYLVEX ID ' + (user.sylvex_id || user.telegram_id || getTelegramId()) : 'Войдите, чтобы сохранять историю'),
+      handle: user.username ? '@' + user.username : (signedIn ? 'SYLVEX ID ' + (user.sylvex_id || user.telegram_id || getTelegramId()) : (isBrowserApp() ? 'Log in to save your history' : 'Войдите, чтобы сохранять историю')),
       avatar: user.custom_avatar_url || user.photo_url || '',
       initials: ((user.first_name || user.username || (signedIn ? 'S' : 'G')).slice(0, 1) + (user.last_name || '').slice(0, 1)).toUpperCase(),
       balance: signedIn ? Number(user.balance || 0) : null,
@@ -18344,7 +18355,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const prompt = String(message.prompt || '').trim();
     if (!clientId || !prompt || quickMusicJobs.has(clientId)) return;
     if (guestNeedsAccount()) {
-      quickMusicPost({ action: 'quick-music-error', clientId, message: 'Войдите, чтобы создавать музыку' });
+      quickMusicPost({ action: 'quick-music-error', clientId, message: GUEST_REASON.create });
       return;
     }
     const model = MUSIC_MODEL_LIST.find((item) => item.id === String(message.model || ''))
@@ -18448,7 +18459,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const clientId = String(message.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
     if (!clientId || quickVoiceJobs.has(clientId)) return;
     const fail = (text) => quickVoicePost({ action: 'quick-voice-error', clientId, message: text });
-    if (guestNeedsAccount()) { fail('Войдите, чтобы озвучить диалог'); return; }
+    if (guestNeedsAccount()) { fail(GUEST_REASON.create); return; }
     const model = VOICE_MODEL_LIST.find((item) => item.dialogue && item.id === String(message.model || ''));
     if (!model) { fail('Эта модель не поддерживает диалог по ролям'); return; }
     const blocks = (Array.isArray(message.blocks) ? message.blocks : []).map((block) => ({
@@ -18502,7 +18513,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const clientId = String(message.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
     const brief = String(message.brief || '').trim().slice(0, 2000);
     if (!clientId || !brief) return;
-    if (guestNeedsAccount()) { quickVoicePost({ action: 'quick-voice-script-error', clientId, message: 'Войдите, чтобы создать диалог с AI' }); return; }
+    if (guestNeedsAccount()) { quickVoicePost({ action: 'quick-voice-script-error', clientId, message: GUEST_REASON.create }); return; }
     try {
       const response = await fetch('/api/public/prostudio/voice/text-tool', {
         method: 'POST',
@@ -18692,6 +18703,7 @@ function renderGeneratedTelegramButton(url, kind) {
   // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
   // =====================================================
   function generateNow() {
+    if (guestNeedsAccount('create')) return;
     if (!activeCat) { toast(t('generating')); return; }
     toast(t('generating') + ' · ' + computePrice() + ' ⚡️');
     S.haptic.impact('medium');
@@ -20312,7 +20324,7 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Duration', meta.duration || settings.duration)
     + generationInfoRow('Count', meta.count)
     + generationInfoRow('Created', created)
-    + generationInfoRow('Telegram', meta.sent_to_telegram ? 'sent' : 'not sent')
+    + (usesWebSessionAuth() ? '' : generationInfoRow('Telegram', meta.sent_to_telegram ? 'sent' : 'not sent'))
     + '</div>'
       + ((meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden || meta.photo_tool === 'hair_beard' || meta.photo_tool === 'hair_beard_reference' || meta.settings?.photo_tool === 'hair_beard' || meta.settings?.photo_tool === 'hair_beard_reference' || meta.image_options?.tool === 'hair_beard' || meta.image_options?.tool === 'hair_beard_reference') ? '' : (meta.prompt ? '<div class="generation-info-section generation-prompt-block"><div class="generation-info-label">Промт</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p>' + (String(meta.prompt).length > 180 ? '<button class="generation-prompt-toggle" type="button" aria-expanded="false" onclick="SYLVEX.toggleGenerationPrompt(event)">Развернуть</button>' : '') + '</div>' : ''))
     + (refImages.length ? '<div class="generation-info-section"><div class="generation-info-label">Reference images</div><div class="generation-info-ref-row">' + refImages.map((url) => '<img src="' + S.escapeHtml(url) + '" alt="reference" />').join('') + '</div></div>' : '')
@@ -20639,6 +20651,7 @@ function closeUploadPanel(e) {
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
   async function uploadProStudioMediaFile(file, kind, preferInternalPath) {
+    if (guestNeedsAccount('create')) return null;
     const form = new FormData();
     form.append('file', file);
     const endpoint = '/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image');
@@ -21841,6 +21854,7 @@ function maybeShowVideoTemplateIntro(force) {
   }
 
   async function startVideoTemplateGeneration() {
+    if (guestNeedsAccount('create')) return;
     const template = activeVideoTemplate;
     if (!template) return;
     if (!videoTemplateUploadUrl) {
@@ -23151,6 +23165,7 @@ async function waitGeneration(jobId, options) {
   }
 
   async function sendTextChat() {
+    if (guestNeedsAccount('create')) return;
     if (textRequestInFlight) return;
     const ta = document.getElementById('chatInput');
     if (!ta) return;
@@ -23200,6 +23215,7 @@ async function waitGeneration(jobId, options) {
    // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
    // =====================================================
   async function sendChat() {
+    if (guestNeedsAccount('create')) return;
     if (studioMode === 'text') return sendTextChat();
     if (activeGenerationLocked() || generationSubmitting) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
@@ -23896,6 +23912,7 @@ async function waitGeneration(jobId, options) {
   // Новый голос сразу выбирается в Pro Studio и появляется в списке голосов после обновления.
   // =====================================================
   async function sendVoiceCloneRecording(e) {
+    if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -24556,6 +24573,7 @@ async function waitGeneration(jobId, options) {
     showPayView(product.title + planCredits, Number(product.stars).toLocaleString('ru-RU') + ' ⭐');
   }
   async function payStoreProduct(method, confirmChange) {
+    if (guestNeedsAccount('buy')) return;
     const selected = pendingStoreProduct;
     if (!selected) return;
     const tg = getTelegramId();
@@ -25368,6 +25386,9 @@ async function waitGeneration(jobId, options) {
     }
   }
   function retryQueuedProfileSave() {
+    // Browser app: a save is one request with one answer (saveBrowserProfile);
+    // nothing is ever queued or retried in the background there.
+    if (isBrowserApp()) { clearQueuedProfileSave(); return; }
     let body = null;
     try { body = JSON.parse(localStorage.getItem(PROFILE_SAVE_PENDING_KEY) || 'null'); } catch {}
     // Browser: retry only once the account it belongs to is known (the web
@@ -25383,20 +25404,24 @@ async function waitGeneration(jobId, options) {
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   function openEditProfile() {
-    if (guestNeedsAccount()) return;
+    if (guestNeedsAccount('account')) return;
     const u = S.user || {};
     document.getElementById('epName').value = u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '';
     epSelectedAvatar = u.custom_avatar_url || null;
     const grid = document.getElementById('avatarGrid');
     if (grid) {
-      const items = [{ url: null, label: 'TG' }].concat(AVATAR_PRESETS.map((p) => ({ url: p })));
+      // The first option is "no custom avatar": the Telegram photo inside
+      // Telegram, the name's initial in the browser app (no Telegram there).
+      const noneLabel = isBrowserApp() ? S.escapeHtml((u.display_name || u.first_name || u.email || 'S').trim().charAt(0).toUpperCase() || 'S') : 'TG';
+      const items = [{ url: null, label: noneLabel }].concat(AVATAR_PRESETS.map((p) => ({ url: p })));
       grid.innerHTML = items.map((it, i) => {
         const sel = (epSelectedAvatar || '') === (it.url || '') ? 'sel' : '';
-        const inner = it.url ? '<img src="' + it.url + '" alt="" loading="lazy" decoding="async" />' : '<span>TG</span>';
+        const inner = it.url ? '<img src="' + it.url + '" alt="" loading="lazy" decoding="async" />' : '<span>' + it.label + '</span>';
         return '<button class="av-opt ' + sel + '" data-url="' + (it.url || '') + '" onclick="SYLVEX.pickAvatar(this)">' + inner + '</button>';
       }).join('');
     }
     epAppearanceDraft = currentProfileAppearance();
+    setEditProfileError('');
     syncAppearanceEditor();
     renderThemeGrid();
     document.getElementById('editProfileModal').classList.add('show');
@@ -25411,7 +25436,8 @@ async function waitGeneration(jobId, options) {
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
   function saveEditProfile() {
-    if (guestNeedsAccount()) { closeModal(null, 'editProfileModal'); return; }
+    if (guestNeedsAccount('account')) { closeModal(null, 'editProfileModal'); return; }
+    if (isBrowserApp()) { saveBrowserProfile(); return; }
     const name = (document.getElementById('epName').value || '').trim().slice(0, 60);
     const body = {
       initData: S.tg && S.tg.initData ? S.tg.initData : '',
@@ -25432,6 +25458,125 @@ async function waitGeneration(jobId, options) {
     if (S.renderUser) S.renderUser(S.user);
     closeModal(null, 'editProfileModal');
     persistProfileInBackground(body, false);
+  }
+
+  // Browser app: one Save is one request to the server and one answer. The
+  // dialog stays open (button busy) until the server has stored the name and
+  // avatar; then the stored values are shown and kept after a reload. A
+  // failure shows one message in the dialog - nothing is queued, retried in
+  // the background or announced again.
+  let browserProfileSaving = false;
+  function setEditProfileError(text) {
+    const box = document.getElementById('epError');
+    if (!box) return;
+    box.textContent = text || '';
+    box.hidden = !text;
+  }
+  async function saveBrowserProfile() {
+    if (browserProfileSaving) return;
+    const name = (document.getElementById('epName').value || '').trim().slice(0, 60);
+    if (!name) { setEditProfileError('Enter a nickname.'); return; }
+    const appearance = epAppearanceDraft || currentProfileAppearance();
+    const button = document.getElementById('epSaveBtn');
+    const label = button ? button.textContent : '';
+    browserProfileSaving = true;
+    setEditProfileError('');
+    if (button) { button.disabled = true; button.textContent = 'Saving…'; }
+    clearQueuedProfileSave();
+    try {
+      const response = await fetchWithTimeout('/api/public/telegram/profile', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        // '' (not null) for the default avatar: the server keeps the previous
+        // avatar when it is sent null.
+        body: JSON.stringify({ telegram_id: getTelegramId(), display_name: name, custom_avatar_url: epSelectedAvatar || '', theme_preference: appearance }),
+      }, 30000);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data || data.ok === false || data.error) throw new Error((data && data.error) || String(response.status));
+      const profile = data.profile || {};
+      S.user = Object.assign({}, S.user || {}, {
+        display_name: profile.display_name || name,
+        custom_avatar_url: profile.custom_avatar_url || '',
+        theme_preference: profile.theme_preference && Object.keys(profile.theme_preference).length ? profile.theme_preference : appearance,
+      });
+      storeProfileAppearance(S.user.theme_preference);
+      applyProfileAppearance(S.user.theme_preference);
+      if (S.renderUser) S.renderUser(S.user);
+      closeModal(null, 'editProfileModal');
+      showProfileSaveStatus('Profile saved', 'saved');
+    } catch (error) {
+      const code = error && error.message;
+      setEditProfileError(code === 'login_required' || code === '401' || code === 'invalid_init_data'
+        ? 'Your session has ended. Log in again to save your profile.'
+        : 'Couldn’t save your profile. Check your connection and try again.');
+    } finally {
+      browserProfileSaving = false;
+      if (button) { button.disabled = false; button.textContent = label; }
+    }
+  }
+
+  // Browser app: Edit Profile -> Delete account. Its own confirmation dialog:
+  // the user types DELETE (and the password, when the account has one)
+  // before /api/web/account/delete is called. Afterwards this browser's
+  // local account data is removed and the app reloads signed out.
+  async function openDeleteAccount() {
+    if (!isBrowserApp() || guestNeedsAccount('account')) return;
+    let hasPassword = true;
+    try {
+      const session = await fetch('/api/web/session/me', { credentials: 'include' }).then((r) => r.json());
+      if (!session || !session.authenticated) { guestNeedsAccount('account'); return; }
+      hasPassword = !!session.has_password;
+    } catch {}
+    let modal = document.getElementById('deleteAccountModal');
+    if (modal) modal.remove();
+    modal = document.createElement('div');
+    modal.className = 'sheet-overlay';
+    modal.id = 'deleteAccountModal';
+    modal.innerHTML = '<div class="sheet delete-account-sheet" style="padding:18px 20px 22px">'
+      + '<div class="sheet-grab"></div>'
+      + '<h3 style="margin:6px 0 10px;font-size:17px">Delete your SYLVEX account?</h3>'
+      + '<p>Your SYLVEX login (email and Google sign-in) will be deleted and you will be signed out here and on sylvex.ai. This cannot be undone.</p>'
+      + (hasPassword ? '<input class="ep-input" type="password" id="daPassword" placeholder="Current password" autocomplete="current-password">' : '')
+      + '<p style="margin-bottom:6px">Type <b>DELETE</b> to confirm.</p>'
+      + '<input class="ep-input" type="text" id="daConfirm" placeholder="DELETE" autocomplete="off" autocapitalize="characters" spellcheck="false">'
+      + '<p class="ep-error" id="daError" role="alert" hidden></p>'
+      + '<div class="ep-actions"><button class="btn-ghost" type="button" id="daCancel">Cancel</button>'
+      + '<button class="ep-danger-btn solid" type="button" id="daSubmit" disabled>Delete account</button></div>'
+      + '</div>';
+    document.body.appendChild(modal);
+    const $ = (sel) => modal.querySelector(sel);
+    const close = () => modal.remove();
+    modal.addEventListener('click', (event) => { if (event.target === modal) close(); });
+    $('.sheet').addEventListener('click', (event) => event.stopPropagation());
+    $('#daCancel').onclick = close;
+    const update = () => { $('#daSubmit').disabled = $('#daConfirm').value.trim() !== 'DELETE' || (hasPassword && !$('#daPassword').value); };
+    $('#daConfirm').addEventListener('input', update);
+    if (hasPassword) $('#daPassword').addEventListener('input', update);
+    $('#daSubmit').onclick = async () => {
+      const button = $('#daSubmit');
+      const error = $('#daError');
+      button.disabled = true;
+      button.textContent = 'Deleting…';
+      error.hidden = true;
+      let response = null, data = {};
+      try {
+        response = await fetch('/api/web/account/delete', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: hasPassword ? $('#daPassword').value : undefined }),
+        });
+        data = await response.json().catch(() => ({}));
+      } catch {}
+      if (response && response.ok && data.ok) {
+        clearBrowserAccountState('guest');
+        window.location.reload();
+        return;
+      }
+      error.textContent = data && data.error === 'incorrect_current_password' ? 'Incorrect password.' : 'Couldn’t delete the account. Please try again.';
+      error.hidden = false;
+      button.textContent = 'Delete account';
+      update();
+    };
+    requestAnimationFrame(() => modal.classList.add('show'));
+    (hasPassword ? $('#daPassword') : $('#daConfirm')).focus();
   }
 
   /* ===== Theme picker ===== */
@@ -25505,7 +25650,7 @@ async function waitGeneration(jobId, options) {
     applyProfileAppearance(epAppearanceDraft);
   }
   function selectProfileTheme(themeId) {
-    if (guestNeedsAccount()) return;
+    if (guestNeedsAccount('account')) return;
     const theme = THEMES.find((item) => item.id === themeId) || THEMES[0];
     epAppearanceDraft = { id:theme.id, coverIndex:0 };
     syncAppearanceEditor();
@@ -25646,11 +25791,13 @@ async function waitGeneration(jobId, options) {
 
   /* ===== Sign out ===== */
   function signOut() {
-    if (!window.confirm('Выйти из аккаунта SYLVEX?')) return;
+    if (!window.confirm(isBrowserApp() ? 'Log out of your SYLVEX account?' : 'Выйти из аккаунта SYLVEX?')) return;
     try { localStorage.removeItem('sylvex-theme-id'); } catch {}
     if (isBrowserApp()) {
-      // Browser: end the SYLVEX web session (sylvex.ai too), then reload to
-      // the sign-in screen.
+      // Browser: remove everything this account left in local storage, end
+      // the SYLVEX web session (sylvex.ai too), then reload to the sign-in
+      // screen - the reload drops everything still held in memory.
+      clearBrowserAccountState('guest');
       fetch('/api/web/auth/logout', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' })
         .catch(() => null)
         .finally(() => window.location.reload());
@@ -25691,6 +25838,7 @@ async function waitGeneration(jobId, options) {
   // with Stars (payStoreProduct); the legacy PayPal/Crypto/pack_id flows that
   // used to live here are gone and the backend refuses them anyway.
   async function payWith(method) {
+    if (guestNeedsAccount('buy')) return;
     if (isBrowserApp()) { if (pendingBrowserProduct) payBrowserProduct(); return; }
     if (pendingStoreProduct) return payStoreProduct(method);
     openStoreFor(pendingPack || '');
@@ -25786,6 +25934,7 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   let supportTopic = 'support';
   function openSupport(topic) {
+    if (guestNeedsAccount('contact')) return;
     supportTopic = ['support', 'sales', 'admin', 'general'].includes(topic) ? topic : 'support';
     // Website Pro Studio: the website's own Contact SYLVEX popup.
     const site = window.SYLVEX_SITE;
@@ -25815,6 +25964,7 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   let supportSending = false;
   async function sendSupport() {
+    if (guestNeedsAccount('contact')) return;
     const ta = document.getElementById('supportMsg');
     const emailInput = document.getElementById('supportEmail');
     const error = document.getElementById('supportEmailError');
@@ -25949,6 +26099,7 @@ async function waitGeneration(jobId, options) {
   }
 
   async function sendHomeIdea(text) {
+    if (guestNeedsAccount('create')) return;
     const input = document.getElementById('homeIdeaInput');
     const form = document.getElementById('homeIdeaForm');
     const submit = form?.querySelector('.send');
@@ -26363,6 +26514,7 @@ async function waitGeneration(jobId, options) {
     });
   }
   function openBrowserStoreProduct(productId, usd) {
+    if (guestNeedsAccount('buy')) return;
     const summary = browserStoreSummary(productId, usd);
     if (!summary) { toast(BROWSER_STRIPE_ERRORS.unknown_product); return; }
     pendingBrowserProduct = { productId, usd: productId === 'credits_custom' ? String(usd) : null };
@@ -26375,6 +26527,7 @@ async function waitGeneration(jobId, options) {
     showPayView(summary.title, summary.price);
   }
   async function payBrowserProduct() {
+    if (guestNeedsAccount('buy')) return;
     const selected = pendingBrowserProduct;
     if (!selected || browserCheckoutBusy) return;
     browserCheckoutBusy = true;
@@ -27259,56 +27412,201 @@ async function waitGeneration(jobId, options) {
   S.browserNav = BrowserNav;
   S.onViewSwitched = (name) => BrowserNav.viewChanged(name);
   // Browser guest (not signed in): the home user card shows Log in / Sign up
-  // instead of account details (see .user-guest in cabinet.html).
+  // instead of account details (see .user-guest in cabinet.html). Called once
+  // the session check has answered; until then html.browser-auth-pending
+  // (set in index.html) keeps both cards hidden, so no account data flashes.
   function setBrowserGuest(on) {
+    document.documentElement.classList.remove('browser-auth-pending');
     document.documentElement.classList.toggle('browser-guest', !!on && isBrowserApp());
     if (!on || !isBrowserApp()) return;
-    // A guest has no account to edit: leave Profile if it was opened before
-    // the session check finished, and drop any profile save queued without
-    // an account so it can never be sent after signing in.
+    // A guest has no account to edit: leave Profile/Settings if they were
+    // opened before the session check finished.
     clearQueuedProfileSave();
     const active = document.querySelector('.view.active');
-    if (active && active.dataset.view === 'profile') switchView('home');
+    if (active && (active.dataset.view === 'profile' || active.dataset.view === 'settings')) switchView('home');
   }
   function isBrowserGuest() {
     return document.documentElement.classList.contains('browser-guest');
   }
-  // Browser guest: Profile and profile editing need an account. Opens the
-  // existing sign-in window once (it is never stacked) and reports blocked.
-  function guestNeedsAccount() {
+
+  // ---------------------------------------------------------------------
+  // Browser Mini App: what a guest may do. A guest browses (sections, models,
+  // catalogs, Grid, Store prices); anything that creates, uploads,
+  // generates, pays, saves or contacts opens the sign-in screen instead,
+  // before any job, card, upload or request is started.
+  // ---------------------------------------------------------------------
+  const GUEST_REASON = {
+    create: 'Log in or create an account to use SYLVEX generation features.',
+    buy: 'Log in or create an account to buy a plan or credits.',
+    account: 'Log in or create an account to manage your SYLVEX profile and settings.',
+    contact: 'Log in or create an account to contact the SYLVEX team.',
+    community: 'Log in or create an account to take part in the SYLVEX community.',
+  };
+  function guestNeedsAccount(reason) {
     if (!isBrowserApp() || !isBrowserGuest()) return false;
-    if (S.openWebAuthGate) S.openWebAuthGate();
+    if (S.openWebAuthGate) S.openWebAuthGate({ reason: GUEST_REASON[reason] || GUEST_REASON.create });
     return true;
   }
-  S.guardGuestView = (name) => name === 'profile' && guestNeedsAccount();
-  // A guest who taps something that needs an account (generate, create,
-  // pay, ...) gets the sign-in window instead of a bare error: an action
-  // (non-GET) API call refused for lack of an account right after a tap or
-  // key press opens it. Loading a section (GET) or background requests never
-  // do, so a guest can browse freely.
-  function initBrowserGuestPrompts() {
-    if (!isBrowserApp() || initBrowserGuestPrompts.done) return;
-    initBrowserGuestPrompts.done = true;
-    let lastInteraction = 0;
-    const mark = () => { lastInteraction = Date.now(); };
-    ['pointerdown', 'keydown'].forEach((type) => document.addEventListener(type, mark, true));
+  S.guestNeedsAccount = guestNeedsAccount;
+  S.guardGuestView = (name) => (name === 'profile' || name === 'settings') && guestNeedsAccount('account');
+  // SYLVEX.* actions called from the markup (onclick="SYLVEX.sendChat()").
+  // The core functions behind the main ones check again themselves, for the
+  // paths that reach them without SYLVEX.* (Enter key, drag and drop).
+  const GUEST_GATED_ACTIONS = {
+    create: ['sendChat', 'generateNow', 'regenMsg', 'retryTextGeneration', 'resumePendingGeneration', 'genAction',
+      'runGridNode', 'runStudioGridWorkflow', 'onStudioGridMediaFiles', 'runVoiceTextTool', 'continueVoiceResult',
+      'generateQuickImageDetail', 'generateHairBeardReference', 'generateTattooReference', 'generatePhotoTool',
+      'generateEditWorkspace', 'animateGeneratedImage', 'editGeneratedVideo',
+      'openImageUpload', 'openVideoStartUpload', 'openVideoEndUpload', 'openVideoReferencesUpload', 'openVideoEditInputUpload',
+      'openNativeFilePicker', 'onAttachFile', 'addMediaLink', 'openUploadPanel', 'openUploadImagePreview',
+      'openVoiceMediaPicker', 'confirmVoiceUpload', 'openVoiceUpload', 'openVoiceCreate', 'openVoiceCloneFilePicker',
+      'openVoiceCloneAvatarPicker', 'toggleVoiceCloneRecording', 'sendVoiceCloneRecording', 'deleteUserVoice',
+      'openPhotoToolFilePicker', 'onPhotoToolFiles', 'openQuickImageDetailFile', 'onQuickImageDetailFile',
+      'onEditWorkspaceFile', 'onEditBackgroundFile', 'openEditSylvexReference', 'onEditSylvexReference',
+      'pickVisualReference', 'openVisualCreateModal', 'pickVisualCreatePhoto', 'saveVisualCreateDraft', 'createPhotoToolReference',
+      'deleteVisualReference', 'sendVisualInteraction', 'useCreativeCatalogItem',
+      'sendProfileGalleryItem', 'reuseProfileGalleryItem', 'deleteProfileGalleryItem'],
+    buy: ['openBuy', 'payWith', 'openBrowserBillingPortal', 'openExpiredSubscriptionPurchase', 'renewFromModal',
+      'openSubActive', 'openManageSub', 'cancelSubscriptionRenewal', 'reactivateSubscriptionRenewal'],
+    account: ['openEditProfile', 'saveEditProfile', 'openSpendingStats', 'openReferrals', 'copyRefLink', 'activateRefLink'],
+    contact: ['openSupport', 'sendSupport', 'contactAdmin'],
+    community: ['toggleCommunityLike', 'openCommunityPublisher', 'publishCommunityItem', 'publishCommunitySelection',
+      'sendCommunityComment', 'likeCommunityComment', 'editCommunityComment', 'deleteCommunityComment', 'deleteCommunityPost',
+      'openCommunityHub', 'sendCommunityMessage', 'sendCommunityFriendRequest', 'communityFriendAction',
+      'followCommunityAuthor', 'messageCommunityAuthor'],
+  };
+  // Same-origin non-GET API calls a guest may still make (signing in, the
+  // free SYLVEX Assistant guide). Everything else is an account action.
+  const GUEST_ALLOWED_POSTS = /^\/api\/(web\/auth\/|web\/assistant\/message$|public\/visitor\/|public\/presence$)/;
+  function initBrowserGuestGuards() {
+    if (!isBrowserApp() || initBrowserGuestGuards.done) return;
+    initBrowserGuestGuards.done = true;
+    Object.keys(GUEST_GATED_ACTIONS).forEach((reason) => GUEST_GATED_ACTIONS[reason].forEach((name) => {
+      const fn = S[name];
+      if (typeof fn !== 'function' || fn.__sxGuestGated) return;
+      const gated = function () {
+        if (isBrowserGuest()) {
+          Array.prototype.forEach.call(arguments, (arg) => {
+            if (arg && typeof arg.preventDefault === 'function') { arg.preventDefault(); if (arg.stopPropagation) arg.stopPropagation(); }
+          });
+          guestNeedsAccount(reason);
+          return undefined;
+        }
+        return fn.apply(this, arguments);
+      };
+      gated.__sxGuestGated = true;
+      S[name] = gated;
+    }));
+    // File pickers, drag and drop and pasted files: nothing is read or
+    // uploaded for a guest, wherever the picker was opened from.
+    const nativeInputClick = HTMLInputElement.prototype.click;
+    HTMLInputElement.prototype.click = function () {
+      if (this.type === 'file' && isBrowserGuest()) { guestNeedsAccount('create'); return; }
+      return nativeInputClick.apply(this, arguments);
+    };
+    if (HTMLInputElement.prototype.showPicker) {
+      const nativeShowPicker = HTMLInputElement.prototype.showPicker;
+      HTMLInputElement.prototype.showPicker = function () {
+        if (this.type === 'file' && isBrowserGuest()) { guestNeedsAccount('create'); return; }
+        return nativeShowPicker.apply(this, arguments);
+      };
+    }
+    document.addEventListener('click', (event) => {
+      if (!isBrowserGuest()) return;
+      const target = event.target && event.target.closest ? event.target.closest('input[type="file"], label') : null;
+      const input = target && (target.matches('input') ? target : target.control);
+      if (input && input.type === 'file') { event.preventDefault(); event.stopPropagation(); guestNeedsAccount('create'); }
+    }, true);
+    const blockFiles = (event) => {
+      const data = event.dataTransfer || event.clipboardData;
+      if (!isBrowserGuest() || !data || !data.files || !data.files.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      guestNeedsAccount('create');
+    };
+    document.addEventListener('drop', blockFiles, true);
+    document.addEventListener('paste', blockFiles, true);
+    // Last line of defence: an account request a guest reaches some other
+    // way is never sent - the sign-in screen opens instead of an error.
     const originalFetch = window.fetch;
     window.fetch = function (input, init) {
-      return originalFetch.call(this, input, init).then((response) => {
-        try {
-          const method = String((init && init.method) || (input instanceof Request ? input.method : 'GET')).toUpperCase();
-          if (response.status === 401 && method !== 'GET' && isBrowserGuest() && Date.now() - lastInteraction < 4000) {
-            const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
-            if (url.origin === window.location.origin && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/web/auth/')) {
-              response.clone().json().then((body) => {
-                if (body && ['invalid_init_data', 'telegram_user_missing'].includes(body.error) && S.openWebAuthGate) S.openWebAuthGate();
-              }).catch(() => {});
-            }
+      try {
+        const method = String((init && init.method) || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+        if (isBrowserGuest() && method !== 'GET' && method !== 'HEAD') {
+          const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+          if (url.origin === window.location.origin && url.pathname.startsWith('/api/') && !GUEST_ALLOWED_POSTS.test(url.pathname)) {
+            guestNeedsAccount(/\/(shop|payments|subscription)/.test(url.pathname) ? 'buy' : (/\/support|\/contact/.test(url.pathname) ? 'contact' : 'create'));
+            return Promise.resolve(new Response(JSON.stringify({ ok: false, error: 'login_required' }), { status: 401, headers: { 'Content-Type': 'application/json' } }));
           }
-        } catch {}
-        return response;
-      });
+        }
+      } catch {}
+      return originalFetch.apply(this, arguments);
     };
+  }
+
+  // ---------------------------------------------------------------------
+  // Browser Mini App: local account state. Everything this app keeps in
+  // localStorage under "sylvex" belongs to the account that was signed in
+  // (Pro Studio chats and caches, Grid projects, running generations,
+  // characters/objects, profile and gallery caches, ...) - except these
+  // device settings. It is removed on sign-out, and whenever a page load
+  // finds it belongs to someone else, so a guest or the next account never
+  // sees the previous account's data.
+  // ---------------------------------------------------------------------
+  const BROWSER_DEVICE_KEYS = new Set([
+    'sylvex-lang', 'sylvex-theme', 'sylvex-prostudio-layout', 'sylvex-prostudio-theme', 'sylvex-privacy-language',
+    'sylvex-terms-language', 'sylvex-ai-assistant-position', 'sylvex-ai-assistant-visible',
+    'sylvex-model-capabilities-v1', 'sylvex-music-player-speed', 'sylvex-global-audio-volume',
+  ]);
+  const BROWSER_STATE_OWNER_KEY = 'sylvex-browser-state-owner';
+  const BROWSER_STATE_RESET_KEY = 'sylvex-browser-state-reset';
+  function browserAccountStateKeys() {
+    const keys = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && /^sylvex[-_]/.test(key) && !BROWSER_DEVICE_KEYS.has(key) && key !== BROWSER_STATE_OWNER_KEY) keys.push(key);
+      }
+    } catch {}
+    return keys;
+  }
+  function clearBrowserAccountState(owner) {
+    const keys = browserAccountStateKeys();
+    keys.forEach((key) => { try { localStorage.removeItem(key); } catch {} });
+    try { localStorage.setItem(BROWSER_STATE_OWNER_KEY, owner || 'guest'); } catch {}
+    return keys.length;
+  }
+  S.clearBrowserAccountState = clearBrowserAccountState;
+  // Runs once the session check has answered. Returns true when the page is
+  // reloading to start clean, because the previous account's data was in
+  // local storage when this load started and may already be on screen.
+  function settleBrowserAccountState(user) {
+    if (!isBrowserApp()) return false;
+    const identity = user && user.telegram_id ? String(user.telegram_id) : 'guest';
+    let owner = '';
+    try { owner = localStorage.getItem(BROWSER_STATE_OWNER_KEY) || ''; } catch {}
+    if (owner === identity) return false;
+    if (!owner && identity !== 'guest') {
+      // First load with this marker for a signed-in account: its own data.
+      try { localStorage.setItem(BROWSER_STATE_OWNER_KEY, identity); } catch {}
+      return false;
+    }
+    // A guest visit after an account (or data from before this marker
+    // existed), or another account now: remove that data.
+    const startKeys = Array.isArray(window.__sylvexStartKeys) ? window.__sylvexStartKeys : [];
+    const staleAtStart = owner !== 'guest' && startKeys.some((key) => /^sylvex[-_]/.test(key) && !BROWSER_DEVICE_KEYS.has(key) && key !== BROWSER_STATE_OWNER_KEY);
+    clearBrowserAccountState(identity);
+    if (!staleAtStart) return false;
+    // Never reload in a loop: at most once per identity within a few seconds.
+    let alreadyReset = false;
+    try {
+      const last = String(sessionStorage.getItem(BROWSER_STATE_RESET_KEY) || '').split('|');
+      alreadyReset = last[0] === identity && Date.now() - Number(last[1] || 0) < 15000;
+      sessionStorage.setItem(BROWSER_STATE_RESET_KEY, identity + '|' + Date.now());
+    } catch { alreadyReset = true; }
+    if (alreadyReset) return false;
+    window.location.reload();
+    return true;
   }
   S.hasTelegramContext = hasTelegramContext;
   S.usesWebSessionAuth = usesWebSessionAuth;
@@ -29397,6 +29695,7 @@ async function waitGeneration(jobId, options) {
   }
 
   async function runGridNode(nodeId,options={}) {
+    if (guestNeedsAccount('create')) return;
     if(studioGridNodeRuns.has(nodeId))return studioGridNodeRuns.get(nodeId);
     const promise=(async()=>{
       const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task')return null;
@@ -29436,6 +29735,7 @@ async function waitGeneration(jobId, options) {
   function selectStudioGridResultVersion(nodeId,index){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId),version=node?.result_versions?.[Number(index)];if(!node||!version)return;node.output=JSON.parse(JSON.stringify(version));node.selectedResultVersion=Number(index);node.status='COMPLETED';node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid()}
 
   async function runStudioGridWorkflow() {
+    if (guestNeedsAccount('create')) return;
     const state=loadStudioGridState();
     if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();toast('Цепочка будет остановлена после текущей генерации');return}
     const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
@@ -29705,7 +30005,7 @@ async function waitGeneration(jobId, options) {
     // Mini App opened directly in a browser (never inside Telegram).
     document.documentElement.classList.toggle('browser-app', isBrowserApp());
     initWebsiteProStudioUi();
-    initBrowserGuestPrompts();
+    initBrowserGuestGuards();
     initBrowserViewport();
 
     // Restore saved theme.
@@ -29775,6 +30075,9 @@ async function waitGeneration(jobId, options) {
     S.onWebSignedIn = () => { setBrowserGuest(false); loadAccountData(); };
     if (usesWebSessionAuth() && S.syncWebSession) {
       Promise.resolve(S.syncWebSession()).then((user) => {
+        // Browser: a page load with the previous account's data on it
+        // reloads clean before anything else happens.
+        if (settleBrowserAccountState(user)) return;
         // Browser: signing in is optional - a guest can explore the app.
         setBrowserGuest(!user);
         if (!user && S.ensureWebAuthGate) S.ensureWebAuthGate();
@@ -29814,7 +30117,7 @@ async function waitGeneration(jobId, options) {
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
     cancelSubscriptionRenewal, reactivateSubscriptionRenewal, openStorePlans,
-    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, selectProfileCover, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openBrandGenerator, closeBrandPresentation, launchBrandProStudio, closeBrandGenerator, moveBrandMusic, selectBrandMusic, toggleBrandMusic, seekBrandMusic, toggleBrandMusicRepeat, shuffleBrandMusic, selectBrandMusicGenre, openKnowledgeWorkspace, closeKnowledgeWorkspace,
+    openEditProfile, pickAvatar, saveEditProfile, openDeleteAccount, previewProfileColor, selectProfileTheme, selectProfileCover, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openBrandGenerator, closeBrandPresentation, launchBrandProStudio, closeBrandGenerator, moveBrandMusic, selectBrandMusic, toggleBrandMusic, seekBrandMusic, toggleBrandMusicRepeat, shuffleBrandMusic, selectBrandMusicGenre, openKnowledgeWorkspace, closeKnowledgeWorkspace,
     loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     loadCommunityFeed, toggleCommunityLike, openCommunityPublisher, publishCommunityItem, openCommunityComments, sendCommunityComment, replyCommunityComment, cancelCommunityReply, likeCommunityComment, editCommunityComment, deleteCommunityComment, deleteCommunityPost, searchCommunity, toggleCommunityMenu, communityComingSoon,
     openCommunityHub, closeCommunityHub, sendCommunityMessage, sendCommunityFriendRequest, communityFriendAction, loadCommunityNotificationBadge, openCommunityNotification,

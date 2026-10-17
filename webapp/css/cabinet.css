@@ -10190,8 +10190,17 @@ html.browser-app .tb-stats{display:none}
 html.browser-guest .view[data-view="home"] .user-card .user-row,
 html.browser-guest .view[data-view="home"] .user-card .balance-row{display:none}
 html.browser-guest .user-guest{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+/* Browser Mini App: until the session check answers, show neither the
+   account card nor the guest card - never a previous account's data. */
+html.browser-auth-pending .view[data-view="home"] .user-card .user-row,
+html.browser-auth-pending .view[data-view="home"] .user-card .balance-row{visibility:hidden}
+/* Telegram-only account features never show in the browser app (connecting
+   a Telegram account, Telegram invite links). */
+html.browser-app .profile-linked-mini,
+html.browser-app .profile-referrals-mini,
+html.browser-app .profile-invite-row{display:none}
 .user-guest-title{font-size:18px;font-weight:700;color:var(--text)}
-.user-guest-sub{font-size:13px;line-height:1.45;color:var(--text-dim);max-width:320px}
+.user-guest-sub{font-size:13px;line-height:1.45;color:var(--text);opacity:.78;max-width:320px}
 .user-guest-btn{margin-top:8px}
 /* Mobile browser (html.browser-app only; --bvh is set from the visible
    browser viewport in cabinet.js): Pro Studio fills exactly the visible area
@@ -10313,3 +10322,19 @@ html.browser-app .settings-ai-assistant-row{display:none!important}
 }
 .studio-video-composer.is-compact .studio-music-player{padding:12px;gap:8px}
 .studio-video-composer.is-compact .smp-cover{width:60px;height:60px;border-radius:12px}
+
+/* Browser Mini App: Edit Profile save error and the separate Delete account
+   section (never shown inside Telegram), plus its confirmation dialog. */
+.ep-error{margin:10px 2px 0;color:#e5484d;font-size:13px;line-height:1.4}
+.ep-danger{display:none}
+html.browser-app .ep-danger{display:block;margin-top:22px}
+.ep-danger .ep-section-title{color:#e5484d}
+.ep-danger-text{margin:-4px 0 12px;color:var(--text-dim);font-size:13px;line-height:1.45}
+.ep-danger-btn{width:100%;padding:11px;border:1px solid rgba(229,72,77,.55);border-radius:12px;background:transparent;color:#e5484d;font:inherit;font-weight:650;cursor:pointer}
+.ep-danger-btn:hover{background:rgba(229,72,77,.08)}
+.ep-danger-btn.solid{border-color:#e5484d;background:#e5484d;color:#fff}
+.ep-danger-btn[disabled]{opacity:.45;cursor:default}
+.delete-account-sheet p{margin:0 0 12px;color:var(--text-dim);font-size:13.5px;line-height:1.5}
+.delete-account-sheet .ep-input{margin-bottom:10px}
+.delete-account-sheet .ep-actions{display:flex;gap:8px;margin-top:6px}
+.delete-account-sheet .ep-actions>*{flex:1}

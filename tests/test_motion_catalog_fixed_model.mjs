@@ -103,7 +103,7 @@ function buildNormalizeContext(modelId, section, videoTemplate) {
     fetchedModelCapabilities: null,
     videoState: {modelId, section, videoTemplate: videoTemplate || null, duration: 5, ratio: '16:9', resolution: '720p'},
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractVideoModelConfigWithKling(), context);
   vm.runInContext(extractFunction('currentVideoConfig'), context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
@@ -115,7 +115,7 @@ function buildNormalizeContext(modelId, section, videoTemplate) {
 
 test('templatePreferredModel: always resolves to kling_motion_3_0, ignoring a stale/wrong preferred_model', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('templatePreferredModel'), context);
   const result = vm.runInContext(
     "templatePreferredModel({preferred_model: 'kling_o3_omni', models: ['kling_o3_omni', 'kling_motion_2_6']})",
@@ -126,7 +126,7 @@ test('templatePreferredModel: always resolves to kling_motion_3_0, ignoring a st
 
 test('templatePreferredModel: ignores a missing/empty template entirely (no picker, no fallback)', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('templatePreferredModel'), context);
   assert.equal(vm.runInContext('templatePreferredModel(null)', context), 'kling_motion_3_0');
   assert.equal(vm.runInContext('templatePreferredModel({})', context), 'kling_motion_3_0');
@@ -200,7 +200,7 @@ function buildDispatchContext() {
     sandbox.capturedOptions = videoOptions;
     return Promise.resolve({result: {id: 'job_test_1', status: 'completed'}});
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractLetObject('videoState'), context);
   vm.runInContext(extractVideoModelConfigWithKling(), context);
   vm.runInContext(extractFunction('currentVideoConfig'), context);
