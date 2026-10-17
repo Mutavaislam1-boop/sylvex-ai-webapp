@@ -208,23 +208,25 @@ def load_usage_snapshot(connect, telegram_id, period="30d"):
             )
             recent = cur.fetchall()
             cur.execute(
-                """SELECT p.id, p.provider, p.credits, p.amount, p.currency, p.status, p.created_at,
+                """SELECT p.id, p.provider, p.credits, p.amount, p.currency, p.status,
+                          NULLIF(p.created_at::text, '')::timestamptz,
                           s.subscription_type
                      FROM purchases p
                      LEFT JOIN subscriptions s ON s.charge_id = p.charge_id
                     WHERE p.telegram_id = %s
-                      AND p.created_at >= %s
+                      AND NULLIF(p.created_at::text, '')::timestamptz >= %s
                       AND p.status = 'completed'
-                    ORDER BY p.created_at DESC LIMIT 250""",
+                    ORDER BY NULLIF(p.created_at::text, '')::timestamptz DESC LIMIT 250""",
                 (int(telegram_id), start_at),
             )
             purchases = cur.fetchall()
             cur.execute(
                 """SELECT id, subscription_type, payment_method, amount, currency, status,
                           NULLIF(starts_at::text, '')::timestamp,
-                          NULLIF(expires_at::text, '')::timestamp, created_at
+                          NULLIF(expires_at::text, '')::timestamp,
+                          NULLIF(created_at::text, '')::timestamptz
                      FROM subscriptions WHERE telegram_id = %s
-                    ORDER BY created_at DESC LIMIT 50""",
+                    ORDER BY NULLIF(created_at::text, '')::timestamptz DESC LIMIT 50""",
                 (int(telegram_id),),
             )
             subscriptions = cur.fetchall()

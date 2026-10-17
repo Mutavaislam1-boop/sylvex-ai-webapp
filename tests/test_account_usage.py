@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from services.account_usage import build_usage_snapshot, category_for_mode
+from services.account_usage import build_usage_snapshot, category_for_mode, load_usage_snapshot
 
 
 def test_usage_snapshot_groups_real_charges_payments_and_subscriptions():
@@ -36,3 +36,44 @@ def test_category_mapping_covers_every_generation_surface():
     assert category_for_mode("text-to-speech") == "voice"
     assert category_for_mode("audio") == "voice"
     assert category_for_mode("assistant_chat") == "text"
+
+
+def test_usage_query_casts_legacy_text_payment_dates():
+    class Cursor:
+        def __init__(self):
+            self.queries = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, _params):
+            self.queries.append(query)
+
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return (0,)
+
+    class Connection:
+        def __init__(self):
+            self.cursor_instance = Cursor()
+            self.closed = False
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    result = load_usage_snapshot(lambda: connection, 123, "30d")
+    sql = "\n".join(connection.cursor_instance.queries)
+
+    assert "NULLIF(p.created_at::text, '')::timestamptz >= %s" in sql
+    assert "NULLIF(created_at::text, '')::timestamptz" in sql
+    assert connection.closed is True
+    assert result["summary"]["spent_credits"] == 0
