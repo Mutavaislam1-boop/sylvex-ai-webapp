@@ -28510,8 +28510,11 @@ async function waitGeneration(jobId, options) {
     return normalizeStudioGridState({version:3,projectId:'grid_project_'+stamp,title:'New project',pinned:false,panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:'',settings:{},position_locked:false,results:[]}],edges:[]});
   }
 
+  const STUDIO_GRID_TEMPORARY_TITLES=new Set(['New project','New intelligent project','Untitled project']);
+  function studioGridTitleIsTemporary(title){const value=String(title||'').trim();return !value||STUDIO_GRID_TEMPORARY_TITLES.has(value)}
+
   function loadStudioGridProjects() {
-    try{const items=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECTS_KEY)||'[]');return Array.isArray(items)?items.filter(item=>{if(!item?.id)return false;try{const state=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+item.id)||'null');if(state)return studioGridHasMeaningfulActivity(state)}catch(_){}const title=String(item.title||'').trim();return !!(item.preview_url||Number(item.node_count)>1||(title&&!['New project','New intelligent project','Untitled project'].includes(title)))}):[]}catch(_){return[]}
+    try{const items=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECTS_KEY)||'[]');return Array.isArray(items)?items.filter(item=>{if(!item?.id)return false;try{const state=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+item.id)||'null');if(state)return studioGridHasMeaningfulActivity(state)}catch(_){}return !!(item.preview_url||Number(item.node_count)>1||!studioGridTitleIsTemporary(item.title))}):[]}catch(_){return[]}
   }
 
   function saveStudioGridProjects(items) {
@@ -28520,7 +28523,7 @@ async function waitGeneration(jobId, options) {
 
   function studioGridHasMeaningfulActivity(state){
     if(!state)return false;
-    const customTitle=String(state.title||'').trim()&&!['New project','New intelligent project','Untitled project'].includes(String(state.title||'').trim());
+    const customTitle=!studioGridTitleIsTemporary(state.title);
     const nodeActivity=(state.nodes||[]).some(node=>String(node.prompt||'').trim()||(node.attachments||[]).length||node.output||(node.results||[]).length||node.generation_id||node.request_id||['RUNNING','COMPLETED','FAILED','CANCELLED','WAITING'].includes(String(node.status||'').toUpperCase()));
     return !!(customTitle||nodeActivity||state.workflow?.started_at);
   }
@@ -28606,7 +28609,7 @@ async function waitGeneration(jobId, options) {
     studioGridCloudLoaded=true;
     try{
       const response=await fetch('/api/public/prostudio/grid-projects?offset=0',{cache:'no-store'});if(!response.ok)throw new Error();
-      const data=await response.json(),remote=(Array.isArray(data.projects)?data.projects:[]).filter(item=>{const title=String(item.title||'').trim();return !!(item.preview_url||Number(item.node_count)>1||(title&&!['New project','New intelligent project','Untitled project'].includes(title)))}),local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item]));
+      const data=await response.json(),remote=(Array.isArray(data.projects)?data.projects:[]).filter(item=>!!(item.preview_url||Number(item.node_count)>1||!studioGridTitleIsTemporary(item.title))),local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item]));
       remote.forEach(item=>{const previous=merged.get(item.id);if(!previous||String(item.updated_at||'')>String(previous.updated_at||''))merged.set(item.id,item)});
       saveStudioGridProjects(sortStudioGridProjects([...merged.values()]));
       // The server owns durable Grid history and re-signs every stored media
@@ -29203,14 +29206,14 @@ async function waitGeneration(jobId, options) {
     (plan.edges||[]).forEach(edge=>addEdge(idByKey.get(String(edge.from)),String(edge.output||'text'),idByKey.get(String(edge.to)),String(edge.input||'text')));
     created.filter(node=>['image','video','music','voice'].includes(node.type)&&state.edges.some(edge=>edge.to===node.id&&edge.fromPort==='text'&&['text','lyrics'].includes(edge.toPort))).forEach(node=>{node.prompt=''});
     const incoming=new Set(state.edges.filter(edge=>created.some(node=>node.id===edge.to)).map(edge=>edge.to));created.filter(node=>!incoming.has(node.id)&&node.type==='text').forEach(node=>addEdge(source.id,source.type==='task'?'task':'text',node.id,source.type==='task'?'task':'text'));
-    source.status='COMPLETED';source.output={type:'plan',value:String(plan.summary||`Created ${created.length} production nodes`)};source.error='';source.pending_plan=null;source.completed_at=new Date().toISOString();if(plan.title&&['New project','New intelligent project','Untitled project'].includes(String(state.title||'').trim()))state.title=plan.title;
+    source.status='COMPLETED';source.output={type:'plan',value:String(plan.summary||`Created ${created.length} production nodes`)};source.error='';source.pending_plan=null;source.completed_at=new Date().toISOString();if(plan.title&&studioGridTitleIsTemporary(state.title))state.title=plan.title;
     saveStudioGridState();autoLayoutStudioGrid();toast('Production chain is ready — review it or launch the workflow');
   }
   async function buildStudioGridWorkflow(id) {
     if(studioGridPlannerRunning)return;
     const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id&&(node.type==='task'||node.type==='text')),brief=String(source?.prompt||source?.output?.value||'').trim();
     if(!source||!brief){toast('Сначала опишите задачу');return}
-    if(['New project','New intelligent project','Untitled project',''].includes(String(state.title||'').trim()))state.title=brief.replace(/\s+/g,' ').trim().slice(0,120);
+    if(studioGridTitleIsTemporary(state.title))state.title=brief.replace(/\s+/g,' ').trim().slice(0,120);
     studioGridPlannerRunning=true;source.status='RUNNING';source.error='';source.output=null;(source.attachments||[]).forEach((item,index)=>{if(!item.reference_id)item.reference_id=`task_upload_${index+1}`});source.planner_request_id=source.planner_request_id||`grid_plan_${state.projectId}_${source.id}_${Date.now().toString(36)}`;saveStudioGridState();renderStudioGrid();
     try{
       const response=await fetch('/api/public/prostudio/grid/plan',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),task:brief,project_id:state.projectId,client_request_id:source.planner_request_id,context:gridPlannerContext(source)})}),plan=await response.json().catch(()=>({}));
