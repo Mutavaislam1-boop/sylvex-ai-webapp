@@ -6812,7 +6812,8 @@ function createEditSylvexRestoreState() {
 }
 let editSessionsOwner='',editSessions=[],editSessionsHasMore=false,editSessionsOffset=0,editSessionSaveTimer=0,editSessionSaveQueue=Promise.resolve(),editSessionSyncStatus='',editSessionOpenVersion=0,editSessionPagehideBound=false,editSessionRevision=0,editSessionLocalAvailable=true;
 const editSessionLocalStates=new Map();
-let openHistoryActionMenu=null,historyActionMenuCloseTimer=0;
+let openHistoryActionMenu=null,historyActionMenuCloseTimer=0,historyTitleTooltipTimer=0,historyTitleTooltip=null;
+function historyPinIcon(){return '<svg class="history-pin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.4 2.5h5.2l-.65 3.35 2.1 2.1v1H3.95v-1l2.1-2.1L5.4 2.5Z"/><path d="M8 8.95v4.55"/></svg>'}
 function cancelHistoryActionMenuClose(){clearTimeout(historyActionMenuCloseTimer);historyActionMenuCloseTimer=0}
 function closeHistoryActionMenu(except=null){
   cancelHistoryActionMenuClose();
@@ -6822,7 +6823,21 @@ function closeHistoryActionMenu(except=null){
 function scheduleHistoryActionMenuClose(menu){
   if(!menu?.open)return;
   cancelHistoryActionMenuClose();
-  historyActionMenuCloseTimer=setTimeout(()=>{if(menu.open){menu.removeAttribute('open');if(openHistoryActionMenu===menu)openHistoryActionMenu=null}},2500);
+  historyActionMenuCloseTimer=setTimeout(()=>{if(menu.open){menu.removeAttribute('open');if(openHistoryActionMenu===menu)openHistoryActionMenu=null}},1000);
+}
+function closeHistoryTitleTooltip(){clearTimeout(historyTitleTooltipTimer);historyTitleTooltipTimer=0;if(historyTitleTooltip){historyTitleTooltip.remove();historyTitleTooltip=null}}
+function scheduleHistoryTitleTooltip(target){
+  closeHistoryTitleTooltip();
+  const title=String(target?.dataset?.historyTitle||'').trim();if(!title)return;
+  historyTitleTooltipTimer=setTimeout(()=>{
+    if(!target.isConnected)return;
+    const tip=document.createElement('div');tip.className='history-title-tooltip';tip.setAttribute('role','tooltip');tip.textContent=title;document.body.appendChild(tip);
+    const rect=target.getBoundingClientRect(),tipRect=tip.getBoundingClientRect(),gap=8;
+    let left=rect.right+gap,top=rect.top+(rect.height-tipRect.height)/2;
+    if(left+tipRect.width>window.innerWidth-gap)left=Math.max(gap,rect.left-tipRect.width-gap);
+    top=Math.max(gap,Math.min(top,window.innerHeight-tipRect.height-gap));
+    tip.style.left=Math.round(left)+'px';tip.style.top=Math.round(top)+'px';historyTitleTooltip=tip;
+  },650);
 }
 function installHistoryActionMenuController(){
   if(installHistoryActionMenuController.done)return;
@@ -6836,26 +6851,33 @@ function installHistoryActionMenuController(){
     const summary=event.target.closest?.('.history-item-menu>summary');
     if(summary){
       event.preventDefault();
+      closeHistoryTitleTooltip();
       const menu=summary.parentElement,willOpen=!menu.open;
       closeHistoryActionMenu(willOpen?menu:null);
       menu.open=willOpen;openHistoryActionMenu=willOpen?menu:null;
-      if(willOpen)cancelHistoryActionMenuClose();
+      if(willOpen)scheduleHistoryActionMenuClose(menu);
       return;
     }
     const menu=event.target.closest?.('.history-item-menu');
     if(menu&&event.target.closest?.('button'))closeHistoryActionMenu();
   });
   document.addEventListener('pointerover',event=>{
+    const titleTarget=event.target.closest?.('[data-history-title]');
+    if(titleTarget&&!titleTarget.contains(event.relatedTarget))scheduleHistoryTitleTooltip(titleTarget);
     const row=rowFor(openHistoryActionMenu);
-    if(row&&row.contains(event.target))cancelHistoryActionMenuClose();
+    if(row&&event.target.closest?.('.history-item-menu>div'))cancelHistoryActionMenuClose();
   });
   document.addEventListener('pointerout',event=>{
+    const titleTarget=event.target.closest?.('[data-history-title]');
+    if(titleTarget&&!titleTarget.contains(event.relatedTarget))closeHistoryTitleTooltip();
     const menu=openHistoryActionMenu,row=rowFor(menu);
     if(menu&&row?.contains(event.target)&&!row.contains(event.relatedTarget))scheduleHistoryActionMenuClose(menu);
   });
   document.addEventListener('focusin',event=>{const row=rowFor(openHistoryActionMenu);if(row?.contains(event.target))cancelHistoryActionMenuClose()});
   document.addEventListener('focusout',event=>{const menu=openHistoryActionMenu,row=rowFor(menu);if(menu&&row?.contains(event.target)&&!row.contains(event.relatedTarget))scheduleHistoryActionMenuClose(menu)});
-  document.addEventListener('keydown',event=>{if(event.key==='Escape')closeHistoryActionMenu()});
+  document.addEventListener('scroll',closeHistoryTitleTooltip,true);
+  if(typeof window!=='undefined')window.addEventListener('resize',closeHistoryTitleTooltip);
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeHistoryActionMenu();closeHistoryTitleTooltip()}});
 }
 
 const EDIT_SESSION_GUEST_OWNER='guest',EDIT_SESSION_LOCAL_PREFIX='sylvex-edit-sessions-v2:';
@@ -6887,7 +6909,7 @@ function renderEditSessionList(){
   host.innerHTML=editSessions.length?editSessions.map(item=>{
     const active=item.id===editWorkspaceState.sessionId;
     const title=safe(item.title),details=item.count+' · '+safe(new Date(item.updatedAt).toLocaleDateString());
-    const open='<button type="button" class="'+(shared?'sx-sidebar-history-item':'edit-session-item')+(active?' active':'')+'" data-edit-session="'+safe(item.id)+'" '+(active?'aria-current="true" ':'')+'title="'+title+' · '+details+'" '+(editWorkspaceLocked()?'disabled':'')+'>'+(shared?'<span class="sx-sidebar-history-text">'+(item.pinned?'<i class="history-pin" aria-hidden="true">•</i>':'')+title+'</span>':'<img src="'+safe(item.preview_url)+'" alt=""><span><b>'+title+'</b><small>'+details+'</small></span>')+'</button>';
+    const open='<button type="button" class="'+(shared?'sx-sidebar-history-item':'edit-session-item')+(active?' active':'')+'" data-edit-session="'+safe(item.id)+'" '+(active?'aria-current="true" ':'')+'data-history-title="'+title+' · '+details+'" '+(editWorkspaceLocked()?'disabled':'')+'>'+(shared?'<span class="sx-sidebar-history-text"><span class="history-title-copy">'+title+'</span>'+(item.pinned?historyPinIcon():'')+'</span>':'<img src="'+safe(item.preview_url)+'" alt=""><span><b><span class="history-title-copy">'+title+'</span>'+(item.pinned?historyPinIcon():'')+'</b><small>'+details+'</small></span>')+'</button>';
     const menu='<details class="history-item-menu"><summary aria-label="Workspace actions">•••</summary><div role="menu"><button type="button" role="menuitem" data-edit-session-action="rename" data-edit-session-id="'+safe(item.id)+'">Rename</button><button type="button" role="menuitem" data-edit-session-action="pin" data-edit-session-id="'+safe(item.id)+'">'+(item.pinned?'Unpin':'Pin')+'</button><button type="button" role="menuitem" class="danger" data-edit-session-action="delete" data-edit-session-id="'+safe(item.id)+'">Delete</button></div></details>';
     return '<div class="'+(shared?'sx-sidebar-history-row':'edit-session-row')+'">'+open+menu+'</div>';
   }).join(''):'<p class="'+(shared?'sx-sidebar-history-empty':'edit-session-empty')+'">Your workspaces will appear here</p>';
@@ -24234,8 +24256,8 @@ async function waitGeneration(jobId, options) {
       + (items.length
         ? visibleItems.map(c =>
           '<div class="hd-item-row">' +
-            '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" onclick="SYLVEX.openConv(\'' + S.escapeHtml(c.id) + '\',\'' + chatTypeForMode(c.type||c.mode||'image') + '\')">' +
-              (c.pinned?'<span class="history-pin" aria-hidden="true">•</span>':'')+S.escapeHtml(c.title || 'Chat') +
+            '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" data-history-title="'+S.escapeHtml(c.title || 'Chat')+'" onclick="SYLVEX.openConv(\'' + S.escapeHtml(c.id) + '\',\'' + chatTypeForMode(c.type||c.mode||'image') + '\')">' +
+              '<span class="history-title-copy">'+S.escapeHtml(c.title || 'Chat')+'</span>'+(c.pinned?historyPinIcon():'') +
             '</button>' +
             '<details class="history-item-menu"><summary aria-label="Chat actions">•••</summary><div role="menu">'+
               '<button type="button" role="menuitem" onclick="SYLVEX.manageConversationHistory(event,\''+S.escapeHtml(c.id)+'\',\''+chatTypeForMode(c.type||c.mode||'image')+'\',\'rename\')">Rename</button>'+
@@ -28624,7 +28646,7 @@ async function waitGeneration(jobId, options) {
     list.innerHTML=items.length?items.map(item=>{
       const current=item.id===active.projectId,title=gridEscape(item.title||'Untitled project');
       const updated=new Date(item.updated_at||Date.now()),details=current?'Open now':(Number.isNaN(updated.getTime())?'Saved project':updated.toLocaleString());
-      return `<div class="sx-sidebar-history-row${item.temporary?' is-temporary':''}"><button type="button" class="sx-sidebar-history-item${current?' active':''}" data-grid-sidebar-project="${gridEscape(item.id)}" ${current?'aria-current="true" ':''}title="${title} · ${gridEscape(details)}"><span class="sx-sidebar-history-text">${item.pinned?'<i class="history-pin" aria-hidden="true">•</i>':''}${title}</span></button>${item.temporary?'':`<details class="history-item-menu"><summary aria-label="Project actions">•••</summary><div role="menu"><button type="button" role="menuitem" data-grid-project-action="rename" data-grid-project-id="${gridEscape(item.id)}">Rename</button><button type="button" role="menuitem" data-grid-project-action="pin" data-grid-project-id="${gridEscape(item.id)}">${item.pinned?'Unpin':'Pin'}</button><button type="button" role="menuitem" class="danger" data-grid-project-action="delete" data-grid-project-id="${gridEscape(item.id)}">Delete</button></div></details>`}</div>`;
+      return `<div class="sx-sidebar-history-row${item.temporary?' is-temporary':''}"><button type="button" class="sx-sidebar-history-item${current?' active':''}" data-grid-sidebar-project="${gridEscape(item.id)}" ${current?'aria-current="true" ':''}data-history-title="${title} · ${gridEscape(details)}"><span class="sx-sidebar-history-text"><span class="history-title-copy">${title}</span>${item.pinned?historyPinIcon():''}</span></button>${item.temporary?'':`<details class="history-item-menu"><summary aria-label="Project actions">•••</summary><div role="menu"><button type="button" role="menuitem" data-grid-project-action="rename" data-grid-project-id="${gridEscape(item.id)}">Rename</button><button type="button" role="menuitem" data-grid-project-action="pin" data-grid-project-id="${gridEscape(item.id)}">${item.pinned?'Unpin':'Pin'}</button><button type="button" role="menuitem" class="danger" data-grid-project-action="delete" data-grid-project-id="${gridEscape(item.id)}">Delete</button></div></details>`}</div>`;
     }).join(''):'<p class="sx-sidebar-history-empty">No saved Grid projects yet</p>';
     list.onclick=event=>{const action=event.target.closest('[data-grid-project-action]');if(action){event.preventDefault();event.stopPropagation();void manageStudioGridProject(action.dataset.gridProjectId,action.dataset.gridProjectAction);return}const button=event.target.closest('[data-grid-sidebar-project]');if(button)void openStudioGridProject(button.dataset.gridSidebarProject)};
     const button=document.getElementById('studioGridSidebarNew');if(button)button.disabled=studioGridHasActiveRun();
@@ -28719,7 +28741,7 @@ async function waitGeneration(jobId, options) {
 
   function renderStudioGridProjects() {
     if(typeof renderStudioGridSidebarHistory==='function')renderStudioGridSidebarHistory();
-    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=sortStudioGridProjects(loadStudioGridProjects());panel.innerHTML=`<header><span><b>Grid project history</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Close">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${item.pinned?'• ':''}${gridEscape(item.title||'Untitled project')}</b><small>${item.id===active.projectId?'Open now':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><details class="history-item-menu"><summary aria-label="Project actions">•••</summary><div role="menu"><button type="button" data-grid-project-action="rename" data-grid-project-id="${gridEscape(item.id)}">Rename</button><button type="button" data-grid-project-action="pin" data-grid-project-id="${gridEscape(item.id)}">${item.pinned?'Unpin':'Pin'}</button><button type="button" class="danger" data-grid-project-action="delete" data-grid-project-id="${gridEscape(item.id)}">Delete</button></div></details></div>`).join('')||'<p>No saved Grid projects yet</p>'}</div>`;
+    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=sortStudioGridProjects(loadStudioGridProjects());panel.innerHTML=`<header><span><b>Grid project history</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Close">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}" data-history-title="${gridEscape(item.title||'Untitled project')}"><span><b><span class="history-title-copy">${gridEscape(item.title||'Untitled project')}</span>${item.pinned?historyPinIcon():''}</b><small>${item.id===active.projectId?'Open now':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><details class="history-item-menu"><summary aria-label="Project actions">•••</summary><div role="menu"><button type="button" data-grid-project-action="rename" data-grid-project-id="${gridEscape(item.id)}">Rename</button><button type="button" data-grid-project-action="pin" data-grid-project-id="${gridEscape(item.id)}">${item.pinned?'Unpin':'Pin'}</button><button type="button" class="danger" data-grid-project-action="delete" data-grid-project-id="${gridEscape(item.id)}">Delete</button></div></details></div>`).join('')||'<p>No saved Grid projects yet</p>'}</div>`;
   }
 
   function closeStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(panel)panel.hidden=true}

@@ -40,7 +40,7 @@ test('history menu schedules the requested inactivity close after pointer leaves
   const h=menuHarness(),entry=h.makeMenu(),outside={};
   h.fire('click',entry.summary);
   h.fire('pointerout',entry.summary,{relatedTarget:outside});
-  assert.equal(h.timers.at(-1).delay,2500);
+  assert.equal(h.timers.at(-1).delay,1000);
   h.timers.at(-1).handler();assert.equal(entry.menu.open,false);
 });
 
@@ -56,6 +56,13 @@ test('compact menu control is contextual on pointer devices',()=>{
   assert.match(css,/\.history-item-menu>summary\{[^}]*width:22px;height:22px[^}]*font-size:10px/);
   assert.match(css,/@media \(hover:hover\) and \(pointer:fine\)[\s\S]*?\.history-item-menu>summary\{opacity:0;pointer-events:none\}/);
   assert.match(css,/\.history-item-menu\[open\]>summary\{opacity:\.78;pointer-events:auto\}/);
+});
+
+test('pinned histories use a real pin icon and long-hover themed titles',()=>{
+  assert.match(source,/function historyPinIcon\(\)/);
+  assert.match(source,/data-history-title=/);
+  assert.match(css,/\.history-pin\{[^}]*width:11px;height:11px/);
+  assert.match(css,/\.history-title-tooltip\{[^}]*border-radius:9px[^}]*background:var\(--st-bg-2,var\(--sx-bg/);
 });
 
 test('latest mode navigation owns active state and stale Grid frames are ignored',()=>{
