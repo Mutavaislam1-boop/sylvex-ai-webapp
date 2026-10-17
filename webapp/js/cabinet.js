@@ -6812,6 +6812,52 @@ function createEditSylvexRestoreState() {
 }
 let editSessionsOwner='',editSessions=[],editSessionsHasMore=false,editSessionsOffset=0,editSessionSaveTimer=0,editSessionSaveQueue=Promise.resolve(),editSessionSyncStatus='',editSessionOpenVersion=0,editSessionPagehideBound=false,editSessionRevision=0,editSessionLocalAvailable=true;
 const editSessionLocalStates=new Map();
+let openHistoryActionMenu=null,historyActionMenuCloseTimer=0;
+function cancelHistoryActionMenuClose(){clearTimeout(historyActionMenuCloseTimer);historyActionMenuCloseTimer=0}
+function closeHistoryActionMenu(except=null){
+  cancelHistoryActionMenuClose();
+  document.querySelectorAll('.history-item-menu[open]').forEach(menu=>{if(menu!==except)menu.removeAttribute('open')});
+  if(openHistoryActionMenu!==except)openHistoryActionMenu=except;
+}
+function scheduleHistoryActionMenuClose(menu){
+  if(!menu?.open)return;
+  cancelHistoryActionMenuClose();
+  historyActionMenuCloseTimer=setTimeout(()=>{if(menu.open){menu.removeAttribute('open');if(openHistoryActionMenu===menu)openHistoryActionMenu=null}},2500);
+}
+function installHistoryActionMenuController(){
+  if(installHistoryActionMenuController.done)return;
+  installHistoryActionMenuController.done=true;
+  const rowFor=menu=>menu?.closest('.hd-item-row,.sx-sidebar-history-row,.edit-session-row,.studio-grid-project');
+  document.addEventListener('pointerdown',event=>{
+    const menu=event.target.closest?.('.history-item-menu');
+    if(!menu)closeHistoryActionMenu();
+  },true);
+  document.addEventListener('click',event=>{
+    const summary=event.target.closest?.('.history-item-menu>summary');
+    if(summary){
+      event.preventDefault();
+      const menu=summary.parentElement,willOpen=!menu.open;
+      closeHistoryActionMenu(willOpen?menu:null);
+      menu.open=willOpen;openHistoryActionMenu=willOpen?menu:null;
+      if(willOpen)cancelHistoryActionMenuClose();
+      return;
+    }
+    const menu=event.target.closest?.('.history-item-menu');
+    if(menu&&event.target.closest?.('button'))closeHistoryActionMenu();
+  });
+  document.addEventListener('pointerover',event=>{
+    const row=rowFor(openHistoryActionMenu);
+    if(row&&row.contains(event.target))cancelHistoryActionMenuClose();
+  });
+  document.addEventListener('pointerout',event=>{
+    const menu=openHistoryActionMenu,row=rowFor(menu);
+    if(menu&&row?.contains(event.target)&&!row.contains(event.relatedTarget))scheduleHistoryActionMenuClose(menu);
+  });
+  document.addEventListener('focusin',event=>{const row=rowFor(openHistoryActionMenu);if(row?.contains(event.target))cancelHistoryActionMenuClose()});
+  document.addEventListener('focusout',event=>{const menu=openHistoryActionMenu,row=rowFor(menu);if(menu&&row?.contains(event.target)&&!row.contains(event.relatedTarget))scheduleHistoryActionMenuClose(menu)});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape')closeHistoryActionMenu()});
+}
+
 const EDIT_SESSION_GUEST_OWNER='guest',EDIT_SESSION_LOCAL_PREFIX='sylvex-edit-sessions-v2:';
 function editSessionAccountOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):'';}
 function editSessionOwner(){return editSessionAccountOwner()||EDIT_SESSION_GUEST_OWNER;}
@@ -6995,8 +7041,42 @@ function newEditWorkspace(e){
 function toggleEditWorkspaceSidebar(e){
   e?.preventDefault();if(editWorkspaceLocked())return;editWorkspaceState.sidebarOpen=!editWorkspaceState.sidebarOpen;renderEditWorkspace();
 }
+let studioModeNavigationRevision=0,studioWorkspaceMode='studio',studioModeNavigationIntent='';
+function studioModeForLink(link){
+  try{const params=new URL(link.href,location.href).searchParams;if(params.get('tool')==='edit_workspace')return 'edit';if(params.get('mode')==='grid'||params.get('view')==='grid')return 'grid'}catch(_){}
+  return 'studio';
+}
+function setStudioSidebarActiveMode(mode){
+  const sidebar=document.getElementById('sxSidebar');if(!sidebar)return;
+  sidebar.querySelectorAll('.sx-sidebar-studio-link').forEach(link=>link.classList.toggle('is-active',studioModeForLink(link)===mode));
+}
+function publishStudioWorkspaceMode(mode,revision){
+  studioWorkspaceMode=mode;setStudioSidebarActiveMode(mode);
+  const accountMenu=document.getElementById('sxAccountMenu'),accountButton=document.getElementById('sxSidebarAccountBtn');
+  if(accountMenu)accountMenu.hidden=true;accountButton?.setAttribute?.('aria-expanded','false');
+  if(typeof window!=='undefined'&&typeof window.dispatchEvent==='function'&&typeof CustomEvent==='function')window.dispatchEvent(new CustomEvent('sylvex:studio-mode',{detail:{mode,revision}}));
+}
+function beginStudioModeNavigation(mode){const revision=++studioModeNavigationRevision;publishStudioWorkspaceMode(mode,revision);return revision}
+function navigateStudioMode(mode,e){
+  if(e){e.preventDefault();e.stopPropagation();}
+  mode=['studio','grid','edit'].includes(mode)?mode:'studio';
+  if(mode!=='edit'&&editWorkspaceLocked())return false;
+  const previousIntent=studioModeNavigationIntent;studioModeNavigationIntent=mode;
+  try{
+    if(mode!=='edit'&&document.getElementById('editWorkspace'))closeEditWorkspace(null,{preserveStudioMode:true});
+    // switchView('tools') restores the classic layout as part of its normal
+    // view setup. While this navigation owns the transition, that internal
+    // reset must not publish a competing mode or browser-history entry.
+    switchView('tools');
+    const revision=beginStudioModeNavigation(mode);
+    if(mode==='edit')openEditWorkspace(null,{navigationRevision:revision});
+    else setStudioLayout(mode==='grid'?'grid':'classic',{navigationRevision:revision,preserveStudioMode:true});
+    if(revision===studioModeNavigationRevision)publishStudioWorkspaceMode(mode,revision);
+    return true;
+  }finally{studioModeNavigationIntent=previousIntent}
+}
 function leaveEditWorkspace(e,destination){
-  if(editWorkspaceLocked())return;closeEditWorkspace(e);switchView('tools');setStudioLayout(destination==='grid'?'grid':'classic');
+  if(editWorkspaceLocked())return;navigateStudioMode(destination==='grid'?'grid':'studio',e);
 }
 function mountEditWorkspaceSidebar(root){
   const sidebar=document.getElementById('sxSidebar');if(!sidebar)return;
@@ -7012,12 +7092,10 @@ function mountEditWorkspaceSidebar(root){
   history.innerHTML='<button type="button" id="editSidebarNew" class="sx-sidebar-newchat" title="New workspace" aria-label="New workspace" onclick="SYLVEX.newEditWorkspace(event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New workspace</span></button><div class="edit-sidebar-history-heading">Edit history</div><div id="editSessionList" class="sx-sidebar-history-list"></div><small id="editSessionSync" aria-live="polite"></small>';
   sidebar.insertBefore(history,sidebar.querySelector('.sx-sidebar-bottom'));
   sidebar.classList.add('has-edit-history');
-  const links=Array.from(sidebar.querySelectorAll('.sx-sidebar-studio-link')).map(link=>({link,active:link.classList.contains('is-active')}));
-  links.forEach(({link})=>link.classList.toggle('is-active',new URL(link.href,location.href).searchParams.get('tool')==='edit_workspace'));
+  setStudioSidebarActiveMode('edit');
   root._editSidebarCleanup=()=>{
     history.remove();sidebar.classList.remove('has-edit-history');
     if(studioShell)studioShell.inert=wasInert;
-    links.forEach(({link,active})=>link.classList.toggle('is-active',active));
   };
 }
 function editWorkspaceSidebar(){
@@ -7992,19 +8070,23 @@ function editWorkspaceModeAvailable(state,mode){
   return !state.sourceUrl&&!state.chain.some(node=>node.status==='ready'&&node.url);
 }
 function editWorkspaceToast(message) { if (typeof toast === 'function') toast(message); }
-function openEditWorkspace(e) {
+function openEditWorkspace(e,options={}) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   if (hideEditOnThisScreen()) return;
   if (!window.matchMedia('(min-width: 1000px)').matches) { editWorkspaceToast('Edit is currently available on wide desktop screens.'); return; }
+  const revision=options.navigationRevision||beginStudioModeNavigation('edit');
+  if(revision!==studioModeNavigationRevision)return;
   updateComposerMode('image');
   // A shared website sidebar must never show Grid and Edit history slots at
   // the same time when Edit is opened directly from Grid Mode.
-  setStudioLayout('classic');
+  setStudioLayout('classic',{navigationRevision:revision,preserveStudioMode:true});
+  if(revision!==studioModeNavigationRevision)return;
   let root = document.getElementById('editWorkspace');
   if (!root) { root=document.createElement('div'); root.id='editWorkspace'; root.className='edit-workspace'; root.setAttribute('role','dialog'); root.setAttribute('aria-modal','true'); document.body.appendChild(root); }
   root.classList.add('is-open');
   document.body.classList.add('edit-workspace-open');
   renderEditWorkspace();
+  publishStudioWorkspaceMode('edit',revision);
   root.querySelector('button')?.focus();
   void loadEditSessionHistory();
   if(!editSessionPagehideBound){
@@ -8014,12 +8096,13 @@ function openEditWorkspace(e) {
     editSessionPagehideBound=true;
   }
 }
-function closeEditWorkspace(e) {
+function closeEditWorkspace(e,options={}) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
   document.getElementById('editWorkspace')?._editSketch?.destroy();
   ++editSessionOpenVersion;void saveEditWorkspaceSession();
   const root=document.getElementById('editWorkspace');if(root){clearTimeout(root._editRefreshTimer);root._editObserver?.disconnect();root._editExpandCleanup?.();root._editNavigationCleanup?.();root._editStopChainMotion?.();clearTimeout(root._editAdvanceTimer);root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root._editSidebarCleanup?.();root.remove();}
   document.body.classList.remove('edit-workspace-open');
+  if(!options.preserveStudioMode){const revision=beginStudioModeNavigation('studio');if(typeof setStudioLayout==='function')setStudioLayout('classic',{navigationRevision:revision,preserveStudioMode:true})}
   // Keep this editing session when the user closes and reopens the workspace.
 }
 function renderEditWorkspace() {
@@ -27200,7 +27283,12 @@ async function waitGeneration(jobId, options) {
     const LAYERS = [
       ['photo-catalog', () => shown('photoCatalogModal'), () => closePhotoCatalog()],
       ['quick-image-detail', () => shown('quickImageDetailModal'), () => closeQuickImageDetail()],
-      ['edit-workspace', () => document.body.classList.contains('edit-workspace-open'), () => closeEditWorkspace()],
+      // On the Website, Edit is a first-class Studio route owned by
+      // navigateStudioMode()/the Website URL. Registering it here as a
+      // Mini App overlay would add a second history entry and later call
+      // history.go() while another mode is being selected (especially
+      // visible in Safari). Keep overlay history only in the Mini App.
+      ['edit-workspace', () => !isWebEmbed()&&document.body.classList.contains('edit-workspace-open'), () => closeEditWorkspace()],
       ['music-settings', () => shown('musicSettingsModal'), () => closeMusicSettingsModal()],
       ['try-on-picker', () => shown('tryOnPickerModal'), () => closeTryOnPicker()],
       ['character-replace-picker', () => shown('characterReplacePickerModal'), () => closeCharacterReplacePicker()],
@@ -28552,11 +28640,9 @@ async function waitGeneration(jobId, options) {
     sidebar.insertBefore(history,sidebar.querySelector('.sx-sidebar-bottom'));
     sidebar.classList.add('has-grid-history');
     history.querySelector('#studioGridSidebarNew')?.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();createStudioGridProject()});
-    const links=Array.from(sidebar.querySelectorAll('.sx-sidebar-studio-link')).map(link=>({link,active:link.classList.contains('is-active')}));
-    links.forEach(({link})=>link.classList.toggle('is-active',new URL(link.href,location.href).searchParams.get('mode')==='grid'));
+    setStudioSidebarActiveMode('grid');
     studioGridSidebarCleanup=()=>{
       history.remove();sidebar.classList.remove('has-grid-history');
-      links.forEach(({link,active})=>link.classList.toggle('is-active',active));
       studioGridSidebarCleanup=null;
     };
     renderStudioGridSidebarHistory();return true;
@@ -29041,8 +29127,12 @@ async function waitGeneration(jobId, options) {
     return true;
   }
 
-  function setStudioLayout(layout) {
+  function setStudioLayout(layout,options={}) {
     const mode = layout === 'grid' ? 'grid' : 'classic';
+    const workspaceMode=mode==='grid'?'grid':'studio';
+    const publishNavigation=!options.preserveStudioMode&&!studioModeNavigationIntent;
+    const revision=options.navigationRevision||(publishNavigation?beginStudioModeNavigation(workspaceMode):studioModeNavigationRevision);
+    if(revision!==studioModeNavigationRevision)return;
     const studio = document.querySelector('[data-view="tools"] .studio');
     const workspace = document.getElementById('studioGridWorkspace');
     document.querySelectorAll('#studioLayoutSwitch [data-studio-layout]').forEach((button) => button.classList.toggle('active', button.dataset.studioLayout === mode));
@@ -29052,8 +29142,10 @@ async function waitGeneration(jobId, options) {
       document.getElementById('histDrawer')?.classList.remove('show');document.getElementById('histBackdrop')?.classList.remove('show');
       mountStudioGridSidebarHistory();
     }else{toggleStudioGridDrawer(false);unmountStudioGridSidebarHistory()}
+    if(publishNavigation)publishStudioWorkspaceMode(workspaceMode,revision);
     localStorage.setItem('sylvex-prostudio-layout', mode);
     if (mode === 'grid') requestAnimationFrame(()=>{
+      if(revision!==studioModeNavigationRevision||studioWorkspaceMode!=='grid'||!studio?.classList.contains('grid-mode'))return;
       mountStudioGridSidebarHistory();
       const state=loadStudioGridState();
       if(window.matchMedia('(max-width:700px)').matches&&!state.mobile_layout_version)autoLayoutStudioGrid();
@@ -29705,6 +29797,7 @@ async function waitGeneration(jobId, options) {
     // Mini App opened directly in a browser (never inside Telegram).
     document.documentElement.classList.toggle('browser-app', isBrowserApp());
     initWebsiteProStudioUi();
+    installHistoryActionMenuController();
     initBrowserGuestPrompts();
     initBrowserViewport();
 
@@ -29798,7 +29891,7 @@ async function waitGeneration(jobId, options) {
   Object.assign(S, {
     openComparePrices,
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    setStudioLayout, cycleStudioTheme, restoreStudioTheme, syncStudioThemeVarsToDocument, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
+    setStudioLayout, navigateStudioMode, setStudioSidebarActiveMode, cycleStudioTheme, restoreStudioTheme, syncStudioThemeVarsToDocument, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,

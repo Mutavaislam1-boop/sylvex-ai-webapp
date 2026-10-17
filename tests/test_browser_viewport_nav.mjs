@@ -69,6 +69,6 @@ test('browser app: no Assistant button/setting; Grid remains available on mobile
   assert.match(cabinet, /filter\(\(\[key\]\) => !\(key === 'edit_workspace' && hideEditOnThisScreen\(\)\)\)/);
   assert.match(cabinet, /HOME_QUICK_TOOLS\.filter\(\(item\) => item\.key !== 'edit_workspace'\)/);
   // The Grid/Edit features themselves are still there.
-  assert.match(cabinet, /function openEditWorkspace\(e\)/);
+  assert.match(cabinet, /function openEditWorkspace\(e,options=\{\}\)/);
   assert.match(read('../webapp/cabinet.html'), /data-studio-layout="grid"/);
 });

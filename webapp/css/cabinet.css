@@ -3623,11 +3623,18 @@ CSS-БЛОК: .hd-more
 .hd-del:hover{background:rgba(255,255,255,.06);color:#fff}
 .history-pin{display:inline-block;margin-right:6px;color:var(--st-accent,var(--sx-accent,#7f9cff));font-style:normal}
 .history-item-menu{position:relative;flex:0 0 auto;color:var(--st-text,var(--sx-text,#f3f3f3))}
-.history-item-menu>summary{box-sizing:border-box;width:30px;height:28px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent;color:var(--st-mute,var(--sx-text-mute,#85858d));font-size:13px;letter-spacing:1px;cursor:pointer;list-style:none}
+.history-item-menu>summary{box-sizing:border-box;width:22px;height:22px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:var(--st-mute,var(--sx-text-mute,#85858d));font-size:10px;line-height:1;letter-spacing:.6px;cursor:pointer;list-style:none;transition:opacity .14s ease,color .14s ease,background .14s ease}
 .history-item-menu>summary::-webkit-details-marker{display:none}.history-item-menu>summary:hover,.history-item-menu[open]>summary{background:var(--st-bg-3,var(--sx-bg-2,rgba(127,127,127,.12)));color:var(--st-text,var(--sx-text,#f3f3f3))}
 .history-item-menu>div{position:absolute;z-index:80;top:calc(100% + 3px);right:0;box-sizing:border-box;min-width:118px;padding:4px;border:1px solid var(--st-border,var(--sx-border,rgba(127,127,127,.22)));border-radius:10px;background:var(--st-bg-2,var(--sx-bg,#151517));box-shadow:0 12px 32px rgba(0,0,0,.24)}
 .history-item-menu>div button{display:block;width:100%;padding:7px 9px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:11px;text-align:left;cursor:pointer}
 .history-item-menu>div button:hover{background:var(--st-bg-3,var(--sx-bg-2,rgba(127,127,127,.12)))}.history-item-menu>div button.danger{color:var(--st-danger,#ef6464)}
+@media (hover:hover) and (pointer:fine){
+  :is(.hd-item-row,.sx-sidebar-history-row,.edit-session-row,.studio-grid-project)>.history-item-menu>summary{opacity:0;pointer-events:none}
+  :is(.hd-item-row,.sx-sidebar-history-row,.edit-session-row,.studio-grid-project):hover>.history-item-menu>summary,
+  :is(.hd-item-row,.sx-sidebar-history-row,.edit-session-row,.studio-grid-project):focus-within>.history-item-menu>summary,
+  :is(.hd-item-row,.sx-sidebar-history-row,.edit-session-row,.studio-grid-project)>.history-item-menu[open]>summary{opacity:.78;pointer-events:auto}
+  :is(.hd-item-row,.sx-sidebar-history-row,.edit-session-row,.studio-grid-project)>.history-item-menu>summary:hover{opacity:1}
+}
 
 /* ===== Shop redesign ===== */
 .balance-usd{margin-top:2px;font-size:11.5px;color:var(--text-mute);font-weight:500;letter-spacing:.2px}
