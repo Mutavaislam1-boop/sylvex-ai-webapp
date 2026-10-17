@@ -204,8 +204,10 @@
     video: [],
     music: [],
     voice: [],
+    text: [],
   };
   const expandedHistorySections = {};
+  let conversationHistoryFilter = 'all';
   const activeGenerationWatchers = new Set();
   const activeGenerationWatchControllers = new Map();
   let generationSubmitting = false;
@@ -6796,7 +6798,7 @@ function scrollPresetCarousel(e, btn, dir) {
 }
 
 function createEditWorkspaceState() {
-  return {sessionId:'edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10),sidebarOpen:true,mode:'edit',editModel:EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL,sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
+  return {sessionId:'edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10),historyTitle:'',pinned:false,sidebarOpen:true,mode:'edit',editModel:EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL,sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
     width:0,height:0,showBefore:false,history:[],chain:[],activeNodeId:'',nodeSequence:0,maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:0,right:0,top:0,bottom:0},
@@ -6824,8 +6826,9 @@ function editSessionSnapshot(){
   return snapshot;
 }
 function editSessionSummary(state){
-  return {id:state.sessionId,title:state.sourceName||'Edit workspace',preview_url:[...state.chain].reverse().find(node=>node.status==='ready')?.url||'',count:state.chain.filter(node=>node.parentId&&node.status==='ready').length,updatedAt:state.updatedAt||new Date().toISOString()};
+  return {id:state.sessionId,title:state.historyTitle||state.sourceName||'Edit workspace',preview_url:[...state.chain].reverse().find(node=>node.status==='ready')?.url||'',count:state.chain.filter(node=>node.parentId&&node.status==='ready').length,updatedAt:state.updatedAt||new Date().toISOString(),pinned:!!state.pinned};
 }
+function sortEditSessions(items){return items.sort((a,b)=>Number(!!b.pinned)-Number(!!a.pinned)||String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))}
 function writeEditSessionLocal(){
   try{localStorage.setItem(editSessionLocalKey(),JSON.stringify({active:editWorkspaceState.sessionId,states:[...editSessionLocalStates.values()]}));editSessionLocalAvailable=true;}
   catch(_){editSessionLocalAvailable=false;editSessionSyncStatus='Local saving is unavailable';}
@@ -6834,15 +6837,37 @@ function renderEditSessionList(){
   const host=document.getElementById('editSessionList');if(!host)return;
   const safe=value=>S.escapeHtml(String(value||''));
   const shared=host.classList.contains('sx-sidebar-history-list');
+  sortEditSessions(editSessions);
   host.innerHTML=editSessions.length?editSessions.map(item=>{
     const active=item.id===editWorkspaceState.sessionId;
     const title=safe(item.title),details=item.count+' · '+safe(new Date(item.updatedAt).toLocaleDateString());
-    return '<button type="button" class="'+(shared?'sx-sidebar-history-item':'edit-session-item')+(active?' active':'')+'" data-edit-session="'+safe(item.id)+'" '+(active?'aria-current="true" ':'')+'title="'+title+' · '+details+'" '+(editWorkspaceLocked()?'disabled':'')+'>'+(shared?'<span class="sx-sidebar-history-text">'+title+'</span>':'<img src="'+safe(item.preview_url)+'" alt=""><span><b>'+title+'</b><small>'+details+'</small></span>')+'</button>';
+    const open='<button type="button" class="'+(shared?'sx-sidebar-history-item':'edit-session-item')+(active?' active':'')+'" data-edit-session="'+safe(item.id)+'" '+(active?'aria-current="true" ':'')+'title="'+title+' · '+details+'" '+(editWorkspaceLocked()?'disabled':'')+'>'+(shared?'<span class="sx-sidebar-history-text">'+(item.pinned?'<i class="history-pin" aria-hidden="true">•</i>':'')+title+'</span>':'<img src="'+safe(item.preview_url)+'" alt=""><span><b>'+title+'</b><small>'+details+'</small></span>')+'</button>';
+    const menu='<details class="history-item-menu"><summary aria-label="Workspace actions">•••</summary><div role="menu"><button type="button" role="menuitem" data-edit-session-action="rename" data-edit-session-id="'+safe(item.id)+'">Rename</button><button type="button" role="menuitem" data-edit-session-action="pin" data-edit-session-id="'+safe(item.id)+'">'+(item.pinned?'Unpin':'Pin')+'</button><button type="button" role="menuitem" class="danger" data-edit-session-action="delete" data-edit-session-id="'+safe(item.id)+'">Delete</button></div></details>';
+    return '<div class="'+(shared?'sx-sidebar-history-row':'edit-session-row')+'">'+open+menu+'</div>';
   }).join(''):'<p class="'+(shared?'sx-sidebar-history-empty':'edit-session-empty')+'">Your workspaces will appear here</p>';
   if(editSessionsHasMore)host.insertAdjacentHTML('beforeend','<button class="'+(shared?'sx-sidebar-history-item':'edit-session-more')+'" type="button" onclick="SYLVEX.loadMoreEditSessions(event)">Show more</button>');
-  host.onclick=e=>{const button=e.target.closest('[data-edit-session]');if(button)void openEditSession(button.dataset.editSession);};
+  host.onclick=e=>{const action=e.target.closest('[data-edit-session-action]');if(action){e.preventDefault();e.stopPropagation();void manageEditSession(action.dataset.editSessionId,action.dataset.editSessionAction);return}const button=e.target.closest('[data-edit-session]');if(button)void openEditSession(button.dataset.editSession);};
   const status=document.getElementById('editSessionSync');if(status)status.textContent=editSessionSyncStatus;
   const newButton=document.getElementById('editSidebarNew');if(newButton)newButton.disabled=editWorkspaceLocked();
+}
+async function manageEditSession(id,action){
+  if(editWorkspaceLocked()||!id)return;
+  let state=editSessionLocalStates.get(id)||(id===editWorkspaceState.sessionId?editSessionSnapshot():null);
+  if(!state&&editSessionAccountOwner())try{const response=await fetch('/api/public/prostudio/edit-sessions/'+encodeURIComponent(id),{cache:'no-store'});if(response.ok)state=(await response.json()).state}catch(_){}
+  if(action==='delete'){
+    if(!window.confirm('Delete this Edit workspace?'))return;
+    editSessionLocalStates.delete(id);editSessions=editSessions.filter(item=>item.id!==id);writeEditSessionLocal();renderEditSessionList();
+    if(editSessionAccountOwner())void fetch('/api/public/prostudio/edit-sessions/'+encodeURIComponent(id),{method:'DELETE'}).catch(()=>{});
+    if(id===editWorkspaceState.sessionId){resetEditWorkspaceSurface();Object.assign(editWorkspaceState,createEditWorkspaceState());renderEditWorkspace();writeEditSessionLocal()}
+    return;
+  }
+  if(!state)return;
+  if(action==='rename'){const title=window.prompt('Rename workspace',state.historyTitle||state.sourceName||'Edit workspace');if(title===null)return;const clean=String(title).replace(/\s+/g,' ').trim().slice(0,160);if(!clean)return;state.historyTitle=clean}
+  else if(action==='pin')state.pinned=!state.pinned;else return;
+  state.updatedAt=new Date().toISOString();state.saveRevision=++editSessionRevision;
+  if(id===editWorkspaceState.sessionId){editWorkspaceState.historyTitle=state.historyTitle||'';editWorkspaceState.pinned=!!state.pinned}
+  editSessionLocalStates.set(id,{...state,localUnsynced:true});editSessions=[editSessionSummary(state),...editSessions.filter(item=>item.id!==id)];sortEditSessions(editSessions);writeEditSessionLocal();renderEditSessionList();
+  if(editSessionAccountOwner())void queueEditSessionCloudSave(editSessionLocalStates.get(id),editSessionAccountOwner());
 }
 function checkpointEditWorkspaceSession(){
   const owner=editSessionOwner();
@@ -6902,7 +6927,7 @@ async function loadEditSessionHistory(more=false){
       const saved=JSON.parse(stored||'null');
       (saved?.states||[]).forEach(state=>{if(state?.sessionId&&Array.isArray(state.chain)&&editWorkspaceHasContent(state))editSessionLocalStates.set(state.sessionId,state);});
       guestDrafts.forEach(state=>editSessionLocalStates.set(state.sessionId,{...state,localUnsynced:true}));
-      editSessions=[...editSessionLocalStates.values()].map(editSessionSummary).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+      editSessions=sortEditSessions([...editSessionLocalStates.values()].map(editSessionSummary));
       if(!editWorkspaceHasContent(editWorkspaceState)&&editSessionLocalStates.has(saved?.active)){restoreEditSessionState(editSessionLocalStates.get(saved.active));restoredId=saved.active;}
       if(guestDrafts.length){const active=guestDrafts.find(state=>state.sessionId===editWorkspaceState.sessionId)||guestDrafts[0];restoreEditSessionState(active);restoredId=active.sessionId;writeEditSessionLocal();}
     }catch(_){}
@@ -6916,7 +6941,7 @@ async function loadEditSessionHistory(more=false){
     const items=Array.isArray(data.sessions)?data.sessions:[];
     const merged=new Map(editSessions.map(item=>[item.id,item]));
     items.forEach(item=>{const local=editSessionLocalStates.get(item.id);if(!local?.localUnsynced)merged.set(item.id,item);});
-    editSessions=[...merged.values()].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));editSessionsHasMore=!!data.hasMore;editSessionsOffset=offset+items.length;
+    editSessions=sortEditSessions([...merged.values()]);editSessionsHasMore=!!data.hasMore;editSessionsOffset=offset+items.length;
     if(!more){for(const state of editSessionLocalStates.values())if(state.localUnsynced)void queueEditSessionCloudSave(state,accountOwner);}
     renderEditSessionList();
   }catch(_){editSessionSyncStatus='History on this device · server unavailable';renderEditSessionList();}
@@ -7972,6 +7997,9 @@ function openEditWorkspace(e) {
   if (hideEditOnThisScreen()) return;
   if (!window.matchMedia('(min-width: 1000px)').matches) { editWorkspaceToast('Edit is currently available on wide desktop screens.'); return; }
   updateComposerMode('image');
+  // A shared website sidebar must never show Grid and Edit history slots at
+  // the same time when Edit is opened directly from Grid Mode.
+  setStudioLayout('classic');
   let root = document.getElementById('editWorkspace');
   if (!root) { root=document.createElement('div'); root.id='editWorkspace'; root.className='edit-workspace'; root.setAttribute('role','dialog'); root.setAttribute('aria-modal','true'); document.body.appendChild(root); }
   root.classList.add('is-open');
@@ -24113,31 +24141,43 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function renderConvList() {
     const el = document.getElementById('hdConvList'); if (!el) return;
-    const labels = {
-      image: 'Генерация фото',
-      video: 'Генерация видео',
-      music: 'Генерация музыки',
-      voice: 'Генерация озвучки',
-    };
-    const type = currentChatType();
-    const items = chatCollections[type] || [];
+    const filters = [['all','All'],['image','Photo'],['video','Video'],['music','Music'],['voice','Voice'],['text','Text']];
+    const type = filters.some(([key])=>key===conversationHistoryFilter)?conversationHistoryFilter:'all';
+    const source = type === 'all' ? conversationsCache : (chatCollections[type] || []);
+    const items = [...new Map((source || []).map(item=>[String(item.id),item])).values()].sort((a,b)=>Number(!!b.pinned)-Number(!!a.pinned)||String(b.updated_at||'').localeCompare(String(a.updated_at||'')));
     const expanded = !!expandedHistorySections[type];
     const visibleItems = expanded ? items : items.slice(0, 5);
-    el.innerHTML = '<div class="hd-type-section">'
-      + '<div class="hd-label">' + S.escapeHtml(labels[type] || 'Чаты') + '</div>'
+    el.innerHTML = '<div class="hd-history-filters" role="tablist" aria-label="History filters">'+filters.map(([key,label])=>'<button type="button" role="tab" aria-selected="'+(type===key)+'" class="'+(type===key?'active':'')+'" onclick="SYLVEX.setConversationHistoryFilter(event,\''+key+'\')">'+label+'</button>').join('')+'</div><div class="hd-type-section">'
       + (items.length
         ? visibleItems.map(c =>
           '<div class="hd-item-row">' +
-            '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" onclick="SYLVEX.openConv(\'' + S.escapeHtml(c.id) + '\',\'' + type + '\')">' +
-              S.escapeHtml(c.title || 'Chat') +
+            '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" onclick="SYLVEX.openConv(\'' + S.escapeHtml(c.id) + '\',\'' + chatTypeForMode(c.type||c.mode||'image') + '\')">' +
+              (c.pinned?'<span class="history-pin" aria-hidden="true">•</span>':'')+S.escapeHtml(c.title || 'Chat') +
             '</button>' +
-            '<button class="hd-del" onclick="SYLVEX.deleteConv(event,\'' + S.escapeHtml(c.id) + '\',\'' + type + '\')" aria-label="Delete">×</button>' +
+            '<details class="history-item-menu"><summary aria-label="Chat actions">•••</summary><div role="menu">'+
+              '<button type="button" role="menuitem" onclick="SYLVEX.manageConversationHistory(event,\''+S.escapeHtml(c.id)+'\',\''+chatTypeForMode(c.type||c.mode||'image')+'\',\'rename\')">Rename</button>'+
+              '<button type="button" role="menuitem" onclick="SYLVEX.manageConversationHistory(event,\''+S.escapeHtml(c.id)+'\',\''+chatTypeForMode(c.type||c.mode||'image')+'\',\'pin\')">'+(c.pinned?'Unpin':'Pin')+'</button>'+
+              '<button type="button" role="menuitem" class="danger" onclick="SYLVEX.manageConversationHistory(event,\''+S.escapeHtml(c.id)+'\',\''+chatTypeForMode(c.type||c.mode||'image')+'\',\'delete\')">Delete</button>'+
+            '</div></details>' +
           '</div>'
         ).join('') + (!expanded && items.length > 5
-          ? '<button class="hd-more" type="button" onclick="SYLVEX.expandHistorySection(event,\'' + type + '\')">Открыть полный список</button>'
+          ? '<button class="hd-more" type="button" onclick="SYLVEX.expandHistorySection(event,\'' + type + '\')">Show all</button>'
           : '')
-        : '<div class="hd-label" style="opacity:.35">Пока пусто</div>')
+        : '<div class="hd-label hd-empty">No history yet</div>')
       + '</div>';
+  }
+  function setConversationHistoryFilter(e,type){e?.preventDefault();conversationHistoryFilter=['all','image','video','music','voice','text'].includes(type)?type:'all';renderConvList()}
+  async function manageConversationHistory(e,id,type,action){
+    e?.preventDefault();e?.stopPropagation();
+    if(action==='delete'){await deleteConv(e,id,type);return}
+    const item=conversationsCache.find(entry=>String(entry.id)===String(id));if(!item)return;
+    const change={};
+    if(action==='rename'){const title=window.prompt('Rename chat',item.title||'Chat');if(title===null)return;const clean=String(title).replace(/\s+/g,' ').trim().slice(0,120);if(!clean)return;change.title=clean}
+    else if(action==='pin')change.pinned=!item.pinned;else return;
+    try{
+      const response=await fetch('/api/public/prostudio/conversations/meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),conversation_id:id,...change})});
+      if(!response.ok)throw new Error('history_update_failed');Object.assign(item,change);syncChatCollections(conversationsCache);renderConvList();
+    }catch(_){toast('Could not update this chat')}
   }
   // =====================================================
   // ЧАТ И ИСТОРИЯ: expandHistorySection
@@ -24264,9 +24304,9 @@ async function waitGeneration(jobId, options) {
     }
   }
   async function deleteConv(e, id, type) {
-    e.stopPropagation();
+    e?.stopPropagation();
     const tg = getTelegramId(); if (!tg) return;
-    if (!window.confirm('Удалить этот диалог?')) return;
+    if (!window.confirm('Delete this chat?')) return;
     await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id, { method: 'DELETE' });
     const deletedType = chatTypeForMode(type || currentChatType());
     if (id === currentConvId && deletedType === currentChatType()) newChat();
@@ -28459,7 +28499,7 @@ async function waitGeneration(jobId, options) {
   function defaultStudioGridState() {
     const stamp=Date.now().toString(36);
     return {
-      version:3, projectId:'grid_project_'+stamp, title:'New intelligent project', panX:90, panY:150, zoom:.9,
+      version:3, projectId:'grid_project_'+stamp, title:'New project', pinned:false, panX:90, panY:150, zoom:.9,
       nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:'',settings:{},position_locked:false,results:[]}],
       edges:[]
     };
@@ -28467,27 +28507,35 @@ async function waitGeneration(jobId, options) {
 
   function emptyStudioGridState() {
     const stamp=Date.now().toString(36);
-    return normalizeStudioGridState({version:3,projectId:'grid_project_'+stamp,title:'New intelligent project',panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:'',settings:{},position_locked:false,results:[]}],edges:[]});
+    return normalizeStudioGridState({version:3,projectId:'grid_project_'+stamp,title:'New project',pinned:false,panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',prompt:'',status:'IDLE',model:'',settings:{},position_locked:false,results:[]}],edges:[]});
   }
 
   function loadStudioGridProjects() {
-    try{const items=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECTS_KEY)||'[]');return Array.isArray(items)?items.filter(item=>item&&item.id):[]}catch(_){return[]}
+    try{const items=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECTS_KEY)||'[]');return Array.isArray(items)?items.filter(item=>{if(!item?.id)return false;try{const state=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+item.id)||'null');if(state)return studioGridHasMeaningfulActivity(state)}catch(_){}const title=String(item.title||'').trim();return !!(item.preview_url||Number(item.node_count)>1||(title&&!['New project','New intelligent project','Untitled project'].includes(title)))}):[]}catch(_){return[]}
   }
 
   function saveStudioGridProjects(items) {
     try{localStorage.setItem(STUDIO_GRID_PROJECTS_KEY,JSON.stringify(items.slice(0,40)))}catch(_){}
   }
 
+  function studioGridHasMeaningfulActivity(state){
+    if(!state)return false;
+    const customTitle=String(state.title||'').trim()&&!['New project','New intelligent project','Untitled project'].includes(String(state.title||'').trim());
+    const nodeActivity=(state.nodes||[]).some(node=>String(node.prompt||'').trim()||(node.attachments||[]).length||node.output||(node.results||[]).length||node.generation_id||node.request_id||['RUNNING','COMPLETED','FAILED','CANCELLED','WAITING'].includes(String(node.status||'').toUpperCase()));
+    return !!(customTitle||nodeActivity||state.workflow?.started_at);
+  }
+  function sortStudioGridProjects(items){return items.sort((a,b)=>Number(!!b.pinned)-Number(!!a.pinned)||String(b.updated_at||'').localeCompare(String(a.updated_at||'')))}
+
   function renderStudioGridSidebarHistory() {
     const history=document.getElementById('studioGridSidebarHistory'),list=document.getElementById('studioGridSidebarProjectList');
     if(!history||!list)return;
-    const active=loadStudioGridState(),items=loadStudioGridProjects();
+    const active=loadStudioGridState(),saved=sortStudioGridProjects(loadStudioGridProjects()),items=saved.some(item=>item.id===active.projectId)?saved:[{id:active.projectId,title:'New project',updated_at:'',pinned:false,temporary:true},...saved];
     list.innerHTML=items.length?items.map(item=>{
       const current=item.id===active.projectId,title=gridEscape(item.title||'Untitled project');
       const updated=new Date(item.updated_at||Date.now()),details=current?'Open now':(Number.isNaN(updated.getTime())?'Saved project':updated.toLocaleString());
-      return `<button type="button" class="sx-sidebar-history-item${current?' active':''}" data-grid-sidebar-project="${gridEscape(item.id)}" ${current?'aria-current="true" ':''}title="${title} · ${gridEscape(details)}"><span class="sx-sidebar-history-text">${title}</span></button>`;
+      return `<div class="sx-sidebar-history-row${item.temporary?' is-temporary':''}"><button type="button" class="sx-sidebar-history-item${current?' active':''}" data-grid-sidebar-project="${gridEscape(item.id)}" ${current?'aria-current="true" ':''}title="${title} · ${gridEscape(details)}"><span class="sx-sidebar-history-text">${item.pinned?'<i class="history-pin" aria-hidden="true">•</i>':''}${title}</span></button>${item.temporary?'':`<details class="history-item-menu"><summary aria-label="Project actions">•••</summary><div role="menu"><button type="button" role="menuitem" data-grid-project-action="rename" data-grid-project-id="${gridEscape(item.id)}">Rename</button><button type="button" role="menuitem" data-grid-project-action="pin" data-grid-project-id="${gridEscape(item.id)}">${item.pinned?'Unpin':'Pin'}</button><button type="button" role="menuitem" class="danger" data-grid-project-action="delete" data-grid-project-id="${gridEscape(item.id)}">Delete</button></div></details>`}</div>`;
     }).join(''):'<p class="sx-sidebar-history-empty">No saved Grid projects yet</p>';
-    list.onclick=event=>{const button=event.target.closest('[data-grid-sidebar-project]');if(button)void openStudioGridProject(button.dataset.gridSidebarProject)};
+    list.onclick=event=>{const action=event.target.closest('[data-grid-project-action]');if(action){event.preventDefault();event.stopPropagation();void manageStudioGridProject(action.dataset.gridProjectId,action.dataset.gridProjectAction);return}const button=event.target.closest('[data-grid-sidebar-project]');if(button)void openStudioGridProject(button.dataset.gridSidebarProject)};
     const button=document.getElementById('studioGridSidebarNew');if(button)button.disabled=studioGridHasActiveRun();
     const status=history.querySelector('[data-grid-sync-status]');if(status)status.textContent=studioGridCloudSync||'Saved on this device';
   }
@@ -28495,6 +28543,7 @@ async function waitGeneration(jobId, options) {
   function mountStudioGridSidebarHistory() {
     const sidebar=document.getElementById('sxSidebar');if(!sidebar)return false;
     if(studioGridSidebarCleanup){renderStudioGridSidebarHistory();return true}
+    document.getElementById('editSidebarHistory')?.remove();sidebar.classList.remove('has-edit-history');
     const history=document.createElement('section');history.id='studioGridSidebarHistory';history.className='sx-sidebar-history';history.setAttribute('aria-label','Grid Mode history');
     history.innerHTML='<button type="button" id="studioGridSidebarNew" class="sx-sidebar-newchat" title="New Grid project" aria-label="New Grid project"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New project</span></button><div class="studio-grid-sidebar-history-heading">Grid Mode history</div><div id="studioGridSidebarProjectList" class="sx-sidebar-history-list"></div><small data-grid-sync-status aria-live="polite"></small>';
     sidebar.insertBefore(history,sidebar.querySelector('.sx-sidebar-bottom'));
@@ -28513,11 +28562,11 @@ async function waitGeneration(jobId, options) {
   function unmountStudioGridSidebarHistory(){if(studioGridSidebarCleanup)studioGridSidebarCleanup()}
 
   function touchStudioGridProject(state) {
-    if(!state?.projectId)return;const items=loadStudioGridProjects(),now=new Date().toISOString(),existing=items.find(item=>item.id===state.projectId),meta={id:state.projectId,title:String(state.title||'Untitled project'),updated_at:now};if(existing)Object.assign(existing,meta);else items.unshift(meta);items.sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));saveStudioGridProjects(items);if(typeof renderStudioGridSidebarHistory==='function')renderStudioGridSidebarHistory();
+    if(!state?.projectId)return false;const items=loadStudioGridProjects(),existing=items.find(item=>item.id===state.projectId);if(!existing&&!studioGridHasMeaningfulActivity(state))return false;const now=new Date().toISOString(),meta={id:state.projectId,title:String(state.title||'Untitled project'),updated_at:now,pinned:!!state.pinned};if(existing)Object.assign(existing,meta);else items.unshift(meta);sortStudioGridProjects(items);saveStudioGridProjects(items);if(typeof renderStudioGridSidebarHistory==='function')renderStudioGridSidebarHistory();return true;
   }
 
   function archiveStudioGridProject(state=studioGridState) {
-    if(!state?.projectId)return;touchStudioGridProject(state);try{localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+state.projectId,JSON.stringify(state))}catch(_){}
+    if(!state?.projectId||!touchStudioGridProject(state))return false;try{localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+state.projectId,JSON.stringify(state))}catch(_){}return true;
   }
 
   function studioGridAccountOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):''}
@@ -28531,7 +28580,7 @@ async function waitGeneration(jobId, options) {
     document.querySelectorAll('[data-grid-sync-status]').forEach(element=>{element.textContent=studioGridCloudSync||''});
   }
   function queueStudioGridCloudSave(rawState,owner=studioGridAccountOwner()){
-    if(!rawState||!owner)return Promise.resolve();
+    if(!rawState||!owner||!studioGridHasMeaningfulActivity(rawState))return Promise.resolve();
     const snapshot=studioGridSnapshot(rawState);
     const save=async()=>{
       try{
@@ -28546,20 +28595,20 @@ async function waitGeneration(jobId, options) {
   }
   function scheduleStudioGridCloudSave(){
     clearTimeout(studioGridCloudSaveTimer);
-    if(!studioGridAccountOwner())return;
+    if(!studioGridAccountOwner()||!studioGridHasMeaningfulActivity(studioGridState))return;
     studioGridCloudSync='Saving…';renderStudioGridCloudStatus();
     studioGridCloudSaveTimer=setTimeout(()=>void queueStudioGridCloudSave(studioGridState),650);
   }
-  function studioGridIsBlank(state){return !!state&&state.nodes?.length===1&&state.nodes[0].type==='task'&&!String(state.nodes[0].prompt||'').trim()&&!state.edges?.length}
+  function studioGridIsBlank(state){return !!state&&!studioGridHasMeaningfulActivity(state)}
   async function loadStudioGridCloudProjects(){
     const owner=studioGridAccountOwner();if(!owner||studioGridCloudLoaded)return;
     const loadRevision=studioGridProjectSwitchRevision;
     studioGridCloudLoaded=true;
     try{
       const response=await fetch('/api/public/prostudio/grid-projects?offset=0',{cache:'no-store'});if(!response.ok)throw new Error();
-      const data=await response.json(),remote=Array.isArray(data.projects)?data.projects:[],local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item]));
+      const data=await response.json(),remote=(Array.isArray(data.projects)?data.projects:[]).filter(item=>{const title=String(item.title||'').trim();return !!(item.preview_url||Number(item.node_count)>1||(title&&!['New project','New intelligent project','Untitled project'].includes(title)))}),local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item]));
       remote.forEach(item=>{const previous=merged.get(item.id);if(!previous||String(item.updated_at||'')>String(previous.updated_at||''))merged.set(item.id,item)});
-      saveStudioGridProjects([...merged.values()].sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||''))));
+      saveStudioGridProjects(sortStudioGridProjects([...merged.values()]));
       // The server owns durable Grid history and re-signs every stored media
       // path on read. Always hydrate the currently open project when it
       // exists remotely, even when local metadata looks newer: localStorage
@@ -28581,11 +28630,11 @@ async function waitGeneration(jobId, options) {
 
   function renderStudioGridProjects() {
     if(typeof renderStudioGridSidebarHistory==='function')renderStudioGridSidebarHistory();
-    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><span><b>Grid project history</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Close">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Untitled project')}</b><small>${item.id===active.projectId?'Open now':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Delete project">🗑</button></div>`).join('')||'<p>No saved Grid projects yet</p>'}</div>`;
+    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=sortStudioGridProjects(loadStudioGridProjects());panel.innerHTML=`<header><span><b>Grid project history</b><small data-grid-sync-status>${gridEscape(studioGridCloudSync)}</small></span><button type="button" data-grid-project-close aria-label="Close">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${item.pinned?'• ':''}${gridEscape(item.title||'Untitled project')}</b><small>${item.id===active.projectId?'Open now':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><details class="history-item-menu"><summary aria-label="Project actions">•••</summary><div role="menu"><button type="button" data-grid-project-action="rename" data-grid-project-id="${gridEscape(item.id)}">Rename</button><button type="button" data-grid-project-action="pin" data-grid-project-id="${gridEscape(item.id)}">${item.pinned?'Unpin':'Pin'}</button><button type="button" class="danger" data-grid-project-action="delete" data-grid-project-id="${gridEscape(item.id)}">Delete</button></div></details></div>`).join('')||'<p>No saved Grid projects yet</p>'}</div>`;
   }
 
   function closeStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(panel)panel.hidden=true}
-  function toggleStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;if(panel.hidden){touchStudioGridProject(loadStudioGridState());renderStudioGridProjects();panel.hidden=false}else panel.hidden=true}
+  function toggleStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;if(panel.hidden){renderStudioGridProjects();panel.hidden=false}else panel.hidden=true}
 
   // Grid Mode had a full save/list/open project history but no way to ever
   // remove one from it - projects could only accumulate forever. Deleting
@@ -28595,7 +28644,7 @@ async function waitGeneration(jobId, options) {
   function deleteStudioGridProject(projectId) {
     if (!projectId) return;
     if (studioGridHasActiveRun()) { toast('Сначала дождитесь завершения текущей генерации'); return; }
-    if (!window.confirm('Удалить этот проект сетки?')) return;
+    if (!window.confirm('Delete this Grid project?')) return;
     const items = loadStudioGridProjects().filter((item) => item.id !== projectId);
     saveStudioGridProjects(items);
     try { localStorage.removeItem(STUDIO_GRID_PROJECT_PREFIX + projectId); } catch (_) {}
@@ -28607,22 +28656,36 @@ async function waitGeneration(jobId, options) {
       studioGridSelectedIds = new Set();
       clearStudioGridConnectionMode();
       saveStudioGridState();
-      touchStudioGridProject(studioGridState);
       renderStudioGrid();
       resetStudioGridView();
     }
     renderStudioGridProjects();
-    toast('Проект сетки удалён');
+    toast('Grid project deleted');
   }
 
   function createStudioGridProject() {
     if(studioGridHasActiveRun()){toast('Wait for the current generation to finish');return}
     const previous=studioGridSnapshot(loadStudioGridState());
+    if(studioGridIsBlank(previous)){closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('This new project is already empty');return}
     archiveStudioGridProject(previous);
     clearTimeout(studioGridCloudSaveTimer);
     if(studioGridAccountOwner())void queueStudioGridCloudSave(previous);
     studioGridProjectSwitchRevision += 1;
-    studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('New Grid project created');
+    studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('New Grid project created');
+  }
+
+  async function manageStudioGridProject(projectId,action){
+    if(!projectId||studioGridHasActiveRun())return;
+    if(action==='delete'){deleteStudioGridProject(projectId);return}
+    const current=loadStudioGridState();let state=projectId===current.projectId?current:null;
+    if(!state)try{state=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}
+    if(!state&&studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)state=(await response.json()).state}catch(_){}
+    if(!state)return;
+    if(action==='rename'){const title=window.prompt('Rename project',state.title||'Grid project');if(title===null)return;const clean=String(title).replace(/\s+/g,' ').trim().slice(0,160);if(!clean)return;state.title=clean}
+    else if(action==='pin')state.pinned=!state.pinned;else return;
+    state.updated_at=new Date().toISOString();if(projectId===current.projectId)studioGridState=state;
+    archiveStudioGridProject(state);try{localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+projectId,JSON.stringify(state))}catch(_){}
+    if(studioGridAccountOwner())void queueStudioGridCloudSave(state);renderStudioGridProjects();renderStudioGrid();
   }
 
   async function openStudioGridProject(projectId) {
@@ -28637,12 +28700,12 @@ async function waitGeneration(jobId, options) {
   }
 
   function normalizeStudioGridState(state) {
-    state.version = 3; state.projectId = state.projectId || 'grid_project_'+Date.now().toString(36);
+    state.version = 3; state.projectId = state.projectId || 'grid_project_'+Date.now().toString(36);state.pinned=!!state.pinned;
     state.panX = Number.isFinite(Number(state.panX)) ? Number(state.panX) : 90;
     state.panY = Number.isFinite(Number(state.panY)) ? Number(state.panY) : 150;
     state.zoom = Math.max(.2,Math.min(2.5,Number(state.zoom)||.9));
     const legacyStarter=Array.isArray(state.nodes)&&state.nodes.length===3&&Array.isArray(state.edges)&&state.edges.length===2&&['grid_task_1','grid_text_1','grid_image_1'].every(id=>state.nodes.some(node=>node.id===id))&&state.nodes.every(node=>!String(node.prompt||'').trim()&&!node.output&&!(node.attachments||[]).length&&!(node.results||[]).length);
-    if(legacyStarter){const task=state.nodes.find(node=>node.id==='grid_task_1')||{},stamp=Date.now().toString(36);state.nodes=[{...task,id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',status:'IDLE',model:'',settings:task.settings||{},position_locked:false,results:[]}];state.edges=[];state.title='New intelligent project'}
+    if(legacyStarter){const task=state.nodes.find(node=>node.id==='grid_task_1')||{},stamp=Date.now().toString(36);state.nodes=[{...task,id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Describe the result',status:'IDLE',model:'',settings:task.settings||{},position_locked:false,results:[]}];state.edges=[];state.title='New project'}
     state.nodes = (state.nodes || []).map((node) => {
       const type = GRID_TYPES[node.type] ? node.type : 'text';
       const normalized = Object.assign({subtype:type,status:'IDLE',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},attachments:[],output:null,generation_id:'',request_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[],result_versions:[],selectedResultVersion:null,planner_key:'',reference_ids:[]},node);
@@ -28699,9 +28762,10 @@ async function waitGeneration(jobId, options) {
   function saveStudioGridState() {
     if (!studioGridState) return;
     try { localStorage.setItem(STUDIO_GRID_KEY, JSON.stringify(studioGridState)); } catch (_) {}
-    touchStudioGridProject(studioGridState);
-    try { localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+studioGridState.projectId,JSON.stringify(studioGridState)); } catch (_) {}
-    scheduleStudioGridCloudSave();
+    if(touchStudioGridProject(studioGridState)){
+      try { localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+studioGridState.projectId,JSON.stringify(studioGridState)); } catch (_) {}
+      scheduleStudioGridCloudSave();
+    }
   }
 
   function applyStudioGridTransform() {
@@ -29139,13 +29203,14 @@ async function waitGeneration(jobId, options) {
     (plan.edges||[]).forEach(edge=>addEdge(idByKey.get(String(edge.from)),String(edge.output||'text'),idByKey.get(String(edge.to)),String(edge.input||'text')));
     created.filter(node=>['image','video','music','voice'].includes(node.type)&&state.edges.some(edge=>edge.to===node.id&&edge.fromPort==='text'&&['text','lyrics'].includes(edge.toPort))).forEach(node=>{node.prompt=''});
     const incoming=new Set(state.edges.filter(edge=>created.some(node=>node.id===edge.to)).map(edge=>edge.to));created.filter(node=>!incoming.has(node.id)&&node.type==='text').forEach(node=>addEdge(source.id,source.type==='task'?'task':'text',node.id,source.type==='task'?'task':'text'));
-    source.status='COMPLETED';source.output={type:'plan',value:String(plan.summary||`Created ${created.length} production nodes`)};source.error='';source.pending_plan=null;source.completed_at=new Date().toISOString();if(plan.title)state.title=plan.title;
+    source.status='COMPLETED';source.output={type:'plan',value:String(plan.summary||`Created ${created.length} production nodes`)};source.error='';source.pending_plan=null;source.completed_at=new Date().toISOString();if(plan.title&&['New project','New intelligent project','Untitled project'].includes(String(state.title||'').trim()))state.title=plan.title;
     saveStudioGridState();autoLayoutStudioGrid();toast('Production chain is ready — review it or launch the workflow');
   }
   async function buildStudioGridWorkflow(id) {
     if(studioGridPlannerRunning)return;
     const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id&&(node.type==='task'||node.type==='text')),brief=String(source?.prompt||source?.output?.value||'').trim();
     if(!source||!brief){toast('Сначала опишите задачу');return}
+    if(['New project','New intelligent project','Untitled project',''].includes(String(state.title||'').trim()))state.title=brief.replace(/\s+/g,' ').trim().slice(0,120);
     studioGridPlannerRunning=true;source.status='RUNNING';source.error='';source.output=null;(source.attachments||[]).forEach((item,index)=>{if(!item.reference_id)item.reference_id=`task_upload_${index+1}`});source.planner_request_id=source.planner_request_id||`grid_plan_${state.projectId}_${source.id}_${Date.now().toString(36)}`;saveStudioGridState();renderStudioGrid();
     try{
       const response=await fetch('/api/public/prostudio/grid/plan',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),task:brief,project_id:state.projectId,client_request_id:source.planner_request_id,context:gridPlannerContext(source)})}),plan=await response.json().catch(()=>({}));
@@ -29411,7 +29476,7 @@ async function waitGeneration(jobId, options) {
     if (title) title.addEventListener('input', () => { loadStudioGridState().title = title.value; saveStudioGridState(); });
     projectsButton?.addEventListener('click',toggleStudioGridProjects);
     newProjectButton?.addEventListener('click',createStudioGridProject);
-    projectsPanel?.addEventListener('click',event=>{if(event.target.closest('[data-grid-project-close]')){closeStudioGridProjects();return}const del=event.target.closest('[data-grid-project-delete]');if(del){deleteStudioGridProject(del.dataset.gridProjectDelete);return}const project=event.target.closest('[data-grid-project-open]');if(project)openStudioGridProject(project.dataset.gridProjectOpen)});
+    projectsPanel?.addEventListener('click',event=>{if(event.target.closest('[data-grid-project-close]')){closeStudioGridProjects();return}const action=event.target.closest('[data-grid-project-action]');if(action){event.preventDefault();event.stopPropagation();void manageStudioGridProject(action.dataset.gridProjectId,action.dataset.gridProjectAction);return}const project=event.target.closest('[data-grid-project-open]');if(project)openStudioGridProject(project.dataset.gridProjectOpen)});
     if (host) {
       host.addEventListener('input', (event) => {
         const card = event.target.closest('.studio-grid-node');
@@ -29740,7 +29805,7 @@ async function waitGeneration(jobId, options) {
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openQuickTextChat,
-    openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
+    openConv, deleteConv, expandHistorySection, setConversationHistoryFilter, manageConversationHistory, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, openBrowserBillingPortal, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, toggleNotifications, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
     computePrice, updatePrice, generateNow,

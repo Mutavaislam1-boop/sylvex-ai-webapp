@@ -99,10 +99,24 @@ test('Grid route and the saved layout survive Grid initialization', () => {
 });
 
 test('Grid starts with the intelligent brief instead of the legacy fixed image chain', () => {
-  assert.match(cabinet, /title:'New intelligent project'/);
+  assert.match(cabinet, /title:'New project'/);
   assert.match(cabinet, /title:'Describe the result'/);
   assert.match(cabinet, /legacyStarter=.*grid_task_1.*grid_text_1.*grid_image_1/);
   assert.match(cabinet, /Build intelligent chain/);
+});
+
+test('Grid history keeps a temporary draft out of persistence and names it from the first generated brief', () => {
+  assert.match(cabinet, /function studioGridHasMeaningfulActivity\(state\)/);
+  assert.match(cabinet, /if\(studioGridIsBlank\(previous\)\).*This new project is already empty/);
+  assert.match(cabinet, /state\.title=brief\.replace\(\/\\s\+\/g,' '\)\.trim\(\)\.slice\(0,120\)/);
+  assert.match(cabinet, /item\.temporary\?'':`<details class="history-item-menu"/);
+  assert.match(cabinet, /data-grid-project-action="rename"/);
+  assert.match(cabinet, /data-grid-project-action="pin"/);
+});
+
+test('Grid and Edit sidebar histories are mutually exclusive', () => {
+  assert.match(cabinet, /openEditWorkspace[\s\S]*?setStudioLayout\('classic'\)/);
+  assert.match(cabinet, /mountStudioGridSidebarHistory[\s\S]*?document\.getElementById\('editSidebarHistory'\)\?\.remove\(\)/);
 });
 
 test('Grid captures an optional brand name and maps reviewed identity into every generated node', () => {

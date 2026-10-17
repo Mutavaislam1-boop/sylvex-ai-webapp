@@ -662,6 +662,13 @@ test('shared menu shows only Edit sessions, escapes titles and locks workspace s
  h.state.busy=false;h.context.renderEditSessionList();assert.equal(h.button.disabled,false);assert.doesNotMatch(h.list.innerHTML,/disabled/);
  assert.equal(h.originalHistory.innerHTML,'Studio history only');
 });
+test('Edit history exposes compact rename, pin and delete actions',()=>{
+ assert.match(source,/data-edit-session-action="rename"/);
+ assert.match(source,/data-edit-session-action="pin"/);
+ assert.match(source,/data-edit-session-action="delete"/);
+ assert.match(source,/method:'DELETE'/);
+ assert.match(source,/historyTitle:''/);
+});
 test('new workspace keeps complete prior chain and restoring preserves links, geometry and tool settings',async()=>{
  const h=sessionHarness();await h.context.loadEditSessionHistory();await h.context.generateEditWorkspace();
  const id=h.state.sessionId;h.state.chain[0].x=-870;h.state.chain[1].y=163;h.state.zoom=225;h.state.viewport={x:130,y:-40};h.state.camera.horizontal=225;h.state.light.layers[0].color='#ff8800';h.state.resize.width=777;

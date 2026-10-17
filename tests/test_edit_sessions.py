@@ -132,6 +132,17 @@ def test_save_handler_ignores_body_owner_and_uses_authenticated_request(monkeypa
     assert result['ok'] and saved[0][0] == 101
 
 
+def test_delete_handler_and_storage_are_scoped_to_authenticated_owner(monkeypatch):
+    deleted = []
+    monkeypatch.setattr(main, 'DATABASE_URL', 'test-db-not-connected')
+    monkeypatch.setattr(main, 'ensure_prostudio_table', lambda: None)
+    monkeypatch.setattr(history, 'delete', lambda connect, owner, session_id: deleted.append((owner, session_id)) or True)
+    request = SimpleNamespace(state=SimpleNamespace(telegram_id=101))
+    result = asyncio.run(main.public_delete_edit_session(request, 'edit-example'))
+    assert result == {'ok': True, 'deleted': True}
+    assert deleted == [(101, 'edit-example')]
+
+
 def test_unauthenticated_history_is_not_available(monkeypatch):
     monkeypatch.setattr(main, 'DATABASE_URL', 'test-db-not-connected')
     with pytest.raises(HTTPException) as error:
