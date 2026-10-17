@@ -67,7 +67,7 @@ def refresh_media(value, field=""):
 
 def save(connect, owner, session_id, state):
     encoded = validate_session(session_id, state)
-    title = str(state.get("sourceName") or ("Sketch drawing" if state.get('sketch') else "Edit workspace"))[:160]
+    title = str(state.get("historyTitle") or state.get("sourceName") or ("Sketch drawing" if state.get('sketch') else "Edit workspace"))[:160]
     preview = next((node.get("url", "") for node in reversed(state["chain"]) if node.get("status") == "ready"), "")
     count = sum(node.get("status") == "ready" and bool(node.get("parentId")) for node in state["chain"])
     with connect() as conn:
@@ -82,9 +82,12 @@ def save(connect, owner, session_id, state):
 def list_sessions(connect, owner, offset=0):
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("""SELECT id, title, preview_url, result_count, updated_at FROM prostudio_edit_sessions
-                WHERE telegram_id=%s ORDER BY updated_at DESC, id LIMIT 50 OFFSET %s""", (owner, max(0, offset)))
-            return [{"id": row[0], "title": row[1], "preview_url": sign_media_url(row[2]), "count": row[3], "updatedAt": row[4].isoformat()} for row in cur.fetchall()]
+            cur.execute("""SELECT id, title, preview_url, result_count, updated_at,
+                       state_json @> '{"pinned": true}'::jsonb AS pinned
+                FROM prostudio_edit_sessions WHERE telegram_id=%s
+                ORDER BY pinned DESC, updated_at DESC, id LIMIT 50 OFFSET %s""", (owner, max(0, offset)))
+            return [{"id": row[0], "title": row[1], "preview_url": sign_media_url(row[2]), "count": row[3],
+                     "updatedAt": row[4].isoformat(), "pinned": bool(row[5])} for row in cur.fetchall()]
 
 
 def get(connect, owner, session_id):
@@ -96,3 +99,10 @@ def get(connect, owner, session_id):
         return None
     state = row[0] if isinstance(row[0], dict) else json.loads(row[0])
     return refresh_media(state)
+
+
+def delete(connect, owner, session_id):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM prostudio_edit_sessions WHERE telegram_id=%s AND id=%s", (owner, session_id))
+            return cur.rowcount > 0

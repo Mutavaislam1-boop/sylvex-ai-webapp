@@ -7262,6 +7262,14 @@ async def public_save_edit_session(request: Request, session_id: str):
     return {"ok": True}
 
 
+@app.delete("/api/public/prostudio/edit-sessions/{session_id}")
+async def public_delete_edit_session(request: Request, session_id: str):
+    owner = _edit_sessions_owner(request)
+    await asyncio.to_thread(ensure_prostudio_table)
+    deleted = await asyncio.to_thread(edit_sessions_service.delete, lambda: db_connection(DATABASE_URL), owner, session_id)
+    return {"ok": True, "deleted": deleted}
+
+
 def _grid_projects_owner(request: Request):
     owner = int(getattr(request.state, "telegram_id", 0) or 0)
     if not owner:

@@ -160,11 +160,12 @@ def save(connect, owner, project_id, state):
 def list_projects(connect, owner, offset=0):
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("""SELECT id,title,preview_url,node_count,updated_at
+            cur.execute("""SELECT id,title,preview_url,node_count,updated_at,
+                       state_json @> '{"pinned": true}'::jsonb AS pinned
                 FROM prostudio_grid_projects WHERE telegram_id=%s
-                ORDER BY updated_at DESC,id LIMIT 50 OFFSET %s""", (owner, max(0, int(offset or 0))))
+                ORDER BY pinned DESC,updated_at DESC,id LIMIT 50 OFFSET %s""", (owner, max(0, int(offset or 0))))
             return [{"id": row[0], "title": row[1], "preview_url": sign_media_url(row[2]),
-                     "node_count": row[3], "updated_at": row[4].isoformat()} for row in cur.fetchall()]
+                     "node_count": row[3], "updated_at": row[4].isoformat(), "pinned": bool(row[5])} for row in cur.fetchall()]
 
 
 def get(connect, owner, project_id):
