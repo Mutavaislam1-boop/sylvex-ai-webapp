@@ -64,8 +64,10 @@ function buildContext(initialActiveState) {
     document: {getElementById: () => null},
     toast: () => {},
     gridEscape: (v) => v,
-    STUDIO_GRID_PROJECTS_KEY: 'sylvex-prostudio-grid-projects-v1',
-    STUDIO_GRID_PROJECT_PREFIX: 'sylvex-prostudio-grid-project-v1:',
+    studioGridProjectsStorageKey: () => 'sylvex-prostudio-grid-v3:111:projects',
+    studioGridProjectStorageKey: (id) => 'sylvex-prostudio-grid-v3:111:project:' + id,
+    studioGridHasMeaningfulActivity: () => true,
+    studioGridTitleIsTemporary: (title) => !title || title === 'New project',
     studioGridState: initialActiveState,
     studioGridProjectSwitchRevision: 0,
     studioGridSelectedIds: new Set(['x']),
@@ -100,16 +102,16 @@ test('deleteStudioGridProject: removes a non-active project from the list and it
   const active = {projectId: 'grid_project_active', title: 'Active'};
   const context = buildContext(active);
   vm.runInContext(`
-    localStorage.setItem(STUDIO_GRID_PROJECTS_KEY, JSON.stringify([
+    localStorage.setItem(studioGridProjectsStorageKey(), JSON.stringify([
       {id: 'grid_project_active', title: 'Active', updated_at: new Date().toISOString()},
       {id: 'grid_project_old', title: 'Old', updated_at: new Date().toISOString()},
     ]));
-    localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX + 'grid_project_old', JSON.stringify({projectId: 'grid_project_old', nodes: []}));
+    localStorage.setItem(studioGridProjectStorageKey('grid_project_old'), JSON.stringify({projectId: 'grid_project_old', nodes: []}));
   `, context);
   vm.runInContext(`deleteStudioGridProject('grid_project_old')`, context);
   const remaining = vm.runInContext('loadStudioGridProjects()', context);
   assert.deepEqual(Array.from(remaining).map((item) => item.id), ['grid_project_active']);
-  const removedState = vm.runInContext(`localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX + 'grid_project_old')`, context);
+  const removedState = vm.runInContext(`localStorage.getItem(studioGridProjectStorageKey('grid_project_old'))`, context);
   assert.equal(removedState, null);
   // The active project must be untouched - deleting a different project
   // must never reset the live canvas.
@@ -120,15 +122,15 @@ test('deleteStudioGridProject: deleting the currently-open project resets the li
   const active = {projectId: 'grid_project_active', title: 'Active'};
   const context = buildContext(active);
   vm.runInContext(`
-    localStorage.setItem(STUDIO_GRID_PROJECTS_KEY, JSON.stringify([
+    localStorage.setItem(studioGridProjectsStorageKey(), JSON.stringify([
       {id: 'grid_project_active', title: 'Active', updated_at: new Date().toISOString()},
     ]));
-    localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX + 'grid_project_active', JSON.stringify({projectId: 'grid_project_active', nodes: []}));
+    localStorage.setItem(studioGridProjectStorageKey('grid_project_active'), JSON.stringify({projectId: 'grid_project_active', nodes: []}));
   `, context);
   vm.runInContext(`deleteStudioGridProject('grid_project_active')`, context);
   const newProjectId = vm.runInContext('studioGridState.projectId', context);
   assert.notEqual(newProjectId, 'grid_project_active');
-  const removedState = vm.runInContext(`localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX + 'grid_project_active')`, context);
+  const removedState = vm.runInContext(`localStorage.getItem(studioGridProjectStorageKey('grid_project_active'))`, context);
   assert.equal(removedState, null);
 });
 
@@ -137,15 +139,15 @@ test('deleteStudioGridProject: a live workflow run blocks deletion entirely', ()
   const context = buildContext(active);
   vm.runInContext(`studioGridHasActiveRun = () => true`, context);
   vm.runInContext(`
-    localStorage.setItem(STUDIO_GRID_PROJECTS_KEY, JSON.stringify([
+    localStorage.setItem(studioGridProjectsStorageKey(), JSON.stringify([
       {id: 'grid_project_other', title: 'Other', updated_at: new Date().toISOString()},
     ]));
-    localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX + 'grid_project_other', JSON.stringify({projectId: 'grid_project_other', nodes: []}));
+    localStorage.setItem(studioGridProjectStorageKey('grid_project_other'), JSON.stringify({projectId: 'grid_project_other', nodes: []}));
   `, context);
   vm.runInContext(`deleteStudioGridProject('grid_project_other')`, context);
   const remaining = vm.runInContext('loadStudioGridProjects()', context);
   assert.equal(remaining.length, 1);
-  const stillThere = vm.runInContext(`localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX + 'grid_project_other')`, context);
+  const stillThere = vm.runInContext(`localStorage.getItem(studioGridProjectStorageKey('grid_project_other'))`, context);
   assert.notEqual(stillThere, null);
 });
 
@@ -154,10 +156,10 @@ test('deleteStudioGridProject: declining the confirmation dialog leaves everythi
   const context = buildContext(active);
   vm.runInContext(`window.confirm = () => false`, context);
   vm.runInContext(`
-    localStorage.setItem(STUDIO_GRID_PROJECTS_KEY, JSON.stringify([
+    localStorage.setItem(studioGridProjectsStorageKey(), JSON.stringify([
       {id: 'grid_project_old', title: 'Old', updated_at: new Date().toISOString()},
     ]));
-    localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX + 'grid_project_old', JSON.stringify({projectId: 'grid_project_old', nodes: []}));
+    localStorage.setItem(studioGridProjectStorageKey('grid_project_old'), JSON.stringify({projectId: 'grid_project_old', nodes: []}));
   `, context);
   vm.runInContext(`deleteStudioGridProject('grid_project_old')`, context);
   const remaining = vm.runInContext('loadStudioGridProjects()', context);

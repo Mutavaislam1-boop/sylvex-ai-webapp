@@ -692,11 +692,11 @@ test('Edit checkpoints immediately and restores the active chain after a page re
  const id=first.state.sessionId,second=sessionHarness(first.local,first.cloud);await second.context.loadEditSessionHistory();
  assert.equal(second.state.sessionId,id);assert.equal(second.state.chain.length,1);assert.equal(second.state.camera.horizontal,180);
 });
-test('an anonymous Edit draft survives identity loading and is migrated to private cloud history',async()=>{
+test('an anonymous Edit draft is never migrated into the account that signs in afterward',async()=>{
  const h=sessionHarness();h.setOwner('');await h.context.loadEditSessionHistory();h.context.ensureEditWorkspaceChain();h.context.scheduleEditWorkspaceSave();
  const id=h.state.sessionId;assert.ok(h.local.has('sylvex-edit-sessions-v2:guest'));assert.equal(h.cloud.size,0);
  h.setOwner('111');await h.context.loadEditSessionHistory();await h.context.saveEditWorkspaceSession();
- assert.equal(h.state.sessionId,id);assert.equal(h.state.chain.length,1);assert.ok(h.local.has('sylvex-edit-sessions-v2:111'));assert.ok(h.cloud.has('111:'+id));
+ assert.notEqual(h.state.sessionId,id);assert.equal(h.state.chain.length,0);assert.equal(h.local.has('sylvex-edit-sessions-v2:111'),false);assert.equal(h.cloud.has('111:'+id),false);
 });
 test('reopening an interrupted job polls the saved job and fills the original slot without charging again',async()=>{
  const h=harness();h.context.ensureEditWorkspaceChain();const slot=h.context.beginEditWorkspaceChainResult();slot.jobId='existing-job';let polls=0;

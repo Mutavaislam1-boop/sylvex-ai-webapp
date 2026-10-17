@@ -5053,6 +5053,44 @@ let styleSheetCssInjected = false;
     } catch { return 0; }
   }
 
+  function localAccountStorageOwner() {
+    const accountOwner = getTelegramId();
+    if (accountOwner) return String(accountOwner);
+    // A website page starts rendering before /api/web/session/me resolves.
+    // That short boot window is not an anonymous account and must never
+    // reuse durable data left by a previous browser user.
+    if (typeof usesWebSessionAuth === 'function' && usesWebSessionAuth()) return 'pending';
+    return 'guest';
+  }
+
+  let proStudioDataOwner = '';
+  function activateProStudioAccountOwner(owner) {
+    const nextOwner = String(owner || '').trim();
+    if (!nextOwner || proStudioDataOwner === nextOwner) return false;
+    proStudioDataOwner = nextOwner;
+    currentConvId = null;
+    chatMessages = [];
+    conversationsCache = [];
+    serverDrafts = {};
+    profileGalleryItems = [];
+    generatedImageLibrary = [];
+    Object.keys(serverVisualItems || {}).forEach((key) => { serverVisualItems[key] = []; });
+    imageState.characterReferences = [];
+    imageState.objectReferences = [];
+    openingConversations.clear();
+    CHAT_SPACE_TYPES.forEach((type) => {
+      chatSpaces[type] = { activeChatId:null, conversationId:null, messages:[] };
+      chatCollections[type] = [];
+    });
+    clearActiveProStudioJob();
+    loadStoredChatSpace(currentChatType());
+    currentConvId = chatSpaces[currentChatType()].activeChatId || chatSpaces[currentChatType()].conversationId || null;
+    chatMessages = (chatSpaces[currentChatType()].messages || []).slice();
+    renderChat();
+    renderConvList();
+    return true;
+  }
+
   function pickStudioModel() {
     if (isImageMode()) {
       return imageState.modelId || (IMAGE_MODEL_LIST[0] && IMAGE_MODEL_LIST[0].id) || 'ideogram_3_0';
@@ -5126,11 +5164,11 @@ function localizedGreeting() {
   // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
   // =====================================================
   function chatStorageKey(type) {
-    return 'sylvex-prostudio-chat-' + (getTelegramId() || 'anon') + '-' + chatTypeForMode(type);
+    return 'sylvex-prostudio-chat-' + localAccountStorageOwner() + '-' + chatTypeForMode(type);
   }
 
   function lastModeStorageKey() {
-    return 'sylvex-prostudio-last-mode-' + (getTelegramId() || 'anon');
+    return 'sylvex-prostudio-last-mode-' + localAccountStorageOwner();
   }
 
   // =====================================================
@@ -5229,6 +5267,7 @@ function localizedGreeting() {
     try {
       const res = await fetch('/api/public/prostudio/sync?telegram_id=' + encodeURIComponent(tg) + '&limit=120', { cache: 'no-store' });
       const data = await res.json();
+      if (Number(getTelegramId()) !== Number(tg)) return;
       if (!data || !data.ok) return;
       const resources = data.resources || {};
       serverVisualItems.characters = Array.isArray(resources.characters) ? resources.characters : [];
@@ -5259,7 +5298,7 @@ function localizedGreeting() {
   }
 
   function activeGenerationStorageKey() {
-    return 'sylvex-prostudio-active-generation-' + (getTelegramId() || 'anon');
+    return 'sylvex-prostudio-active-generation-' + localAccountStorageOwner();
   }
 
   function activeGenerationLocked() {
@@ -5754,7 +5793,7 @@ function localizedGreeting() {
   }
 
   function customVisualKey(kind) {
-    return 'sylvex-prostudio-' + kind + '-' + (getTelegramId() || 'anon');
+    return 'sylvex-prostudio-' + kind + '-' + localAccountStorageOwner();
   }
 
   function visualPreviewUrl(item) {
@@ -6987,18 +7026,19 @@ async function loadEditSessionHistory(more=false){
       editWorkspaceState.updatedAt=new Date().toISOString();editWorkspaceState.saveRevision=++editSessionRevision;
       const current=editSessionSnapshot();editSessionLocalStates.set(current.sessionId,{...current,localUnsynced:true});writeEditSessionLocal();
     }
-    const guestDrafts=previousOwner===EDIT_SESSION_GUEST_OWNER?[...editSessionLocalStates.values()].filter(editWorkspaceHasContent):[];
-    if(previousOwner&&previousOwner!==EDIT_SESSION_GUEST_OWNER){resetEditWorkspaceSurface();Object.assign(editWorkspaceState,createEditWorkspaceState());}
+    // A guest/pending workspace has no verified owner. Keep it only inside
+    // its guest namespace and never copy it into the account that signs in
+    // afterward. Every identity transition starts from the destination
+    // account's own saved state.
+    if(previousOwner){resetEditWorkspaceSurface();Object.assign(editWorkspaceState,createEditWorkspaceState());}
     ++editSessionOpenVersion;
     editSessionsOwner=owner;editSessions=[];editSessionLocalStates.clear();editSessionsOffset=0;
     try{
       const stored=localStorage.getItem(editSessionLocalKey(owner))||(owner!==EDIT_SESSION_GUEST_OWNER?localStorage.getItem('sylvex-edit-sessions-v1:'+owner):null);
       const saved=JSON.parse(stored||'null');
       (saved?.states||[]).forEach(state=>{if(state?.sessionId&&Array.isArray(state.chain)&&editWorkspaceHasContent(state))editSessionLocalStates.set(state.sessionId,state);});
-      guestDrafts.forEach(state=>editSessionLocalStates.set(state.sessionId,{...state,localUnsynced:true}));
       editSessions=sortEditSessions([...editSessionLocalStates.values()].map(editSessionSummary));
       if(!editWorkspaceHasContent(editWorkspaceState)&&editSessionLocalStates.has(saved?.active)){restoreEditSessionState(editSessionLocalStates.get(saved.active));restoredId=saved.active;}
-      if(guestDrafts.length){const active=guestDrafts.find(state=>state.sessionId===editWorkspaceState.sessionId)||guestDrafts[0];restoreEditSessionState(active);restoredId=active.sessionId;writeEditSessionLocal();}
     }catch(_){}
   }
   if(restoredId){renderEditWorkspace();void openEditSession(restoredId,true);}
@@ -17538,7 +17578,7 @@ function renderGeneratedTelegramButton(url, kind) {
   let homeQuickMoved = false;
   let profileGalleryItems = [];
   let profileGalleryFilter = 'all';
-  function profileGalleryCacheKey(){return 'sylvex-profile-gallery-v1-'+(getTelegramId()||'guest')}
+  function profileGalleryCacheKey(){return 'sylvex-profile-gallery-v1-'+localAccountStorageOwner()}
   function hydrateProfileGalleryCache(){if(profileGalleryItems.length)return true;try{const cached=JSON.parse(localStorage.getItem(profileGalleryCacheKey())||'null');if(cached&&Array.isArray(cached.items)){profileGalleryItems=cached.items;return true}}catch(_){}return false}
   function cacheProfileGallery(){try{localStorage.setItem(profileGalleryCacheKey(),JSON.stringify({savedAt:Date.now(),items:profileGalleryItems.slice(0,100)}))}catch(_){}}
   const HOME_AI_MODELS = [
@@ -17802,11 +17842,13 @@ function renderGeneratedTelegramButton(url, kind) {
   }
   async function loadProfileGallery(force) {
     const host = document.getElementById('fullHist'); if (!host) return;
+    const owner = getTelegramId(); if (!owner) return;
     if (profileGalleryItems.length && !force) return renderProfileGallery();
     host.innerHTML = '<div class="profile-gallery-state">Загрузка истории…</div>';
     try {
-      const response = await fetchWithTimeout('/api/public/prostudio/gallery?telegram_id=' + encodeURIComponent(getTelegramId() || 0) + '&limit=100', { cache:'no-store' }, 12000);
+      const response = await fetchWithTimeout('/api/public/prostudio/gallery?telegram_id=' + encodeURIComponent(owner) + '&limit=100', { cache:'no-store' }, 12000);
       const payload = await response.json();
+      if (Number(getTelegramId()) !== Number(owner)) return;
       profileGalleryItems = Array.isArray(payload.items) ? payload.items : [];
       cacheProfileGallery();
       renderProfileGallery();
@@ -24246,6 +24288,7 @@ async function waitGeneration(jobId, options) {
     try {
       const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&limit=80&offset=0');
       const j = await r.json();
+      if (Number(getTelegramId()) !== Number(tg)) return;
       conversationsCache = (j && j.conversations) || [];
       syncChatCollections(conversationsCache);
       renderConvList();
@@ -24337,6 +24380,7 @@ async function waitGeneration(jobId, options) {
       }
       const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id + '&limit=50&offset=0');
       const j = await r.json();
+      if (Number(getTelegramId()) !== Number(tg)) return;
       if (!j.ok) return;
       currentConvId = id;
       chatMessages = (j.messages || []).map(m => {
@@ -28766,9 +28810,7 @@ async function waitGeneration(jobId, options) {
   };
 
   /* ===== ProStudio Grid ===== */
-  const STUDIO_GRID_KEY = 'sylvex-prostudio-grid-v2';
-  const STUDIO_GRID_PROJECTS_KEY = 'sylvex-prostudio-grid-projects-v1';
-  const STUDIO_GRID_PROJECT_PREFIX = 'sylvex-prostudio-grid-project-v1:';
+  const STUDIO_GRID_LOCAL_PREFIX = 'sylvex-prostudio-grid-v3:';
   const GRID_TYPES = {
     task:  { title:'Задача', icon:'✦', placeholder:'Опишите желаемый результат…', inputs:[], outputs:['task'] },
     text:  { title:'Текст', icon:'T', placeholder:'Введите или создайте текст…', inputs:['task','text'], outputs:['text'] },
@@ -28803,6 +28845,33 @@ async function waitGeneration(jobId, options) {
   let studioGridProjectSwitchRevision = 0;
   let studioGridVideoViewerKeyBound = false;
   let studioGridSidebarCleanup = null;
+  let studioGridStorageOwner = '';
+
+  function studioGridAccountOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):''}
+  function studioGridRuntimeOwner(){
+    const accountOwner=studioGridAccountOwner();
+    if(accountOwner)return accountOwner;
+    // Website authentication is still resolving during initial boot. It is
+    // not a guest identity and must never hydrate another visitor's drafts.
+    return typeof usesWebSessionAuth==='function'&&usesWebSessionAuth()?'pending':'guest';
+  }
+  function ensureStudioGridStorageOwner(){
+    const nextOwner=studioGridRuntimeOwner();
+    if(studioGridStorageOwner===nextOwner)return false;
+    clearTimeout(studioGridCloudSaveTimer);
+    studioGridProjectSwitchRevision+=1;
+    studioGridStorageOwner=nextOwner;
+    studioGridState=null;
+    studioGridSelectedIds=new Set();
+    studioGridPendingConnection=null;
+    studioGridJobsRestored=false;
+    studioGridCloudLoaded=false;
+    studioGridCloudSync='';
+    return true;
+  }
+  function studioGridActiveStorageKey(){ensureStudioGridStorageOwner();return STUDIO_GRID_LOCAL_PREFIX+studioGridStorageOwner+':active'}
+  function studioGridProjectsStorageKey(){ensureStudioGridStorageOwner();return STUDIO_GRID_LOCAL_PREFIX+studioGridStorageOwner+':projects'}
+  function studioGridProjectStorageKey(projectId){ensureStudioGridStorageOwner();return STUDIO_GRID_LOCAL_PREFIX+studioGridStorageOwner+':project:'+String(projectId||'')}
 
   function gridDefaultSettings(type) {
     if (type === 'image') return { model_mode:'manual', size:'1:1', count:1, style:'auto', quality:'standard', resolution:'1024' };
@@ -28922,11 +28991,11 @@ async function waitGeneration(jobId, options) {
   function studioGridTitleIsTemporary(title){const value=String(title||'').trim();return !value||STUDIO_GRID_TEMPORARY_TITLES.has(value)}
 
   function loadStudioGridProjects() {
-    try{const items=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECTS_KEY)||'[]');return Array.isArray(items)?items.filter(item=>{if(!item?.id)return false;try{const state=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+item.id)||'null');if(state)return studioGridHasMeaningfulActivity(state)}catch(_){}return !!(item.preview_url||Number(item.node_count)>1||!studioGridTitleIsTemporary(item.title))}):[]}catch(_){return[]}
+    try{const items=JSON.parse(localStorage.getItem(studioGridProjectsStorageKey())||'[]');return Array.isArray(items)?items.filter(item=>{if(!item?.id)return false;try{const state=JSON.parse(localStorage.getItem(studioGridProjectStorageKey(item.id))||'null');if(state)return studioGridHasMeaningfulActivity(state)}catch(_){}return !!(item.preview_url||Number(item.node_count)>1||!studioGridTitleIsTemporary(item.title))}):[]}catch(_){return[]}
   }
 
   function saveStudioGridProjects(items) {
-    try{localStorage.setItem(STUDIO_GRID_PROJECTS_KEY,JSON.stringify(items.slice(0,40)))}catch(_){}
+    try{localStorage.setItem(studioGridProjectsStorageKey(),JSON.stringify(items.slice(0,40)))}catch(_){}
   }
 
   function studioGridHasMeaningfulActivity(state){
@@ -28975,10 +29044,9 @@ async function waitGeneration(jobId, options) {
   }
 
   function archiveStudioGridProject(state=studioGridState) {
-    if(!state?.projectId||!touchStudioGridProject(state))return false;try{localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+state.projectId,JSON.stringify(state))}catch(_){}return true;
+    if(!state?.projectId||!touchStudioGridProject(state))return false;try{localStorage.setItem(studioGridProjectStorageKey(state.projectId),JSON.stringify(state))}catch(_){}return true;
   }
 
-  function studioGridAccountOwner(){return typeof getTelegramId==='function'?String(getTelegramId()||''):''}
   function studioGridSnapshot(state=studioGridState){
     if(!state)return null;
     const snapshot=JSON.parse(JSON.stringify(state));
@@ -29015,6 +29083,7 @@ async function waitGeneration(jobId, options) {
     studioGridCloudLoaded=true;
     try{
       const response=await fetch('/api/public/prostudio/grid-projects?offset=0',{cache:'no-store'});if(!response.ok)throw new Error();
+      if(owner!==studioGridAccountOwner()||loadRevision!==studioGridProjectSwitchRevision)return;
       const data=await response.json(),remote=(Array.isArray(data.projects)?data.projects:[]).filter(item=>!!(item.preview_url||Number(item.node_count)>1||!studioGridTitleIsTemporary(item.title))),local=loadStudioGridProjects(),merged=new Map(local.map(item=>[item.id,item]));
       remote.forEach(item=>{const previous=merged.get(item.id);if(!previous||String(item.updated_at||'')>String(previous.updated_at||''))merged.set(item.id,item)});
       saveStudioGridProjects(sortStudioGridProjects([...merged.values()]));
@@ -29026,11 +29095,11 @@ async function waitGeneration(jobId, options) {
       let current=loadStudioGridState(),remoteId=remote.some(item=>item.id===current.projectId)?current.projectId:'';
       if(remoteId&&loadRevision===studioGridProjectSwitchRevision){
         const projectResponse=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(remoteId),{cache:'no-store'});
-        if(projectResponse.ok&&loadRevision===studioGridProjectSwitchRevision){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(STUDIO_GRID_KEY,JSON.stringify(studioGridState));renderStudioGrid();restoreStudioGridJobs()}}
+        if(projectResponse.ok&&owner===studioGridAccountOwner()&&loadRevision===studioGridProjectSwitchRevision){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(studioGridActiveStorageKey(),JSON.stringify(studioGridState));renderStudioGrid();restoreStudioGridJobs()}}
         current=loadStudioGridState();
       }else if(!studioGridIsBlank(current)){void queueStudioGridCloudSave(current,owner)}
       studioGridCloudSync='Saved';renderStudioGridProjects();renderStudioGridCloudStatus();
-    }catch(_){studioGridCloudLoaded=false;studioGridCloudSync='History on this device · server unavailable';renderStudioGridCloudStatus()}
+    }catch(_){if(owner===studioGridAccountOwner()){studioGridCloudLoaded=false;studioGridCloudSync='History on this device · server unavailable';renderStudioGridCloudStatus()}}
   }
 
   function studioGridHasActiveRun() {
@@ -29056,7 +29125,7 @@ async function waitGeneration(jobId, options) {
     if (!window.confirm('Delete this Grid project?')) return;
     const items = loadStudioGridProjects().filter((item) => item.id !== projectId);
     saveStudioGridProjects(items);
-    try { localStorage.removeItem(STUDIO_GRID_PROJECT_PREFIX + projectId); } catch (_) {}
+    try { localStorage.removeItem(studioGridProjectStorageKey(projectId)); } catch (_) {}
     const cloudOwner=typeof studioGridAccountOwner==='function'?studioGridAccountOwner():'';if(cloudOwner)void fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{method:'DELETE'}).catch(()=>{});
     const current = loadStudioGridState();
     if (current.projectId === projectId) {
@@ -29087,13 +29156,13 @@ async function waitGeneration(jobId, options) {
     if(!projectId||studioGridHasActiveRun())return;
     if(action==='delete'){deleteStudioGridProject(projectId);return}
     const current=loadStudioGridState();let state=projectId===current.projectId?current:null;
-    if(!state)try{state=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}
+    if(!state)try{state=JSON.parse(localStorage.getItem(studioGridProjectStorageKey(projectId))||'null')}catch(_){}
     if(!state&&studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)state=(await response.json()).state}catch(_){}
     if(!state)return;
     if(action==='rename'){const title=window.prompt('Rename project',state.title||'Grid project');if(title===null)return;const clean=String(title).replace(/\s+/g,' ').trim().slice(0,160);if(!clean)return;state.title=clean}
     else if(action==='pin')state.pinned=!state.pinned;else return;
     state.updated_at=new Date().toISOString();if(projectId===current.projectId)studioGridState=state;
-    archiveStudioGridProject(state);try{localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+projectId,JSON.stringify(state))}catch(_){}
+    archiveStudioGridProject(state);try{localStorage.setItem(studioGridProjectStorageKey(projectId),JSON.stringify(state))}catch(_){}
     if(studioGridAccountOwner())void queueStudioGridCloudSave(state);renderStudioGridProjects();renderStudioGrid();
   }
 
@@ -29103,7 +29172,7 @@ async function waitGeneration(jobId, options) {
     const currentSnapshot=studioGridSnapshot(current);archiveStudioGridProject(currentSnapshot);clearTimeout(studioGridCloudSaveTimer);if(studioGridAccountOwner())void queueStudioGridCloudSave(currentSnapshot);
     let stored=null;
     if(studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)stored=(await response.json()).state}catch(_){}
-    if(!stored||!Array.isArray(stored.nodes))try{stored=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}
+    if(!stored||!Array.isArray(stored.nodes))try{stored=JSON.parse(localStorage.getItem(studioGridProjectStorageKey(projectId))||'null')}catch(_){}
     if(switchRevision!==studioGridProjectSwitchRevision)return;
     if(!stored||!Array.isArray(stored.nodes)){toast('Could not open this Grid project');return}studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();restoreStudioGridJobs();toast('Grid project opened');
   }
@@ -29159,9 +29228,10 @@ async function waitGeneration(jobId, options) {
   }
 
   function loadStudioGridState() {
+    ensureStudioGridStorageOwner();
     if (studioGridState) return studioGridState;
     try {
-      const stored = JSON.parse(localStorage.getItem(STUDIO_GRID_KEY) || localStorage.getItem('sylvex-prostudio-grid-v1') || 'null');
+      const stored = JSON.parse(localStorage.getItem(studioGridActiveStorageKey()) || 'null');
       if (stored && Array.isArray(stored.nodes) && Array.isArray(stored.edges)) studioGridState = normalizeStudioGridState(stored);
     } catch (_) {}
     if (!studioGridState) studioGridState = normalizeStudioGridState(defaultStudioGridState());
@@ -29169,10 +29239,11 @@ async function waitGeneration(jobId, options) {
   }
 
   function saveStudioGridState() {
+    ensureStudioGridStorageOwner();
     if (!studioGridState) return;
-    try { localStorage.setItem(STUDIO_GRID_KEY, JSON.stringify(studioGridState)); } catch (_) {}
+    try { localStorage.setItem(studioGridActiveStorageKey(), JSON.stringify(studioGridState)); } catch (_) {}
     if(touchStudioGridProject(studioGridState)){
-      try { localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+studioGridState.projectId,JSON.stringify(studioGridState)); } catch (_) {}
+      try { localStorage.setItem(studioGridProjectStorageKey(studioGridState.projectId),JSON.stringify(studioGridState)); } catch (_) {}
       scheduleStudioGridCloudSave();
     }
   }
@@ -30142,6 +30213,7 @@ async function waitGeneration(jobId, options) {
     initAiAssistantFab();
     window.addEventListener('message', handleKnowledgeWorkspaceMessage);
     initAudioPlayer();
+    activateProStudioAccountOwner(getTelegramId());
     restoreLocalActiveGeneration();
     initializeProStudioComposerMode();
     openVideoEditorFromLink();
@@ -30175,19 +30247,24 @@ async function waitGeneration(jobId, options) {
     // Account data loaders below need the account id. With a web session it
     // is known only once /api/web/session/me answers (or after sign-in), so
     // they run again then if they had nothing to load at startup.
-    const loadedWithoutAccount = !getTelegramId();
+    let loadedAccountOwner = '';
     const loadAccountData = () => {
-      if (!loadedWithoutAccount || !getTelegramId() || loadAccountData.done) return;
-      loadAccountData.done = true;
+      const owner=String(getTelegramId()||'');
+      if(!owner||owner===loadedAccountOwner)return;
+      loadedAccountOwner=owner;
+      activateProStudioAccountOwner(owner);
       loadConversations();
       loadProStudioSync();
       restoreActiveProStudioJob();
       restorePendingCharacterCreationJobs();
       restorePendingObjectCreationJobs();
+      ensureStudioGridStorageOwner();
       studioGridCloudLoaded=false;
       void loadStudioGridCloudProjects();
+      if(document.querySelector('.studio.grid-mode'))renderStudioGrid();
     };
     S.onWebSignedIn = () => { setBrowserGuest(false); loadAccountData(); };
+    document.addEventListener('sylvex:user-ready',loadAccountData);
     if (usesWebSessionAuth() && S.syncWebSession) {
       Promise.resolve(S.syncWebSession()).then((user) => {
         // Browser: a page load with the previous account's data on it
