@@ -12,11 +12,18 @@ html.sxAuth-open,html.sxAuth-open body{overflow:hidden}
 /* intro video: page design, never a player */
 /* The video's background is the page white, so it can run wider than the
    form column (full width on phones) without showing an edge. */
-.sxAuth-hero{display:flex;justify-content:center;margin:-6px 0 6px}
-.sxAuth-video{display:block;flex:0 0 auto;width:min(100vw,520px,calc(42vh * 1.49));width:min(100vw,520px,calc(42dvh * 1.49));height:auto;aspect-ratio:960/644;background:#fff;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-select:none}
+/* --sxa-video-h is the rendered video height. The final logo frame leaves
+   ~31% of it blank above the wordmark and ~30% below; the negative margins
+   let the page use most of that blank band instead of leaving a gap. The
+   video itself is never clipped, and the heading paints above its white. */
+.sxAuth-hero{--sxa-video-h:min(calc(100vw / 1.49),349px,42vh);display:flex;justify-content:center;margin:calc(var(--sxa-video-h) * -0.12) 0 calc(var(--sxa-video-h) * -0.22)}
+@supports (height:1dvh){.sxAuth-hero{--sxa-video-h:min(calc(100vw / 1.49),349px,42dvh)}}
+/* Tall screens have room to also tuck the blank band above the logo away. */
+@media (min-height:700px){.sxAuth-hero{margin-top:calc(var(--sxa-video-h) * -0.2)}}
+.sxAuth-video{display:block;flex:0 0 auto;width:calc(var(--sxa-video-h) * 1.49);height:auto;aspect-ratio:960/644;background:#fff;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-select:none}
 .sxAuth-video::-webkit-media-controls,.sxAuth-video::-webkit-media-controls-enclosure,.sxAuth-video::-webkit-media-controls-panel,.sxAuth-video::-webkit-media-controls-start-playback-button,.sxAuth-video::-webkit-media-controls-overlay-play-button{display:none!important;-webkit-appearance:none;opacity:0}
 
-.sxAuth-head{text-align:center;margin-bottom:22px}
+.sxAuth-head{position:relative;z-index:1;text-align:center;margin-bottom:22px}
 .sxAuth-title{margin:0;font-size:24px;font-weight:750;line-height:1.2;letter-spacing:-.02em;color:#0b0b0d}
 .sxAuth-sub{margin:8px 0 0;font-size:14.5px;line-height:1.5;color:#5c5d66}
 .sxAuth-sub b{color:#0b0b0d;font-weight:650;word-break:break-all}
@@ -80,7 +87,6 @@ html.sxAuth-open,html.sxAuth-open body{overflow:hidden}
   .sxAuth-title{font-size:26px}
 }
 @media (max-height:700px){
-  .sxAuth-hero{margin-bottom:2px}
   .sxAuth-head{margin-bottom:16px}
   .sxAuth-main{padding-bottom:18px}
 }
