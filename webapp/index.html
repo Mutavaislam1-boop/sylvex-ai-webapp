@@ -10,7 +10,7 @@ HTML-страница Mini App. Комментарии подписывают э
 <script>console.log("SYLVEX_INDEX_HTML_LOADED");</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
-<title>SYLVEX — Telegram Mini App</title>
+<title>SYLVEX</title>
 <!-- Standalone-browser / website web-session sign-in (see js/account-auth.js).
      sylvex-telegram-bot must match the real bot's @BotFather username with
      its Domain set to this app's deployed domain. The Google/Apple client
@@ -26,10 +26,26 @@ HTML-ЭЛЕМЕНТ: элемент
 <!-- ==================================================
 HTML-ЭЛЕМЕНТ: элемент
 =================================================== -->
-<link rel="stylesheet" href="css/cabinet.css?v=history-actions-v4-20261018" />
+<link rel="stylesheet" href="css/cabinet.css?v=browser-account-v2-20261018" />
 <link rel="stylesheet" href="css/store-cards.css?v=stars-subscriptions-final-20261012" />
-<link rel="stylesheet" href="css/browser-auth.css?v=browser-auth-2s-20261017" />
+<link rel="stylesheet" href="css/browser-auth.css?v=browser-account-20261017" />
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+  // Standalone browser (no Telegram identity, not the website embed): mark it
+  // before anything renders, so no account card shows while the SYLVEX
+  // session is still being checked (see setBrowserGuest in cabinet.js).
+  (function () {
+    try {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      var embed = new URLSearchParams(window.location.search || '').get('embed') === 'web';
+      if (!(tg && tg.initData) && !embed) {
+        document.documentElement.classList.add('browser-app', 'browser-auth-pending');
+        // What local storage held before the app wrote anything this load.
+        window.__sylvexStartKeys = Object.keys(window.localStorage || {});
+      }
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -37,17 +53,17 @@ HTML-ЭЛЕМЕНТ: элемент
 
 <script src="js/telegram.js"></script>
 <script src="js/device.js"></script>
-<script src="js/language.js?v=browser-simple-ui-20261014"></script>
+<script src="js/language.js?v=browser-account-20261017"></script>
 <script src="js/data.js"></script>
-<script src="js/ui.js?v=browser-simple-ui-20261014"></script>
+<script src="js/ui.js?v=browser-account-20261017"></script>
 <script src="js/user.js?v=edit-history-durable-20261014"></script>
-<script src="js/account-auth.js?v=browser-auth-2s-20261017"></script>
+<script src="js/account-auth.js?v=browser-account-20261017"></script>
 <script src="js/store-cards.js?v=stars-subscriptions-final-20261012"></script>
 <script src="js/edit-sketch.js?v=edit-sketch-photo-20261014"></script>
-<script src="js/cabinet.js?v=history-actions-v4-20261018"></script>
+<script src="js/cabinet.js?v=browser-account-v2-20261018"></script>
 <script>
   // Load the cabinet markup, then boot the app.
-  fetch('cabinet.html?v=history-actions-v4-20261018')
+  fetch('cabinet.html?v=browser-account-v2-20261018')
     .then(r => {
       if (!r.ok) throw new Error('Failed to load cabinet.html: ' + r.status);
       return r.text();

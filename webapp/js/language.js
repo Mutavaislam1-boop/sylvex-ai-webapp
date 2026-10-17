@@ -197,12 +197,12 @@
   // Browser Mini App guest block (home user card).
   Object.assign(I18N.en, {
     guest_title: 'Welcome to SYLVEX',
-    guest_sub: 'Log in or sign up to see your SYLVEX ID, balance and subscription.',
+    guest_sub: 'Log in or create an account to generate and create content with SYLVEX.',
     guest_login: 'Log in / Sign up',
   });
   Object.assign(I18N.ru, {
     guest_title: 'Добро пожаловать в SYLVEX',
-    guest_sub: 'Войдите или зарегистрируйтесь, чтобы видеть SYLVEX ID, баланс и подписку.',
+    guest_sub: 'Войдите или создайте аккаунт, чтобы генерировать и создавать контент в SYLVEX.',
     guest_login: 'Войти / Регистрация',
   });
 

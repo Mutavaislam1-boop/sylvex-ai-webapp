@@ -9,7 +9,7 @@ const editModelBlock=source.slice(editModelStart,source.indexOf('const editWorks
 const block=editModelBlock+source.slice(source.indexOf('function createEditWorkspaceState'),source.indexOf('\nasync function generateQuickImageDetail',source.indexOf('function createEditWorkspaceState')));
 function harness(){
   const requests=[],messages=[],revoked=[];let rejectUpload=false;
-  const context=vm.createContext({console,setTimeout,clearTimeout,File,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
+  const context=vm.createContext({guestNeedsAccount:()=>false,console,setTimeout,clearTimeout,File,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
     Image:class{naturalWidth=1200;naturalHeight=800;set src(value){queueMicrotask(()=>this.onload());}},
     document:{querySelector:()=>null,getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
     toast:m=>messages.push(m),updateComposerMode(){},callGenerate:async (...args)=>{requests.push(args);return {images:['https://cdn.example/result.png']};},
@@ -354,7 +354,7 @@ test('the selected original reference downloads without re-encoding its bytes',a
 test('brush strokes can be undone and redone; clearing resets both stacks',()=>{const h=harness();const stroke={points:[{x:.2,y:.4}],size:.05};h.state.maskStrokes=[stroke];h.context.clearEditWorkspaceMask(null,true);assert.equal(h.state.maskStrokes.length,0);h.context.redoEditWorkspaceMask();assert.equal(h.state.maskStrokes[0],stroke);h.context.clearEditWorkspaceMask();assert.equal(h.state.maskStrokes.length,0);assert.equal(h.state.maskRedo.length,0);});
 test('shared request builder preserves isolated masks without reading composer state',async()=>{
  const builder=source.slice(source.indexOf('async function buildGenerationRequest('),source.indexOf('\nasync function callGenerateCore(',source.indexOf('async function buildGenerationRequest(')));
- const context=vm.createContext({getTelegramId:()=>123,currentConvId:'conversation',uiLang:()=> 'ru'});
+ const context=vm.createContext({guestNeedsAccount:()=>false,getTelegramId:()=>123,currentConvId:'conversation',uiLang:()=> 'ru'});
  vm.runInContext(builder,context);
  const mask='data:image/png;base64,TEST';
  const result=await context.buildGenerationRequest({mode:'image',prompt:'Edit · Retouch',imageOptions:{tool:'edit_workspace',editWorkspaceMaskUrl:mask,referenceImageUrls:['https://cdn.example/source.png']},generationOptions:{isolateRequest:true}});

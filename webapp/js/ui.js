@@ -68,6 +68,9 @@
   function toast(msg) {
     const el = document.getElementById('toast');
     if (!el) return;
+    // Browser app sign-in screen open: it says what is needed itself, so no
+    // stray notice from the action that opened it shows on top.
+    if (document.documentElement.classList.contains('sxAuth-open')) return;
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(toastT);

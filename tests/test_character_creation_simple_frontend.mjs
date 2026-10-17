@@ -85,7 +85,7 @@ function makeDraftContext() {
     renderVisualCreateModal: () => {},
     toast: () => {},
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('openVisualCreateModal'), context);
   vm.runInContext(extractFunction('visualCreateCanSave'), context);
   return context;
@@ -132,7 +132,7 @@ function makeNetworkContext(responseBody, ok = true) {
       return { ok, json: async () => responseBody };
     },
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('createCharacterCreationJob'), context);
   return {context, calls};
 }
@@ -167,7 +167,7 @@ function makePollingContext(statuses) {
       return { ok: true, json: async () => job };
     },
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('pollCreationJob'), context);
   vm.runInContext(extractFunction('pollCharacterCreationJob'), context);
   return {context, calls};
@@ -227,7 +227,7 @@ test('pollCharacterCreationJob: onProgress never fires once the job reaches a te
 function makeJobsStorageContext() {
   const {store, localStorage} = makeStorage();
   const sandbox = { getTelegramId: () => 42, localStorage };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('characterCreationJobsStorageKey'), context);
   vm.runInContext(extractFunction('readPendingCharacterCreationJobs'), context);
   vm.runInContext(extractFunction('writePendingCharacterCreationJobs'), context);
@@ -266,7 +266,7 @@ test('clearPendingCharacterCreationJob: removes only the matching job_id, leavin
 function makeDismissedContext() {
   const {localStorage} = makeStorage();
   const sandbox = { getTelegramId: () => 42, localStorage };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('dismissedCharacterJobsKey'), context);
   vm.runInContext(extractFunction('readDismissedCharacterJobIds'), context);
   vm.runInContext(extractFunction('rememberDismissedCharacterJob'), context);
@@ -287,7 +287,7 @@ test('rememberDismissedCharacterJob: records a job_id so it is not forgotten', (
 
 test('pendingCharacterCardId / characterJobIdFromCardId round-trip a job_id', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('pendingCharacterCardId'), context);
   vm.runInContext(extractFunction('characterJobIdFromCardId'), context);
   const id = vm.runInContext(`pendingCharacterCardId('job-123')`, context);
@@ -299,7 +299,7 @@ test('pendingCharacterCardId / characterJobIdFromCardId round-trip a job_id', ()
 
 test('characterCardPendingStatus: creating/failed are gated; every other Character (including no status field at all) is "ready" as before', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('characterCardPendingStatus'), context);
   assert.equal(vm.runInContext(`characterCardPendingStatus({status: 'creating'})`, context), 'creating');
   assert.equal(vm.runInContext(`characterCardPendingStatus({status: 'failed'})`, context), 'failed');
@@ -315,7 +315,7 @@ test('characterCardPendingStatus: creating/failed are gated; every other Charact
 
 function makeCardHtmlContext() {
   const sandbox = { S: { escapeHtml: (s) => String(s) } };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('characterCardPendingStatus'), context);
   vm.runInContext(extractFunction('characterCreationStageLabel'), context);
   vm.runInContext(extractFunction('characterJobIdFromCardId'), context);
@@ -354,7 +354,7 @@ test('characterCreationPendingCardHtml: a "failed" card shows the name, Failed s
 
 test('characterCreationStageLabel: "Creating..." before Primary, N/4 per completed reference, "Finalizing..." while saving', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('characterCreationStageLabel'), context);
   assert.equal(vm.runInContext(`characterCreationStageLabel({})`, context), 'Создаём...');
   assert.equal(vm.runInContext(`characterCreationStageLabel({completedReferences: 1, totalReferences: 4})`, context), '1/4');
@@ -375,7 +375,7 @@ function makeCardLifecycleContext() {
     activeImageStylePanelKind: 'character',
     renderImageStylePanel: () => {},
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('pendingCharacterCardId'), context);
   vm.runInContext(extractFunction('characterJobIdFromCardId'), context);
   vm.runInContext(extractFunction('characterPendingCardDomId'), context);
@@ -495,7 +495,7 @@ function makePollCardContext(jobOutcomes) {
       return { ok: true, json: async () => job };
     },
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'pollCreationJob', 'pollCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
@@ -592,7 +592,7 @@ function makeFlickerRegressionContext() {
     renderImageStylePanel: () => { calls.renders += 1; },
     document: documentStub,
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
     'upsertCharacterCreationPendingCard', 'patchCharacterPendingCardDom', 'updateCharacterCreationPendingCardProgress',
@@ -678,7 +678,7 @@ test('startCharacterCreationCardPoll: never polls the same job_id twice at once'
       return { ok: true, json: async () => (status === 'completed' ? {ok: true, status, result: {ok: true, resource: {id: 'custom_character_abc'}}} : {ok: true, status}) };
     },
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'pollCreationJob', 'pollCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
@@ -718,7 +718,7 @@ function makeRetryDeleteContext(createJobImpl) {
     createCharacterCreationJob: createJobImpl,
     startCharacterCreationCardPoll: (jobId) => calls.startedPolls.push(jobId),
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
@@ -785,7 +785,7 @@ function makeRestoreJobsContext(backendJobs, {noLocalStorage = false} = {}) {
   } else {
     sandbox.localStorage = makeStorage().localStorage;
   }
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
@@ -902,7 +902,7 @@ function makeSaveDraftContext({createJobResult, createJobError, createObjectJobR
     startCharacterCreationCardPoll: (jobId) => calls.startedPolls.push(jobId),
     startObjectCreationCardPoll: (jobId) => calls.startedObjectPolls.push(jobId),
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
@@ -1040,7 +1040,7 @@ test('pendingObjectCardId / objectJobIdFromCardId round-trip a job_id', () => {
 
 test('objectCardPendingStatus: creating/failed are gated; every other Object (including no status field at all) is "ready" as before', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('objectCardPendingStatus'), context);
   assert.equal(vm.runInContext(`objectCardPendingStatus({status: 'creating'})`, context), 'creating');
   assert.equal(vm.runInContext(`objectCardPendingStatus({status: 'failed'})`, context), 'failed');
@@ -1051,7 +1051,7 @@ test('objectCardPendingStatus: creating/failed are gated; every other Object (in
 
 function makeObjectCardHtmlContext() {
   const sandbox = { S: { escapeHtml: (s) => String(s) } };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('objectCardPendingStatus'), context);
   vm.runInContext(extractFunction('objectCreationStageLabel'), context);
   vm.runInContext(extractFunction('objectJobIdFromCardId'), context);
@@ -1089,7 +1089,7 @@ test('objectCreationPendingCardHtml: a "failed" card shows the name, Failed stat
 
 test('objectCreationStageLabel: "Создаём..." while in flight, "Финализируем..." while saving', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('objectCreationStageLabel'), context);
   assert.equal(vm.runInContext(`objectCreationStageLabel({})`, context), 'Создаём...');
   assert.equal(vm.runInContext(`objectCreationStageLabel({stage: 'reference'})`, context), 'Создаём...');
@@ -1109,7 +1109,7 @@ function makeObjectCardLifecycleContext() {
     activeImageStylePanelKind: 'object',
     renderImageStylePanel: () => {},
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('pendingObjectCardId'), context);
   vm.runInContext(extractFunction('objectJobIdFromCardId'), context);
   vm.runInContext(extractFunction('objectPendingCardDomId'), context);
@@ -1240,7 +1240,7 @@ function makeObjectFlickerRegressionContext() {
     renderImageStylePanel: () => { calls.renders += 1; },
     document: documentStub,
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'pendingObjectCardId', 'objectJobIdFromCardId', 'objectPendingCardDomId', 'objectCreationStageLabel',
     'upsertObjectCreationPendingCard', 'patchObjectPendingCardDom', 'updateObjectCreationPendingCardProgress',
@@ -1318,7 +1318,7 @@ function makeObjectPollCardContext(jobOutcomes) {
       return { ok: true, json: async () => job };
     },
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'pollCreationJob', 'pollObjectCreationJob',
     'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
@@ -1377,7 +1377,7 @@ function makeObjectRetryDeleteContext(createJobImpl) {
     createObjectCreationJob: createJobImpl,
     startObjectCreationCardPoll: (jobId) => calls.startedPolls.push(jobId),
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
     'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',
@@ -1444,7 +1444,7 @@ function makeObjectRestoreJobsContext(backendJobs, {noLocalStorage = false} = {}
   } else {
     sandbox.localStorage = makeStorage().localStorage;
   }
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   [
     'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
     'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',

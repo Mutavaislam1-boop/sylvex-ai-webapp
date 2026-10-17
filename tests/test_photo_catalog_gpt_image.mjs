@@ -74,7 +74,7 @@ function makeGenerateContext(item) {
     sendChat: async () => { calls.sendChat += 1; },
     visualPreviewUrl: (o) => (o && o.previewUrl) || '',
   };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('generateQuickImageDetail'), context);
   return { context, sandbox, imageState, calls };
 }
@@ -146,7 +146,7 @@ test('a missing catalog-folder style prompt does not inject a stray leading blan
 
 test('catalog transport strips hidden style and object images while retaining both display thumbnails', () => {
   const sandbox = {};
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.assign(sandbox, { guestNeedsAccount: () => false }));
   vm.runInContext(extractFunction('applyCatalogImageGenerationOptions'), context);
   const base = {
     referenceImageUrls: ['https://cdn.sylvex.ai/catalog.png', 'https://cdn.sylvex.ai/user.jpg'],

@@ -90,7 +90,7 @@ test('sign-up goes through the emailed code, never straight to an account', () =
 });
 
 test('only the standalone browser gets the full-screen page; the footer links to the website', () => {
-  assert.match(source, /if \(S\.isBrowserApp && S\.isBrowserApp\(\)\) \{ openBrowserAuthScreen\(\); return; \}/);
+  assert.match(source, /if \(S\.isBrowserApp && S\.isBrowserApp\(\)\) \{ openBrowserAuthScreen\(null, options && options\.reason\); return; \}/);
   for (const href of ['${WEBSITE_URL}/legal/privacy.html', '${WEBSITE_URL}/legal/terms.html', '${WEBSITE_URL}/']) {
     assert.ok(source.includes(`href="${href}" target="_blank" rel="noopener"`), href);
   }
@@ -103,4 +103,14 @@ test('Google uses the official rendered button, initialized once', () => {
   assert.match(source, /renderButton\(host, \{[^}]*text: 'continue_with'/);
   const init = extract('initGoogleOnce');
   assert.ok(init.includes('if (googleInitFor === clientId) return;'));
+});
+
+test('the browser screen has no Telegram login, asks again on every load and reloads after sign-in', () => {
+  const screen = source.slice(source.indexOf('function openBrowserAuthScreen('), source.indexOf('S.closeBrowserAuthScreen'));
+  assert.ok(!/mountTelegramWidget|auth\/telegram|sxaTg/.test(screen));
+  assert.ok(!screen.includes('GATE_DISMISSED_KEY'), 'closing lasts only until the next page load');
+  const ensure = extract('ensureWebAuthGate');
+  assert.match(ensure, /\(!browserApp && gateDismissed\(\)\)/);
+  assert.match(screen, /async function finish\(\) \{[\s\S]*?window\.location\.reload\(\);/);
+  assert.match(screen, /state\.reason \? esc\(state\.reason\)/);
 });

@@ -73,8 +73,6 @@ html.sxAuth-open,html.sxAuth-open body{overflow:hidden}
 .sxAuth-link[disabled]{color:#9a9ba4;cursor:default;text-decoration:none}
 .sxAuth-link.is-strong{display:inline;margin:0;padding:2px 0;color:#0b0b0d;font-weight:650}
 .sxAuth-switch{margin:14px 0 0;color:#5c5d66;font-size:14px;text-align:center}
-.sxAuth-tg{display:flex;justify-content:center;margin-top:18px;min-height:0}
-.sxAuth-tg:empty,.sxAuth-tg>div:empty{display:none}
 
 .sxAuth-footer{flex:0 0 auto;width:100%;max-width:400px;margin:0 auto;padding-top:12px;text-align:center;color:#8b8c96;font-size:12px;line-height:1.5}
 .sxAuth-footer nav{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 16px;margin-bottom:4px}

@@ -211,16 +211,22 @@
   }
 
   function ensureWebAuthGate() {
-    if (authGateOpen || gateDismissed()) return;
+    // The standalone browser app asks on every page load without a session
+    // (closing the screen lasts until the next load); the website embed
+    // remembers the dismissal for the tab.
+    const browserApp = !!(S.isBrowserApp && S.isBrowserApp());
+    if (authGateOpen || (!browserApp && gateDismissed())) return;
     if (S.usesWebSessionAuth && !S.usesWebSessionAuth()) return;
     openWebAuthGate();
   }
 
   // Optional sign-in: the window can be closed (×, outside, "Continue as
   // guest") and the app stays usable as a guest.
-  function openWebAuthGate() {
+  // options.reason: why an account is needed, shown on the browser screen
+  // (e.g. a guest pressing Generate).
+  function openWebAuthGate(options) {
     if (authGateOpen) return;
-    if (S.isBrowserApp && S.isBrowserApp()) { openBrowserAuthScreen(); return; }
+    if (S.isBrowserApp && S.isBrowserApp()) { openBrowserAuthScreen(null, options && options.reason); return; }
     authGateOpen = true;
     let mode = 'login';
     const overlay = openOverlay('', {
@@ -398,12 +404,13 @@
   }
 
   let browserAuthClose = null;
-  function openBrowserAuthScreen(initialMode) {
+  function openBrowserAuthScreen(initialMode, reason) {
     if (authGateOpen) return;
     authGateOpen = true;
     const pending = readPendingRegistration();
     const state = {
       mode: initialMode || (pending ? 'code' : 'login'),
+      reason: typeof reason === 'string' ? reason : '',
       email: pending ? pending.email : '',
       pending,
       googleState: 'loading',
@@ -462,17 +469,18 @@
       document.removeEventListener('keydown', onKey);
       document.documentElement.classList.remove('sxAuth-open');
       root.remove();
-      if (dismissed) { try { sessionStorage.setItem(GATE_DISMISSED_KEY, '1'); } catch {} }
     }
     browserAuthClose = close;
     function onKey(e) { if (e.key === 'Escape') close(true); }
     document.addEventListener('keydown', onKey);
     $('#sxaClose').onclick = () => close(true);
 
+    // Signed in: reload, so the account starts from its own data on the
+    // server - nothing from the guest visit is kept or merged into it.
     async function finish() {
       writePendingRegistration(null);
-      close(false);
-      await completeWebSignIn();
+      root.classList.add('is-done');
+      window.location.reload();
     }
 
     function showErr(msg, tone) {
@@ -553,9 +561,10 @@
     }
 
     function renderCredentials(isLogin) {
+      const sub = state.reason ? esc(state.reason) : (isLogin ? 'One account for sylvex.ai and the SYLVEX app.' : 'We’ll email you a code to confirm your address.');
       $('#sxaHead').innerHTML = isLogin
-        ? '<h1 class="sxAuth-title" id="sxaTitle">Log in to SYLVEX</h1><p class="sxAuth-sub">One account for sylvex.ai and the SYLVEX app.</p>'
-        : '<h1 class="sxAuth-title" id="sxaTitle">Create your SYLVEX account</h1><p class="sxAuth-sub">We’ll email you a code to confirm your address.</p>';
+        ? '<h1 class="sxAuth-title" id="sxaTitle">Log in to SYLVEX</h1><p class="sxAuth-sub">' + sub + '</p>'
+        : '<h1 class="sxAuth-title" id="sxaTitle">Create your SYLVEX account</h1><p class="sxAuth-sub">' + sub + '</p>';
       $('#sxaBody').innerHTML =
         `<form class="sxAuth-form" id="sxaForm" novalidate>
           <input class="sxAuth-input" type="email" id="sxaEmail" placeholder="Email" aria-label="Email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" required value="${esc(state.email)}" data-autofocus>
@@ -567,7 +576,7 @@
         </form>
         ${isLogin ? '<button type="button" class="sxAuth-link" id="sxaForgot">Forgot password?</button>' : ''}
         <p class="sxAuth-switch">${isLogin ? 'New to SYLVEX?' : 'Already have an account?'} <button type="button" class="sxAuth-link is-strong" id="sxaSwitch">${isLogin ? 'Create account' : 'Log in'}</button></p>
-        ${isLogin ? '<div class="sxAuth-tg"><div id="sxaTg"></div></div>' : ''}`;
+`;
       $('#sxaEmail').addEventListener('input', (e) => { state.email = e.target.value.trim(); });
       root.querySelectorAll('[data-eye]').forEach((btn) => {
         btn.onclick = () => {
@@ -581,11 +590,6 @@
       $('#sxaSwitch').onclick = () => { state.mode = isLogin ? 'register' : 'login'; render(); };
       if (isLogin) {
         $('#sxaForgot').onclick = () => { state.mode = 'forgot'; render(); };
-        mountTelegramWidget($('#sxaTg'), async (payload) => {
-          const res = await apiFetch('/api/web/auth/telegram', { method: 'POST', body: JSON.stringify(payload) });
-          if (!res.ok) { showErr(friendlyAuthError(res.json.error, res.status)); return; }
-          await finish();
-        });
       }
       $('#sxaForm').onsubmit = (e) => { e.preventDefault(); if (!state.busy) (isLogin ? submitLogin() : submitRegister()); };
     }
