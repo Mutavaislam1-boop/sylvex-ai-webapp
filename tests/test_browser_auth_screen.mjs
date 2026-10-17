@@ -24,7 +24,7 @@ function extract(name) {
 
 function introHarness({reduced = false, rejectPlay = false} = {}) {
   const context = vm.createContext({
-    INTRO_LAST_FRAME: 'assets/auth/sylvex-intro-v2-poster.jpg',
+    INTRO_LAST_FRAME: 'assets/auth/sylvex-intro-v3-poster.jpg',
     window: {matchMedia: () => ({matches: reduced})},
   });
   vm.runInContext(source.slice(source.indexOf('  let introPlayed = false;'), source.indexOf('  function runIntroVideo(')) + extract('runIntroVideo') + '\n;globalThis.runIntroVideo = runIntroVideo;', context);
@@ -56,7 +56,7 @@ test('reopening the screen in the same page load shows the last frame, not the a
   const again = makeVideo();
   context.runIntroVideo(again);
   assert.equal(again.plays, 0);
-  assert.equal(again.poster, 'assets/auth/sylvex-intro-v2-poster.jpg');
+  assert.equal(again.poster, 'assets/auth/sylvex-intro-v3-poster.jpg');
 });
 
 test('reduced motion or a refused autoplay keep the last frame as a still', async () => {
@@ -64,19 +64,19 @@ test('reduced motion or a refused autoplay keep the last frame as a still', asyn
   const still = reduced.makeVideo();
   reduced.context.runIntroVideo(still);
   assert.equal(still.plays, 0);
-  assert.equal(still.poster, 'assets/auth/sylvex-intro-v2-poster.jpg');
+  assert.equal(still.poster, 'assets/auth/sylvex-intro-v3-poster.jpg');
   const refused = introHarness({rejectPlay: true});
   const video = refused.makeVideo();
   refused.context.runIntroVideo(video);
   await new Promise((r) => setTimeout(r, 0));
-  assert.equal(video.poster, 'assets/auth/sylvex-intro-v2-poster.jpg');
+  assert.equal(video.poster, 'assets/auth/sylvex-intro-v3-poster.jpg');
 });
 
 test('the video markup has no player UI and no loop', () => {
   const markup = source.slice(source.indexOf('<video class="sxAuth-video"'), source.indexOf('</video>'));
   assert.ok(markup.includes(' muted') && markup.includes(' playsinline') && markup.includes('disablepictureinpicture'));
   assert.ok(!/\bcontrols\b/.test(markup) && !/\bloop\b/.test(markup) && !/\bautoplay\b/.test(markup));
-  assert.ok(markup.includes('assets/auth/sylvex-intro-v2.mp4') && markup.includes('assets/auth/sylvex-intro-v2.webm'));
+  assert.ok(markup.includes('assets/auth/sylvex-intro-v3.mp4') && markup.includes('assets/auth/sylvex-intro-v3.webm'));
   assert.match(css, /\.sxAuth-video::-webkit-media-controls/);
 });
 

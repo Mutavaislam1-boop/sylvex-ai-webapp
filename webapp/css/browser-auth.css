@@ -12,14 +12,15 @@ html.sxAuth-open,html.sxAuth-open body{overflow:hidden}
 /* intro video: page design, never a player */
 /* The video's background is the page white, so it can run wider than the
    form column (full width on phones) without showing an edge. */
-/* --sxa-video-h is the rendered video height. The final logo frame leaves
-   ~31% of it blank above the wordmark and ~30% below; the negative margins
-   let the page use most of that blank band instead of leaving a gap. The
-   video itself is never clipped, and the heading paints above its white. */
-.sxAuth-hero{--sxa-video-h:min(calc(100vw / 1.49),349px,42vh);display:flex;justify-content:center;margin:calc(var(--sxa-video-h) * -0.12) 0 calc(var(--sxa-video-h) * -0.22)}
+/* --sxa-video-h is the rendered video height. The intro stops on its 2 s
+   frame, which leaves ~24% of it blank above the wordmark and ~24% below;
+   the negative margins let the page use most of that blank band instead of
+   leaving a gap. The video itself is never clipped, and the heading paints
+   above its white. */
+.sxAuth-hero{--sxa-video-h:min(calc(100vw / 1.49),349px,42vh);display:flex;justify-content:center;margin:calc(var(--sxa-video-h) * -0.08) 0 calc(var(--sxa-video-h) * -0.15)}
 @supports (height:1dvh){.sxAuth-hero{--sxa-video-h:min(calc(100vw / 1.49),349px,42dvh)}}
 /* Tall screens have room to also tuck the blank band above the logo away. */
-@media (min-height:700px){.sxAuth-hero{margin-top:calc(var(--sxa-video-h) * -0.2)}}
+@media (min-height:700px){.sxAuth-hero{margin-top:calc(var(--sxa-video-h) * -0.14)}}
 .sxAuth-video{display:block;flex:0 0 auto;width:calc(var(--sxa-video-h) * 1.49);height:auto;aspect-ratio:960/644;background:#fff;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-select:none}
 .sxAuth-video::-webkit-media-controls,.sxAuth-video::-webkit-media-controls-enclosure,.sxAuth-video::-webkit-media-controls-panel,.sxAuth-video::-webkit-media-controls-start-playback-button,.sxAuth-video::-webkit-media-controls-overlay-play-button{display:none!important;-webkit-appearance:none;opacity:0}
 
