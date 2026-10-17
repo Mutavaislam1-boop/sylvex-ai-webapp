@@ -330,8 +330,8 @@
   // and the Telegram Mini App never reaches either.
   // ---------------------------------------------------------------------
   const WEBSITE_URL = 'https://sylvex.ai';
-  // The intro plays once, holds its last frame for this long, then replays.
-  const INTRO_PAUSE_MS = 5000;
+  // Last frame of the intro video, shown whenever it does not play.
+  const INTRO_LAST_FRAME = 'assets/auth/sylvex-intro-v2-poster.jpg';
   const PENDING_REGISTRATION_KEY = 'sylvex-pending-registration';
   const GOOGLE_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47c-.28 1.5-1.13 2.78-2.4 3.63v3.02h3.89c2.28-2.1 3.56-5.2 3.56-8.84z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.9l-3.89-3.02c-1.08.72-2.46 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.94H1.27v3.11C3.25 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.29A7.2 7.2 0 0 1 4.9 12c0-.8.14-1.57.38-2.29V6.6H1.27A11.97 11.97 0 0 0 0 12c0 1.94.46 3.77 1.27 5.4z"/><path fill="#EA4335" d="M12 4.77c1.77 0 3.35.61 4.6 1.8l3.45-3.45C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.27 6.6l4.01 3.11C6.23 6.88 8.88 4.77 12 4.77z"/></svg>';
   const APPLE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="currentColor"><path d="M16.365 1.43c0 1.14-.462 2.16-1.207 2.94-.822.85-2.09 1.5-3.18 1.41-.14-1.1.41-2.24 1.2-3.02.83-.85 2.24-1.47 3.19-1.33zM20.6 17.06c-.5 1.16-.74 1.68-1.38 2.7-.9 1.42-2.16 3.2-3.72 3.21-1.39.02-1.75-.9-3.64-.89-1.89.01-2.29.91-3.68.89-1.56-.02-2.76-1.61-3.66-3.02C1.5 16.66.85 12.02 2.5 8.83c1.02-1.98 2.85-3.23 4.83-3.26 1.42-.03 2.75.96 3.62.96.86 0 2.5-1.18 4.21-1.01.72.03 2.73.29 4.02 2.19-.1.06-2.4 1.4-2.38 4.19.03 3.33 2.91 4.44 2.94 4.46-.02.08-.46 1.58-1.14 2.7z"/></svg>';
@@ -354,46 +354,27 @@
     } catch {}
   }
 
-  // Plays the intro once, holds the last frame for INTRO_PAUSE_MS and plays
-  // it again - never a plain `loop` - for as long as the screen is open.
-  // Returns stop(). Reduced motion keeps the still poster.
+  // Plays the intro once per page load and stays on its last frame (the
+  // SYLVEX wordmark) until the page is reloaded - never a loop or a replay.
+  // Reopening the screen, reduced motion or a refused autoplay show that
+  // last frame as a still. Returns stop().
+  let introPlayed = false;
   function runIntroVideo(video) {
-    let timer = 0;
-    let stopped = false;
     const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    const play = () => {
-      timer = 0;
-      if (stopped || document.hidden) return;
-      try { video.currentTime = 0; } catch {}
-      const p = video.play();
-      if (p && p.catch) p.catch(() => {});
-    };
-    const onEnded = () => {
-      if (stopped) return;
-      clearTimeout(timer);
-      timer = setTimeout(play, INTRO_PAUSE_MS);
-    };
-    const onVisibility = () => {
-      if (stopped) return;
-      if (document.hidden) { clearTimeout(timer); timer = 0; video.pause(); }
-      else if (!timer && (video.paused || video.ended)) timer = setTimeout(play, 600);
-    };
+    const still = () => { video.poster = INTRO_LAST_FRAME; };
     video.muted = true;
     video.defaultMuted = true;
     video.loop = false;
     video.controls = false;
-    if (!reduced) {
-      video.addEventListener('ended', onEnded);
-      document.addEventListener('visibilitychange', onVisibility);
-      play();
+    if (reduced || introPlayed) {
+      still();
+      video.preload = 'none';
+      return () => {};
     }
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-      video.removeEventListener('ended', onEnded);
-      document.removeEventListener('visibilitychange', onVisibility);
-      try { video.pause(); } catch {}
-    };
+    introPlayed = true;
+    const p = video.play();
+    if (p && p.catch) p.catch(still);
+    return () => { try { video.pause(); } catch {} };
   }
 
   // Google Identity Services, initialized once; the official "Continue with
@@ -437,9 +418,9 @@
         <div class="sxAuth-scroll">
           <main class="sxAuth-main">
             <div class="sxAuth-hero" aria-hidden="true">
-              <video class="sxAuth-video" muted playsinline webkit-playsinline autoplay preload="auto" disablepictureinpicture disableremoteplayback x-webkit-airplay="deny" tabindex="-1" poster="assets/auth/sylvex-intro-poster.jpg">
-                <source src="assets/auth/sylvex-intro.mp4" type='video/mp4; codecs="avc1.64001E"'>
-                <source src="assets/auth/sylvex-intro.webm" type='video/webm; codecs="vp9"'>
+              <video class="sxAuth-video" muted playsinline webkit-playsinline preload="auto" disablepictureinpicture disableremoteplayback x-webkit-airplay="deny" tabindex="-1" width="960" height="644">
+                <source src="assets/auth/sylvex-intro-v2.mp4" type='video/mp4; codecs="avc1.640020"'>
+                <source src="assets/auth/sylvex-intro-v2.webm" type='video/webm; codecs="vp9"'>
               </video>
             </div>
             <div class="sxAuth-head" id="sxaHead"></div>

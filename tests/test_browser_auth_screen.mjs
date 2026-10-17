@@ -22,83 +22,61 @@ function extract(name) {
   throw new Error('unbalanced ' + name);
 }
 
-function introHarness({reduced = false} = {}) {
-  const timers = [];
-  const listeners = {};
-  const video = {
-    plays: 0, paused: true, currentTime: 3, loop: true, controls: true, muted: false,
-    play() { this.plays++; this.paused = false; this.currentTime = 0; return Promise.resolve(); },
-    pause() { this.paused = true; },
-    addEventListener(type, fn) { listeners[type] = fn; },
-    removeEventListener(type) { delete listeners[type]; },
-  };
-  const docListeners = {};
+function introHarness({reduced = false, rejectPlay = false} = {}) {
   const context = vm.createContext({
-    INTRO_PAUSE_MS: 5000,
+    INTRO_LAST_FRAME: 'assets/auth/sylvex-intro-v2-poster.jpg',
     window: {matchMedia: () => ({matches: reduced})},
-    document: {hidden: false, addEventListener(t, fn) { docListeners[t] = fn; }, removeEventListener(t) { delete docListeners[t]; }},
-    setTimeout(fn, ms) { timers.push({fn, ms}); return timers.length; },
-    clearTimeout(id) { if (id && timers[id - 1]) timers[id - 1].cleared = true; },
   });
-  vm.runInContext(extract('runIntroVideo') + '\n;globalThis.runIntroVideo = runIntroVideo;', context);
-  const stop = context.runIntroVideo(video);
-  return {video, timers, listeners, docListeners, stop, context};
+  vm.runInContext(source.slice(source.indexOf('  let introPlayed = false;'), source.indexOf('  function runIntroVideo(')) + extract('runIntroVideo') + '\n;globalThis.runIntroVideo = runIntroVideo;', context);
+  const makeVideo = () => ({
+    plays: 0, paused: true, loop: true, controls: true, muted: false, poster: '', preload: 'auto',
+    play() { this.plays++; this.paused = false; return rejectPlay ? Promise.reject(new Error('NotAllowed')) : Promise.resolve(); },
+    pause() { this.paused = true; },
+  });
+  return {context, makeVideo};
 }
 
-test('the intro plays once, waits 5 seconds after it ends, then plays again', () => {
-  const {video, timers, listeners} = introHarness();
+test('the intro plays once, never loops, and stays on its last frame', () => {
+  const {context, makeVideo} = introHarness();
+  const video = makeVideo();
+  const stop = context.runIntroVideo(video);
   assert.equal(video.plays, 1);
   assert.equal(video.loop, false);
   assert.equal(video.controls, false);
   assert.equal(video.muted, true);
-  video.paused = true;
-  listeners.ended();
-  assert.equal(timers.length, 1);
-  assert.equal(timers[0].ms, 5000);
-  assert.equal(video.plays, 1, 'no replay before the pause is over');
-  timers[0].fn();
-  assert.equal(video.plays, 2);
-  assert.equal(video.currentTime, 0);
-  listeners.ended();
-  assert.equal(timers[1].ms, 5000);
-});
-
-test('closing the screen stops the cycle', () => {
-  const {video, timers, listeners, stop, docListeners} = introHarness();
-  listeners.ended();
+  assert.ok(!source.slice(source.indexOf('function runIntroVideo('), source.indexOf('// Google Identity Services')).includes("'ended'"),
+    'nothing restarts it when it ends: the ended video keeps showing its last frame');
   stop();
-  assert.equal(timers[0].cleared, true);
   assert.equal(video.paused, true);
-  assert.equal(listeners.ended, undefined);
-  assert.equal(docListeners.visibilitychange, undefined);
 });
 
-test('a hidden tab pauses the cycle and resumes when visible again', () => {
-  const {video, timers, listeners, docListeners, context} = introHarness();
-  listeners.ended();
-  context.document.hidden = true;
-  docListeners.visibilitychange();
-  assert.equal(timers[0].cleared, true);
-  context.document.hidden = false;
-  docListeners.visibilitychange();
-  const resume = timers[timers.length - 1];
-  assert.ok(!resume.cleared && resume.ms < 5000);
-  resume.fn();
-  assert.equal(video.plays, 2);
+test('reopening the screen in the same page load shows the last frame, not the animation again', () => {
+  const {context, makeVideo} = introHarness();
+  context.runIntroVideo(makeVideo());
+  const again = makeVideo();
+  context.runIntroVideo(again);
+  assert.equal(again.plays, 0);
+  assert.equal(again.poster, 'assets/auth/sylvex-intro-v2-poster.jpg');
 });
 
-test('reduced motion keeps the still poster', () => {
-  const {video, timers} = introHarness({reduced: true});
-  assert.equal(video.plays, 0);
-  assert.equal(timers.length, 0);
+test('reduced motion or a refused autoplay keep the last frame as a still', async () => {
+  const reduced = introHarness({reduced: true});
+  const still = reduced.makeVideo();
+  reduced.context.runIntroVideo(still);
+  assert.equal(still.plays, 0);
+  assert.equal(still.poster, 'assets/auth/sylvex-intro-v2-poster.jpg');
+  const refused = introHarness({rejectPlay: true});
+  const video = refused.makeVideo();
+  refused.context.runIntroVideo(video);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(video.poster, 'assets/auth/sylvex-intro-v2-poster.jpg');
 });
 
 test('the video markup has no player UI and no loop', () => {
   const markup = source.slice(source.indexOf('<video class="sxAuth-video"'), source.indexOf('</video>'));
-  assert.ok(markup.includes(' muted') && markup.includes(' playsinline') && markup.includes(' autoplay'));
-  assert.ok(markup.includes('disablepictureinpicture') && markup.includes('poster="assets/auth/sylvex-intro-poster.jpg"'));
-  assert.ok(!/\bcontrols\b/.test(markup) && !/\bloop\b/.test(markup));
-  assert.ok(markup.includes('assets/auth/sylvex-intro.mp4') && markup.includes('assets/auth/sylvex-intro.webm'));
+  assert.ok(markup.includes(' muted') && markup.includes(' playsinline') && markup.includes('disablepictureinpicture'));
+  assert.ok(!/\bcontrols\b/.test(markup) && !/\bloop\b/.test(markup) && !/\bautoplay\b/.test(markup));
+  assert.ok(markup.includes('assets/auth/sylvex-intro-v2.mp4') && markup.includes('assets/auth/sylvex-intro-v2.webm'));
   assert.match(css, /\.sxAuth-video::-webkit-media-controls/);
 });
 
