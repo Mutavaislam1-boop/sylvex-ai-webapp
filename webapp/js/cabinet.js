@@ -1565,6 +1565,8 @@ const MUSIC_MODEL_LIST = [
   { id:'suno_chirp_4_5_plus', label:'Suno Chirp v4.5 Plus', providerModel:'chirp-v4-5-plus', desc:'Suno music generation · расширенный стиль', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_5', label:'Suno Chirp v5', providerModel:'chirp-v5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'suno_chirp_6', label:'Suno Chirp v6', providerModel:'chirp-v6', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'suno_chirp_6_mini', label:'Suno Chirp v6 Mini', providerModel:'chirp-v6-mini', desc:'Suno music generation · быстрее и дешевле', icon:'suno', durations:[1,2,3,4] },
   { id:'elevenlabs_music', label:'ElevenLabs Music', providerModel:'music_v2_5', desc:'ElevenLabs Music v2.5 · цена по длительности · аудио-референс до 30 сек', icon:'elevenlabs', durations:[0.5,1,2,3,4], referenceAudio:true },
   { id:'minimax_music_2_5', label:'MiniMax Music 2.5', providerModel:'minimax-music-2.5', desc:'MiniMax text-to-music · отдельный API', icon:'minimax', durations:[1,2,3,4], capabilities:{ duration:false } },
   { id:'google_lyria_3_clip', label:'Google Lyria 3 Clip', providerModel:'lyria-3-clip-preview', desc:'Фиксированный музыкальный клип · 30 секунд · MP3', icon:'gemini', durations:[0.5], fixedDurationSeconds:30, capabilities:{ duration:false } },
