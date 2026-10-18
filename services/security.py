@@ -63,6 +63,7 @@ PUBLIC_POSTS = frozenset({
  '/api/web/auth/forgot-password', '/api/web/auth/reset-password',
  '/api/web/auth/resend-verification',
  '/api/web/account/password/change', '/api/web/account/email/set', '/api/web/account/delete',
+ '/api/web/account/profile',
  '/api/web/account/telegram/preview', '/api/web/account/telegram/confirm',
  # Guide Mode must work for a guest with no SYLVEX account - see
  # PUBLIC_GETS's /api/web/assistant/state comment above. Identity is

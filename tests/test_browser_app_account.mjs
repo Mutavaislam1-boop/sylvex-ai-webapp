@@ -148,9 +148,9 @@ function profileHarness(response) {
     closeModal() { calls.closed++; },
     showProfileSaveStatus(text, state) { calls.status.push([text, state]); },
     setTimeout() { calls.timers++; },
-    fetchWithTimeout: async (url, options) => { calls.fetch++; calls.body = JSON.parse(options.body); return response(); },
+    fetchWithTimeout: async (url, options) => { calls.fetch++; calls.url = url; calls.options = options; calls.body = JSON.parse(options.body); return response(); },
   });
-  vm.runInContext('let browserProfileSaving = false;\n' + extract('setEditProfileError') + '\n' + extract('saveBrowserProfile') + '\n;globalThis.save = saveBrowserProfile;', context);
+  vm.runInContext('let browserProfileSaving = false;\n' + extract('setEditProfileError') + '\n' + extract('saveWebProfile') + '\n' + extract('saveBrowserProfile') + '\n;globalThis.save = saveBrowserProfile;', context);
   return { context, calls, els };
 }
 
@@ -158,6 +158,10 @@ test('a browser profile save is one request with one success message', async () 
   const { context, calls } = profileHarness(() => ({ ok: true, json: async () => ({ ok: true, profile: { display_name: 'Nova', custom_avatar_url: 'assets/avatars/a2.png' } }) }));
   await context.save();
   assert.equal(calls.fetch, 1);
+  // The SYLVEX web session only: no Telegram endpoint, id or initData.
+  assert.equal(calls.url, '/api/web/account/profile');
+  assert.equal(calls.options.credentials, 'include');
+  assert.deepEqual(Object.keys(calls.body).sort(), ['custom_avatar_url', 'display_name', 'theme_preference']);
   assert.deepEqual(calls.body.display_name, 'Nova');
   assert.equal(calls.closed, 1);
   assert.deepEqual(calls.status, [['Profile saved', 'saved']]);
@@ -179,6 +183,14 @@ test('a failed browser profile save shows one message and never retries', async 
 
 test('the default avatar is sent as "" so the server does not keep the previous one', () => {
   assert.match(extract('saveBrowserProfile'), /custom_avatar_url: epSelectedAvatar \|\| ''/);
+});
+
+test('in the browser app no profile or theme save goes to a Telegram endpoint', () => {
+  for (const name of ['saveWebProfile', 'saveBrowserProfile']) assert.ok(!/telegram|initData|getTelegramId/.test(extract(name)), name);
+  assert.match(extract('persistProfileInBackground'), /^[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*if \(isBrowserApp\(\)\) \{ clearQueuedProfileSave\(\); return false; \}/);
+  const theme = extract('applyTheme');
+  assert.ok(theme.indexOf("persist && isBrowserApp()") < theme.indexOf("/api/public/telegram/profile"));
+  assert.match(theme, /saveWebProfile\(\{ theme_preference: \{ id: themeId \} \}\)/);
 });
 
 test('browser-only profile changes: no invite or Telegram cards, Delete account behind its own confirmation', () => {

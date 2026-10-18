@@ -60,10 +60,10 @@ HTML-ЭЛЕМЕНТ: элемент
 <script src="js/account-auth.js?v=browser-account-20261017"></script>
 <script src="js/store-cards.js?v=stars-subscriptions-final-20261012"></script>
 <script src="js/edit-sketch.js?v=edit-sketch-photo-20261014"></script>
-<script src="js/cabinet.js?v=account-history-isolation-v1-20261018"></script>
+<script src="js/cabinet.js?v=web-profile-20261018"></script>
 <script>
   // Load the cabinet markup, then boot the app.
-  fetch('cabinet.html?v=account-history-isolation-v1-20261018')
+  fetch('cabinet.html?v=web-profile-20261018')
     .then(r => {
       if (!r.ok) throw new Error('Failed to load cabinet.html: ' + r.status);
       return r.text();

@@ -25504,6 +25504,8 @@ async function waitGeneration(jobId, options) {
     return !isBrowserGuest() && !!(body && body.telegram_id) && Number(body.telegram_id) === Number(getTelegramId());
   }
   async function persistProfileInBackground(body, silent) {
+    // Telegram only: the browser app saves through saveWebProfile.
+    if (isBrowserApp()) { clearQueuedProfileSave(); return false; }
     if (!browserProfileSaveAllowed(body)) { clearQueuedProfileSave(); return false; }
     if (profileSaveInFlight) { queueProfileSave(body); return false; }
     profileSaveInFlight = true;
@@ -25621,6 +25623,16 @@ async function waitGeneration(jobId, options) {
     box.textContent = text || '';
     box.hidden = !text;
   }
+  // Browser app: the profile (nickname, avatar, theme) belongs to the SYLVEX
+  // account behind the web session cookie - saved through /api/web/account/
+  // profile only, with no Telegram id, initData or Telegram endpoint.
+  // '' (not null) clears the avatar back to the default one.
+  function saveWebProfile(fields) {
+    return fetchWithTimeout('/api/web/account/profile', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    }, 30000);
+  }
   async function saveBrowserProfile() {
     if (browserProfileSaving) return;
     const name = (document.getElementById('epName').value || '').trim().slice(0, 60);
@@ -25633,12 +25645,7 @@ async function waitGeneration(jobId, options) {
     if (button) { button.disabled = true; button.textContent = 'Saving…'; }
     clearQueuedProfileSave();
     try {
-      const response = await fetchWithTimeout('/api/public/telegram/profile', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        // '' (not null) for the default avatar: the server keeps the previous
-        // avatar when it is sent null.
-        body: JSON.stringify({ telegram_id: getTelegramId(), display_name: name, custom_avatar_url: epSelectedAvatar || '', theme_preference: appearance }),
-      }, 30000);
+      const response = await saveWebProfile({ display_name: name, custom_avatar_url: epSelectedAvatar || '', theme_preference: appearance });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data || data.ok === false || data.error) throw new Error((data && data.error) || String(response.status));
       const profile = data.profile || {};
@@ -25654,7 +25661,7 @@ async function waitGeneration(jobId, options) {
       showProfileSaveStatus('Profile saved', 'saved');
     } catch (error) {
       const code = error && error.message;
-      setEditProfileError(code === 'login_required' || code === '401' || code === 'invalid_init_data'
+      setEditProfileError(code === 'not_authenticated' || code === 'login_required' || code === '401'
         ? 'Your session has ended. Log in again to save your profile.'
         : 'Couldn’t save your profile. Check your connection and try again.');
     } finally {
@@ -25853,7 +25860,9 @@ async function waitGeneration(jobId, options) {
     Object.keys(t.css).forEach((k) => r.setProperty(k, t.css[k]));
     localStorage.setItem('sylvex-theme-id', themeId);
     // Persist to backend only when user manually changes theme.
-    if (persist) {
+    if (persist && isBrowserApp()) {
+      if (!isBrowserGuest()) saveWebProfile({ theme_preference: { id: themeId } }).catch(() => {});
+    } else if (persist) {
       const body = {
         initData: S.tg && S.tg.initData ? S.tg.initData : '',
         initDataUnsafe: S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : null,
