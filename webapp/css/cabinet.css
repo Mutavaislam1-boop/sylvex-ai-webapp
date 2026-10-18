@@ -5864,6 +5864,30 @@ CSS-БЛОК: .composer-image-remove
   margin-top:8px !important;
 }
 
+/* A generation's references as the React Bits Stack (cabinet.js
+   renderReferenceStack). The box is the card size; the fan opens up and to
+   the right of it, so it keeps room there. Until the stack is live the
+   previous pile inside stays visible. */
+.view[data-view="tools"].active .msg .bubble .msg-ref-stack{
+  position:relative !important;
+  display:block !important;
+  width:96px !important;
+  height:96px !important;
+  margin:14px 30px 10px 0 !important;
+  touch-action:pan-y !important;
+}
+.view[data-view="tools"].active .msg .bubble .msg-ref-stack .msg-ref-stack-root{
+  width:100% !important;
+  height:100% !important;
+}
+.view[data-view="tools"].active .msg .bubble .msg-ref-stack .stack-card-content img{
+  width:100% !important;
+  height:100% !important;
+  max-width:none !important;
+  max-height:none !important;
+  object-fit:cover !important;
+}
+
 /* Every image request reference shares one compact center, regardless of count. */
 .view[data-view="tools"].active .msg.user .bubble .msg-ref-pile{
   position:relative !important;
