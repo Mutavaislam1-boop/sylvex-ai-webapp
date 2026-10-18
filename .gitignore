@@ -13,3 +13,6 @@ webapp/generated/
 
 # Admin Console: dist/ is committed (served at /admin); sources stay, deps never ship.
 admin_console/node_modules/
+
+# Store 3D card (store_lanyard/): the built bundle in webapp/js/vendor/store-lanyard is committed, deps never ship.
+store_lanyard/node_modules/

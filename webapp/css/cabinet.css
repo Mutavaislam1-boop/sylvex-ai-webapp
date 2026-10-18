@@ -3745,6 +3745,22 @@ CSS-БЛОК: .hd-more
 .pm-title{font-size:14px;font-weight:600;color:var(--text)}
 .pm-sub{font-size:11.5px;color:var(--text-mute);margin-top:2px}
 .pm-arr{color:var(--text-mute);font-size:18px}
+/* Browser Mini App, subscription plans: the plan as the 3D lanyard card
+   (js/store-lanyard.js) with the card-payment button right under it. The
+   previous summary and methods are only hidden while the card shows. */
+.view[data-view="pay"].is-lanyard .pay-user,
+.view[data-view="pay"].is-lanyard .pay-summary,
+.view[data-view="pay"].is-lanyard .pay-store-note,
+.view[data-view="pay"].is-lanyard .section-title,
+.view[data-view="pay"].is-lanyard .pay-methods{display:none}
+.pay-lanyard{margin:-8px 0 22px}
+.pay-lanyard[hidden]{display:none}
+.pay-lanyard-stage{position:relative;height:clamp(460px,66vh,680px);margin:0 -16px}
+.pay-lanyard-cta{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;margin-top:6px;padding:14px 18px;
+  border:0;border-radius:14px;background:var(--text);color:var(--bg-0);font:inherit;font-size:15px;font-weight:700;cursor:pointer;
+  transition:transform .15s ease, opacity .2s ease}
+.pay-lanyard-cta:active{transform:scale(.985)}
+.pay-lanyard-cta:disabled{opacity:.6;cursor:progress}
 
 /* ===== Subscription state & modals ===== */
 /* =====================================================

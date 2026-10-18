@@ -26673,6 +26673,33 @@ async function waitGeneration(jobId, options) {
       note: '⚡ начисляются сразу после подтверждения оплаты.',
     };
   }
+  // Subscription plans in the browser: the pay screen shows the selected plan
+  // as the 3D lanyard card (js/store-lanyard.js) with the card-payment button
+  // under it. Packages, STORE_LANYARD_ENABLED = false, or a card that cannot
+  // show (no WebGL, bundle failed) keep the previous pay screen unchanged.
+  const STORE_LANYARD_ENABLED = true;
+  function setStorePlanCardShown(on) {
+    document.querySelector('.view[data-view="pay"]')?.classList.toggle('is-lanyard', !!on);
+    const box = document.getElementById('payLanyard');
+    if (box) box.hidden = !on;
+  }
+  function syncStorePlanCard(viewName) {
+    const lanyard = window.SylvexStoreLanyard;
+    const productId = (pendingBrowserProduct && pendingBrowserProduct.productId) || '';
+    const plan = viewName === 'pay' && STORE_LANYARD_ENABLED && isBrowserApp() ? /^plan_([a-z]+)_(month|year)$/.exec(productId) : null;
+    if (!plan || !lanyard) {
+      lanyard?.hide();
+      setStorePlanCardShown(false);
+      return;
+    }
+    if (lanyard.isShowing(plan[1] + '_' + plan[2])) return;
+    setStorePlanCardShown(true);
+    lanyard.show(document.getElementById('payLanyardStage'), plan[1], plan[2], {
+      t: window.t,
+      locale: (S.getLang && S.getLang()) || 'en',
+      renewal: browserStripeEnabled ? 'auto' : undefined,
+    }).catch(() => setStorePlanCardShown(false));
+  }
   function setBrowserPayMethods() {
     document.querySelectorAll('[data-pay-method]').forEach((button) => { button.hidden = true; });
     document.querySelectorAll('[data-browser-pay]').forEach((button) => {
@@ -27584,7 +27611,10 @@ async function waitGeneration(jobId, options) {
     return { start, push, closed, viewChanged };
   })();
   S.browserNav = BrowserNav;
-  S.onViewSwitched = (name) => BrowserNav.viewChanged(name);
+  S.onViewSwitched = (name) => {
+    syncStorePlanCard(name);
+    BrowserNav.viewChanged(name);
+  };
   // Browser guest (not signed in): the home user card shows Log in / Sign up
   // instead of account details (see .user-guest in cabinet.html). Called once
   // the session check has answered; until then html.browser-auth-pending

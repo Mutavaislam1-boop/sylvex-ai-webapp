@@ -1263,6 +1263,18 @@ HTML-страница Mini App. Комментарии подписывают э
         <div style="width:36px"></div>
       </div>
 
+      <!-- Browser Mini App, subscription plans: the plan as the 3D lanyard
+      card (js/store-lanyard.js, React Bits Lanyard) with the existing card
+      payment under it. While it shows, .is-lanyard hides the summary and
+      methods below; they stay in place and come back for packages, with
+      STORE_LANYARD_ENABLED off in cabinet.js, or when the card can't show. -->
+      <div class="pay-lanyard" id="payLanyard" hidden>
+        <div class="pay-lanyard-stage" id="payLanyardStage"></div>
+        <button class="pay-lanyard-cta" data-browser-pay="card" type="button" onclick="SYLVEX.payWith('card')">
+          <span data-pm-sub data-pm-default="Перейти к оплате картой">Перейти к оплате картой</span>
+        </button>
+      </div>
+
       <!-- ==================================================
       HTML-ЭЛЕМЕНТ: pay-user
       CSS-класс задаёт внешний вид и расположение: pay-user
