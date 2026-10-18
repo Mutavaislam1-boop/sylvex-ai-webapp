@@ -1,9 +1,12 @@
 /* SYLVEX Store: the selected subscription as a 3D card on a lanyard.
 
-   Browser Mini App only (the pay screen that leads to card payment). The
-   card is the React Bits Lanyard component, built unchanged from
-   store_lanyard/src into js/vendor/store-lanyard/ and loaded only when a
-   plan's pay screen opens. This file draws what the card shows:
+   Shown before card payment in the browser Mini App (pay screen) and on
+   the Website Store (checkout dialog). Keep this file byte-identical in
+   sylvex-ai-webapp/webapp/js/store-lanyard.js and
+   sylvex-website/js/store-lanyard.js, like js/store-cards.js. The card is
+   the React Bits Lanyard component, built unchanged from
+   sylvex-ai-webapp/store_lanyard/src into js/vendor/store-lanyard/ and
+   loaded only when a plan is selected. This file draws what the card shows:
 
    - frontImage / backImage: painted here from the same plan data the Store
      cards and the pay screen use (SylvexStoreCards.PLANS + planPricing,
@@ -13,16 +16,24 @@
    - strapImage: the SYLVEX logo (assets/logo.bleck.png) on the black band.
 
    Nothing here pays, prices or grants anything: the button under the card
-   is the pay screen's existing card-payment button. If the bundle or WebGL
-   is unavailable, show() rejects and the host keeps the previous pay
-   screen. */
+   is the host's existing card-payment button. If the bundle or WebGL is
+   unavailable, show() rejects and the host keeps its previous screen. */
 (function (root) {
   'use strict';
 
+  // Paths are relative to the folder holding js/store-lanyard.js, so the
+  // same file works in the Mini App (/webapp/) and on the Website (/).
   var VERSION = 'store-lanyard-20261018';
-  var BUNDLE_JS = 'js/vendor/store-lanyard/store-lanyard.js?v=' + VERSION;
-  var BUNDLE_CSS = 'js/vendor/store-lanyard/store-lanyard.css?v=' + VERSION;
-  var LOGO_URL = 'assets/logo.bleck.png';
+  var BASE = scriptBase();
+  var BUNDLE_JS = BASE + 'js/vendor/store-lanyard/store-lanyard.js?v=' + VERSION;
+  var BUNDLE_CSS = BASE + 'js/vendor/store-lanyard/store-lanyard.css?v=' + VERSION;
+  var LOGO_URL = BASE + 'assets/logo.bleck.png';
+
+  function scriptBase() {
+    var script = typeof document !== 'undefined' ? document.currentScript : null;
+    var match = script && script.src ? /^(.*\/)js\/store-lanyard\.js(?:[?#].*)?$/.exec(script.src) : null;
+    return match ? match[1] : '';
+  }
   var FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif';
 
   // Card faces match the component's portrait card (1.6 x 2.25) at the
@@ -56,7 +67,10 @@
     intro: true,
   };
 
+  // Card texts, plus the Store strings an older js/store-cards.js copy may
+  // not have yet (its EN table is the fallback for the rest).
   var EN = {
+    store_per_year: '/ year',
     store_card_subscription: 'Subscription',
     store_card_details: 'Plan details',
     store_card_period: 'Billing period',
@@ -552,6 +566,7 @@
   }
 
   root.SylvexStoreLanyard = {
+    BASE: BASE,
     LANYARD_PROPS: LANYARD_PROPS,
     EN: EN,
     planDetails: planDetails,
