@@ -118,6 +118,22 @@ class ProviderResilienceTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(calls, 1)
 
+    def test_account_overdue_is_permanent_without_retry(self):
+        result, calls = self.run_sequence("BYTEPLUS", [
+            {"ok": False, "status_code": 403, "error": "AccountOverdueError"},
+            {"ok": True},
+        ])
+        self.assertFalse(result["ok"])
+        self.assertEqual(calls, 1)
+
+    def test_exhausted_quota_is_not_retried_even_when_provider_uses_429(self):
+        result, calls = self.run_sequence("GEMINI", [
+            {"ok": False, "status_code": 429, "error": "quota exhausted"},
+            {"ok": True},
+        ])
+        self.assertFalse(result["ok"])
+        self.assertEqual(calls, 1)
+
     def test_numeric_status_field_is_classified(self):
         failure = classify_provider_failure({"ok": False, "status": 504})
         self.assertTrue(failure.transient)

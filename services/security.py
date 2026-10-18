@@ -851,6 +851,8 @@ class SecurityMiddleware:
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)
   except SecurityError as exc:
+   if exc.status==422:
+    print('REQUEST_VALIDATION_REJECTED:',json.dumps({'path':path,'method':method,'status':exc.status,'code':exc.code},ensure_ascii=False))
    return await JSONResponse({'ok':False,'error':exc.code},status_code=exc.status)(scope,receive,send)
   size=0;replayed=False
   async def bounded_receive():

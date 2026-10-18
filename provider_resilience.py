@@ -136,6 +136,15 @@ def classify_provider_failure(value: Any) -> FailureClassification:
     if isinstance(value, dict):
         text = " ".join(str(item).lower() for _, item in _walk_values(value))
 
+    billing_markers = (
+        "accountoverdueerror", "account overdue", "account_overdue", "overdue balance",
+        "insufficient balance", "insufficient_balance", "insufficient funds",
+        "payment required", "billing hard limit", "quota exhausted", "insufficient quota",
+        "access denied", "account access disabled",
+    )
+    if any(marker in text for marker in billing_markers):
+        return FailureClassification(False, status, None, "provider_billing_or_access_error")
+
     if status in TRANSIENT_HTTP_STATUSES:
         return FailureClassification(True, status, retry_after, f"http_{status}")
     if status in PERMANENT_HTTP_STATUSES:
@@ -147,7 +156,9 @@ def classify_provider_failure(value: Any) -> FailureClassification:
 
     permanent_markers = (
         "insufficient balance", "insufficient_balance", "payment required",
-        "billing hard limit", "invalid parameter", "invalid_parameter",
+        "billing hard limit", "accountoverdueerror", "account overdue", "account_overdue",
+        "overdue balance", "insufficient funds", "quota exhausted", "access denied",
+        "invalid parameter", "invalid_parameter",
         "validation error", "validation_error", "unauthorized", "forbidden",
         "not found", "unsupported model", "payload is not valid",
     )

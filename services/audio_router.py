@@ -270,6 +270,37 @@ def _get_env(*names: str) -> str:
 # =====================================================
 def _audio_error(provider: str, frontend_model: str, provider_model: str = "", error: Any = "", **extra) -> dict:
     user_message = translate_provider_error(error, provider=provider, model=frontend_model)
+    raw = raw_error_text(error, "")
+    safe_raw = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;}]+", r"\1[redacted]", raw)
+    safe_raw = re.sub(r"(?i)([?&](?:key|api_key|token)=)[^&\s]+", r"\1[redacted]", safe_raw)
+    safe_raw = re.sub(r"(?i)\b(key|api_key|token)\s*[:=]\s*[^\s,;}]+", r"\1=[redacted]", safe_raw)
+    endpoint = str(extra.get("endpoint") or "")
+    try:
+        parsed = urllib.parse.urlsplit(endpoint)
+        safe_endpoint = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    except Exception:
+        safe_endpoint = ""
+    error_code = ""
+    if isinstance(error, dict):
+        nested = error.get("error") if isinstance(error.get("error"), dict) else error
+        error_code = str(nested.get("code") or nested.get("status") or "")[:120]
+    print("AUDIO_PROVIDER_FAILURE:", json.dumps({
+        "provider": provider,
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "endpoint": safe_endpoint,
+        "status_code": extra.get("status_code"),
+        "error_code": error_code,
+        "error_preview": safe_raw[:600],
+    }, ensure_ascii=False))
+    safe_extra = dict(extra)
+    if endpoint:
+        safe_extra["endpoint"] = safe_endpoint
+    for field in ("details", "body_preview"):
+        if isinstance(safe_extra.get(field), str):
+            value = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;}]+", r"\1[redacted]", safe_extra[field])
+            value = re.sub(r"(?i)([?&](?:key|api_key|token)=)[^&\s]+", r"\1[redacted]", value)
+            safe_extra[field] = re.sub(r"(?i)\b(key|api_key|token)\s*[:=]\s*[^\s,;}]+", r"\1=[redacted]", value)
     result = {
         "ok": False,
         "type": "music",
@@ -278,9 +309,9 @@ def _audio_error(provider: str, frontend_model: str, provider_model: str = "", e
         "provider_model": provider_model,
         "error": user_message,
         "message": user_message,
-        "raw_error": raw_error_text(error, ""),
+        "raw_error": safe_raw,
     }
-    result.update(extra)
+    result.update(safe_extra)
     return result
 
 

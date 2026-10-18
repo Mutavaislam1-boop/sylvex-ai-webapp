@@ -22887,6 +22887,15 @@ function translateGenerationError(value, fallback) {
   if (/prompt.*size.*between.*0.*3072|prompt.*3072|size must be between/.test(low)) {
     return 'Описание слишком длинное для выбранной модели.\nМаксимальная длина текста для Kling — 3072 символа.\nСократите описание и попробуйте снова.';
   }
+  if (/accountoverdueerror|account.?overdue|overdue balance|insufficient funds|account balance not enough|balance.*not enough|insufficient.*balance|payment required|billing hard limit/.test(low)) {
+    return 'На аккаунте AI-провайдера закончился баланс или приостановлен биллинг.\nПопробуйте другую модель или повторите позже.';
+  }
+  if (/access denied|account access.*disabled|subscription.*inactive/.test(low)) {
+    return 'AI-провайдер отключил доступ к выбранной модели.\nВыберите другую модель или повторите позже.';
+  }
+  if (/quota exhausted|insufficient quota|quota.*exceed/.test(low)) {
+    return 'Квота выбранного AI-провайдера исчерпана.\nВыберите другую модель или повторите позже.';
+  }
   if (/api key|unauthorized|401|forbidden|invalid api key/.test(low)) {
     return 'Сервис генерации временно недоступен.\nМы уже получили информацию об ошибке. Попробуйте немного позже.';
   }
@@ -28946,6 +28955,45 @@ async function waitGeneration(jobId, options) {
     return !local.avatar && !(Array.isArray(local.modes) && local.modes.includes('video_effects'));
   }
 
+  function gridVideoCapability(modelId) {
+    const local=VIDEO_MODEL_CONFIG[modelId]||{},models=fetchedModelCapabilities&&fetchedModelCapabilities.models,fetched=models?models[modelId]:null;
+    return {
+      config:local,
+      modes:Array.isArray(fetched?.modes)?fetched.modes:(local.modes||['text_to_video']),
+      start_image:fetched?!!fetched.start_frame:!!local.start_image,
+      end_image:fetched?!!fetched.end_frame:!!local.end_image,
+      reference_inputs:fetched?.reference_inputs||null,
+    };
+  }
+
+  function gridVideoRequestPlan(node,inputs) {
+    const capability=gridVideoCapability(node.model||gridDefaultModel('video')),settings=node.settings||{},attachments=Array.isArray(node.attachments)?node.attachments:[],unique=(items)=>[...new Set((items||[]).filter(Boolean))];
+    const connectedImages=unique((inputs?.image?.values||[]).map(entry=>entry.value&&(entry.value.url||entry.value.preview_url)).concat(inputs?.image?.value?[inputs.image.value.url||inputs.image.value.preview_url]:[]));
+    const attachedImages=unique(attachments.filter(item=>item.kind==='image').map(item=>item.url));
+    const connectedVideo=inputs?.video?.value,sourceVideo=(connectedVideo&&(connectedVideo.url||connectedVideo.preview_url))||attachments.find(item=>item.kind==='video')?.url||'';
+    const allImages=unique([...connectedImages,...attachedImages]),modes=capability.modes||[],requested=String(settings.generation_mode||settings.mode||'text_to_video');
+    let mode=modes.includes(requested)?requested:(modes[0]||'text_to_video');
+    if(allImages.length&&capability.start_image&&modes.includes('image_to_video')&&!['motion_control','video_edit'].includes(mode))mode='image_to_video';
+    if(sourceVideo&&modes.includes('motion_control')&&allImages.length)mode='motion_control';
+    else if(sourceVideo&&modes.includes('video_edit')&&mode!=='motion_control')mode='video_edit';
+    const startImage=capability.start_image?allImages.shift()||'':'',endImage=capability.end_image?allImages.shift()||'':'';
+    let referenceImages=allImages.slice(),issues=[],limits=capability.reference_inputs;
+    if(limits){
+      if(sourceVideo&&!limits.accepts_video)issues.push('Выбранная модель не принимает видео-референс');
+      if(typeof limits.image_slots==='number'){
+        const reserved=limits.start_frame_uses_image_slot&&startImage?1:0,max=Math.max(0,limits.image_slots-reserved);
+        if(referenceImages.length>max)issues.push(`Выбранная модель принимает не более ${limits.image_slots} изображений`);
+      }
+    }
+    return {mode,startImage,endImage,referenceImages,sourceVideo,issues,capability};
+  }
+
+  function reconcileGridVideoMode(node,inputs) {
+    if(!node||node.type!=='video')return;
+    const plan=gridVideoRequestPlan(node,inputs||node.inputs||{});
+    node.settings=Object.assign({},node.settings||{},{generation_mode:plan.mode,mode:plan.mode});
+  }
+
   // Phase 1 Batch 8 final correction: the shared fallback resolver for
   // Grid's video model default, used by gridDefaultModel('video'). The
   // previous version ended in an unconditional `|| 'seedance_2_fast'`,
@@ -29607,9 +29655,9 @@ async function waitGeneration(jobId, options) {
 
   function gridConnectionCreatesCycle(fromId,toId){const state=loadStudioGridState(),queue=[toId],seen=new Set();while(queue.length){const current=queue.shift();if(current===fromId)return true;if(seen.has(current))continue;seen.add(current);state.edges.filter(edge=>edge.from===current).forEach(edge=>queue.push(edge.to))}return false}
 
-  function connectStudioGridNodes(fromId,fromPort,toId,toPort,fromSide='right',toSide='left'){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Этот вход несовместим с выбранным блоком');return false}if(gridConnectionCreatesCycle(fromId,toId)){toast('Соединение создаёт цикл и нарушает последовательность');return false}if(to.type==='task'){toast('Задача всегда является первым блоком');return false}const multi=(to.type==='montage'&&['video','audio'].includes(toPort))||(['image','video'].includes(to.type)&&toPort==='image');if(state.edges.some(edge=>edge.from===fromId&&edge.to===toId&&edge.fromPort===fromPort&&edge.toPort===toPort))return true;if(!multi)state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6),from:fromId,fromPort,to:toId,toPort,fromSide,toSide,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});if(to.type==='video'&&fromPort==='image')to.settings.generation_mode='image_to_video';markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
+  function connectStudioGridNodes(fromId,fromPort,toId,toPort,fromSide='right',toSide='left'){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Этот вход несовместим с выбранным блоком');return false}if(gridConnectionCreatesCycle(fromId,toId)){toast('Соединение создаёт цикл и нарушает последовательность');return false}if(to.type==='task'){toast('Задача всегда является первым блоком');return false}const multi=(to.type==='montage'&&['video','audio'].includes(toPort))||(['image','video'].includes(to.type)&&toPort==='image');if(state.edges.some(edge=>edge.from===fromId&&edge.to===toId&&edge.fromPort===fromPort&&edge.toPort===toPort))return true;if(!multi)state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6),from:fromId,fromPort,to:toId,toPort,fromSide,toSide,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});const inputs=resolveGridNodeInputs(toId);reconcileGridVideoMode(to,inputs);markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
 
-  function markStudioGridDownstreamStale(sourceId){const state=loadStudioGridState(),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status!=='RUNNING')node.status='READY'})}}
+  function markStudioGridDownstreamStale(sourceId){const state=loadStudioGridState(),direct=new Set(state.edges.filter(edge=>edge.from===sourceId).map(edge=>edge.to)),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status!=='RUNNING')node.status='READY'})}direct.forEach(id=>{const node=state.nodes.find(item=>item.id===id);if(node){const inputs=resolveGridNodeInputs(id);reconcileGridVideoMode(node,inputs)}})}
 
   function autoLayoutStudioGrid(){const state=loadStudioGridState(),incoming=new Map(state.nodes.map(node=>[node.id,0]));state.edges.forEach(edge=>incoming.set(edge.to,(incoming.get(edge.to)||0)+1));const levels=new Map(),queue=state.nodes.filter(node=>(incoming.get(node.id)||0)===0).sort((a,b)=>(a.type==='task'?-1:b.type==='task'?1:0)).map(node=>node.id);queue.forEach(id=>levels.set(id,0));while(queue.length){const id=queue.shift(),level=levels.get(id)||0;state.edges.filter(edge=>edge.from===id).forEach(edge=>{levels.set(edge.to,Math.max(levels.get(edge.to)||0,level+1));incoming.set(edge.to,(incoming.get(edge.to)||1)-1);if(incoming.get(edge.to)===0)queue.push(edge.to)})}const grouped={};state.nodes.forEach(node=>{const level=levels.get(node.id)||0;(grouped[level]||(grouped[level]=[])).push(node)});const mobile=window.matchMedia('(max-width:700px)').matches;Object.keys(grouped).sort((a,b)=>Number(a)-Number(b)).forEach(key=>grouped[key].forEach((node,index)=>{if(mobile){node.x=60+index*310;node.y=90+Number(key)*340}else{node.x=80+Number(key)*350;node.y=100+index*310}}));state.edges.forEach(edge=>{edge.fromSide=mobile?'bottom':'right';edge.toSide=mobile?'top':'left'});if(mobile)state.mobile_layout_version=1;saveStudioGridState();renderStudioGrid();resetStudioGridView()}
 
@@ -29742,10 +29790,10 @@ async function waitGeneration(jobId, options) {
       if(!source)return;
       const value=source.type==='task'?String(source.prompt||'').trim():getGridNodeOutputValue(source,edge.fromPort);
       if(value===null||value===undefined||value==='')return;
-      const resolved={value,source_node_id:source.id,source_title:source.title||GRID_TYPES[source.type]?.title||source.type,source_type:source.type,planner_key:source.planner_key||'',planner_role:source.planner_role||'',timeline:source.settings?.timeline||source.timeline||{},generation_id:source.generation_id||''};
+      const resolved={value,source_node_id:source.id,source_title:source.title||GRID_TYPES[source.type]?.title||source.type,source_type:source.type,source_prompt:String(source.prompt||''),source_model:source.model||'',source_settings:Object.assign({},source.settings||{}),planner_key:source.planner_key||'',planner_role:source.planner_role||'',timeline:source.settings?.timeline||source.timeline||{},generation_id:source.generation_id||''};
       if((node.type==='montage'&&['video','audio'].includes(edge.toPort))||(['image','video'].includes(node.type)&&edge.toPort==='image')){const current=inputs[edge.toPort]||{values:[]};current.values.push(resolved);if(current.value===undefined)Object.assign(current,resolved);inputs[edge.toPort]=current}else inputs[edge.toPort]=resolved;
     });
-    const connectedText=inputs.text?.value||inputs.prompt?.value||inputs.task?.value||'';
+    const connectedText=inputs.text?.value||inputs.prompt?.value||inputs.task?.value||inputs.text?.source_prompt||inputs.task?.source_prompt||'';
     if(connectedText&&node.prompt&&node.prompt.trim())inputs.effective_prompt={value:`${String(connectedText).trim()}\n\nAdditional node direction:\n${node.prompt.trim()}`,source_node_id:inputs.text?.source_node_id||inputs.prompt?.source_node_id||inputs.task?.source_node_id,local_override:false};
     else if(connectedText)inputs.effective_prompt={value:String(connectedText),source_node_id:inputs.text?.source_node_id||inputs.prompt?.source_node_id||inputs.task?.source_node_id};
     else if(node.prompt&&node.prompt.trim())inputs.effective_prompt={value:node.prompt.trim(),source_node_id:node.id,local_override:true};
@@ -29783,6 +29831,7 @@ async function waitGeneration(jobId, options) {
         if(!hasVideoSource)missing.push('Исходное видео');
         if(!hasImageSource)missing.push('Исходное изображение');
       }
+      const plan=gridVideoRequestPlan(node,inputs);missing.push(...plan.issues);
     }
     if(node.type==='voice'&&!inputs.effective_prompt?.value)missing.push('Текст озвучки');
     if(node.type==='music'&&!inputs.effective_prompt?.value&&!inputs.lyrics?.value)missing.push('Описание музыки или текст песни');
@@ -29804,21 +29853,21 @@ async function waitGeneration(jobId, options) {
     let imageOptions=null,videoOptions=null,musicOptions=null,voiceOptions=null,textOptions=null,provider=providerHintForModel(model);
     if(mode==='image'){const connectedRefs=(inputs.image?.values||[]).map(entry=>entry.value&&(entry.value.url||entry.value.preview_url)).filter(Boolean),connected=inputs.image?.value,connectedUrl=connected&&(connected.url||connected.preview_url),refs=[...new Set([...(connectedRefs.length?connectedRefs:(connectedUrl?[connectedUrl]:[])),...attachedImages])];imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:refs,referenceImages:refs})}
     if(mode==='video'){
-      const connectedImages=(inputs.image?.values||[]).map(entry=>entry.value&&(entry.value.url||entry.value.preview_url)).filter(Boolean),image=inputs.image?.value,sourceUrl=connectedImages[0]||(image&&(image.url||image.preview_url))||attachedImages[0]||'',endUrl=connectedImages[1]||attachedImages[connectedImages.length?0:1]||'';
+      const plan=gridVideoRequestPlan(node,inputs),sourceUrl=plan.startImage,endUrl=plan.endImage;
       // A connected upstream video (inputs.video, for video_edit/
       // motion_control) takes precedence over a locally attached video
       // file, mirroring how the image port above already prefers a
       // connection over an attachment. Previously this branch never read
       // inputs.video at all, so a connected video was silently dropped
       // and only a local attachment ever reached the request.
-      const connectedVideo=inputs.video?.value,sourceVideoUrl=(connectedVideo&&(connectedVideo.url||connectedVideo.preview_url))||attachedVideos[0]||'';
+      const sourceVideoUrl=plan.sourceVideo;
       const config=VIDEO_MODEL_CONFIG[model]||VIDEO_MODEL_CONFIG.seedance_2_fast||{};
-      const allImageRefs=[...new Set([...connectedImages,...attachedImages])];videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:endUrl,image_url:sourceUrl,input_video:sourceVideoUrl,video_url:sourceVideoUrl,video_references:attachedVideos,reference_images:allImageRefs,referenceImageUrls:allImageRefs,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
+      videoOptions=Object.assign({},settings,{model,generation_mode:plan.mode,mode:plan.mode,start_image:sourceUrl,end_image:endUrl,image_url:sourceUrl,input_video:sourceVideoUrl,video_url:sourceVideoUrl,video_references:attachedVideos,reference_images:plan.referenceImages,referenceImageUrls:plan.referenceImages,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
       provider=config.provider||provider;
     }
     if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
     if(mode==='voice')voiceOptions=Object.assign({model,provider:/elevenlabs/i.test(model)?'elevenlabs':(/runway/i.test(model)?'runway':'gemini'),voice:settings.voice||'Kore',elevenlabs_voice:settings.voice||'21m00Tcm4TlvDq8ikWAM',elevenlabs_tool:'text_to_speech',target_language:settings.target_language||'auto',speaker_mode:'single',num_speakers:1,speaker_voices:[settings.voice||'Kore'],uploads:attachedAudio},settings);
-    if(mode==='text')textOptions=Object.assign({},settings);
+    if(mode==='text')textOptions=Object.assign({},settings,{grid_direct_output:true});
     return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:node.request_id||'',language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
   }
 
@@ -29870,7 +29919,7 @@ async function waitGeneration(jobId, options) {
     const payload=gridGenerationPayload(node,inputs),response=await fetch('/api/public/prostudio/generate',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify(payload)}),body=await response.json().catch(()=>({}));
     if(response.status===402){const error=new Error(body.error||'Недостаточно токенов');error.insufficientBalance=true;error.requiredCredits=body.required_credits||0;throw error}
     if(response.status===409){const error=new Error('Дождитесь завершения другой генерации в Pro Studio');error.activeJobId=body.active_job_id||'';throw error}
-    if(!response.ok||!body.ok){const error=new Error(translateGenerationError(body,'Генерация не прошла'));error.terminalStatus='failed';throw error}
+    if(!response.ok||!body.ok){const error=new Error(body.message||translateGenerationError(body,'Генерация не прошла'));error.terminalStatus='failed';error.code=body.error||'';error.invalidFields=body.invalid_fields||[];throw error}
     if(body.job_id){if(onJobCreated)onJobCreated(body.job_id);return {raw:await waitGridGeneration(body.job_id),generation_id:body.job_id}}
     return {raw:body,generation_id:body.generation_id||''};
   }
@@ -29989,7 +30038,7 @@ async function waitGeneration(jobId, options) {
         const card=event.target.closest('.studio-grid-node'),node=loadStudioGridState().nodes.find(item=>item.id===card?.dataset.gridId);if(!node)return;
         if(event.target.matches('[data-grid-reference-existing]')){const referenceId=event.target.dataset.gridReferenceExisting,option=event.target.selectedOptions?.[0],url=event.target.value;if(url)setStudioGridReferenceAttachment(node,referenceId,{url,kind:'image',name:option?.dataset.name||option?.textContent||'Saved reference',mime:'image/*'});return}
         if(!event.target.matches('[data-grid-setting]'))return;
-        const key=event.target.dataset.gridSetting,value=event.target.type==='checkbox'?event.target.checked:event.target.value;if(key==='model'){node.model=value;node.manual_model=true;if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[value]||{};node.settings.generation_mode=(config.modes||['text_to_video'])[0];node.settings.ratio=(config.ratios||['16:9'])[0];node.settings.duration=(config.durations||[5])[0];node.settings.resolution=(config.resolutions||['720p'])[0]}}else if(key.startsWith('timeline_')){const timelineKey=key.slice(9);node.settings.timeline=Object.assign({},node.settings.timeline||node.timeline||{}, {[timelineKey]:Number(value)||0});node.timeline=Object.assign({},node.timeline||{}, {[timelineKey]:Number(value)||0})}else node.settings[key]=['count','duration','speed'].includes(key)&&value!=='auto'?Number(value):value;node.estimated_cost=null;node.status='READY';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();void estimateGridNodeCost(node.id);
+        const key=event.target.dataset.gridSetting,value=event.target.type==='checkbox'?event.target.checked:event.target.value;if(key==='model'){node.model=value;node.manual_model=true;if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[value]||{},keep=(current,available,fallback)=>Array.isArray(available)&&available.some(item=>String(item)===String(current))?current:(available?.[0]??fallback);node.settings.ratio=keep(node.settings.ratio,config.ratios,'16:9');node.settings.duration=keep(node.settings.duration,config.durations,5);node.settings.resolution=keep(node.settings.resolution,config.resolutions,'720p');reconcileGridVideoMode(node,resolveGridNodeInputs(node.id))}}else if(key.startsWith('timeline_')){const timelineKey=key.slice(9);node.settings.timeline=Object.assign({},node.settings.timeline||node.timeline||{}, {[timelineKey]:Number(value)||0});node.timeline=Object.assign({},node.timeline||{}, {[timelineKey]:Number(value)||0})}else node.settings[key]=['count','duration','speed'].includes(key)&&value!=='auto'?Number(value):value;node.estimated_cost=null;node.status='READY';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();void estimateGridNodeCost(node.id);
       });
       host.addEventListener('click', (event) => {
         const card = event.target.closest('.studio-grid-node');
@@ -30052,7 +30101,7 @@ async function waitGeneration(jobId, options) {
       canvas.addEventListener('gesturechange',(event)=>{event.preventDefault();const state=loadStudioGridState(),target=Math.max(.2,Math.min(2.5,gestureZoomStart*Number(event.scale||1)));zoomStudioGrid(target-(state.zoom||1),event.clientX,event.clientY)},{passive:false});
       canvas.addEventListener('gestureend',(event)=>{event.preventDefault();saveStudioGridState()},{passive:false});
     }
-    if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();const state=loadStudioGridState(),edge=state.edges.find(item=>item.id===edgeElement.dataset.gridEdge);state.edges=state.edges.filter(item=>item.id!==edgeElement.dataset.gridEdge);const target=edge&&state.nodes.find(node=>node.id===edge.to);if(target&&target.status!=='RUNNING')target.status='READY';saveStudioGridState();renderStudioGrid();toast('Связь удалена')});
+    if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();const state=loadStudioGridState(),edge=state.edges.find(item=>item.id===edgeElement.dataset.gridEdge);state.edges=state.edges.filter(item=>item.id!==edgeElement.dataset.gridEdge);const target=edge&&state.nodes.find(node=>node.id===edge.to);if(target){if(target.status!=='RUNNING')target.status='READY';const inputs=resolveGridNodeInputs(target.id);reconcileGridVideoMode(target,inputs)}saveStudioGridState();renderStudioGrid();toast('Связь удалена')});
     if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
     document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext();if(!event.target.closest('#studioGridProjectsPanel')&&!event.target.closest('#studioGridProjectsButton'))closeStudioGridProjects()});
     document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode'))return;if(event.key==='Escape'){clearStudioGridConnectionMode();hideStudioGridContext();return}if(event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});

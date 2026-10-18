@@ -73,11 +73,15 @@ function extractVideoModelConfigWithKling() {
 function buildPayloadContext() {
   const context = vm.createContext({
     providerHintForModel: () => 'kling',
+    gridDefaultModel: () => 'seedance_2_fast',
+    fetchedModelCapabilities: null,
     getTelegramId: () => 0,
     uiLang: () => 'ru',
     loadStudioGridState: () => ({projectId: 'grid_project_test'}),
   });
   vm.runInContext(extractVideoModelConfigWithKling(), context);
+  vm.runInContext(extractFunction('gridVideoCapability'), context);
+  vm.runInContext(extractFunction('gridVideoRequestPlan'), context);
   vm.runInContext(extractFunction('gridGenerationPayload'), context);
   return context;
 }
@@ -165,6 +169,30 @@ test('gridGenerationPayload: image_to_video is unaffected by the video-input cha
   assert.equal(payload.video_options.generation_mode, 'image_to_video');
 });
 
+for (const model of ['luma_ray_v3_2', 'pixverse_v6', 'heygen_image_video', 'runway_gen4_5']) {
+  test(`gridGenerationPayload: ${model} sends a connected image once as the start frame`, () => {
+    const context = buildPayloadContext();
+    const node = baseVideoNode({model, settings: {generation_mode: 'text_to_video'}});
+    const inputs = {
+      effective_prompt: {value: 'animate the character'},
+      image: {value: {url: 'https://cdn.example.com/character.jpg'}},
+    };
+    const payload = runPayload(context, node, inputs);
+    assert.equal(payload.video_options.start_image, 'https://cdn.example.com/character.jpg');
+    assert.equal(payload.video_options.generation_mode, 'image_to_video');
+    assert.deepEqual(Array.from(payload.video_options.reference_images), []);
+    assert.deepEqual(Array.from(payload.video_options.referenceImageUrls), []);
+  });
+}
+
+test('gridGenerationPayload: Grid text nodes request direct artifact output', () => {
+  const context = buildPayloadContext();
+  const payload = runPayload(context, {
+    id: 'grid_text_1', type: 'text', model: 'gpt-5.5', prompt: 'Write lyrics', settings: {}, attachments: [],
+  }, {effective_prompt: {value: 'Write lyrics'}});
+  assert.equal(payload.text_options.grid_direct_output, true);
+});
+
 test('gridGenerationPayload: text_to_video is unaffected (no video source required or sent)', () => {
   const context = buildPayloadContext();
   const node = baseVideoNode({model: 'seedance_2_fast', settings: {generation_mode: 'text_to_video'}});
@@ -180,7 +208,13 @@ test('gridGenerationPayload: text_to_video is unaffected (no video source requir
 // =====================================================================
 
 function buildValidateContext() {
-  const context = vm.createContext({});
+  const context = vm.createContext({
+    VIDEO_MODEL_CONFIG: {kling_motion_3_0: {modes:['motion_control'], start_image:true}},
+    fetchedModelCapabilities: null,
+    gridDefaultModel: () => 'kling_motion_3_0',
+  });
+  vm.runInContext(extractFunction('gridVideoCapability'), context);
+  vm.runInContext(extractFunction('gridVideoRequestPlan'), context);
   vm.runInContext(extractFunction('validateGridNodeInputs'), context);
   return context;
 }
@@ -307,4 +341,48 @@ test('validateGridNodeInputs: text_to_video never requires a video or image sour
   const result = runValidate(context, node, {effective_prompt: {value: 'a video about cats'}});
   assert.equal(result.ok, true);
   assert.equal(result.missing.length, 0);
+});
+
+function buildConnectionContext(state) {
+  const context = vm.createContext({
+    GRID_TYPES: {
+      text: {title: 'Text', inputs:['text'], outputs:['text']},
+      image: {title: 'Image', inputs:['text','image'], outputs:['image']},
+      video: {title: 'Video', inputs:['text','image','video'], outputs:['video']},
+      music: {title: 'Music', inputs:['text','lyrics'], outputs:['audio']},
+    },
+    VIDEO_MODEL_CONFIG: {}, fetchedModelCapabilities: null,
+    gridDefaultModel: () => '', loadStudioGridState: () => state,
+    toast: () => {}, saveStudioGridState: () => {}, renderStudioGrid: () => {},
+  });
+  for (const name of ['gridConnectionCompatible','gridConnectionCreatesCycle','getGridNodeOutputValue','resolveGridNodeInputs','gridVideoCapability','gridVideoRequestPlan','reconcileGridVideoMode','markStudioGridDownstreamStale','connectStudioGridNodes']) {
+    vm.runInContext(extractFunction(name), context);
+  }
+  return context;
+}
+
+test('Text → Music transfers completed text on the first connection', () => {
+  const state = {nodes:[
+    {id:'text-1',type:'text',title:'Lyrics',prompt:'write lyrics',status:'COMPLETED',output:{type:'text',value:'First line'}},
+    {id:'music-1',type:'music',title:'Music',prompt:'',status:'IDLE',settings:{}},
+  ],edges:[]};
+  const context=buildConnectionContext(state);
+  assert.equal(vm.runInContext("connectStudioGridNodes('text-1','text','music-1','text')",context),true);
+  assert.equal(state.edges.length,1);
+  assert.equal(state.nodes[1].inputs.text.value,'First line');
+  assert.equal(state.nodes[1].inputs.effective_prompt.value,'First line');
+});
+
+test('input resolution stays direct and never inherits a grandparent through an intermediate block', () => {
+  const state = {nodes:[
+    {id:'text-1',type:'text',title:'Secret upstream',prompt:'grandparent text',status:'COMPLETED',output:{type:'text',value:'grandparent text'}},
+    {id:'image-1',type:'image',title:'Rendered image',prompt:'',status:'COMPLETED',settings:{},output:{type:'image',items:[{url:'https://cdn.example.com/result.jpg'}],selected_index:0}},
+    {id:'video-1',type:'video',title:'Video',prompt:'',status:'IDLE',model:'unknown',settings:{}},
+  ],edges:[{id:'a',from:'text-1',fromPort:'text',to:'image-1',toPort:'text'}]};
+  const context=buildConnectionContext(state);
+  vm.runInContext("connectStudioGridNodes('image-1','image','video-1','image')",context);
+  const inputs=state.nodes[2].inputs;
+  assert.equal(inputs.image.source_node_id,'image-1');
+  assert.equal(inputs.text,undefined);
+  assert.equal(inputs.effective_prompt,undefined);
 });

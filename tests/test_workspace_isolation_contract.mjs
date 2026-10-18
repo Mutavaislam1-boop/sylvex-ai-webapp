@@ -62,6 +62,7 @@ function makeContext() {
     openConv: () => {},
   };
   const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('localAccountStorageOwner'), context);
   vm.runInContext(extractFunction('chatTypeForMode'), context);
   vm.runInContext(extractFunction('currentChatType'), context);
   vm.runInContext(extractFunction('chatStorageKey'), context);

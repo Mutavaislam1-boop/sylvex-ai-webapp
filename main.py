@@ -20734,21 +20734,31 @@ def sylvex_text_catalog(value) -> dict:
 
 def sylvex_text_policy(opts: dict) -> str:
     """System guidance for the Text chat ("" for other text callers)."""
-    if not isinstance(opts, dict) or not opts.get("sylvex_links"):
+    if not isinstance(opts, dict):
         return ""
-    if str(opts.get("tool") or "text").strip().lower() != "text":
-        return ""
-    policy = SYLVEX_TEXT_LINK_GUIDANCE
-    catalog = sylvex_text_catalog(opts.get("sylvex_catalog"))
-    if catalog:
-        listing = "\n".join(f"{mode}: " + "; ".join(f"{model_id}={label}" for model_id, label in items) for mode, items in catalog.items())
-        policy += (
-            " When the user asks which model fits an image, video, music, voice or text task, recommend only "
-            "models from the list of models available in SYLVEX below and never offer other models as choices. "
-            "For every model you recommend add a link with its exact name and id: "
-            "[Label →](sylvex://model/<section>/<id>), for example [Kling 3.0 →](sylvex://model/video/kling_3_0). "
-            "Available models (section: id=name):\n" + listing
+    policies = []
+    if opts.get("grid_direct_output"):
+        policies.append(
+            "This request comes from a SYLVEX Grid text node. Return only the requested production artifact "
+            "(for example the final prompt, lyrics, script, dialogue, or copy). Do not add introductions, "
+            "recommendations, explanations, parameter lists, headings, or closing remarks unless the user "
+            "explicitly asked for them. Preserve the requested language and make the result ready for the "
+            "directly connected next node."
         )
+    if opts.get("sylvex_links") and str(opts.get("tool") or "text").strip().lower() == "text":
+        policy = SYLVEX_TEXT_LINK_GUIDANCE
+        catalog = sylvex_text_catalog(opts.get("sylvex_catalog"))
+        if catalog:
+            listing = "\n".join(f"{mode}: " + "; ".join(f"{model_id}={label}" for model_id, label in items) for mode, items in catalog.items())
+            policy += (
+                " When the user asks which model fits an image, video, music, voice or text task, recommend only "
+                "models from the list of models available in SYLVEX below and never offer other models as choices. "
+                "For every model you recommend add a link with its exact name and id: "
+                "[Label →](sylvex://model/<section>/<id>), for example [Kling 3.0 →](sylvex://model/video/kling_3_0). "
+                "Available models (section: id=name):\n" + listing
+            )
+        policies.append(policy)
+    policy = "\n\n".join(policies)
     return policy
 
 
@@ -21430,6 +21440,60 @@ def validate_video_feature_request(payload: dict) -> Optional[dict]:
     if reference_error:
         return {"ok": False, "type": "video", "error": reference_error, "model": model}
     return None
+
+
+def normalize_grid_video_request(payload: dict) -> dict:
+    """Normalize Grid's direct-edge video inputs before pricing/validation.
+
+    A start/end frame occupies its own semantic slot and must never also be
+    sent as a generic reference image.  This is deliberately Grid-only so
+    established Pro Studio payloads and provider adapters stay unchanged.
+    """
+    if not isinstance(payload, dict) or not str(payload.get("grid_project_id") or "").strip():
+        return payload
+    mode = str(payload.get("mode") or payload.get("category") or "").lower()
+    if mode != "video":
+        return payload
+    opts = payload.get("video_options")
+    if not isinstance(opts, dict):
+        opts = {}
+        payload["video_options"] = opts
+
+    def distinct(values):
+        result = []
+        for value in values if isinstance(values, (list, tuple)) else [values]:
+            item = str(value or "").strip()
+            if item and item not in result:
+                result.append(item)
+        return result
+
+    start_image = str(opts.get("start_image") or payload.get("start_image") or "").strip()
+    end_image = str(opts.get("end_image") or "").strip()
+    refs = distinct(distinct(opts.get("reference_images") or []) + distinct(opts.get("referenceImageUrls") or []))
+    refs = [item for item in refs if item not in {start_image, end_image}]
+    opts["reference_images"] = refs
+    opts["referenceImageUrls"] = list(refs)
+    model = str(opts.get("model") or payload.get("model") or "").strip()
+    config = _VIDEO_MODEL_CONFIG.get(model) or {}
+    modes = list(config.get("modes") or [])
+    requested_mode = str(opts.get("generation_mode") or opts.get("mode") or "text_to_video")
+    if start_image and requested_mode == "text_to_video" and "image_to_video" in modes:
+        requested_mode = "image_to_video"
+    if requested_mode not in modes and modes:
+        requested_mode = modes[0]
+    opts["generation_mode"] = requested_mode
+    opts["mode"] = requested_mode
+    prostudio_debug(
+        "GRID_VIDEO_REQUEST_NORMALIZED",
+        project_id=str(payload.get("grid_project_id") or "")[:160],
+        node_id=str(payload.get("grid_node_id") or "")[:180],
+        model=model,
+        mode=requested_mode,
+        start_image=bool(start_image),
+        end_image=bool(end_image),
+        reference_images=len(refs),
+    )
+    return payload
 
 
 def _reference_video_meta(url: str) -> dict:
@@ -24733,6 +24797,21 @@ async def public_prostudio_estimate(request: Request):
     """Return the existing authoritative Pro Studio estimate without creating a job."""
     try:
         payload = await request.json()
+        if isinstance(payload, dict):
+            grid_references_service.resolve_grid_catalog_references(payload, WEBAPP_URL)
+            normalize_grid_video_request(payload)
+            if payload.get("grid_project_id") and str(payload.get("mode") or payload.get("category") or "").lower() == "video":
+                feature_error = validate_video_feature_request(payload)
+                if feature_error:
+                    prostudio_debug(
+                        "GENERATION_ESTIMATE_VALIDATION_REJECTED",
+                        status=422,
+                        code=str(feature_error.get("error") or "invalid_video_options")[:160],
+                        mode="video",
+                        model=str(feature_error.get("model") or payload.get("model") or "")[:120],
+                        invalid_fields=["video_options"],
+                    )
+                    return JSONResponse({**feature_error, "invalid_fields": ["video_options"]}, status_code=422)
         estimate = calculate_generation_price(payload if isinstance(payload, dict) else {})
         return {"ok": True, **estimate}
     except Exception as exc:
@@ -25228,6 +25307,7 @@ def grid_planner_generation_with_fallback(planner_payload: dict, planner_model: 
     return {
         "ok": False, "type": "text", "error": "planner_temporarily_unavailable",
         "message": "The Grid Director could not build a reliable plan. Please try again.",
+        "retryable": True,
         "provider": "openai", "model": planner_model,
         "metadata": {"usage": {"input_tokens": 0, "output_tokens": 0}},
         "planner_attempt": "failed", "planner_selected_model": planner_model,
@@ -25456,6 +25536,7 @@ async def public_prostudio_generate(request: Request):
             node_id=str(payload.get("grid_node_id") or "")[:180],
             count=resolved_grid_references,
         )
+    normalize_grid_video_request(payload)
     telegram_id = int(payload.get("telegram_id") or 0)
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
     category = (payload.get("category") or mode).lower()
@@ -25476,6 +25557,7 @@ async def public_prostudio_generate(request: Request):
     elif mode == "image" and is_edit_workspace_request(payload) and str(image_options.get("editWorkspaceMode") or "edit").lower() == "edit":
         selected_model = edit_workspace_image_model(payload)
         if selected_model not in EDIT_WORKSPACE_IMAGE_MODEL_IDS:
+            prostudio_debug("GENERATE_VALIDATION_REJECTED", status=422, code="unsupported_edit_model", mode=mode, model=selected_model, invalid_fields=["model"])
             return JSONResponse({
                 "ok": False,
                 "error": "unsupported_edit_model",
@@ -25526,6 +25608,7 @@ async def public_prostudio_generate(request: Request):
     generation_modes = {"image", "video", "music", "voice"}
     text_modes = {"text", "chat", "pro", "lite"}
     if mode not in generation_modes | text_modes:
+        prostudio_debug("GENERATE_VALIDATION_REJECTED", status=422, code="unsupported_generation_mode", mode=mode, model=selected_model, invalid_fields=["mode"])
         return JSONResponse({"ok": False, "error": "unsupported_generation_mode"}, status_code=422)
     # Pro Studio is a subscription feature. This server-side check is the
     # enforcement point; hiding the button in the Mini App is only cosmetic.
@@ -25548,6 +25631,7 @@ async def public_prostudio_generate(request: Request):
             # No SYLVEX tariff for transcription or audio/video input tokens:
             # refused before any reservation or provider call.
             print("UNPRICED_HELPER_BLOCKED:", {"operation": "text_media_attachment"})
+            prostudio_debug("GENERATE_VALIDATION_REJECTED", status=422, code="pricing_not_configured", mode=mode, model=selected_model, invalid_fields=["attachment"])
             return JSONResponse({"ok": False, "error": "pricing_not_configured",
                                  "message": "Аудио и видео во вложениях пока недоступны в Text."}, status_code=422)
         payload["output_token_cap"] = text_output_cap(payload)
@@ -25583,6 +25667,7 @@ async def public_prostudio_generate(request: Request):
     cost_estimate = calculate_generation_price(payload)
     payload["price_snapshot"] = cost_estimate.get("price_snapshot") or {}
     if not cost_estimate.get("pricing_available", mode in {"image", "video"}):
+        prostudio_debug("GENERATE_VALIDATION_REJECTED", status=422, code="pricing_not_configured", mode=mode, model=selected_model, invalid_fields=["model", f"{mode}_options"])
         return JSONResponse({
             "ok": False,
             "error": "pricing_not_configured",
@@ -25590,6 +25675,7 @@ async def public_prostudio_generate(request: Request):
         }, status_code=422)
     required_credits = int(cost_estimate.get("credits") or 0)
     if required_credits <= 0 and not edit_workspace_service.is_free_resize(payload):
+        prostudio_debug("GENERATE_VALIDATION_REJECTED", status=422, code="pricing_not_configured", mode=mode, model=selected_model, invalid_fields=["model", f"{mode}_options"])
         return JSONResponse({"ok": False, "error": "pricing_not_configured", "message": "Не удалось определить стоимость генерации."}, status_code=422)
     try:
         # BUG-4 immediate mitigation: same blocking-call issue as
@@ -25773,10 +25859,33 @@ async def public_prostudio_generate(request: Request):
         try:
             with billing_scope(generation_id, required_credits):
                 result = await asyncio.to_thread(text_generation, payload)
+        except requests.Timeout as exc:
+            release_direct_text_generation(generation_id)
+            prostudio_error("TEXT_PROVIDER_TIMEOUT", exc, telegram_id=telegram_id, model=selected_model)
+            return complete_text_request(JSONResponse({
+                "ok": False,
+                "error": "text_provider_timeout",
+                "message": "The text model did not respond in time. Please retry the Grid node.",
+                "retryable": True,
+            }, status_code=504))
+        except requests.RequestException as exc:
+            release_direct_text_generation(generation_id)
+            prostudio_error("TEXT_PROVIDER_REQUEST_FAILED", exc, telegram_id=telegram_id, model=selected_model)
+            return complete_text_request(JSONResponse({
+                "ok": False,
+                "error": "text_provider_unavailable",
+                "message": "The text provider is temporarily unavailable.",
+                "retryable": True,
+            }, status_code=502))
         except Exception as exc:
             release_direct_text_generation(generation_id)
-            fail_text_request(exc)
-            raise
+            prostudio_error("TEXT_PROVIDER_FAILED", exc, telegram_id=telegram_id, model=selected_model)
+            return complete_text_request(JSONResponse({
+                "ok": False,
+                "error": "text_generation_failed",
+                "message": translate_provider_error(exc, provider=selected_provider, model=selected_model),
+                "retryable": False,
+            }, status_code=502))
         provider_done_at = time.monotonic()
         prostudio_debug(
             "TEXT_PROVIDER_RESPONSE_RECEIVED", telegram_id=telegram_id, ok=bool(result.get("ok")),
