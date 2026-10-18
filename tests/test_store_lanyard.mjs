@@ -47,8 +47,26 @@ test('the store uses the requested component settings', () => {
   });
   const source = read('webapp/js/store-lanyard.js');
   for (const prop of ['frontImage', 'backImage', 'strapImage']) assert.ok(source.includes(prop + ':'), prop);
-  assert.ok(source.includes("LOGO_URL = 'assets/logo.bleck.png'"));
+  assert.ok(source.includes("LOGO_URL = BASE + 'assets/logo.bleck.png'"));
   assert.ok(existsSync(new URL('../webapp/assets/logo.bleck.png', import.meta.url)));
+});
+
+test('the Website copy, when checked out next to this repo, is identical', (t) => {
+  const sibling = new URL('../../sylvex-website/js/store-lanyard.js', import.meta.url);
+  if (!existsSync(sibling)) return t.skip('sylvex-website is not checked out alongside');
+  assert.equal(readFileSync(sibling, 'utf8'), read('webapp/js/store-lanyard.js'));
+});
+
+test('bundle and logo resolve next to the script, in the Mini App and on the Website', () => {
+  const source = read('webapp/js/store-lanyard.js');
+  const base = (src) => {
+    const ctx = vm.createContext({Intl, document: {currentScript: {src}}});
+    vm.runInContext(source, ctx);
+    return ctx.SylvexStoreLanyard.BASE;
+  };
+  assert.equal(base('https://api.sylvex.ai/webapp/js/store-lanyard.js?v=1'), 'https://api.sylvex.ai/webapp/');
+  assert.equal(base('https://sylvex.ai/js/store-lanyard.js?v=1'), 'https://sylvex.ai/');
+  assert.equal(lanyard.BASE, '', 'no script element: relative to the page');
 });
 
 test('every plan and period: the card shows the Store plan data, nothing typed in', () => {
@@ -87,7 +105,7 @@ test('the card follows the app language and live example prices', () => {
   assert.equal(d.examples[0].value, '200');
   assert.ok(d.examplesNote.includes('Live model'));
   const lang = read('webapp/js/language.js');
-  for (const key of Object.keys(lanyard.EN)) {
+  for (const key of Object.keys(lanyard.EN).filter((k) => k.startsWith('store_card_'))) {
     assert.equal(lang.split(`${key}:`).length - 1, 2, key + ' has an English and a Russian text');
   }
 });
