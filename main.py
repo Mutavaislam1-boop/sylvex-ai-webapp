@@ -15923,6 +15923,77 @@ async def web_auth_reset_password(request: Request):
     return {"ok": True}
 
 
+# Avatars the SYLVEX app offers (webapp/assets/avatars/a1.png ... a10.png);
+# "" is the default avatar (the name's initial).
+_WEB_PROFILE_AVATAR_RE = re.compile(r"assets/avatars/a\d{1,2}\.png")
+_WEB_PROFILE_THEME_KEYS = {"id", "themeId", "coverIndex"}
+
+
+@app.post("/api/web/account/profile")
+async def web_account_profile(request: Request):
+    # The standalone browser app's profile save: nickname, avatar and theme of
+    # the SYLVEX account behind the web session cookie. The account comes from
+    # the session alone - never from a telegram_id or Telegram initData sent
+    # by the client - and it is stored in the same profile the rest of the
+    # app (and Telegram, after a merge) reads.
+    account_id = await _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"ok": False, "error": "invalid_payload"}, status_code=400)
+    summary = await asyncio.to_thread(account_identity_service.get_account_summary, DATABASE_URL, account_id)
+    storage_id = int(summary.get("active_telegram_id") or 0) if summary else 0
+    if not storage_id:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+
+    fields = {}
+    if "display_name" in payload:
+        name = payload.get("display_name")
+        name = name.strip() if isinstance(name, str) else ""
+        if not name or len(name) > 60:
+            return JSONResponse({"ok": False, "error": "invalid_display_name"}, status_code=400)
+        fields["display_name"] = name
+    if "custom_avatar_url" in payload:
+        avatar = payload.get("custom_avatar_url")
+        if avatar is None:
+            avatar = ""
+        if not isinstance(avatar, str):
+            return JSONResponse({"ok": False, "error": "invalid_avatar"}, status_code=400)
+        if avatar and not _WEB_PROFILE_AVATAR_RE.fullmatch(avatar):
+            # Anything else only when it is already this account's avatar
+            # (kept as is when only the nickname changes).
+            current = await asyncio.to_thread(get_user_profile, storage_id)
+            if avatar != (current or {}).get("custom_avatar_url"):
+                return JSONResponse({"ok": False, "error": "invalid_avatar"}, status_code=400)
+        fields["custom_avatar_url"] = avatar
+    if "theme_preference" in payload:
+        theme = payload.get("theme_preference")
+        if not isinstance(theme, dict):
+            return JSONResponse({"ok": False, "error": "invalid_theme_preference"}, status_code=400)
+        fields["theme_preference"] = {key: value for key, value in theme.items() if key in _WEB_PROFILE_THEME_KEYS}
+    if not fields:
+        return JSONResponse({"ok": False, "error": "nothing_to_save"}, status_code=400)
+
+    try:
+        profile = await asyncio.wait_for(
+            asyncio.to_thread(lambda: save_user_profile(telegram_id=storage_id, **fields)),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        print("WEB PROFILE SAVE TIMEOUT:", account_id)
+        return JSONResponse({"ok": False, "error": "profile_save_timeout"}, status_code=503)
+    except Exception as exc:
+        print("WEB PROFILE SAVE FAILED:", account_id, exc)
+        return JSONResponse({"ok": False, "error": "profile_save_failed"}, status_code=500)
+    return {"ok": True, "profile": profile}
+
+
 @app.post("/api/web/account/password/change")
 async def web_account_password_change(request: Request):
     account_id = await _web_session_account_id(request)
