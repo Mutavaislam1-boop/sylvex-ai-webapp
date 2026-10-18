@@ -16,3 +16,6 @@ admin_console/node_modules/
 
 # Store 3D card (store_lanyard/): the built bundle in webapp/js/vendor/store-lanyard is committed, deps never ship.
 store_lanyard/node_modules/
+
+# Pro Studio reference stack (studio_stack/): the built bundle in webapp/js/vendor/ref-stack is committed, deps never ship.
+studio_stack/node_modules/

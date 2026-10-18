@@ -17401,8 +17401,104 @@ function renderGeneratedTelegramButton(url, kind) {
       + cards + '</button>';
   }
 
-  function renderReferenceRequest(refs, prompt) {
-    return renderReferencePile(refs)
+  // A generation's reference images as the React Bits Stack (studio_stack/,
+  // built into js/vendor/ref-stack/): one card per image the request used,
+  // in its order. Display only - what the request sends, and in which
+  // order, is never read from or changed by the stack. Each slot keeps the
+  // previous pile inside as its fallback: it shows until the bundle has
+  // loaded, if it never loads, and everywhere with REF_STACK_ENABLED off.
+  const REF_STACK_ENABLED = true;
+  const REF_STACK_VERSION = 'ref-stack-20261018';
+  // Next to this script: /webapp/ in the Mini App, api.sylvex.ai/webapp/
+  // when the Website's Pro Studio loads cabinet.js from there.
+  const REF_STACK_BASE = (() => {
+    const script = document.currentScript || document.querySelector('script[src*="js/cabinet.js"]');
+    const match = script && script.src ? /^(.*\/)js\/cabinet\.js(?:[?#].*)?$/.exec(script.src) : null;
+    return match ? match[1] : '';
+  })();
+  const refStacks = new Map(); // slot key -> { holder, instance, signature }
+  let refStackBundle = null;
+
+  function loadRefStackBundle() {
+    if (window.SylvexRefStack) return Promise.resolve(window.SylvexRefStack);
+    if (refStackBundle) return refStackBundle;
+    refStackBundle = new Promise((resolve, reject) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = REF_STACK_BASE + 'js/vendor/ref-stack/ref-stack.css?v=' + REF_STACK_VERSION;
+      document.head.appendChild(link);
+      const script = document.createElement('script');
+      script.src = REF_STACK_BASE + 'js/vendor/ref-stack/ref-stack.js?v=' + REF_STACK_VERSION;
+      script.async = true;
+      script.onload = () => (window.SylvexRefStack ? resolve(window.SylvexRefStack) : reject(new Error('ref_stack_empty')));
+      script.onerror = () => reject(new Error('ref_stack_failed'));
+      document.head.appendChild(script);
+    }).catch((error) => {
+      refStackBundle = null;
+      throw error;
+    });
+    return refStackBundle;
+  }
+
+  // `key` ties the slot to its generation, so the same stack (and the card
+  // the user flipped to) survives every re-render of the chat.
+  function renderReferenceStack(refs, key) {
+    if (!refs || !refs.length) return '';
+    if (!REF_STACK_ENABLED || !key) return renderReferencePile(refs);
+    return '<div class="msg-ref-stack" data-ref-stack="' + S.escapeHtml(key) + '" data-ref-urls="'
+      + S.escapeHtml(JSON.stringify(refs)) + '">' + renderReferencePile(refs) + '</div>';
+  }
+
+  // Puts a live Stack into every slot renderChat() just wrote. A slot whose
+  // generation already has one gets that same element back (React keeps
+  // running in it); new slots get a new one; stacks whose slot is gone are
+  // unmounted.
+  function mountReferenceStacks(area) {
+    if (!REF_STACK_ENABLED || !area) return;
+    const slots = area.querySelectorAll('[data-ref-stack]');
+    const api = window.SylvexRefStack;
+    if (!api) {
+      if (slots.length) loadRefStackBundle().then(() => mountReferenceStacks(document.getElementById('chatArea'))).catch(() => {});
+      return;
+    }
+    const seen = new Set();
+    slots.forEach((slot) => {
+      const key = slot.getAttribute('data-ref-stack');
+      const signature = slot.getAttribute('data-ref-urls') || '';
+      let urls = [];
+      try { urls = JSON.parse(signature); } catch { return; }
+      if (!key || !Array.isArray(urls) || !urls.length || seen.has(key)) return;
+      seen.add(key);
+      let entry = refStacks.get(key);
+      if (entry && entry.signature !== signature) {
+        entry.instance.unmount();
+        entry = null;
+      }
+      if (!entry) {
+        const holder = document.createElement('div');
+        holder.className = 'msg-ref-stack-root';
+        entry = { holder, instance: api.mount(holder, urls), signature };
+        refStacks.set(key, entry);
+      }
+      slot.replaceChildren(entry.holder);
+      slot.classList.add('is-live');
+      // Drags and clicks on the cards stay inside the stack.
+      if (!slot.dataset.refStackGuard) {
+        slot.dataset.refStackGuard = '1';
+        ['pointerdown', 'mousedown', 'touchstart', 'click', 'dblclick', 'contextmenu'].forEach((type) => {
+          slot.addEventListener(type, (event) => event.stopPropagation());
+        });
+      }
+    });
+    refStacks.forEach((entry, key) => {
+      if (seen.has(key)) return;
+      entry.instance.unmount();
+      refStacks.delete(key);
+    });
+  }
+
+  function renderReferenceRequest(refs, prompt, key) {
+    return renderReferenceStack(refs, key)
       + (prompt ? '<div class="msg-ref-user-prompt">' + S.escapeHtml(prompt).replace(/\n/g, '<br>') + '</div>' : '');
   }
 
@@ -17442,7 +17538,11 @@ function renderGeneratedTelegramButton(url, kind) {
           + '</div>';
       }
       if (m.imageLoading || m.generationLoading) {
-        return '<div class="msg ai generation-loading-msg" data-i="' + i + '" data-generation-token="' + S.escapeHtml(m.activeGenerationToken || '') + '"><div class="ai-avatar">S</div>'
+        const pendingRefs = Array.isArray(m.requestReferences) ? m.requestReferences : [];
+        return (pendingRefs.length
+          ? '<div class="msg user msg-reference-request"><div class="bubble">' + renderReferenceRequest(pendingRefs, '', 'r' + i) + '</div></div>'
+          : '')
+          + '<div class="msg ai generation-loading-msg" data-i="' + i + '" data-generation-token="' + S.escapeHtml(m.activeGenerationToken || '') + '"><div class="ai-avatar">S</div>'
           + renderGenerationLoadingCard(m)
           + '</div>';
       }
@@ -17462,7 +17562,7 @@ function renderGeneratedTelegramButton(url, kind) {
         const pairedUser = refs.length && previous && previous.role === 'user' && !Object.prototype.hasOwnProperty.call(m, 'userPrompt');
         const userPrompt = requestPromptIsInternal(m.metadata) ? '' : String(m.userPrompt || '');
         const referenceMessage = refs.length && !pairedUser
-          ? '<div class="msg user msg-reference-request"><div class="bubble">' + renderReferenceRequest(refs, userPrompt) + '</div></div>'
+          ? '<div class="msg user msg-reference-request"><div class="bubble">' + renderReferenceRequest(refs, userPrompt, 'r' + i) + '</div></div>'
           : '';
         return referenceMessage + '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderImageResultMiniCard(m, i)
@@ -17486,16 +17586,18 @@ function renderGeneratedTelegramButton(url, kind) {
       let inner = '';
       const next = chatMessages[i + 1];
       const resultRefs = m.role === 'user' && next && next.imageResultMini ? requestImageDisplayReferences(next.metadata) : [];
-      if (resultRefs.length) inner += renderReferenceRequest(resultRefs, requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''));
+      if (resultRefs.length) inner += renderReferenceRequest(resultRefs, requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1));
       else if (m.text) {
         const textHtml = S.escapeHtml(m.text).replace(/\n/g, '<br>');
         inner += m.role === 'ai' ? renderSylvexChatLinks(textHtml) : textHtml;
       }
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
       if (!resultRefs.length && m.referenceImages && m.referenceImages.length) {
-        inner += '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
-            '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
-        ).join('') + '</div>';
+        inner += REF_STACK_ENABLED
+          ? renderReferenceStack(m.referenceImages, 'u' + i)
+          : '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
+              '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
+          ).join('') + '</div>';
       }
       if (m.referenceVideos && m.referenceVideos.length) {
         inner += '<div class="msg-ref-video-row">' + m.referenceVideos.map((url) =>
@@ -17545,6 +17647,7 @@ function renderGeneratedTelegramButton(url, kind) {
         + (m.role === 'ai' ? '<div class="ai-avatar">S</div>' : '')
         + '<div class="bubble">' + inner + '</div>' + actions + '</div>';
     }).join('');
+    mountReferenceStacks(el);
     el.scrollTop = el.scrollHeight;
   }
 
@@ -23476,6 +23579,12 @@ async function waitGeneration(jobId, options) {
     const uploadOnlyVoice = isVoiceMode() && !v && audioUploads.length && !attachment && !referenceImages.length;
     if (photoMode) {
       loadingIndex = appendPendingGenerationPlaceholder();
+      // The workspace shows this request's references while it runs - the
+      // same list its result will show (display only).
+      const pendingRefs = imageOptionsSnapshot && !imageOptionsSnapshot.catalog_reference_hidden
+        ? requestImageDisplayReferences({ type: 'image', image_options: imageOptionsSnapshot })
+        : [];
+      if (pendingRefs.length) chatMessages[loadingIndex].requestReferences = pendingRefs;
     } else if (!uploadOnlyVoice) {
       chatMessages.push({
         role: 'user',
