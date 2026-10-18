@@ -97,4 +97,5 @@ test('display only and isolated: request untouched, events contained, switchable
   assert.ok(cabinet.includes("const match = script && script.src ? /^(.*\\/)js\\/cabinet\\.js(?:[?#].*)?$/.exec(script.src) : null;"));
   assert.ok(!read('webapp/index.html').includes('vendor/ref-stack'), 'loaded on demand only');
   assert.match(read('webapp/css/cabinet.css'), /\.msg-ref-stack\{\n {2}position:relative !important;/);
+  assert.match(read('webapp/css/cabinet.css'), /\.msg-ref-stack\{[^}]*width:120px !important;\n {2}height:120px !important;/, 'cards a little larger, as agreed');
 });

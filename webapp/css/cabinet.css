@@ -5871,9 +5871,9 @@ CSS-БЛОК: .composer-image-remove
 .view[data-view="tools"].active .msg .bubble .msg-ref-stack{
   position:relative !important;
   display:block !important;
-  width:96px !important;
-  height:96px !important;
-  margin:14px 30px 10px 0 !important;
+  width:120px !important;
+  height:120px !important;
+  margin:18px 38px 12px 0 !important;
   touch-action:pan-y !important;
 }
 .view[data-view="tools"].active .msg .bubble .msg-ref-stack .msg-ref-stack-root{
