@@ -162,6 +162,38 @@
     store_note_text: '{model}, {input} ⚡ за 1 000 входных + {output} ⚡ за 1 000 выходных токенов, минимум {credits} ⚡ за запрос',
   });
 
+  // Store: the 3D subscription card on the pay screen (js/store-lanyard.js).
+  Object.assign(I18N.en, {
+    store_card_subscription: 'Subscription',
+    store_card_details: 'Plan details',
+    store_card_period: 'Billing period',
+    store_card_price: 'Price',
+    store_card_saving: 'You save',
+    store_card_credits: 'Credits',
+    store_card_rate: 'Rate',
+    store_card_flip: 'Tap the card to see all terms on the back',
+    store_card_flip_back: 'Tap the card again to flip it back',
+    store_card_renews_month: 'Renews automatically every month until you turn renewal off. ⚡ credits are added after each payment.',
+    store_card_renews_year: 'Renews automatically every year until you turn renewal off. ⚡ credits are added after each payment.',
+    store_card_one_month: 'One payment for one month, no auto-renewal. ⚡ credits are added right after payment.',
+    store_card_one_year: 'One payment for 12 months, no auto-renewal. ⚡ credits are added right after payment.',
+  });
+  Object.assign(I18N.ru, {
+    store_card_subscription: 'Подписка',
+    store_card_details: 'Условия тарифа',
+    store_card_period: 'Период оплаты',
+    store_card_price: 'Стоимость',
+    store_card_saving: 'Экономия',
+    store_card_credits: 'Кредиты',
+    store_card_rate: 'Курс',
+    store_card_flip: 'Нажмите на карту — на обороте все условия',
+    store_card_flip_back: 'Нажмите ещё раз, чтобы перевернуть карту',
+    store_card_renews_month: 'Продлевается автоматически каждый месяц, пока вы не отключите продление. ⚡ начисляются после каждой оплаты.',
+    store_card_renews_year: 'Продлевается автоматически каждый год, пока вы не отключите продление. ⚡ начисляются после каждой оплаты.',
+    store_card_one_month: 'Одна оплата за месяц, без автопродления. ⚡ начисляются сразу после оплаты.',
+    store_card_one_year: 'Одна оплата за 12 месяцев, без автопродления. ⚡ начисляются сразу после оплаты.',
+  });
+
   // Notification bell and the internal Contact SYLVEX popup.
   Object.assign(I18N.en, {
     notif_title: 'Notifications',
