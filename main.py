@@ -23170,6 +23170,10 @@ def estimate_generation_cost(payload: dict) -> dict:
             return elevenlabs_music_cost_info(payload.get("music_options") or {})
         fixed_prices = {
             "google_lyria_3_pro": 12, "google_lyria_3_clip": 6,
+            # Suno through the UdioAPI aggregator (services/audio_router.py):
+            # SYLVEX's own per-generation prices. The other Chirp versions
+            # stay unpriced (blocked) until they get one.
+            "suno_chirp_5_5": 18, "suno_chirp_6": 18, "suno_chirp_6_mini": 15,
         }
         credits = fixed_prices.get(model)
         if credits is None:
@@ -24703,6 +24707,7 @@ async def public_prostudio_pricing_catalog():
         ("Google", "Фото", "Nano Banana Pro", "1K / 2K / 4K", "21 / 21 / 36 ⚡"),
         ("Google", "Видео", "Veo 3.1", "720/1080p audio / no audio", "60 / 30 ⚡"),
         ("Google", "Музыка", "Lyria 3 Pro / Lyria 3", "полная песня / 30 сек", "12 / 6 ⚡"),
+        ("UdioAPI", "Музыка", "Suno Chirp 6 / Chirp 5.5 / Chirp 6 Mini", "генерация", "18 / 18 / 15 ⚡"),
         ("Google", "Текст", "Gemini 3.1 Pro", "input / output, 1M токенов", "300 / 1,800 ⚡"),
         ("Google", "Текст", "Gemini 2.5 Flash", "input / output, 1M токенов", "45 / 375 ⚡"),
         ("Runway", "Видео", "Gen-4.5 / Gen-4 Turbo", "1 сек", "18 / 7.5 ⚡"),
@@ -24882,7 +24887,7 @@ def grid_planner_catalog() -> dict:
         if model_id in SEEDREAM_MODEL_CAPABILITIES:
             capability["max_references"] = int(SEEDREAM_MODEL_CAPABILITIES[model_id].get("max_references") or 0)
         image_capabilities[model_id] = capability
-    music_models = ["google_lyria_3_clip", "google_lyria_3_pro"]
+    music_models = ["google_lyria_3_clip", "google_lyria_3_pro", "suno_chirp_6", "suno_chirp_5_5", "suno_chirp_6_mini"]
     voice_models = ["elevenlabs_eleven_v3", "elevenlabs_multilingual_v2", "gemini_3_1_flash_tts_preview", "gemini_2_5_pro_preview_tts", "gemini_2_5_flash_preview_tts", "runway_eleven_multilingual_v2"]
     return {
         "graph_limits": {"max_nodes": 100, "max_edges": 400, "max_reference_requests": 24},

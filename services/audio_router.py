@@ -52,6 +52,8 @@ SUNO_MUSIC_MODEL_MAP = {
     "suno_chirp_4_5_plus": "chirp-v4-5-plus",
     "suno_chirp_5": "chirp-v5",
     "suno_chirp_5_5": "chirp-v5-5",
+    "suno_chirp_6": "chirp-v6",
+    "suno_chirp_6_mini": "chirp-v6-mini",
     "minimax_music_2_5": "minimax-music-2.5",
     "google_lyria_3_clip": "lyria-3-clip-preview",
     "google_lyria_3_pro": "lyria-3-pro-preview",

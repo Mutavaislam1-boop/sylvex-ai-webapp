@@ -12,7 +12,7 @@ import main
 def test_unverified_aggregator_and_realtime_music_tariffs_fail_closed():
     models = (
         "suno_chirp_3_5", "suno_chirp_4_0", "suno_chirp_4_5", "suno_chirp_4_5_plus",
-        "suno_chirp_5", "suno_chirp_5_5", "minimax_music_2_5", "google_lyria_realtime",
+        "suno_chirp_5", "minimax_music_2_5", "google_lyria_realtime",
     )
     for model in models:
         result = main.estimate_generation_cost({"mode": "music", "model": model})
@@ -30,3 +30,27 @@ def test_existing_lyria_http_models_still_priced_correctly():
 def test_still_rejects_a_genuinely_unknown_music_model():
     result = main.estimate_generation_cost({"mode": "music", "model": "not_a_real_model"})
     assert result["pricing_available"] is False
+
+
+def test_suno_prices_set_by_sylvex_for_udioapi_models():
+    # Suno runs through the UdioAPI aggregator; SYLVEX sets these prices.
+    expected = {"suno_chirp_5_5": 18, "suno_chirp_6": 18, "suno_chirp_6_mini": 15}
+    for model, credits in expected.items():
+        for payload in ({"mode": "music", "model": model},
+                        {"mode": "music", "music_options": {"model": model, "duration_minutes": 4}}):
+            result = main.calculate_generation_price(payload)
+            assert result["pricing_available"] is True, model
+            assert result["credits"] == credits, model
+            assert result["generation_cost"] == f"{credits} ⚡", model
+
+
+def test_new_suno_models_route_to_udioapi_and_grid():
+    from services import audio_router
+    assert audio_router.AUDIO_API_BASE_URL.startswith("https://udioapi.pro")
+    assert audio_router._music_model_mapping("suno_chirp_6") == "chirp-v6"
+    assert audio_router._music_model_mapping("suno_chirp_6_mini") == "chirp-v6-mini"
+    assert audio_router._music_model_mapping("suno_chirp_5_5") == "chirp-v5-5"
+    catalog = main.grid_planner_catalog()["music"]
+    for model, credits in {"suno_chirp_5_5": 18, "suno_chirp_6": 18, "suno_chirp_6_mini": 15}.items():
+        assert model in catalog["models"]
+        assert catalog["cost_hints"][model]["sample_credits"] == credits
