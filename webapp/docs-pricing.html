@@ -15,11 +15,11 @@
   (async () => {
     const target = document.getElementById('catalog');
     try {
-      const cacheKey = 'sylvex-pricing-catalog-v2';
+      const cacheKey = 'sylvex-pricing-catalog-v3';
       let data;
       try { data = JSON.parse(sessionStorage.getItem(cacheKey) || 'null'); } catch (_) {}
       if (!data || !data.ok) {
-        const res = await fetch('/api/public/prostudio/pricing-catalog', {cache:'force-cache'});
+        const res = await fetch('/api/public/prostudio/pricing-catalog', {cache:'no-cache'});
         data = await res.json(); if (!res.ok || !data.ok) throw new Error();
         try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch (_) {}
       }

@@ -24707,7 +24707,9 @@ async def public_prostudio_pricing_catalog():
         ("Google", "Фото", "Nano Banana Pro", "1K / 2K / 4K", "21 / 21 / 36 ⚡"),
         ("Google", "Видео", "Veo 3.1", "720/1080p audio / no audio", "60 / 30 ⚡"),
         ("Google", "Музыка", "Lyria 3 Pro / Lyria 3", "полная песня / 30 сек", "12 / 6 ⚡"),
-        ("UdioAPI", "Музыка", "Suno Chirp 6 / Chirp 5.5 / Chirp 6 Mini", "генерация", "18 / 18 / 15 ⚡"),
+        ("Suno", "Музыка", "Chirp v6", "генерация", "18 ⚡"),
+        ("Suno", "Музыка", "Chirp v5.5", "генерация", "18 ⚡"),
+        ("Suno", "Музыка", "Chirp v6 Mini", "генерация", "15 ⚡"),
         ("Google", "Текст", "Gemini 3.1 Pro", "input / output, 1M токенов", "300 / 1,800 ⚡"),
         ("Google", "Текст", "Gemini 2.5 Flash", "input / output, 1M токенов", "45 / 375 ⚡"),
         ("Runway", "Видео", "Gen-4.5 / Gen-4 Turbo", "1 сек", "18 / 7.5 ⚡"),
@@ -24791,10 +24793,12 @@ async def public_prostudio_pricing_catalog():
         ("MiniMax", "Видео", "H3 / H3 Max", "768p, 5 сек", "60 / 38 ⚡"),
         ("MiniMax", "Фото", "image-01", "1 фото", "1 ⚡"),
     ]
-    return {"ok": True, "currency": "⚡", "pricing_version": PRICE_VERSION, "rows": [
+    # Price pages must see a change on the next load: revalidate every time
+    # instead of letting browsers keep a stale copy.
+    return JSONResponse({"ok": True, "currency": "⚡", "pricing_version": PRICE_VERSION, "rows": [
         {"provider": provider, "category": category, "model": model, "mode": price_mode, "price": price}
         for provider, category, model, price_mode, price in rows
-    ]}
+    ]}, headers={"Cache-Control": "no-cache"})
 
 
 @app.post("/api/public/prostudio/estimate")

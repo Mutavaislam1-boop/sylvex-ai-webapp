@@ -54,3 +54,23 @@ def test_new_suno_models_route_to_udioapi_and_grid():
     for model, credits in {"suno_chirp_5_5": 18, "suno_chirp_6": 18, "suno_chirp_6_mini": 15}.items():
         assert model in catalog["models"]
         assert catalog["cost_hints"][model]["sample_credits"] == credits
+
+
+def test_published_price_list_and_music_docs_show_suno_prices():
+    import asyncio
+    import json
+    from pathlib import Path
+    response = asyncio.run(main.public_prostudio_pricing_catalog())
+    assert response.headers["cache-control"] == "no-cache"
+    rows = json.loads(response.body)["rows"]
+    suno = {row["model"]: row["price"] for row in rows if row["provider"] == "Suno"}
+    assert suno == {"Chirp v6": "18 ⚡", "Chirp v5.5": "18 ⚡", "Chirp v6 Mini": "15 ⚡"}
+    webapp = Path(__file__).resolve().parent.parent / "webapp"
+    docs = (webapp / "docs-music.html").read_text(encoding="utf-8")
+    for row in ("<td>Suno Chirp v6</td><td>$0.18</td><td>18 ⚡️</td>",
+                "<td>Suno Chirp v5.5</td><td>$0.18</td><td>18 ⚡️</td>",
+                "<td>Suno Chirp v6 Mini</td><td>$0.15</td><td>15 ⚡️</td>"):
+        assert row in docs
+    assert "model=suno_chirp_6" in docs and "model=suno_chirp_6_mini" in docs
+    pricing_page = (webapp / "docs-pricing.html").read_text(encoding="utf-8")
+    assert "force-cache" not in pricing_page
