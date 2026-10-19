@@ -15,7 +15,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = 'store-glow-soft-20261019';
+  var VERSION = 'store-glow-static-20261019';
   var BASE = scriptBase();
   var BUNDLE_JS = BASE + 'js/vendor/store-glow/store-glow.js?v=' + VERSION;
   var BUNDLE_CSS = BASE + 'js/vendor/store-glow/store-glow.css?v=' + VERSION;
@@ -126,6 +126,7 @@
 
   function watch(container) {
     if (!container || !wrapped) return;
+    container.classList.add('sxs-glow-scope');
     watchTheme();
     if (!container.__sxsGlowWatch) {
       var pending = false;
