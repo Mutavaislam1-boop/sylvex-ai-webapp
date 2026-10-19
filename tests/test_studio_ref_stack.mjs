@@ -31,13 +31,13 @@ test('Stack.jsx / Stack.css: the published files, only the demo images removed',
   assert.ok(read('.gitignore').includes('studio_stack/node_modules/'));
 });
 
-test('the stack runs with the settings from the task; cards and visible come from the references', () => {
+test('the stack runs with the settings from the task (radius 16 as agreed); cards and visible come from the references', () => {
   const main = read('studio_stack/src/main.jsx');
   const start = main.indexOf('const STACK_PROPS = {');
   const block = main.slice(start, main.indexOf('};', start) + 1);
   const settings = vm.runInNewContext('(' + block.replace('const STACK_PROPS = ', '') + ')');
   assert.deepEqual({...settings}, {
-    layout: 'fan', sendToBackOnClick: true, spread: 0.8, depth: 0.5, radius: 33, frame: 0, frameColor: '#ffffff',
+    layout: 'fan', sendToBackOnClick: true, spread: 0.8, depth: 0.5, radius: 16, frame: 0, frameColor: '#ffffff',
     shadow: true, tilt: 30, threshold: 90, speed: 1, autoplay: false, autoplayDelay: 3000, pauseOnHover: false,
   });
   assert.ok(main.includes('cards: list.map((src, index) =>'));

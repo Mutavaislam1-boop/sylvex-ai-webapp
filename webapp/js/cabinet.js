@@ -17408,7 +17408,7 @@ function renderGeneratedTelegramButton(url, kind) {
   // previous pile inside as its fallback: it shows until the bundle has
   // loaded, if it never loads, and everywhere with REF_STACK_ENABLED off.
   const REF_STACK_ENABLED = true;
-  const REF_STACK_VERSION = 'ref-stack-20261018';
+  const REF_STACK_VERSION = 'ref-stack-radius16-20261019';
   // Next to this script: /webapp/ in the Mini App, api.sylvex.ai/webapp/
   // when the Website's Pro Studio loads cabinet.js from there.
   const REF_STACK_BASE = (() => {
