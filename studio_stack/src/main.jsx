@@ -7,14 +7,15 @@ import { createRoot } from 'react-dom/client';
 
 import Stack from './Stack.jsx';
 
-// The settings from the task, unchanged; `cards` and `visible` come from
-// the generation's own reference images.
+// The settings from the task; `cards` and `visible` come from the
+// generation's own reference images. Agreed change: radius 16 (was 33), the
+// corner rounding Pro Studio's own cards use.
 const STACK_PROPS = {
   layout: 'fan',
   sendToBackOnClick: true,
   spread: 0.8,
   depth: 0.5,
-  radius: 33,
+  radius: 16,
   frame: 0,
   frameColor: '#ffffff',
   shadow: true,
