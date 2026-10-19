@@ -98,4 +98,5 @@ test('display only and isolated: request untouched, events contained, switchable
   assert.ok(!read('webapp/index.html').includes('vendor/ref-stack'), 'loaded on demand only');
   assert.match(read('webapp/css/cabinet.css'), /\.msg-ref-stack\{\n {2}position:relative !important;/);
   assert.match(read('webapp/css/cabinet.css'), /\.msg-ref-stack\{[^}]*width:120px !important;\n {2}height:120px !important;/, 'cards a little larger, as agreed');
+  assert.match(read('webapp/css/cabinet.css'), /\.msg\.user \.bubble:has\(> \.msg-ref-stack\)\{\n {2}background:transparent !important;\n {2}border:0 !important;\n {2}box-shadow:none !important;/, 'no bubble under the stack');
 });
