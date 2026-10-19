@@ -15,7 +15,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = 'store-glow-20261019';
+  var VERSION = 'store-glow-soft-20261019';
   var BASE = scriptBase();
   var BUNDLE_JS = BASE + 'js/vendor/store-glow/store-glow.js?v=' + VERSION;
   var BUNDLE_CSS = BASE + 'js/vendor/store-glow/store-glow.css?v=' + VERSION;
