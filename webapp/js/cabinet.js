@@ -26660,6 +26660,12 @@ async function waitGeneration(jobId, options) {
     if (tgApp && tgApp.openLink) tgApp.openLink(url);
     else window.open(url, '_blank', 'noopener');
   }
+  // Every subscription and purchase card gets the React Bits BorderGlow
+  // (js/store-glow.js); display only. Without it the cards stay as they are.
+  function glowStoreCards(...containers) {
+    const glow = window.SylvexStoreGlowCards;
+    if (glow) containers.forEach((container) => container && glow.watch(container));
+  }
   function mountStoreCards() {
     if (isBrowserApp()) { mountBrowserStoreCards(); return; }
     syncComparePrices();
@@ -26694,6 +26700,7 @@ async function waitGeneration(jobId, options) {
       customPurchase: !!(custom && storeProviderOpen('telegram_stars')),
       onContinueCustom: (amount) => openStoreProduct('credits_custom', amount),
     }, options));
+    glowStoreCards(plans, credits);
     if (!storeCatalog) loadStoreCatalog();
     if (!mountStoreCards.bound) {
       mountStoreCards.bound = true;
@@ -26749,6 +26756,7 @@ async function waitGeneration(jobId, options) {
       customPurchase: stripe,
       onContinueCustom: (usd) => openBrowserStoreProduct('credits_custom', usd),
     }, options));
+    glowStoreCards(plans, credits);
     const compare = document.getElementById('payComparePrices');
     if (compare) compare.hidden = true;
     if (browserStripeEnabled === null) loadBrowserStoreConfig();
