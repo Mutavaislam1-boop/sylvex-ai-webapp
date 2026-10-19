@@ -33,7 +33,7 @@ test('the task settings: purple edge colour and gold glow are SYLVEX green, no a
   const settings = vm.runInNewContext('(' + block.replace('const GLOW_PROPS = ', '') + ')');
   assert.deepEqual(JSON.parse(JSON.stringify(settings)), {
     edgeSensitivity: 0, glowColor: '140 80 55', backgroundColor: '#120F17', borderRadius: 23, glowRadius: 80,
-    glowIntensity: 3, coneSpread: 35, animated: false, colors: ['#10b945', '#f472b6', '#38bdf8'],
+    glowIntensity: 1, coneSpread: 35, animated: false, colors: ['#10b945', '#f472b6', '#38bdf8'],
   });
   assert.ok(!block.includes('#c084fc') && !block.includes('40 80 80'), 'no purple or gold left');
   const bundle = read('webapp/js/vendor/store-glow/store-glow.js');
@@ -72,7 +72,7 @@ test('every Store card is wrapped once, kept as the same element, and re-wrapped
 
 test('Mini App: shop and browser store cards both get the glow', () => {
   const index = read('webapp/index.html');
-  assert.ok(index.includes('<script src="js/store-glow.js?v=store-glow-green-20261019"></script>'));
+  assert.ok(index.includes('<script src="js/store-glow.js?v=store-glow-soft-20261019"></script>'));
   assert.ok(!index.includes('vendor/store-glow'), 'bundle loaded on demand only');
   const cabinet = read('webapp/js/cabinet.js');
   assert.equal((cabinet.match(/glowStoreCards\(plans, credits\);/g) || []).length, 2);
