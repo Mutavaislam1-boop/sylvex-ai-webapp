@@ -29681,9 +29681,9 @@ async function waitGeneration(jobId, options) {
       const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),preview=gridNodePreview(node,status),inputPorts=(type.inputs||[]).map((input,index)=>`<button class="studio-grid-port in side-left" style="top:${62+index*25}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="left" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} слева"></button><button class="studio-grid-port in side-top" style="left:${44+index*38}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="top" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} сверху"></button>`).join(''),outputPort=gridEscape((type.outputs||['text'])[0]);
       return `<article class="studio-grid-node${selected ? ' selected' : ''}${node.position_locked?' locked':''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" data-status="${gridEscape(status)}" style="--grid-x:${Number(node.x)||0}px;--grid-y:${Number(node.y)||0}px">
         ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
-        <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
-        <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div>
-        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Building…':'Build intelligent chain'}</button>`:node.type==='text'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>Build chain</button><button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
+        <div class="studio-grid-node-card"><div class="studio-grid-node-tile"><header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
+        <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div></div>
+        <footer class="studio-grid-node-footer"><div class="studio-grid-node-meta"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}</div>${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Building…':'Build intelligent chain'}</button>`:node.type==='text'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>Build chain</button><button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer><span class="studio-grid-node-rim" aria-hidden="true"></span></div>
       </article>`;
     }).join('');
     const workflowButton=document.getElementById('studioGridRunWorkflow');
@@ -29693,6 +29693,71 @@ async function waitGeneration(jobId, options) {
     applyStudioGridTransform();
     renderStudioGridEdges();
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
+    paintStudioGridCards(state);
+  }
+
+  // Grid nodes tilt like the React Bits ProfileCard (tiltStrength 3, intro
+  // on a node's first render, the card's spring). Mouse only: a touch drags
+  // the node. Only the card's transform changes; the article, its ports and
+  // the edges stay where they are.
+  const GRID_CARD_TILT=3;
+  const gridCardTilts=new Map(),gridCardsSeen=new Set();
+  let gridCardFrame=0,gridCardLast=0,gridCardHover=null;
+  const gridCardReduced=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function gridCardWrite(id,t) {
+    const card=document.querySelector('#studioGridNodes [data-grid-id="'+CSS.escape(id)+'"] .studio-grid-node-card');
+    if(!card)return;
+    if(!t.x.p&&!t.y.p)card.style.removeProperty('--pc-transform');
+    else card.style.setProperty('--pc-transform','rotateX('+(t.y.p*GRID_CARD_TILT).toFixed(3)+'deg) rotateY('+(-t.x.p*GRID_CARD_TILT).toFixed(3)+'deg)');
+  }
+  function gridCardTick(now) {
+    gridCardFrame=0;
+    const dt=Math.min(.05,(now-gridCardLast)/1000||0);gridCardLast=now;
+    let moving=false;
+    gridCardTilts.forEach((t,id)=>{
+      const slow=now<t.slowUntil,stiffness=slow?24:120,damping=slow?9:16,steps=Math.max(1,Math.ceil(dt/(1/120))),h=dt/steps;
+      for(let i=0;i<steps;i++)for(const axis of [t.x,t.y]){axis.v+=(stiffness*(axis.target-axis.p)-damping*axis.v)*h;axis.p+=axis.v*h}
+      if([t.x,t.y].some(axis=>Math.abs(axis.target-axis.p)>.0005||Math.abs(axis.v)>.0005))moving=true;
+      else{t.x.p=t.x.target;t.y.p=t.y.target;t.x.v=t.y.v=0;if(!t.x.p&&!t.y.p)gridCardTilts.delete(id)}
+      gridCardWrite(id,t);
+    });
+    if(moving)gridCardFrame=requestAnimationFrame(gridCardTick);
+  }
+  function gridCardWake() {
+    if(gridCardFrame)return;
+    gridCardLast=performance.now();gridCardFrame=requestAnimationFrame(gridCardTick);
+  }
+  function gridCardAim(id,nx,ny) {
+    let t=gridCardTilts.get(id);
+    if(!t){t={x:{p:0,v:0,target:0},y:{p:0,v:0,target:0},slowUntil:0};gridCardTilts.set(id,t)}
+    t.x.target=Math.max(-1,Math.min(1,nx));t.y.target=Math.max(-1,Math.min(1,ny));t.slowUntil=0;
+    gridCardWake();
+  }
+  function onStudioGridCardMove(event) {
+    if(event.pointerType!=='mouse'||gridCardReduced())return;
+    // A pressed button is a drag or a pan: the card rests meanwhile.
+    const node=event.buttons?null:event.target.closest?.('.studio-grid-node'),id=node?.dataset.gridId||null;
+    if(gridCardHover&&gridCardHover!==id)gridCardAim(gridCardHover,0,0);
+    gridCardHover=id;
+    if(!node)return;
+    const rect=node.getBoundingClientRect();
+    if(rect.width&&rect.height)gridCardAim(id,(event.clientX-rect.left)/rect.width*2-1,(event.clientY-rect.top)/rect.height*2-1);
+  }
+  function onStudioGridCardLeave() {
+    if(gridCardHover)gridCardAim(gridCardHover,0,0);
+    gridCardHover=null;
+  }
+  // Re-applies running tilts to freshly rendered cards; a node seen for the
+  // first time plays the card's intro (tilted, settling slowly).
+  function paintStudioGridCards(state) {
+    const reduced=gridCardReduced();
+    state.nodes.forEach(node=>{
+      if(gridCardsSeen.has(node.id))return;
+      gridCardsSeen.add(node.id);
+      if(!reduced)gridCardTilts.set(node.id,{x:{p:.62,v:0,target:0},y:{p:-.55,v:0,target:0},slowUntil:performance.now()+1400});
+    });
+    gridCardTilts.forEach((t,id)=>gridCardWrite(id,t));
+    if(gridCardTilts.size)gridCardWake();
   }
 
   // Standalone Mini App preferences only. Website embeds always follow
@@ -30340,6 +30405,7 @@ async function waitGeneration(jobId, options) {
       canvas.addEventListener('pointermove',(event)=>{if(!pointers.has(event.pointerId))return;pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});if(pointers.size<2||!pinch)return;event.preventDefault();const points=[...pointers.values()].slice(0,2),distance=Math.max(1,Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y)),centerX=(points[0].x+points[1].x)/2,centerY=(points[0].y+points[1].y)/2,rect=canvas.getBoundingClientRect(),localX=centerX-rect.left,localY=centerY-rect.top,state=loadStudioGridState(),target=Math.max(.2,Math.min(2.5,pinch.zoom*distance/pinch.distance));state.zoom=target;state.panX=localX-pinch.worldX*target;state.panY=localY-pinch.worldY*target;applyStudioGridTransform()},{passive:false});
       const finishGridPointer=(event)=>{if(!pointers.has(event.pointerId))return;pointers.delete(event.pointerId);if(pointers.size<2){pinch=null;saveStudioGridState()}if(!pointers.size)pinchConsumedPointers=false};
       canvas.addEventListener('pointerup',finishGridPointer);canvas.addEventListener('pointercancel',finishGridPointer);
+      canvas.addEventListener('pointermove',onStudioGridCardMove);canvas.addEventListener('pointerleave',onStudioGridCardLeave);
       canvas.addEventListener('wheel', (event) => {
         if(event.target.closest('textarea,input,select,[contenteditable="true"],.studio-grid-text-editor'))return;
         event.preventDefault();const state=loadStudioGridState();if(event.ctrlKey||event.metaKey){const target=Math.max(.2,Math.min(2.5,(state.zoom||1)*Math.exp(-event.deltaY*.0025)));zoomStudioGrid(target-(state.zoom||1),event.clientX,event.clientY)}else{state.panX-=event.deltaX;state.panY-=event.deltaY;saveStudioGridState();applyStudioGridTransform()}
