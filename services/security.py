@@ -12,6 +12,7 @@ import time
 from collections import OrderedDict
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qsl, urlencode, urlsplit
+from starlette.requests import cookie_parser
 from starlette.responses import JSONResponse
 from services.runtime_checks import is_production, parse_website_origins
 
@@ -380,12 +381,9 @@ def tg_session_uid_from_cookie_header(cookie_header):
  the returned generation against current_tg_session_generation() itself
  (via asyncio.to_thread) wherever that matters."""
  if not cookie_header: return 0,0
- jar=SimpleCookie()
- try: jar.load(cookie_header)
- except Exception: return 0,0
- morsel=jar.get(TG_SESSION_COOKIE)
- if not morsel: return 0,0
- try: return verify_tg_session_token(morsel.value)
+ token=cookie_parser(cookie_header).get(TG_SESSION_COOKIE)
+ if not token: return 0,0
+ try: return verify_tg_session_token(token)
  except SecurityError: return 0,0
 
 def tg_session_set_cookie_bytes(telegram_id,generation=0):
@@ -433,13 +431,27 @@ def web_session_account_id_from_cookie_header(cookie_header):
  docstring above - same reasoning applies here."""
  # Raw ASGI header parsing - no Starlette Request object at this layer.
  if not cookie_header: return 0,0
- jar=SimpleCookie()
- try: jar.load(cookie_header)
- except Exception: return 0,0
- morsel=jar.get(WEB_SESSION_COOKIE)
- if not morsel: return 0,0
- try: return verify_web_session_token(morsel.value)
+ token=cookie_parser(cookie_header).get(WEB_SESSION_COOKIE)
+ if not token: return 0,0
+ try: return verify_web_session_token(token)
  except SecurityError: return 0,0
+
+def combined_cookie_header(raw_headers):
+ """Return every ASGI Cookie field as one browser-style cookie string.
+
+ HTTP/2 permits clients/proxies to split Cookie across multiple header
+ fields. Converting ``scope['headers']`` to ``dict`` keeps only the last
+ field, while Starlette's Request cookie parser reads the first. That made
+ /api/web/session/me see a valid session and the security boundary reject
+ the same browser on Pro Studio routes. Joining all fields also gives the
+ middleware the same tolerant parser used by Request.
+ """
+ values=[]
+ for key,value in raw_headers or ():
+  if bytes(key).lower()!=b'cookie':continue
+  try:values.append(bytes(value).decode('latin-1'))
+  except (UnicodeDecodeError,AttributeError,TypeError):continue
+ return '; '.join(part for part in values if part)
 
 def resolve_web_session_uid(account_id):
  """Blocking DB lookup - call via asyncio.to_thread from async code."""
@@ -667,7 +679,7 @@ class SecurityMiddleware:
  def __init__(self,app,quota_check=None): self.app=app;self.limiter=LocalLimiter();self.quota_check=quota_check
  async def __call__(self,scope,receive,send):
   if scope['type']!='http':return await self.app(scope,receive,send)
-  path=scope['path'];method=scope['method'];headers=dict(scope.get('headers',[]))
+  path=scope['path'];method=scope['method'];raw_headers=scope.get('headers',[]);headers=dict(raw_headers);cookie_header=combined_cookie_header(raw_headers)
   from services.media_access import media_key, valid_media_url, validate_input_media, sign_response_media
   media_path=path.startswith(('/webapp/generated/','/static/generated/','/generated/','/api/public/storage/'))
   media_url=path+'?'+scope.get('query_string',b'').decode()
@@ -698,7 +710,7 @@ class SecurityMiddleware:
   # route's _admin_actor() validates that session (Origin + CSRF + RBAC).
   if path.startswith('/api/admin/') and not headers.get(b'x-telegram-init-data') \
      and not headers.get(b'x-admin-service-token') and not headers.get(b'authorization') \
-     and (headers.get(b'x-admin-session') or b'__Host-sylvex_admin=' in headers.get(b'cookie',b'')):
+     and (headers.get(b'x-admin-session') or '__Host-sylvex_admin=' in cookie_header):
    is_public=True
   is_webhook=path in WEBHOOKS
   # CSRF guard: every /api/web/* route authenticates off the sylvex_web_session
@@ -754,7 +766,7 @@ class SecurityMiddleware:
    # web-session cookie exists, legacy/stale initData fields must not turn a
    # Website or Browser request back into Telegram authentication.
    if not telegram_header:
-    cookie_account_id,_=web_session_account_id_from_cookie_header(headers.get(b'cookie',b'').decode())
+    cookie_account_id,_=web_session_account_id_from_cookie_header(cookie_header)
     if cookie_account_id:init_data=''
    uid=0
    web_account_id=0
@@ -798,7 +810,6 @@ class SecurityMiddleware:
        # close/reopen the Mini App. Never for admin routes.
        uid=0
        if not admin:
-        cookie_header=headers.get(b'cookie',b'').decode()
         uid,tg_generation=tg_session_uid_from_cookie_header(cookie_header)
         if uid:
          current_generation=await asyncio.to_thread(current_tg_session_generation,uid)
@@ -812,7 +823,6 @@ class SecurityMiddleware:
       # Admin routes are deliberately excluded.
       uid=0
       if not admin:
-       cookie_header=headers.get(b'cookie',b'').decode()
        web_account_id,web_generation=web_session_account_id_from_cookie_header(cookie_header)
        if web_account_id:
         current_generation=await asyncio.to_thread(current_web_session_generation,web_account_id)
