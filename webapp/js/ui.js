@@ -65,16 +65,53 @@
   // JAVASCRIPT-БЛОК: toast
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
-  function toast(msg) {
+  // Notices slide in at the bottom right, above every block, as the React
+  // Bits SwipeToast (swipe_toast/, built into js/vendor/swipe-toast/, loaded
+  // with the first notice). The #toast element, in the same corner, shows a
+  // notice only if the bundle cannot load.
+  const SWIPE_TOAST_VERSION = 'swipe-toast-20261019';
+  // Next to this script: /webapp/ in the Mini App (or the site root for the
+  // pages that load /js/ui.js).
+  const SWIPE_TOAST_BASE = (() => {
+    const script = document.currentScript || document.querySelector('script[src*="js/ui.js"]');
+    const match = script && script.src ? /^(.*\/)js\/ui\.js(?:[?#].*)?$/.exec(script.src) : null;
+    return match ? match[1] : '';
+  })();
+  let swipeToastBundle = null;
+  function loadSwipeToast() {
+    if (window.SylvexSwipeToast) return Promise.resolve(window.SylvexSwipeToast);
+    if (swipeToastBundle) return swipeToastBundle;
+    swipeToastBundle = new Promise((resolve, reject) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = SWIPE_TOAST_BASE + 'js/vendor/swipe-toast/swipe-toast.css?v=' + SWIPE_TOAST_VERSION;
+      document.head.appendChild(link);
+      const script = document.createElement('script');
+      script.src = SWIPE_TOAST_BASE + 'js/vendor/swipe-toast/swipe-toast.js?v=' + SWIPE_TOAST_VERSION;
+      script.async = true;
+      script.onload = () => (window.SylvexSwipeToast ? resolve(window.SylvexSwipeToast) : reject(new Error('swipe_toast_empty')));
+      script.onerror = () => reject(new Error('swipe_toast_failed'));
+      document.head.appendChild(script);
+    }).catch((error) => {
+      swipeToastBundle = null;
+      throw error;
+    });
+    return swipeToastBundle;
+  }
+  function fallbackToast(msg) {
     const el = document.getElementById('toast');
     if (!el) return;
-    // Browser app sign-in screen open: it says what is needed itself, so no
-    // stray notice from the action that opened it shows on top.
-    if (document.documentElement.classList.contains('sxAuth-open')) return;
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(toastT);
-    toastT = setTimeout(() => el.classList.remove('show'), 1800);
+    toastT = setTimeout(() => el.classList.remove('show'), 4000);
+  }
+  function toast(msg) {
+    // Browser app sign-in screen open: it says what is needed itself, so no
+    // stray notice from the action that opened it shows on top.
+    if (document.documentElement.classList.contains('sxAuth-open')) return;
+    const text = String(msg ?? '');
+    loadSwipeToast().then((api) => api.show(text)).catch(() => fallbackToast(text));
     if (window.SYLVEX && window.SYLVEX.haptic) window.SYLVEX.haptic.impact('light');
   }
 

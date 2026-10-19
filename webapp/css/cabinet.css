@@ -244,9 +244,12 @@ body::before{content:none}
 .mini{padding:14px;border-radius:16px;background:var(--surface);border:1px solid var(--border);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
 .mini .k{font-size:11px;color:var(--text-mute);letter-spacing:.5px;text-transform:uppercase}
 .mini .v{font-size:18px;font-weight:700;margin-top:4px}
-.toast{position:fixed;left:50%;top:18px;transform:translate(-50%,-80px);background:rgba(6,6,13,.92);color:#fff;padding:10px 16px;border-radius:14px;border:1px solid var(--border-strong);font-size:13px;z-index:50;transition:.3s;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
-.toast.show{transform:translate(-50%,0)}
-body:has(.view[data-view="tools"].active) .toast{background:var(--st-bg-3, rgba(6,6,13,.92));color:var(--st-text, #fff);border-color:var(--st-border, var(--border-strong))}
+/* Fallback notice (js/ui.js shows notices as the SwipeToast bundle; this
+   element only when it cannot load): the same bottom right corner and
+   colours, above every block. */
+.toast{position:fixed;right:32px;bottom:calc(32px + env(safe-area-inset-bottom,0px));z-index:999999999;max-width:min(356px,calc(100vw - 64px));box-sizing:border-box;padding:16px;border-radius:12px;background:#27272a;color:#f5f5f5;font-size:13px;line-height:1.5;opacity:0;transform:translateY(calc(100% + 32px));transition:transform .4s cubic-bezier(.23,1,.32,1),opacity .24s ease;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.1)}
+.toast.show{opacity:1;transform:none;pointer-events:auto}
+@media(max-width:600px){.toast{right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));max-width:calc(100vw - 32px)}}
 [dir="rtl"] .brand-name{letter-spacing:1px}
 /* === Connect with us (Settings) === */
 .connect-card{margin-top:8px;padding:16px 16px 18px;border-radius:22px;background:var(--grad-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-lg);position:relative;overflow:hidden}
