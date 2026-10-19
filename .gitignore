@@ -19,3 +19,6 @@ store_lanyard/node_modules/
 
 # Pro Studio reference stack (studio_stack/): the built bundle in webapp/js/vendor/ref-stack is committed, deps never ship.
 studio_stack/node_modules/
+
+# Store cards glow (store_glow/): the built bundle in webapp/js/vendor/store-glow is committed, deps never ship.
+store_glow/node_modules/

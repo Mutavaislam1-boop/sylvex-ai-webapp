@@ -1,0 +1,25 @@
+/* Store cards (js/store-cards.js) inside BorderGlow: the glow card is the
+   card's surface and border, so the card's own ones step aside. */
+.sxs-glow {
+  display: grid;
+  min-width: 0;
+}
+
+.sxs-glow > .border-glow-card {
+  height: 100%;
+}
+
+.sxs-glow .border-glow-inner .sxs-card {
+  flex: 1 1 auto;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.sxs-glow--custom {
+  margin-top: 8px;
+}
+
+.sxs-glow--custom .sxs-custom {
+  margin-top: 0;
+}
