@@ -5871,10 +5871,17 @@ CSS-БЛОК: .composer-image-remove
 .view[data-view="tools"].active .msg .bubble .msg-ref-stack{
   position:relative !important;
   display:block !important;
+  width:96px !important;
+  height:96px !important;
+  margin:14px 30px 10px 0 !important;
+  touch-action:pan-y !important;
+}
+/* Website Pro Studio only (sylvex.ai, html.web-embed): slightly larger
+   cards, with the fan's room scaled to match. The Mini App keeps 96px. */
+html.web-embed .view[data-view="tools"].active .msg .bubble .msg-ref-stack{
   width:120px !important;
   height:120px !important;
   margin:18px 38px 12px 0 !important;
-  touch-action:pan-y !important;
 }
 /* The stack sits on the workspace itself: the message holding it has no
    bubble (background, border, shadow) under the cards. */

@@ -97,6 +97,7 @@ test('display only and isolated: request untouched, events contained, switchable
   assert.ok(cabinet.includes("const match = script && script.src ? /^(.*\\/)js\\/cabinet\\.js(?:[?#].*)?$/.exec(script.src) : null;"));
   assert.ok(!read('webapp/index.html').includes('vendor/ref-stack'), 'loaded on demand only');
   assert.match(read('webapp/css/cabinet.css'), /\.msg-ref-stack\{\n {2}position:relative !important;/);
-  assert.match(read('webapp/css/cabinet.css'), /\.msg-ref-stack\{[^}]*width:120px !important;\n {2}height:120px !important;/, 'cards a little larger, as agreed');
+  assert.match(read('webapp/css/cabinet.css'), /\.msg \.bubble \.msg-ref-stack\{\n {2}position:relative !important;\n {2}display:block !important;\n {2}width:96px !important;\n {2}height:96px !important;/, 'Mini App: 96px cards');
+  assert.match(read('webapp/css/cabinet.css'), /html\.web-embed \.view\[data-view="tools"\]\.active \.msg \.bubble \.msg-ref-stack\{\n {2}width:120px !important;\n {2}height:120px !important;/, 'Website only: 120px cards, as agreed');
   assert.match(read('webapp/css/cabinet.css'), /\.msg\.user \.bubble:has\(> \.msg-ref-stack\)\{\n {2}background:transparent !important;\n {2}border:0 !important;\n {2}box-shadow:none !important;/, 'no bubble under the stack');
 });
