@@ -7325,16 +7325,17 @@ function loadEditPixelBundle() {
   }).catch(error=>{editPixelBundle=null;throw error;});
   return editPixelBundle;
 }
-// The task's "light" card on light Pro Studio themes, "dark" on dark ones.
-function editPixelTheme(host) {
-  const probe=document.createElement('div');probe.style.cssText='position:absolute;visibility:hidden;width:0;height:0;background:var(--edit-surface)';host.appendChild(probe);
+// "light" on light Pro Studio themes, "dark" on dark ones, read from a
+// theme surface variable (--edit-surface, --st-bg-2) inside host.
+function studioSurfaceTheme(host,variable) {
+  const probe=document.createElement('div');probe.style.cssText='position:absolute;visibility:hidden;width:0;height:0;background:var('+variable+')';host.appendChild(probe);
   const rgb=(getComputedStyle(probe).backgroundColor.match(/[\d.]+/g)||[]).map(Number);probe.remove();
   return rgb.length>=3&&rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722>180?'light':'dark';
 }
 function mountEditUploadPixel(world) {
   const host=world.querySelector('.edit-workspace-upload-host');
   if(!host)return;
-  if(host._editPixel){host._editPixel.update({theme:editPixelTheme(host)});return;}
+  if(host._editPixel){host._editPixel.update({theme:studioSurfaceTheme(host,'--edit-surface')});return;}
   if(host._editPixelPending)return;
   host._editPixelPending=true;
   loadEditPixelBundle().then(api=>{
@@ -7342,13 +7343,54 @@ function mountEditUploadPixel(world) {
     const button=host.querySelector('.edit-workspace-upload');
     if(!host.isConnected||!button)return;
     const mount=document.createElement('div');mount.className='edit-pixel-root';host.appendChild(mount);
-    host._editPixel=api.mount(mount,button,{theme:editPixelTheme(host)});
+    host._editPixel=api.mount(mount,button,{theme:studioSurfaceTheme(host,'--edit-surface')});
   }).catch(()=>{host._editPixelPending=false;});
 }
 function removeEditUploadPixel(world) {
   const host=world.querySelector('.edit-workspace-upload-host');
   if(!host)return;
   host._editPixel?.unmount();host.remove();
+}
+// Grid Mode's side panel as the React Bits Dock (grid_dock/, built into
+// js/vendor/grid-dock/ next to the Edit card bundle, loaded on demand). The
+// panel's buttons stay in the page, hidden; each Dock item clicks its
+// button, so the handlers and the Run button's running state are unchanged.
+// Without the bundle the panel stays as is.
+const GRID_DOCK_VERSION='grid-dock-20261019';
+let gridDockBundle=null;
+function loadGridDockBundle() {
+  if(window.SylvexGridDock)return Promise.resolve(window.SylvexGridDock);
+  if(gridDockBundle)return gridDockBundle;
+  gridDockBundle=new Promise((resolve,reject)=>{
+    const link=document.createElement('link');link.rel='stylesheet';link.href=EDIT_PIXEL_BASE+'js/vendor/grid-dock/grid-dock.css?v='+GRID_DOCK_VERSION;document.head.appendChild(link);
+    const script=document.createElement('script');script.src=EDIT_PIXEL_BASE+'js/vendor/grid-dock/grid-dock.js?v='+GRID_DOCK_VERSION;script.async=true;
+    script.onload=()=>window.SylvexGridDock?resolve(window.SylvexGridDock):reject(new Error('grid_dock_empty'));
+    script.onerror=()=>reject(new Error('grid_dock_failed'));
+    document.head.appendChild(script);
+  }).catch(error=>{gridDockBundle=null;throw error;});
+  return gridDockBundle;
+}
+function gridDockItems(panel) {
+  return Array.from(panel.children).flatMap(el=>{
+    if(el.tagName==='HR')return [{separator:true}];
+    if(el.tagName!=='BUTTON')return [];
+    return [{icon:el.querySelector('i')?.textContent||'',label:el.querySelector('span')?.textContent||el.title,className:el.className,onClick:()=>el.click()}];
+  });
+}
+function mountStudioGridDock() {
+  const panel=document.querySelector('#studioGridWorkspace .studio-grid-node-tools');
+  if(!panel)return;
+  if(panel._gridDock){panel._gridDock.update(null,{theme:studioSurfaceTheme(panel.parentNode,'--st-bg-2')});return;}
+  if(panel._gridDockPending)return;
+  panel._gridDockPending=true;
+  loadGridDockBundle().then(api=>{
+    panel._gridDockPending=false;
+    if(!panel.isConnected)return;
+    const mount=document.createElement('div');mount.className='studio-grid-dock-root';panel.after(mount);
+    panel._gridDock=api.mount(mount,gridDockItems(panel),{theme:studioSurfaceTheme(panel.parentNode,'--st-bg-2')});
+    panel.dataset.docked='';
+    new MutationObserver(()=>panel._gridDock.update(gridDockItems(panel))).observe(panel,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});
+  }).catch(()=>{panel._gridDockPending=false;});
 }
 function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
@@ -29707,6 +29749,8 @@ async function waitGeneration(jobId, options) {
     // An open Edit workspace's upload card follows the theme (light / dark).
     const editWorld = document.querySelector('#editWorkspace .edit-workspace-world');
     if (editWorld && typeof mountEditUploadPixel === 'function') mountEditUploadPixel(editWorld);
+    // So does Grid Mode's side panel once it is the Dock.
+    if (document.querySelector('#studioGridWorkspace .studio-grid-node-tools')?._gridDock) mountStudioGridDock();
     if (window.SYLVEX && window.SYLVEX.syncTelegramHeader) window.SYLVEX.syncTelegramHeader(true);
     return safe;
   }
@@ -29800,6 +29844,7 @@ async function waitGeneration(jobId, options) {
       const state=loadStudioGridState();
       if(window.matchMedia('(max-width:700px)').matches&&!state.mobile_layout_version)autoLayoutStudioGrid();
       else renderStudioGrid();
+      mountStudioGridDock();
     });
   }
 
