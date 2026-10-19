@@ -10014,9 +10014,9 @@ body.edit-workspace-open{overflow:hidden}
 .view[data-view="tools"].active .studio-grid-port.connection-source{background:var(--st-accent)!important}
 .view[data-view="tools"].active .studio-grid-edges path{stroke:var(--st-dim)!important}
 .view[data-view="tools"].active .studio-grid-edges g:hover path{stroke:var(--st-danger)!important}
-.studio-grid-edges .studio-grid-edge-hit{stroke:transparent!important;stroke-width:18!important;pointer-events:stroke!important}
-.studio-grid-edges .studio-grid-edge-line{pointer-events:none!important}
-.view[data-view="tools"].active .studio-grid-edges g:hover .studio-grid-edge-hit{stroke:transparent!important}
+.view[data-view="tools"].active .studio-grid-edges .studio-grid-edge-hit{stroke:transparent!important;stroke-opacity:0!important;stroke-width:18!important;pointer-events:stroke!important}
+.view[data-view="tools"].active .studio-grid-edges .studio-grid-edge-line{stroke-width:2!important;pointer-events:none!important}
+.view[data-view="tools"].active .studio-grid-edges g:hover .studio-grid-edge-hit{stroke:transparent!important;stroke-opacity:0!important}
 .view[data-view="tools"].active .studio-grid-edges g:hover .studio-grid-edge-line{stroke:var(--st-danger)!important;stroke-width:4!important}
 .studio-grid-video-viewer section>.studio-grid-video-download{left:14px;right:auto;font-size:0}
 .studio-grid-video-viewer section>.studio-grid-video-download[hidden]{display:none!important}

@@ -96,7 +96,8 @@ test('Grid image and video results open in in-app viewers', () => {
 
 test('Grid connection lines expose a wide hit target and disconnect through one state path', () => {
   assert.match(cabinet, /class="studio-grid-edge-hit"/);
-  assert.match(cabinetCss, /\.studio-grid-edges \.studio-grid-edge-hit\{stroke:transparent!important;stroke-width:18!important/);
+  assert.match(cabinetCss, /\.studio-grid-edges \.studio-grid-edge-hit\{stroke:transparent!important;stroke-opacity:0!important;stroke-width:18!important/);
+  assert.match(cabinetCss, /\.studio-grid-edges \.studio-grid-edge-line\{stroke-width:2!important;pointer-events:none!important/);
   assert.match(cabinet, /function disconnectStudioGridEdge\(edgeId\)/);
   assert.match(cabinet, /disconnectStudioGridEdge\(edgeElement\.dataset\.gridEdge\)/);
   assert.match(cabinet, /event\.target\.closest\('\.studio-grid-node,\[data-grid-edge\]'\)/);
