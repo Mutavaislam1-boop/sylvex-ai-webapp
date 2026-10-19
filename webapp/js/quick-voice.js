@@ -289,7 +289,7 @@
     const user = state.user;
     if (card && user) {
       const avatar = safeUrl(user.avatar);
-      card.innerHTML = '<i>' + (avatar ? '<img src="' + esc(avatar) + '" alt="">' : esc(user.initials || 'S')) + '</i><span><b>' + esc(user.name) + '</b><small>' + esc(user.handle) + '</small></span>' + (user.balance !== null && user.balance !== undefined ? '<em>' + Number(user.balance).toLocaleString() + ' ⚡️</em>' : '');
+      card.innerHTML = '<i>' + (avatar ? '<img src="' + esc(avatar) + '" alt="">' : esc(user.initials || 'S')) + '</i><span><b>' + esc(user.name) + '</b><small>' + esc(user.handle) + '</small></span>' + (user.balance !== null && user.balance !== undefined ? '<em>' + Number(user.balance).toLocaleString() + ' ' + window.SylvexToken.ICON + '</em>' : '');
     }
   }
 

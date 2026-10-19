@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const source=readFileSync(new URL('../webapp/js/cabinet.js',import.meta.url),'utf8');
 const sketchSource=readFileSync(new URL('../webapp/js/edit-sketch.js',import.meta.url),'utf8');
+const tokenIconSource=readFileSync(new URL('../webapp/js/token-icon.js',import.meta.url),'utf8');
 const editModelStart=source.indexOf('const EDIT_WORKSPACE_IMAGE_MODELS');
 const editModelBlock=source.slice(editModelStart,source.indexOf('const editWorkspaceState',editModelStart));
 const block=editModelBlock+source.slice(source.indexOf('function createEditWorkspaceState'),source.indexOf('\nasync function generateQuickImageDetail',source.indexOf('function createEditWorkspaceState')));
@@ -18,6 +19,8 @@ function harness(){
     uploadProStudioMediaFile:async ()=>{if(rejectUpload)throw new Error('upload failed');return 'https://cdn.example/new.png';},
     activeGenerationPlaceholderIndex:()=>-1,generatedUrlsFromResponse:r=>r.images,generatedThumbsFromResponse:()=>[],addGeneratedImages(){},imageGenerationMetadata:()=>({}),loadConversations(){},chatMessages:[],resolveFailureMessage:e=>({error:e.message}),translateGenerationError:e=>e.message,clearActiveProStudioJob(){},renderChat(){},rememberCurrentChatSpace(){},
   });
+  vm.runInContext(tokenIconSource,context);
+  vm.runInContext('var TOKEN=SylvexToken.MARK,TOKEN_ICON=SylvexToken.ICON,tokenHtml=value=>SylvexToken.text(value);',context);
   vm.runInContext(sketchSource,context);
   vm.runInContext(block+'\nconst editWorkspaceState=createEditWorkspaceState();renderEditWorkspace=()=>{};drawEditWorkspaceMask=()=>{};updateEditWorkspaceReady=()=>{};this.state=editWorkspaceState;',context);
   Object.assign(context.state,{sourceUrl:'https://cdn.example/source.png',sourcePreview:'https://cdn.example/source.png',width:1200,height:800,prompt:'Turn blue'});
@@ -328,16 +331,16 @@ test('Upscale sends isolated controls once, keeps camera unchanged, and preserve
  fail(new Error('Topaz unavailable'));await pending;assert.equal(JSON.stringify(h.state.upscale),original);assert.equal(h.state.busy,false);assert.equal(h.state.history.length,0);
 });
 test('Upscale quotes come from the server; stale responses cannot replace the current size quote',async()=>{
- const h=harness(),quotes=[],node={textContent:''};h.state.mode='upscale';h.context.setEditWorkspaceDimensions(3000,2000);
+ const h=harness(),quotes=[],node={innerHTML:''};h.state.mode='upscale';h.context.setEditWorkspaceDimensions(3000,2000);
  h.context.document.querySelector=()=>node;
  h.context.fetch=async(url,options)=>new Promise(resolve=>quotes.push({url,payload:JSON.parse(options.body),resolve}));
  const first=h.context.refreshEditUpscaleEstimate();await h.context.refreshEditUpscaleEstimate();assert.equal(quotes.length,1);
  h.context.setEditUpscaleScale(null,4);const second=h.context.refreshEditUpscaleEstimate();assert.equal(quotes.length,2);
  assert.equal(quotes[1].url,'/api/public/prostudio/estimate');assert.equal(quotes[1].payload.image_options.editWorkspaceUpscale.width,12000);
  assert.deepEqual(quotes[1].payload.image_options.referenceImageUrls,[h.state.sourceUrl]);assert.deepEqual(quotes[1].payload.image_options.referenceImages,[h.state.sourceUrl]);
- quotes[1].resolve({ok:true,json:async()=>({ok:true,credits:75})});await second;assert.equal(node.textContent,'75 ⚡');
- quotes[0].resolve({ok:true,json:async()=>({ok:true,credits:15})});await first;assert.equal(node.textContent,'75 ⚡');
- h.context.setEditUpscaleScale(null,1);h.context.fetch=async()=>{throw new Error('offline');};await h.context.refreshEditUpscaleEstimate();assert.equal(node.textContent,'Confirmed at generation');
+ quotes[1].resolve({ok:true,json:async()=>({ok:true,credits:75})});await second;assert.equal(node.innerHTML,'75 '+h.context.TOKEN_ICON);
+ quotes[0].resolve({ok:true,json:async()=>({ok:true,credits:15})});await first;assert.equal(node.innerHTML,'75 '+h.context.TOKEN_ICON);
+ h.context.setEditUpscaleScale(null,1);h.context.fetch=async()=>{throw new Error('offline');};await h.context.refreshEditUpscaleEstimate();assert.equal(node.innerHTML,'Confirmed at generation');
 });
 test('failed upload preserves existing document and chain; successful upload starts a new reference',async()=>{
  const h=harness();await h.context.generateEditWorkspace();const savedChain=JSON.stringify(h.state.chain),savedUrl=h.state.sourceUrl;

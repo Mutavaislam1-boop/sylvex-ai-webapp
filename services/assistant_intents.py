@@ -132,7 +132,7 @@ INTENTS = [
         "keywords": {"credit": 3, "credits": 3, "balance": 3, "token": 1, "buy": 1, "topup": 3},
         "phrases": {"how do i buy credits": 6, "buy credits": 5, "add credits": 5, "how do credits work": 5, "what are credits": 4, "top up": 4, "top-up": 4},
         "text": (
-            "Credits (⚡) are SYLVEX's pay-as-you-go currency - each generation costs a set number of "
+            "Credits are SYLVEX's pay-as-you-go currency - each generation costs a set number of "
             "credits depending on the mode and model. Credits never expire and work across every Pro "
             "Studio mode. You can buy a credit package any time from the Store."
         ),

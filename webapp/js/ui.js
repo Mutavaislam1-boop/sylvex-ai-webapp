@@ -71,7 +71,8 @@
     // Browser app sign-in screen open: it says what is needed itself, so no
     // stray notice from the action that opened it shows on top.
     if (document.documentElement.classList.contains('sxAuth-open')) return;
-    el.textContent = msg;
+    // {token} (and the API's token mark) shows as the token icon.
+    el.innerHTML = window.SylvexToken ? window.SylvexToken.text(msg) : escapeHtml(msg);
     el.classList.add('show');
     clearTimeout(toastT);
     toastT = setTimeout(() => el.classList.remove('show'), 1800);
@@ -188,20 +189,6 @@
       + '<button class="chip open" onclick="event.stopPropagation();toast(t(\u0027open\u0027)+\u0027 \u2192\u0027)">' + t('open') + '</button></div>';
   }
 
-  // =====================================================
-  // JAVASCRIPT-БЛОК: shopCard
-  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
-  // =====================================================
-  function shopCard(s) {
-    return '<div class="pack ' + (s.pop ? 'pop' : '') + '">'
-      + (s.pop ? '<div class="pop-tag">' + t('popular') + '</div>' : '')
-      + '<div class="pico">' + s.icon + '</div>'
-      + '<div class="pa">' + s.tokens.toLocaleString() + ' ⚡️</div>'
-      + '<div class="pn">' + t('tokens') + '</div>'
-      + '<div class="pp">' + s.price + '</div>'
-      + '<button onclick="toast(\'' + t('buy') + ' ' + s.tokens + ' ⚡️\')">' + t('buy') + '</button></div>';
-  }
-
   // Expose globally.
   window.toast = toast;
   window.setTheme = setTheme;
@@ -210,5 +197,5 @@
   window.switchView = switchView;
 
   window.SYLVEX = window.SYLVEX || {};
-  Object.assign(window.SYLVEX, { toast, setTheme, toggleTheme, switchView, syncTelegramHeader, svgUiIcon, replaceLegacyUiIcons, escapeHtml, toolCard, openQuickTool, histCard, shopCard });
+  Object.assign(window.SYLVEX, { toast, setTheme, toggleTheme, switchView, syncTelegramHeader, svgUiIcon, replaceLegacyUiIcons, escapeHtml, toolCard, openQuickTool, histCard });
 })();

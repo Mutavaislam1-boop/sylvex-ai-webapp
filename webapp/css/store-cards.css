@@ -210,9 +210,8 @@
 .sxs-credit-amount{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--sxs-text);font-variant-numeric:tabular-nums}
 .sxs-credit--strong .sxs-credit-amount{font-size:20px;line-height:28px}
 .sxs-credit:not(.sxs-credit--strong) .sxs-credit-amount{font-size:18px;line-height:26px;gap:4px}
-.sxs-bolt{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
-.sxs-credit--strong .sxs-bolt{width:18px;height:18px;margin-right:2px}
-.sxs-emoji{font-size:.9em;line-height:1}
+.sxs-credit-amount .sx-token,.sxs-summary-row .sx-token{font-size:16px}
+.sxs-credit--strong .sx-token{font-size:18px;margin-right:2px}
 .sxs-credit-note{margin-top:4px;font-size:12px;line-height:16px;color:var(--sxs-text-2)}
 .sxs-credit:not(.sxs-credit--strong) .sxs-credit-note{margin-top:3px}
 .sxs-credit--strong .sxs-credit-note{color:var(--sxs-text)}
