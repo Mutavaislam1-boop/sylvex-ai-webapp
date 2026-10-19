@@ -68,11 +68,19 @@ test('every Store card is wrapped once, kept as the same element, and re-wrapped
   assert.ok(source.includes('observe(container, { childList: true, subtree: true })'));
   assert.ok(source.includes('entry.instance.unmount();'), 'removed cards release their glow');
   assert.match(read('store_glow/src/host.css'), /\.sxs-glow \.border-glow-inner \.sxs-card \{[^}]*background: transparent !important;/);
+  assert.match(read('store_glow/src/host.css'), /\.sxs-glow \.border-glow-inner \.sxs-card \{[^}]*outline: none !important;/, 'no old selection outline around the glow');
+});
+
+test('the glow never widens the page: the store container clips sideways overflow', () => {
+  const source = read('webapp/js/store-glow.js');
+  assert.ok(source.includes("container.classList.add('sxs-glow-scope');"));
+  assert.match(read('store_glow/src/host.css'), /\.sxs-glow-scope \{\n {2}overflow-x: hidden;\n {2}overflow-x: clip;\n\}/);
+  assert.ok(read('webapp/js/vendor/store-glow/store-glow.css').includes('.sxs-glow-scope{overflow-x:hidden;overflow-x:clip}'));
 });
 
 test('Mini App: shop and browser store cards both get the glow', () => {
   const index = read('webapp/index.html');
-  assert.ok(index.includes('<script src="js/store-glow.js?v=store-glow-soft-20261019"></script>'));
+  assert.ok(index.includes('<script src="js/store-glow.js?v=store-glow-static-20261019"></script>'));
   assert.ok(!index.includes('vendor/store-glow'), 'bundle loaded on demand only');
   const cabinet = read('webapp/js/cabinet.js');
   assert.equal((cabinet.match(/glowStoreCards\(plans, credits\);/g) || []).length, 2);

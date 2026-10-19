@@ -14,6 +14,16 @@
   border-color: transparent !important;
   background: transparent !important;
   box-shadow: none !important;
+  /* The old selected-package outline sat outside the card and showed
+     around the glow card's corners. */
+  outline: none !important;
+}
+
+/* The glow's edge layer reaches glowRadius past each card; the store
+   container keeps it from widening the page (no sideways scroll). */
+.sxs-glow-scope {
+  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 .sxs-glow--custom {
