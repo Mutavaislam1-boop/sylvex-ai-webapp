@@ -56,14 +56,14 @@ test('the upload button moves inside the card; the card goes with the block', ()
   assert.ok(sync.includes('mountEditUploadPixel(world);\n    return;'));
   assert.ok(sync.includes('removeEditUploadPixel(world);'));
   const mount = extract('mountEditUploadPixel');
-  assert.ok(mount.includes('host._editPixel=api.mount(mount,button,{theme:editPixelTheme(host)});'));
+  assert.ok(mount.includes('host._editPixel=api.mount(mount,button,{theme:studioSurfaceTheme(host,\'--edit-surface\')});'));
   assert.ok(!/fetch\(|onEditWorkspaceFile|editWorkspaceState/.test(mount), 'display only');
   assert.ok(extract('removeEditUploadPixel').includes('host._editPixel?.unmount();host.remove();'));
   assert.ok(cabinet.includes("root.ondrop=e=>{e.preventDefault();root.classList.remove('is-dragging');if(!editWorkspaceLocked())onEditWorkspaceFile("), 'drop target unchanged');
 });
 
 test('light / dark follows Pro Studio; bundle next to cabinet.js, on demand only', () => {
-  assert.ok(extract('editPixelTheme').includes("?'light':'dark'"));
+  assert.ok(extract('studioSurfaceTheme').includes("?'light':'dark'"));
   assert.ok(cabinet.includes("const editWorld = document.querySelector('#editWorkspace .edit-workspace-world');\n    if (editWorld && typeof mountEditUploadPixel === 'function') mountEditUploadPixel(editWorld);"));
   assert.ok(cabinet.includes("EDIT_PIXEL_BASE+'js/vendor/edit-pixel/edit-pixel.js?v='+EDIT_PIXEL_VERSION"));
   assert.ok(!read('webapp/index.html').includes('vendor/edit-pixel'));

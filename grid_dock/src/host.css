@@ -1,0 +1,28 @@
+/* Grid Mode side panel as the React Bits Dock. The original panel stays
+   in the page (hidden) so every Dock item clicks its existing button. */
+.studio-grid-node-tools[data-docked] {
+  display: none !important;
+}
+
+.dock.studio-grid-dock {
+  left: 14px;
+  font-family: inherit;
+}
+
+.studio-grid-dock .dock-face {
+  font-style: normal;
+}
+
+.studio-grid-dock .dock-item.studio-grid-tool-primary {
+  color: var(--dock-accent);
+}
+
+.studio-grid-dock .dock-item.running {
+  color: var(--dock-badge);
+}
+
+@media (max-width: 700px) {
+  .dock.studio-grid-dock {
+    left: 7px;
+  }
+}
