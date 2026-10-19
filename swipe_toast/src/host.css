@@ -1,0 +1,25 @@
+/* The notices' stack: bottom right, above every block of the app. Each
+   SwipeToast is inline inside it, so several slide and collapse in place. */
+.sylvex-toasts {
+  position: fixed;
+  right: 32px;
+  bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  z-index: 999999999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: min(356px, calc(100vw - 64px));
+  pointer-events: none;
+}
+
+.sylvex-toasts > .swipe-toast {
+  pointer-events: auto;
+}
+
+@media (max-width: 600px) {
+  .sylvex-toasts {
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: calc(100vw - 32px);
+  }
+}
