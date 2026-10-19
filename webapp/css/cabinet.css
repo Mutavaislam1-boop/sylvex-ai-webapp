@@ -9802,6 +9802,9 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-world{position:absolute;left:0;top:0;width:0;height:0;overflow:visible;transform-origin:0 0;will-change:transform}
 .edit-workspace-frame{position:absolute;user-select:none}
 .edit-workspace-world>.edit-workspace-upload{position:absolute;left:0;top:0;transform:translate(-50%,-50%)}
+/* The upload block sits in a host the PixelCard mounts into (cabinet.js mountEditUploadPixel). */
+.edit-workspace-world>.edit-workspace-upload-host{position:absolute;left:0;top:0;width:min(760px,82vw);height:min(620px,76vh);transform:translate(-50%,-50%)}
+.edit-workspace-upload-host .edit-workspace-upload{width:100%;height:100%}
 .edit-workspace-grid{background-image:radial-gradient(circle at 1px 1px,#45454d 1px,transparent 1.1px)}
 .edit-workspace-stage.can-pan #editWorkspaceMask{cursor:grab}
 .edit-workspace-panel,.edit-workspace-action,.edit-workspace-dock{background:color-mix(in srgb,var(--edit-surface) 88%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--st-depth-2);scrollbar-color:var(--edit-subtle) transparent}

@@ -1,0 +1,11 @@
+/* The card takes the upload block's size; the upload button fills it and
+   drops its own surface, so the PixelCard surface and dots show. */
+.pixel-card.edit-pixel-card { width: 100%; height: 100%; }
+.edit-pixel-card > .edit-pixel-content { position: relative; z-index: 1; width: 100%; height: 100%; }
+.edit-pixel-content > .edit-workspace-upload {
+  width: 100% !important;
+  height: 100% !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+.edit-pixel-root { width: 100%; height: 100%; }
