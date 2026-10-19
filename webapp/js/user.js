@@ -203,7 +203,7 @@
     const u = mergeUserPatch(normalized);
     const badge = u.subscription_status === 'active' ? 'PRO' : statusLabel(u.status);
     const balNum = Number(u.balance || 0);
-    const bal = fmtNum(balNum);
+    const bal = fmtNum(balNum) + ' ⚡️';
     const usd = '≈ $' + (balNum / 100).toFixed(2);
 
     setText('homeBalance', bal);
@@ -217,7 +217,7 @@
       : 'Free');
     setText('profileReferrals', Number(u.referrals_count || 0).toLocaleString());
     setText('profileGens', Number(u.generations_count || 0).toLocaleString());
-    setText('profileSpent', Number(u.tokens_spent || 0).toLocaleString());
+    setText('profileSpent', Number(u.tokens_spent || 0).toLocaleString() + ' ⚡️');
     setText('profilePosts', Number(u.community_posts_count || u.posts_count || 0).toLocaleString());
     setText('profilePostLikes', Number(u.community_likes_count || u.post_likes_count || 0).toLocaleString());
     setText('tbGenToday', Number(u.generations_count || 0).toLocaleString());

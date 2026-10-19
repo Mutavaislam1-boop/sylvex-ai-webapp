@@ -69,8 +69,6 @@ function makeContext() {
   });
   // Install the real escapeHtml (from ui.js) onto the fake S, exactly as
   // production wires window.SYLVEX.escapeHtml via Object.assign.
-  vm.runInContext(readFileSync(new URL('../webapp/js/token-icon.js', import.meta.url), 'utf8'), context);
-  vm.runInContext('this.window = this;', context);
   vm.runInContext(REAL_ESCAPE_HTML_SRC, context);
   vm.runInContext('S.escapeHtml = escapeHtml;', context);
   return context;

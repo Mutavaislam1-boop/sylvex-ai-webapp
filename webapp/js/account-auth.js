@@ -895,18 +895,18 @@
     let subLine = 'No active subscription on either side.';
     if (res.surviving_plan) {
       subLine = `Subscription after merge: <b>${res.surviving_plan === 'sub_year' ? 'Pro · 1 year' : 'Pro · 1 month'}</b>` +
-        (res.credits_from_conversion ? ` &mdash; the other side's unused subscription time converts to <b>${res.credits_from_conversion.toLocaleString()} ${window.SylvexToken.ICON}</b>` : '');
+        (res.credits_from_conversion ? ` &mdash; the other side's unused subscription time converts to <b>${res.credits_from_conversion.toLocaleString()} ⚡</b>` : '');
     }
     let warn = '';
     if (preview.requires_subscription_confirmation) {
-      warn = `<div class="sylvexAuth-warn">Both accounts have an active subscription. Only one can survive the merge - the other's remaining paid time becomes SYLVEX credits (${window.SylvexToken.ICON}), never extra months. Review below and confirm to continue.</div>`;
+      warn = `<div class="sylvexAuth-warn">Both accounts have an active subscription. Only one can survive the merge - the other's remaining paid time becomes SYLVEX credits (⚡), never extra months. Review below and confirm to continue.</div>`;
     }
     return `
       ${warn}
       <div class="sylvexAuth-summary">
-        Website balance: <b>${Number(preview.website_balance || 0).toLocaleString()} ${window.SylvexToken.ICON}</b><br>
-        Telegram balance: <b>${Number(preview.telegram_balance || 0).toLocaleString()} ${window.SylvexToken.ICON}</b><br>
-        Combined balance after merge: <b>${Number(preview.combined_balance || 0).toLocaleString()} ${window.SylvexToken.ICON}</b><br>
+        Website balance: <b>${Number(preview.website_balance || 0).toLocaleString()} ⚡</b><br>
+        Telegram balance: <b>${Number(preview.telegram_balance || 0).toLocaleString()} ⚡</b><br>
+        Combined balance after merge: <b>${Number(preview.combined_balance || 0).toLocaleString()} ⚡</b><br>
         ${subLine}
       </div>
       <div class="sylvexAuth-sub">After confirmation these accounts will become one SYLVEX account. This action cannot be reversed through normal account settings.</div>

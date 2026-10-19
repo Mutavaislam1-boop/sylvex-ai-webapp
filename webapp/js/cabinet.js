@@ -7,11 +7,6 @@
 // Pro Studio chat workspace, support modal, hero carousel, pricing logic.
 (function () {
   const S = (window.SYLVEX = window.SYLVEX || {});
-  // Token amounts (js/token-icon.js): {token} marks the icon's place in plain
-  // text, tokenHtml() renders such text (and the API's own token mark) as HTML.
-  const TOKEN = window.SylvexToken.MARK;
-  const TOKEN_ICON = window.SylvexToken.ICON;
-  const tokenHtml = (value) => window.SylvexToken.text(value);
   // Pro Studio state.
   let studioMode = 'pro';
 
@@ -8465,7 +8460,7 @@ async function refreshEditUpscaleEstimate(){
   const {width,height}=s.upscale,isSylvex=s.upscale.model==='sylvex_sr',restore=editSylvexRestoreState();
   const restoreOptions=isSylvex?{enhancePhotoModel:'sylvex_sr',sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance}}:{};
   const key=isSylvex?JSON.stringify(['sylvex_sr',restoreOptions.sylvexRestoreRegions.map(row=>[row.region_id,row.reference_asset_id,row.text_instruction]),restoreOptions.sylvexRestoreFinalEnhance]):width+'x'+height;
-  const paint=()=>{if(s.mode!=='upscale')return;const node=document.querySelector('[data-upscale-cost]');if(node)node.innerHTML=tokenHtml(s.upscaleEstimate?.credits!=null?s.upscaleEstimate.credits+' '+TOKEN:s.upscaleEstimate?.loading?'Calculating…':'Confirmed at generation');};
+  const paint=()=>{if(s.mode!=='upscale')return;const node=document.querySelector('[data-upscale-cost]');if(node)node.textContent=s.upscaleEstimate?.credits!=null?s.upscaleEstimate.credits+' ⚡':s.upscaleEstimate?.loading?'Calculating…':'Confirmed at generation';};
   if(s.upscaleEstimate?.key===key){paint();return;}
   const estimate={key,credits:null,loading:true};s.upscaleEstimate=estimate;paint();
   try{
@@ -15739,7 +15734,7 @@ function imageModelButton(model) {
         + '<div class="image-size-sheet-list">'
         + tools.map((tool) => '<div class="image-size-row image-seed-row recraft-tool-row">'
           + '<span class="image-size-label">' + S.escapeHtml(tool.label || tool.id) + '</span>'
-          + '<span class="image-size-check">' + S.escapeHtml(String(tool.costCredits || 0)) + ' ' + TOKEN_ICON + '</span>'
+          + '<span class="image-size-check">' + S.escapeHtml(String(tool.costCredits || 0)) + ' ⚡</span>'
           + '</div>').join('')
         + '</div>';
       el.classList.add('show');
@@ -17179,13 +17174,13 @@ function renderGeneratedTelegramButton(url, kind) {
   function renderInsufficientBalanceCard(m, index) {
     const required = Number(m.requiredCredits || 0);
     const balance = Number(m.balance || 0);
-    const costText = m.generationCost || (required ? required + ' ' + TOKEN : '');
+    const costText = m.generationCost || (required ? required + ' ⚡️' : '');
     return '<div class="generation-balance-card">'
       + '<div class="generation-balance-title">Недостаточно токенов</div>'
       + '<div class="generation-balance-text">'
       + (m.prompt ? '<span class="generation-balance-prompt">' + S.escapeHtml(String(m.prompt)).slice(0, 160) + '</span>' : '')
-      + (costText ? 'Стоимость: ' + tokenHtml(costText) + '<br>' : '')
-      + 'Баланс: ' + S.escapeHtml(String(balance)) + ' ' + TOKEN_ICON
+      + (costText ? 'Стоимость: ' + S.escapeHtml(String(costText)) + '<br>' : '')
+      + 'Баланс: ' + S.escapeHtml(String(balance)) + ' ⚡️'
       + '</div>'
       + '<div class="generation-balance-actions">'
       + '<button type="button" onclick="SYLVEX.openShopForGeneration(event,' + index + ')">Пополнить баланс</button>'
@@ -17286,7 +17281,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const thumb = imagePreviewUrl(meta, '') || (type === 'image' ? fallbackUrl : '');
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
     const creditsValue = meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== ''
-      ? String(meta.cost_credits) + ' ' + TOKEN
+      ? String(meta.cost_credits) + ' ⚡️'
       : '';
     const cost = creditsValue || String(meta.generation_cost || '');
     const hasRequestRefs = requestImageReferences(meta).length > 0;
@@ -17304,7 +17299,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const logoRef = !hasRequestRefs && meta.photo_tool === 'logo' && meta.catalog_reference_url ? '<span class="generation-result-reference"><img src="' + S.escapeHtml(meta.catalog_reference_url) + '" alt=""><small>' + S.escapeHtml(meta.logo_reference_name || 'Визуальный референс') + '</small></span>' : '';
     const metaHtml = '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
       + '<span class="generation-result-sub">' + safeModel + '</span>'
-      + (cost ? '<span class="generation-result-cost">' + tokenHtml(cost) + '</span>' : '')
+      + (cost ? '<span class="generation-result-cost">' + S.escapeHtml(cost) + '</span>' : '')
       + (prompt ? '<span class="generation-result-prompt">' + S.escapeHtml(prompt) + '</span>' : '')
       + logoRef;
     const shareButton = '<button class="generation-result-share" type="button" aria-label="Поделиться генерацией" title="Поделиться" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + '</button>';
@@ -18064,9 +18059,11 @@ function renderGeneratedTelegramButton(url, kind) {
     const ht = document.getElementById('homeTools');
     const hh = document.getElementById('homeHist');
     const fh = document.getElementById('fullHist');
+    const sg = document.getElementById('shopGrid');
     if (ht) ht.innerHTML = S.toolsData.slice(0, 6).map(S.toolCard).join('');
     if (hh) renderHomeQuickTools();
     if (fh && profileGalleryItems.length) renderProfileGallery();
+    if (sg) sg.innerHTML = S.shopData.map(S.shopCard).join('');
     renderModeStrip();
     renderModelPop();
     const mv = document.getElementById('modelVal');
@@ -19007,7 +19004,7 @@ function renderGeneratedTelegramButton(url, kind) {
   function generateNow() {
     if (guestNeedsAccount('create')) return;
     if (!activeCat) { toast(t('generating')); return; }
-    toast(t('generating') + ' · ' + computePrice() + ' ' + TOKEN);
+    toast(t('generating') + ' · ' + computePrice() + ' ⚡️');
     S.haptic.impact('medium');
   }
 
@@ -20249,12 +20246,12 @@ function ensureGenerationInfoDrawer() {
 
 function generationInfoRow(label, value) {
   if (value === undefined || value === null || value === '') return '';
-  return '<div class="generation-info-row"><span>' + S.escapeHtml(label) + '</span><b>' + tokenHtml(value) + '</b></div>';
+  return '<div class="generation-info-row"><span>' + S.escapeHtml(label) + '</span><b>' + S.escapeHtml(String(value)) + '</b></div>';
 }
 
 function generationCostLabel(meta) {
   const credits = meta && meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== ''
-    ? String(meta.cost_credits) + ' ' + TOKEN
+    ? String(meta.cost_credits) + ' ⚡️'
     : '';
   return credits || String((meta && meta.generation_cost) || '');
 }
@@ -20397,7 +20394,7 @@ function renderGenerationShareCard(share) {
   else media = (thumbnail ? '<img class="generation-share-cover" src="' + thumbnail + '" alt="">' : '<div class="generation-share-audio-mark">' + (mode === 'voice' ? 'VO' : '♪') + '</div>')
     + '<audio src="' + mediaUrl + '" controls preload="metadata"></audio>';
   const cost = share.cost || {};
-  const costText = cost.credits !== '' && cost.credits !== undefined && cost.credits !== null ? String(cost.credits) + ' ' + TOKEN : '';
+  const costText = cost.credits !== '' && cost.credits !== undefined && cost.credits !== null ? String(cost.credits) + ' ⚡' : '';
   const dimensions = metadata.width && metadata.height ? metadata.width + '×' + metadata.height : metadata.size;
   const rows = [
     ['Generated with', model], ['Автор', share.author], ['Дата', shareDateLabel(share.created_at)],
@@ -20412,7 +20409,7 @@ function renderGenerationShareCard(share) {
       : [['play', 'Прослушать', 'play'], ['download', 'Скачать', 'download']];
   return '<article class="generation-share-card" data-share-id="' + S.escapeHtml(share.share_id || '') + '" data-mode="' + S.escapeHtml(mode) + '">'
     + '<div class="generation-share-media">' + media + '</div>'
-    + '<div class="generation-share-details">' + rows.map((row) => '<div><span>' + S.escapeHtml(row[0]) + '</span><b>' + tokenHtml(row[1]) + '</b></div>').join('') + '</div>'
+    + '<div class="generation-share-details">' + rows.map((row) => '<div><span>' + S.escapeHtml(row[0]) + '</span><b>' + S.escapeHtml(String(row[1])) + '</b></div>').join('') + '</div>'
     + (share.prompt ? '<div class="generation-share-prompt"><span>Prompt</span><p>' + S.escapeHtml(share.prompt) + '</p>' + (String(share.prompt).length > 220 ? '<button type="button" onclick="this.parentElement.classList.toggle(\'is-expanded\');this.textContent=this.parentElement.classList.contains(\'is-expanded\')?\'Свернуть\':\'Развернуть\'">Развернуть</button>' : '') + '</div>' : '')
     + '<div class="generation-share-actions">' + actionLabels.map((item) => {
       if (item[2] === 'download' && !share.allow_download) return '';
@@ -21875,7 +21872,7 @@ function maybeShowVideoTemplateIntro(force) {
 
   function videoTemplateCostLabel(template) {
     const credits = Number(template && (template.cost_credits || template.cost) || 0);
-    if (credits > 0) return credits + ' ' + TOKEN;
+    if (credits > 0) return '⚡ ' + credits;
     const label = template && template.generation_cost;
     return label ? String(label) : '';
   }
@@ -21928,7 +21925,7 @@ function maybeShowVideoTemplateIntro(force) {
         prompt: item.prompt || item.video_prompt || item.description || item.title || '',
         ratios: videoTemplateRatios(item),
         cost_credits: credits,
-        generation_cost: item.generation_cost || (credits + ' ' + TOKEN),
+        generation_cost: item.generation_cost || (credits + ' ⚡'),
       }));
     });
     incoming.forEach((item) => {
@@ -21942,7 +21939,7 @@ function maybeShowVideoTemplateIntro(force) {
         prompt: merged.prompt || merged.video_prompt || merged.description || merged.title || '',
         ratios: videoTemplateRatios(merged),
         cost_credits: credits,
-        generation_cost: merged.generation_cost || (credits + ' ' + TOKEN),
+        generation_cost: merged.generation_cost || (credits + ' ⚡'),
       }));
     });
     return Array.from(byId.values()).slice(0, 100);
@@ -22120,7 +22117,7 @@ function maybeShowVideoTemplateIntro(force) {
       + '<p>' + S.escapeHtml(template.description || '') + '</p>'
       + '<button id="videoTemplateUpload" class="video-template-upload" type="button"></button>'
       + '<div class="video-template-ratios">' + ratios.map((ratio) => '<button type="button" data-ratio="' + S.escapeHtml(ratio) + '" class="' + (ratio === videoTemplateRatio ? 'active' : '') + '"><span class="video-template-ratio-icon" data-ratio="' + S.escapeHtml(ratio) + '"></span><span><b>' + S.escapeHtml(ratio) + '</b><small>' + S.escapeHtml(videoTemplateRatioLabel(ratio)) + '</small></span></button>').join('') + '</div>'
-      + '<button id="videoTemplateGenerate" class="video-template-generate" type="button">' + S.escapeHtml(videoTemplateText('create')) + (cost ? ' ' + tokenHtml(cost) : '') + '</button>'
+      + '<button id="videoTemplateGenerate" class="video-template-generate" type="button">' + S.escapeHtml(videoTemplateText('create')) + (cost ? ' ' + S.escapeHtml(cost) : '') + '</button>'
       + '</div>'
       + '<input id="videoTemplateFileInput" type="file" accept="image/png,image/jpeg,image/jpg" hidden />'
       + '</div>';
@@ -22546,7 +22543,7 @@ function maybeShowVideoTemplateIntro(force) {
     const userHost=document.getElementById('studioGridDrawerUser'),list=document.getElementById('studioGridDrawerList');
     if(!userHost||!list)return;
     const user=S.user||{},name=(user.display_name&&String(user.display_name).trim())||[user.first_name,user.last_name].filter(Boolean).join(' ')||user.username||'Пользователь',handle=user.username?'@'+user.username:'SYLVEX ID '+(user.telegram_id||'—'),avatarUrl=user.custom_avatar_url||user.photo_url,initials=((user.first_name||user.username||'·').slice(0,1)+(user.last_name||'').slice(0,1)).toUpperCase();
-    userHost.innerHTML=`<div class="studio-grid-drawer-avatar">${avatarUrl?`<img src="${gridEscape(avatarUrl)}" alt="">`:gridEscape(initials)}</div><div><b>${gridEscape(name)}</b><span>${gridEscape(handle)}</span></div><strong>${Number(user.balance||0).toLocaleString()} ${TOKEN_ICON}</strong>`;
+    userHost.innerHTML=`<div class="studio-grid-drawer-avatar">${avatarUrl?`<img src="${gridEscape(avatarUrl)}" alt="">`:gridEscape(initials)}</div><div><b>${gridEscape(name)}</b><span>${gridEscape(handle)}</span></div><strong>${Number(user.balance||0).toLocaleString()} ⚡️</strong>`;
     const active=loadStudioGridState(),items=loadStudioGridProjects();
     list.innerHTML=`<small class="studio-grid-drawer-sync" data-grid-sync-status>${gridEscape(studioGridCloudSync||'Saved on this device')}</small>`+(items.length?items.map(item=>`<button type="button" class="studio-grid-drawer-project${item.id===active.projectId?' active':''}" data-grid-drawer-project="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join(''):'<div class="hd-empty">Сохранённых проектов пока нет</div>');
     list.querySelectorAll('[data-grid-drawer-project]').forEach(button=>button.addEventListener('click',()=>{openStudioGridProject(button.dataset.gridDrawerProject);toggleStudioGridDrawer()}));
@@ -22565,7 +22562,7 @@ function maybeShowVideoTemplateIntro(force) {
     const balance = Number(user.balance || 0);
     const nameEl = document.getElementById('hdUserName'); if (nameEl) nameEl.textContent = name;
     const handleEl = document.getElementById('hdUserHandle'); if (handleEl) handleEl.textContent = handle;
-    const balanceEl = document.getElementById('hdUserBalance'); if (balanceEl) balanceEl.textContent = balance.toLocaleString();
+    const balanceEl = document.getElementById('hdUserBalance'); if (balanceEl) balanceEl.textContent = balance.toLocaleString() + ' ⚡️';
     const avatar = document.getElementById('hdUserAvatar');
     if (avatar) {
       avatar.replaceChildren();
@@ -22580,11 +22577,11 @@ function maybeShowVideoTemplateIntro(force) {
     for (let i = chatMessages.length - 1; i >= 0 && !spent; i -= 1) {
       const meta = chatMessages[i] && chatMessages[i].metadata;
       if (!meta || typeof meta !== 'object') continue;
-      if (meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== '') spent = String(meta.cost_credits) + ' ' + TOKEN;
+      if (meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== '') spent = String(meta.cost_credits) + ' ⚡️';
       else if (meta.generation_cost) spent = String(meta.generation_cost);
     }
-    if (!spent && user.last_generation_cost_credits !== undefined) spent = String(user.last_generation_cost_credits) + ' ' + TOKEN;
-    const spentEl = document.getElementById('hdUserLastSpent'); if (spentEl) spentEl.innerHTML = tokenHtml(spent || '—');
+    if (!spent && user.last_generation_cost_credits !== undefined) spent = String(user.last_generation_cost_credits) + ' ⚡️';
+    const spentEl = document.getElementById('hdUserLastSpent'); if (spentEl) spentEl.textContent = spent || '—';
   }
   function autoGrow(ta) {
     ta.style.height = 'auto';
@@ -23188,7 +23185,7 @@ function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImage
     prompt: prompt || '',
     requiredCredits: required,
     balance,
-    generationCost: required ? required + ' ' + TOKEN : '',
+    generationCost: required ? required + ' ⚡️' : '',
     resume: {
       mode: currentChatType(),
       videoSection: videoState.section || 'generate',
@@ -24744,7 +24741,7 @@ async function waitGeneration(jobId, options) {
   // Fills the existing pay screen (title, price, user, balance) and opens it.
   function showPayView(title, price) {
     const u = S.user || {};
-    const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.innerHTML = tokenHtml(title);
+    const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.textContent = title;
     const pEl = document.getElementById('payPackPrice'); if (pEl) pEl.textContent = price;
     const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Guest';
     const handle   = u.username ? '@' + u.username : '@user';
@@ -24790,9 +24787,9 @@ async function waitGeneration(jobId, options) {
   const STORE_STARS_RATE = { stars: 499, usd_cents: 500 };
   const STORE_ERRORS = {
     unknown_product: 'Этот товар сейчас недоступен',
-    amount_required: 'Введите количество ' + TOKEN,
-    invalid_amount: 'Количество ' + TOKEN + ' указано неверно',
-    amount_out_of_range: 'Это количество ' + TOKEN + ' недоступно',
+    amount_required: 'Введите количество ⚡',
+    invalid_amount: 'Количество ⚡ указано неверно',
+    amount_out_of_range: 'Это количество ⚡ недоступно',
     stars_amount_above_limit: 'Сумма выше лимита Telegram Stars',
     stars_not_configured: 'Оплата звёздами временно недоступна',
     stars_invoice_failed: 'Не удалось создать счёт Telegram Stars',
@@ -24835,7 +24832,7 @@ async function waitGeneration(jobId, options) {
     if (!Number.isInteger(amount) || amount < custom.min_credits || amount > custom.max_credits) return null;
     return {
       product_id: custom.product_id, kind: 'credits', credits: amount, stars: storeStarsFor(amount),
-      title: amount.toLocaleString('ru-RU') + ' ' + TOKEN + ' SYLVEX', available: true,
+      title: amount.toLocaleString('ru-RU') + ' ⚡ SYLVEX', available: true,
     };
   }
   function storeMethodState(product, method) {
@@ -24864,13 +24861,13 @@ async function waitGeneration(jobId, options) {
       if (product.recurring) {
         // Monthly plans are Telegram Stars subscriptions renewing every 30 days.
         text = SUB_RENEWS_NOTE + ' Каждые 30 дней списывается ' + Number(product.stars).toLocaleString('ru-RU')
-          + ' ⭐ и начисляется ' + Number(product.credits).toLocaleString('ru-RU') + ' ' + TOKEN + '.';
+          + ' ⭐ и начисляется ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡.';
       } else {
-        text = 'Одна оплата за 12 месяцев, без автопродления. ' + TOKEN + ' начисляются сразу после оплаты.';
+        text = 'Одна оплата за 12 месяцев, без автопродления. ⚡ начисляются сразу после оплаты.';
       }
       if (active) text += ' У вас уже есть тариф — перед оплатой мы покажем, что изменится, и попросим подтвердить.';
     }
-    note.innerHTML = tokenHtml(text);
+    note.textContent = text;
     note.hidden = !text;
   }
   function openStoreProduct(productId, credits) {
@@ -24886,7 +24883,7 @@ async function waitGeneration(jobId, options) {
     if (!product) { toast(STORE_ERRORS.unknown_product); return; }
     pendingStoreProduct = { productId, credits: isCustom ? Number(credits) : null, product };
     pendingPack = null;
-    const planCredits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ' + TOKEN : '';
+    const planCredits = product.kind === 'subscription' ? ' · ' + Number(product.credits).toLocaleString('ru-RU') + ' ⚡' : '';
     setStorePayMethods(product);
     // Stars only: the price shown is the exact invoice amount.
     showPayView(product.title + planCredits, Number(product.stars).toLocaleString('ru-RU') + ' ⭐');
@@ -24957,7 +24954,7 @@ async function waitGeneration(jobId, options) {
         if (result.user && S.renderUser && !isBrowserApp()) S.renderUser(result.user);
         if (S.syncUser) S.syncUser({ force: true });
         if (order.kind === 'subscription') showSubscriptionCelebration(result.user || S.user || {}, order.plan_key);
-        else toast('Зачислено ' + Number(order.credits).toLocaleString('ru-RU') + ' ' + TOKEN);
+        else toast('Зачислено ' + Number(order.credits).toLocaleString('ru-RU') + ' ⚡');
         return;
       }
       if (order && (order.status === 'expired' || order.status === 'failed')) {
@@ -25129,7 +25126,7 @@ async function waitGeneration(jobId, options) {
       overlay.className = 'modal-overlay sx-confirm-overlay show';
       overlay.innerHTML = '<div class="modal sx-confirm" role="dialog" aria-modal="true">'
         + '<h3>' + S.escapeHtml(opts.title) + '</h3>'
-        + opts.body.filter(Boolean).map((line) => '<p>' + tokenHtml(line) + '</p>').join('')
+        + opts.body.filter(Boolean).map((line) => '<p>' + S.escapeHtml(line) + '</p>').join('')
         + '<div class="modal-actions sx-confirm-actions">'
         + '<button class="btn-primary" type="button" data-sx-confirm="yes">' + S.escapeHtml(opts.confirm) + '</button>'
         + (opts.alt ? '<button class="btn-ghost" type="button" data-sx-confirm="alt">' + S.escapeHtml(opts.alt) + '</button>' : '')
@@ -25195,7 +25192,7 @@ async function waitGeneration(jobId, options) {
     const choice = await sxConfirm({
       title: 'Отменить автопродление?',
       body: ['Следующего списания ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ за ' + subPlanName(r.plan_key) + ' не будет.',
-             dot('Оплаченный доступ сохранится до ' + until + ', все начисленные ' + TOKEN + ' остаются на балансе')],
+             dot('Оплаченный доступ сохранится до ' + until + ', все начисленные ⚡ остаются на балансе')],
       confirm: 'Отменить автопродление', cancel: 'Оставить',
     });
     if (choice !== 'yes') return;
@@ -25250,7 +25247,7 @@ async function waitGeneration(jobId, options) {
       if (current) lines.push(dot('Оплаченный период ' + current + ' сохраняется до ' + fmtDate(c.current_expires_at)));
     }
     if (c.stops_renewal_of) lines.push('Автопродление ' + subPlanName(c.stops_renewal_of) + ' будет отключено — новых списаний за него не будет.');
-    lines.push('Все начисленные ' + TOKEN + ' остаются на балансе; ' + Number(c.credits || product.credits || 0).toLocaleString('ru-RU') + ' ' + TOKEN + ' нового тарифа начислятся после оплаты.');
+    lines.push('Все начисленные ⚡ остаются на балансе; ' + Number(c.credits || product.credits || 0).toLocaleString('ru-RU') + ' ⚡ нового тарифа начислятся после оплаты.');
     const canSchedule = c.type === 'downgrade' && c.new_billing === 'monthly' && c.stops_renewal_of;
     const choice = await sxConfirm({
       title, body: lines,
@@ -25281,7 +25278,7 @@ async function waitGeneration(jobId, options) {
     if (title) title.textContent = state === 'expired' ? 'Подписка закончилась' : state === 'renewal_unconfirmed' && !d.active ? 'Продление не подтверждено' : 'Ваша подписка';
     const awaitingRenewal = state === 'renewal_unconfirmed' && !d.active;
     if (subtitle) subtitle.textContent = awaitingRenewal ? 'Доступ продолжится после подтверждённой оплаты' : (SUB_STATES[state] || '');
-    const cell = (k, v, id) => '<div><div class="k">' + k + '</div><div class="v"' + (id ? ' id="' + id + '"' : '') + '>' + tokenHtml(v) + '</div></div>';
+    const cell = (k, v, id) => '<div><div class="k">' + k + '</div><div class="v"' + (id ? ' id="' + id + '"' : '') + '>' + S.escapeHtml(String(v)) + '</div></div>';
     const billing = SUB_BILLING[p.billing || d.billing] || '—';
     const monthly = (p.billing || d.billing) === 'monthly';
     const price = p.price_stars ? Number(p.price_stars).toLocaleString('ru-RU') + ' ⭐' + (monthly ? ' / 30 дней' : '') : '—';
@@ -25296,14 +25293,14 @@ async function waitGeneration(jobId, options) {
       + cell('Оплачено до', fmtDate(exp), 'saExpires')
       + cell('Следующее списание', d.next_renewal_at ? fmtDate(d.next_renewal_at) : '—', 'saNextRenewal')
       + cell('Осталось', exp && d.active !== false ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—', 'saCountdown')
-      + cell(TOKEN_ICON + ' за период', p.period_credits ? Number(p.period_credits).toLocaleString('ru-RU') + ' ' + TOKEN : '—')
-      + cell('Доступно ' + TOKEN_ICON, Number(u.balance || 0).toLocaleString('ru-RU') + ' ' + TOKEN, 'saBalance');
+      + cell('⚡ за период', p.period_credits ? Number(p.period_credits).toLocaleString('ru-RU') + ' ⚡' : '—')
+      + cell('Доступно ⚡', Number(u.balance || 0).toLocaleString('ru-RU') + ' ⚡', 'saBalance');
     const notes = [];
     if (state === 'active_recurring') notes.push(SUB_RENEWS_NOTE);
     if (r && r.plan_key !== plan && r.auto_renew) {
       notes.push('Автопродление: ' + subPlanName(r.plan_key) + ' · ' + Number(r.price_stars).toLocaleString('ru-RU') + ' ⭐ / 30 дней, следующее списание ' + fmtDate(r.next_renewal_at) + '.');
     }
-    if (state === 'renewal_canceled') notes.push(dot('Автопродление отменено. Доступ и начисленные ' + TOKEN + ' сохраняются до ' + fmtDate(exp)));
+    if (state === 'renewal_canceled') notes.push(dot('Автопродление отменено. Доступ и начисленные ⚡ сохраняются до ' + fmtDate(exp)));
     if (state === 'renewal_unconfirmed') {
       notes.push(d.active
         ? 'Отключаем автопродление прежнего тарифа в Telegram — статус ещё не подтверждён. Мы повторим попытку автоматически.'
@@ -25319,7 +25316,7 @@ async function waitGeneration(jobId, options) {
     });
     if (r && r.auto_renew) notes.push('Если вы отмените подписку в самом Telegram (Настройки → Мои звёзды), SYLVEX узнает об этом только в дату продления.');
     if (noteEl) {
-      noteEl.innerHTML = notes.map((n) => '<span>' + tokenHtml(n) + '</span>').join('<br>');
+      noteEl.innerHTML = notes.map((n) => '<span>' + S.escapeHtml(n) + '</span>').join('<br>');
       noteEl.hidden = !notes.length;
     }
     const buttons = [];
@@ -26826,18 +26823,18 @@ async function waitGeneration(jobId, options) {
       if (!def) return null;
       const price = cards.planPricing(def, plan[2]);
       return {
-        title: 'SYLVEX ' + def.name + ' · ' + Number(price.credits).toLocaleString('ru-RU') + ' ' + TOKEN,
+        title: 'SYLVEX ' + def.name + ' · ' + Number(price.credits).toLocaleString('ru-RU') + ' ⚡',
         price: plan[2] === 'year' ? fmtUsd(price.totalUsd) + ' / год' : fmtUsd(price.displayUsd) + ' / месяц',
         note: (plan[2] === 'year' ? 'Продлевается автоматически каждый год' : 'Продлевается автоматически каждый месяц')
-          + ', пока вы не отключите продление. ' + TOKEN + ' начисляются после каждой оплаты.',
+          + ', пока вы не отключите продление. ⚡ начисляются после каждой оплаты.',
       };
     }
     const dollars = productId === 'credits_custom' ? Number(usd) : Number((/^pack_(\d+)$/.exec(productId) || [])[1]) / 100;
     if (!(dollars > 0)) return null;
     return {
-      title: Math.round(dollars * 100).toLocaleString('ru-RU') + ' ' + TOKEN + ' SYLVEX',
+      title: Math.round(dollars * 100).toLocaleString('ru-RU') + ' ⚡ SYLVEX',
       price: fmtUsd(dollars),
-      note: TOKEN + ' начисляются сразу после подтверждения оплаты.',
+      note: '⚡ начисляются сразу после подтверждения оплаты.',
     };
   }
   // Subscription plans in the browser: the pay screen shows the selected plan
@@ -26886,7 +26883,7 @@ async function waitGeneration(jobId, options) {
     browserCheckoutBusy = false;
     setBrowserPayMethods();
     const note = document.getElementById('payStoreNote');
-    if (note) { note.innerHTML = tokenHtml(summary.note); note.hidden = false; }
+    if (note) { note.textContent = summary.note; note.hidden = false; }
     showPayView(summary.title, summary.price);
   }
   async function payBrowserProduct() {
@@ -27088,7 +27085,7 @@ async function waitGeneration(jobId, options) {
   }
 
   function switchShopTab(tab){const selected=tab==='tokens'?'tokens':'subscriptions';document.querySelectorAll('[data-shop-tab]').forEach(button=>button.classList.toggle('active',button.dataset.shopTab===selected));document.querySelectorAll('[data-shop-panel]').forEach(panel=>panel.hidden=panel.dataset.shopPanel!==selected)}
-  function openSpendingStats(){let modal=document.getElementById('spendingStatsModal');if(!modal){modal=document.createElement('div');modal.id='spendingStatsModal';modal.className='community-modal spending-stats-modal';document.body.appendChild(modal)}const spent=Number((S.user&&S.user.tokens_spent)||0);modal.innerHTML='<section><header><div><small>Статистика расходов</small><h3>Токены SYLVEX</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><div class="spending-total"><small>Потрачено за всё время</small><b>'+spent.toLocaleString()+' '+TOKEN_ICON+'</b></div><div class="spending-chart-empty"><span style="height:22%"></span><span style="height:38%"></span><span style="height:31%"></span><span style="height:54%"></span><span style="height:44%"></span><span style="height:70%"></span><span style="height:62%"></span></div><p class="spending-note">Детализация по дням появится после подключения серверной истории списаний. Текущая сумма взята из реальных данных профиля.</p><button class="community-publish-submit" type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\');switchView(\'history\')">Открыть историю генераций</button></section>';modal.classList.add('show')}
+  function openSpendingStats(){let modal=document.getElementById('spendingStatsModal');if(!modal){modal=document.createElement('div');modal.id='spendingStatsModal';modal.className='community-modal spending-stats-modal';document.body.appendChild(modal)}const spent=Number((S.user&&S.user.tokens_spent)||0);modal.innerHTML='<section><header><div><small>Статистика расходов</small><h3>Токены SYLVEX</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><div class="spending-total"><small>Потрачено за всё время</small><b>'+spent.toLocaleString()+' ⚡️</b></div><div class="spending-chart-empty"><span style="height:22%"></span><span style="height:38%"></span><span style="height:31%"></span><span style="height:54%"></span><span style="height:44%"></span><span style="height:70%"></span><span style="height:62%"></span></div><p class="spending-note">Детализация по дням появится после подключения серверной истории списаний. Текущая сумма взята из реальных данных профиля.</p><button class="community-publish-submit" type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\');switchView(\'history\')">Открыть историю генераций</button></section>';modal.classList.add('show')}
 
   /* ===== Hero carousel ===== */
   let slideIdx = 0;
@@ -29641,7 +29638,7 @@ async function waitGeneration(jobId, options) {
         ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
         <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
         <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div>
-        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ${TOKEN_ICON}</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ${TOKEN_ICON}</span>`:'')}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Building…':'Build intelligent chain'}</button>`:node.type==='text'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>Build chain</button><button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
+        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Building…':'Build intelligent chain'}</button>`:node.type==='text'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>Build chain</button><button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
       </article>`;
     }).join('');
     const workflowButton=document.getElementById('studioGridRunWorkflow');
@@ -30186,7 +30183,7 @@ async function waitGeneration(jobId, options) {
     const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
     state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState();renderStudioGrid();
     studioGridWorkflowRun=(async()=>{
-      const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ${TOKEN}`);
+      const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);
       const pending=new Set(order.filter(id=>{const node=state.nodes.find(item=>item.id===id);return node&&node.type!=='task'&&node.status!=='COMPLETED'})),active=new Map(),maxParallel=3;
       studioGridNodeRuns.forEach((promise,id)=>{if(pending.has(id)){active.set(id,Promise.resolve(promise).then(()=>id));pending.delete(id)}});
       while(pending.size||active.size){
