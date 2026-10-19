@@ -8,18 +8,20 @@ import { createRoot } from 'react-dom/client';
 import BorderGlow from './BorderGlow.jsx';
 import './host.css';
 
-// The settings from the task. Agreed change: the purple edge colour
-// (#c084fc) is SYLVEX green; backgroundColor comes from the host (the
+// The settings from the task. Agreed changes: the purple edge colour
+// (#c084fc) and the gold edge glow (40 80 80) are SYLVEX green, and there
+// is no automatic sweep (on load, re-render or plan change) - the glow
+// shows only under the pointer. backgroundColor comes from the host (the
 // task's #120F17 on dark themes, the card's own colour on light ones).
 const GLOW_PROPS = {
   edgeSensitivity: 0,
-  glowColor: '40 80 80',
+  glowColor: '140 80 55',
   backgroundColor: '#120F17',
   borderRadius: 23,
   glowRadius: 80,
   glowIntensity: 3,
   coneSpread: 35,
-  animated: true,
+  animated: false,
   colors: ['#10b945', '#f472b6', '#38bdf8']
 };
 

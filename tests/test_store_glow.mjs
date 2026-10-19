@@ -26,17 +26,18 @@ test('BorderGlow.jsx / BorderGlow.css: the published files, unmodified', () => {
   assert.ok(read('.gitignore').includes('store_glow/node_modules/'));
 });
 
-test('the task settings, with the purple edge colour replaced by SYLVEX green', () => {
+test('the task settings: purple edge colour and gold glow are SYLVEX green, no automatic sweep', () => {
   const main = read('store_glow/src/main.jsx');
   const start = main.indexOf('const GLOW_PROPS = {');
   const block = main.slice(start, main.indexOf('};', start) + 1);
   const settings = vm.runInNewContext('(' + block.replace('const GLOW_PROPS = ', '') + ')');
   assert.deepEqual(JSON.parse(JSON.stringify(settings)), {
-    edgeSensitivity: 0, glowColor: '40 80 80', backgroundColor: '#120F17', borderRadius: 23, glowRadius: 80,
-    glowIntensity: 3, coneSpread: 35, animated: true, colors: ['#10b945', '#f472b6', '#38bdf8'],
+    edgeSensitivity: 0, glowColor: '140 80 55', backgroundColor: '#120F17', borderRadius: 23, glowRadius: 80,
+    glowIntensity: 3, coneSpread: 35, animated: false, colors: ['#10b945', '#f472b6', '#38bdf8'],
   });
-  assert.ok(!block.includes('#c084fc'), 'no purple left');
-  assert.ok(read('webapp/js/vendor/store-glow/store-glow.js').includes('"#10b945"'));
+  assert.ok(!block.includes('#c084fc') && !block.includes('40 80 80'), 'no purple or gold left');
+  const bundle = read('webapp/js/vendor/store-glow/store-glow.js');
+  assert.ok(bundle.includes('"#10b945"') && bundle.includes('glowColor:"140 80 55"') && bundle.includes('animated:!1'));
 });
 
 function loadHelper(src) {
@@ -71,7 +72,7 @@ test('every Store card is wrapped once, kept as the same element, and re-wrapped
 
 test('Mini App: shop and browser store cards both get the glow', () => {
   const index = read('webapp/index.html');
-  assert.ok(index.includes('<script src="js/store-glow.js?v=store-glow-20261019"></script>'));
+  assert.ok(index.includes('<script src="js/store-glow.js?v=store-glow-green-20261019"></script>'));
   assert.ok(!index.includes('vendor/store-glow'), 'bundle loaded on demand only');
   const cabinet = read('webapp/js/cabinet.js');
   assert.equal((cabinet.match(/glowStoreCards\(plans, credits\);/g) || []).length, 2);
