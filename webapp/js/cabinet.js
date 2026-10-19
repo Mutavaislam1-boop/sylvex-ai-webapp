@@ -16862,11 +16862,12 @@ function renderGeneratedTelegramButton(url, kind) {
     return String(source.job_id || source.charge_id || (message && message.generationJobId) || '');
   }
 
-  function completedGenerationDownloadUrl(jobId) {
+  function completedGenerationDownloadUrl(jobId, resultIndex) {
     if (!jobId) return '';
     const params = new URLSearchParams();
     params.set('telegram_id', String(getTelegramId() || 0));
     if (S.tg && S.tg.initData) params.set('init_data', S.tg.initData);
+    if (Number.isInteger(Number(resultIndex)) && Number(resultIndex) > 0) params.set('result_index', String(Number(resultIndex)));
     return '/api/public/prostudio/download/' + encodeURIComponent(jobId) + '?' + params.toString();
   }
 
@@ -19698,6 +19699,7 @@ function removeComposerImageDraft(e, index) {
 // =====================================================
 let imageViewerUrls = [];
 let imageViewerIndex = 0;
+let imageViewerDownloadJobId = '';
 let imageViewerPointerStart = null;
 let imageViewerWheelDelta = 0;
 let imageViewerWheelTimer = null;
@@ -19729,6 +19731,12 @@ function renderImageViewerImage() {
   viewer.classList.toggle('has-multiple', imageViewerUrls.length > 1);
   const counter = document.getElementById('imageViewerCounter');
   if (counter) counter.textContent = (imageViewerIndex + 1) + ' / ' + imageViewerUrls.length;
+  const download = viewer.querySelector('[data-image-viewer-download]');
+  if (download) {
+    download.hidden = !imageViewerDownloadJobId;
+    download.dataset.downloadUrl = imageViewerDownloadJobId ? completedGenerationDownloadUrl(imageViewerDownloadJobId, imageViewerIndex) : '';
+    download.dataset.fileName = generationDownloadFilename('image', imageViewerDownloadJobId || 'grid-image');
+  }
 }
 
 // =====================================================
@@ -19787,6 +19795,7 @@ function ensureImageViewer() {
   viewer.innerHTML = `
     <div class="image-viewer-card" onclick="event.stopPropagation()">
       <button class="image-viewer-close" type="button" onclick="SYLVEX.closeImageViewer(event)">×</button>
+      <button class="image-viewer-download" type="button" data-image-viewer-download hidden aria-label="Download image" title="Download" onclick="SYLVEX.downloadGeneratedFile(event)">${generationActionIcon('download')}</button>
       <button class="image-viewer-nav image-viewer-prev" type="button" aria-label="Предыдущее изображение" onclick="SYLVEX.navigateImageViewer(event,-1)">‹</button>
       <img id="imageViewerImg" class="image-viewer-img" src="" alt="generated image" />
       <button class="image-viewer-nav image-viewer-next" type="button" aria-label="Следующее изображение" onclick="SYLVEX.navigateImageViewer(event,1)">›</button>
@@ -19820,7 +19829,7 @@ function ensureImageViewer() {
 // ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageViewer
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
 // =====================================================
-function openImageViewer(e, url, urls) {
+function openImageViewer(e, url, urls, options) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
@@ -19832,6 +19841,7 @@ function openImageViewer(e, url, urls) {
   if (!imageUrl) return;
 
   const viewer = ensureImageViewer();
+  imageViewerDownloadJobId = String(options && options.jobId || (btn && btn.dataset ? btn.dataset.generationJobId : '') || '');
   imageViewerUrls = imageViewerUrlsFrom(
     urls || (btn && btn.dataset ? btn.dataset.imageUrls : ''),
     imageUrl,
@@ -19877,6 +19887,7 @@ function closeImageViewer(e) {
   if (img) img.src = '';
   imageViewerUrls = [];
   imageViewerIndex = 0;
+  imageViewerDownloadJobId = '';
   imageViewerPointerStart = null;
   imageViewerWheelDelta = 0;
   if (imageViewerWheelTimer) clearTimeout(imageViewerWheelTimer);
@@ -29569,7 +29580,8 @@ async function waitGeneration(jobId, options) {
       const width=276,height=272,vertical=Math.abs((Number(to.y)-Number(from.y)))>Math.abs((Number(to.x)-Number(from.x))),fromSide=edge.fromSide||(vertical&&Number(to.y)>=Number(from.y)?'bottom':'right'),toSide=edge.toSide||(fromSide==='bottom'?'top':'left');
       const point=(node,side)=>side==='bottom'?{x:Number(node.x)+width/2,y:Number(node.y)+height}:side==='top'?{x:Number(node.x)+width/2,y:Number(node.y)}:side==='left'?{x:Number(node.x),y:Number(node.y)+height/2}:{x:Number(node.x)+width,y:Number(node.y)+height/2};
       const a=point(from,fromSide),b=point(to,toSide),distance=Math.max(55,Math.hypot(b.x-a.x,b.y-a.y)*.35),control=(p,side,d)=>side==='bottom'?{x:p.x,y:p.y+d}:side==='top'?{x:p.x,y:p.y-d}:side==='left'?{x:p.x-d,y:p.y}:{x:p.x+d,y:p.y},c1=control(a,fromSide,distance),c2=control(b,toSide,distance);
-      return `<g data-grid-edge="${gridEscape(edge.id)}"><path d="M${a.x} ${a.y} C${c1.x} ${c1.y},${c2.x} ${c2.y},${b.x} ${b.y}"/><circle cx="${a.x}" cy="${a.y}" r="4"/><circle cx="${b.x}" cy="${b.y}" r="4"/></g>`;
+      const path=`M${a.x} ${a.y} C${c1.x} ${c1.y},${c2.x} ${c2.y},${b.x} ${b.y}`;
+      return `<g data-grid-edge="${gridEscape(edge.id)}"><path class="studio-grid-edge-hit" d="${path}"/><path class="studio-grid-edge-line" d="${path}"/><circle cx="${a.x}" cy="${a.y}" r="4"/><circle cx="${b.x}" cy="${b.y}" r="4"/></g>`;
     }).join('');
   }
 
@@ -29611,17 +29623,18 @@ async function waitGeneration(jobId, options) {
   function ensureStudioGridVideoViewer(){
     let viewer=document.getElementById('studioGridVideoViewer');
     if(viewer)return viewer;
-    viewer=document.createElement('div');viewer.id='studioGridVideoViewer';viewer.className='studio-grid-video-viewer';viewer.hidden=true;viewer.innerHTML='<div class="studio-grid-video-viewer-backdrop" data-grid-video-close></div><section role="dialog" aria-modal="true" aria-label="Video preview"><button type="button" data-grid-video-close aria-label="Close video">×</button><video controls playsinline preload="metadata"></video></section>';
+    viewer=document.createElement('div');viewer.id='studioGridVideoViewer';viewer.className='studio-grid-video-viewer';viewer.hidden=true;viewer.innerHTML=`<div class="studio-grid-video-viewer-backdrop" data-grid-video-close></div><section role="dialog" aria-modal="true" aria-label="Video preview"><button type="button" class="studio-grid-video-download" data-grid-video-download hidden aria-label="Download video" title="Download">${generationActionIcon('download')}</button><button type="button" class="studio-grid-video-close" data-grid-video-close aria-label="Close video">×</button><video controls playsinline preload="auto"></video><p class="studio-grid-video-error" hidden>This video cannot be played in the browser. Download the original file.</p></section>`;
     viewer.addEventListener('click',event=>{if(event.target.closest('[data-grid-video-close]'))closeStudioGridVideoViewer()});
+    viewer.querySelector('[data-grid-video-download]')?.addEventListener('click',downloadGeneratedFile);
     document.body.appendChild(viewer);
     if(!studioGridVideoViewerKeyBound){studioGridVideoViewerKeyBound=true;document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!document.getElementById('studioGridVideoViewer')?.hidden)closeStudioGridVideoViewer()})}
     return viewer;
   }
-  function openStudioGridVideoViewer(url){
-    if(!url)return;const viewer=ensureStudioGridVideoViewer(),video=viewer.querySelector('video');video.src=url;viewer.hidden=false;document.body.classList.add('studio-grid-media-viewer-open');video.play().catch(()=>{});
+  function openStudioGridVideoViewer(url,jobId){
+    const playableUrl=gridRenderableMediaUrl(url);if(!playableUrl){toast('Video is not available');return}const viewer=ensureStudioGridVideoViewer(),video=viewer.querySelector('video'),error=viewer.querySelector('.studio-grid-video-error'),download=viewer.querySelector('[data-grid-video-download]');if(error)error.hidden=true;if(download){download.hidden=!jobId;download.dataset.downloadUrl=jobId?completedGenerationDownloadUrl(jobId):'';download.dataset.fileName=generationDownloadFilename('video',jobId||'grid-video')}video.onerror=()=>{if(error)error.hidden=false};video.src=playableUrl;video.load();viewer.hidden=false;document.body.classList.add('studio-grid-media-viewer-open');requestAnimationFrame(()=>video.play().catch(()=>{}));
   }
   function closeStudioGridVideoViewer(){
-    const viewer=document.getElementById('studioGridVideoViewer'),video=viewer?.querySelector('video');if(video){video.pause();video.removeAttribute('src');video.load()}if(viewer)viewer.hidden=true;document.body.classList.remove('studio-grid-media-viewer-open');
+    const viewer=document.getElementById('studioGridVideoViewer'),video=viewer?.querySelector('video'),error=viewer?.querySelector('.studio-grid-video-error');if(video){video.onerror=null;video.pause();video.removeAttribute('src');video.load()}if(error)error.hidden=true;if(viewer)viewer.hidden=true;document.body.classList.remove('studio-grid-media-viewer-open');
   }
 
   function gridNodePreview(node,status) {
@@ -29681,7 +29694,7 @@ async function waitGeneration(jobId, options) {
       const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),preview=gridNodePreview(node,status),inputPorts=(type.inputs||[]).map((input,index)=>`<button class="studio-grid-port in side-left" style="top:${62+index*25}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="left" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} слева"></button><button class="studio-grid-port in side-top" style="left:${44+index*38}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="top" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} сверху"></button>`).join(''),outputPort=gridEscape((type.outputs||['text'])[0]);
       return `<article class="studio-grid-node${selected ? ' selected' : ''}${node.position_locked?' locked':''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" data-status="${gridEscape(status)}" style="--grid-x:${Number(node.x)||0}px;--grid-y:${Number(node.y)||0}px">
         ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
-        <div class="studio-grid-node-card"><div class="studio-grid-node-tile"><header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
+        <div class="studio-grid-node-card"><div class="studio-grid-node-tile"><header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b>${node.type==='text'&&status==='COMPLETED'&&String(node.output?.value||'').trim()?`<button type="button" data-grid-copy-text aria-label="Copy generated text" title="Copy generated text">${generationActionIcon('copy')}</button>`:''}<button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
         <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div></div>
         <footer class="studio-grid-node-footer"><div class="studio-grid-node-meta"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}</div>${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Building…':'Build intelligent chain'}</button>`:node.type==='text'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>Build chain</button><button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer><span class="studio-grid-node-rim" aria-hidden="true"></span></div>
       </article>`;
@@ -29962,6 +29975,14 @@ async function waitGeneration(jobId, options) {
   function removeStudioGridMedia(id,index){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(!node||!Array.isArray(node.attachments))return;node.attachments.splice(Number(index),1);node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid()}
 
   function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source)),mobile=window.matchMedia('(max-width:700px)').matches;copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+(mobile?0:34);copy.y=Number(copy.y)+(mobile?330:34);copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.request_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.result_versions=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid();if(mobile)requestAnimationFrame(resetStudioGridView) }
+
+  async function copyStudioGridTextResult(id){
+    const node=loadStudioGridState().nodes.find(item=>item.id===id),text=String(node?.output?.value||'');if(!text){toast('No generated text to copy');return}let copied=false;try{if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);copied=true}}catch(_){}if(!copied)try{const input=document.createElement('textarea');input.value=text;input.style.position='fixed';input.style.opacity='0';document.body.appendChild(input);input.select();copied=document.execCommand('copy');input.remove()}catch(_){}toast(copied?'Text copied':'Could not copy text')
+  }
+
+  function disconnectStudioGridEdge(edgeId){
+    const state=loadStudioGridState(),edge=state.edges.find(item=>item.id===edgeId);if(!edge)return false;state.edges=state.edges.filter(item=>item.id!==edgeId);const target=state.nodes.find(node=>node.id===edge.to);if(target){if(target.status!=='RUNNING')target.status='READY';const inputs=resolveGridNodeInputs(target.id);reconcileGridVideoMode(target,inputs);markStudioGridDownstreamStale(target.id)}saveStudioGridState();renderStudioGrid();return true
+  }
 
   function gridConnectionCompatible(fromNode,fromPort,toNode,toPort){if(!fromNode||!toNode||fromNode.id===toNode.id)return false;const output=fromPort||(GRID_TYPES[fromNode.type]?.outputs||[])[0],target=toPort||(GRID_TYPES[toNode.type]?.inputs||[])[0];if(output===target)return true;if(output==='text'&&['text','lyrics'].includes(target))return true;if(output==='task'&&target==='task')return true;if(output==='audio'&&toNode.type==='video')return true;return false}
 
@@ -30359,6 +30380,7 @@ async function waitGeneration(jobId, options) {
         if(event.target.closest('[data-grid-output]')){const output=event.target.closest('[data-grid-output]'),next={from:id,fromPort:output.dataset.gridOutput,fromSide:output.dataset.gridSide||'right'};if(studioGridPendingConnection&&studioGridPendingConnection.from===next.from&&studioGridPendingConnection.fromPort===next.fromPort&&studioGridPendingConnection.fromSide===next.fromSide){clearStudioGridConnectionMode();return}studioGridPendingConnection=next;updateStudioGridConnectionHighlights();return}
         if(event.target.closest('[data-grid-input]')){const input=event.target.closest('[data-grid-input]');if(studioGridPendingConnection){const connected=connectStudioGridNodes(studioGridPendingConnection.from,studioGridPendingConnection.fromPort,id,input.dataset.gridInput,studioGridPendingConnection.fromSide,input.dataset.gridSide||'left');if(connected)clearStudioGridConnectionMode()}return}
         if (event.target.closest('[data-grid-delete]')) { deleteStudioGridNode(id); return; }
+        if (event.target.closest('[data-grid-copy-text]')) { void copyStudioGridTextResult(id); return; }
         if (event.target.closest('[data-grid-expand-text]')) { openStudioGridTextEditor(id); return; }
         if (event.target.closest('[data-grid-upload-media]')) { openStudioGridMediaPicker(id); return; }
         if (event.target.closest('[data-grid-upload-reference]')) { openStudioGridMediaPicker(id,event.target.closest('[data-grid-upload-reference]').dataset.gridUploadReference); return; }
@@ -30369,8 +30391,8 @@ async function waitGeneration(jobId, options) {
         if (event.target.closest('[data-grid-build]')) { buildStudioGridWorkflow(id); return; }
         if (event.target.closest('[data-grid-run]')) { runGridNode(id); return; }
         if(event.target.closest('[data-grid-pick-version]')){selectStudioGridResultVersion(id,event.target.closest('[data-grid-pick-version]').dataset.gridPickVersion);return}
-        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){const item=node.output.items[index],urls=node.output.items.map(result=>result.url||result.preview_url).filter(Boolean);node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();openImageViewer(event,item.url||item.preview_url,urls);renderStudioGrid()}return}
-        if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)openStudioGridVideoViewer(node.output.url);return}
+        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){const item=node.output.items[index],urls=node.output.items.map(result=>result.url||result.preview_url).filter(Boolean);node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();openImageViewer(event,item.url||item.preview_url,urls,{jobId:node.generation_id||item.generation_id||''});renderStudioGrid()}return}
+        if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)openStudioGridVideoViewer(node.output.url,node.generation_id||node.output.generation_id||'');return}
         if (event.target.closest('[data-grid-more]')) { const rect=event.target.getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.position_locked?'Разблокировать позицию':'Закрепить позицию'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;return}
         if(event.shiftKey){if(studioGridSelectedIds.has(id))studioGridSelectedIds.delete(id);else studioGridSelectedIds.add(id)}else if(!studioGridSelectedIds.has(id))studioGridSelectedIds=new Set([id]);
         host.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.toggle('selected',studioGridSelectedIds.has(item.dataset.gridId)));
@@ -30393,7 +30415,7 @@ async function waitGeneration(jobId, options) {
       canvas.addEventListener('pointerdown', (event) => {
         pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
         if(pointers.size===2){pinchConsumedPointers=true;clearTimeout(longPressTimer);const points=[...pointers.values()],state=loadStudioGridState(),rect=canvas.getBoundingClientRect(),centerX=(points[0].x+points[1].x)/2,centerY=(points[0].y+points[1].y)/2,localX=centerX-rect.left,localY=centerY-rect.top;pinch={distance:Math.max(1,Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y)),zoom:state.zoom||1,worldX:(localX-state.panX)/(state.zoom||1),worldY:(localY-state.panY)/(state.zoom||1)};return}
-        if (event.target.closest('.studio-grid-node')) return;
+        if (event.target.closest('.studio-grid-node,[data-grid-edge]')) return;
         hideStudioGridContext();clearStudioGridConnectionMode();studioGridSelectedIds.clear();host?.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.remove('selected'));
         const state = loadStudioGridState(), startX = event.clientX, startY = event.clientY, x = Number(state.panX || 0), y = Number(state.panY || 0);
         if(event.pointerType!=='mouse'&&!window.matchMedia('(max-width:700px)').matches){longPressPoint=studioGridCanvasPoint(event.clientX,event.clientY);longPressTimer=window.setTimeout(()=>showStudioGridContext(event.clientX,event.clientY,longPressPoint),520)}
@@ -30414,7 +30436,7 @@ async function waitGeneration(jobId, options) {
       canvas.addEventListener('gesturechange',(event)=>{event.preventDefault();const state=loadStudioGridState(),target=Math.max(.2,Math.min(2.5,gestureZoomStart*Number(event.scale||1)));zoomStudioGrid(target-(state.zoom||1),event.clientX,event.clientY)},{passive:false});
       canvas.addEventListener('gestureend',(event)=>{event.preventDefault();saveStudioGridState()},{passive:false});
     }
-    if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();const state=loadStudioGridState(),edge=state.edges.find(item=>item.id===edgeElement.dataset.gridEdge);state.edges=state.edges.filter(item=>item.id!==edgeElement.dataset.gridEdge);const target=edge&&state.nodes.find(node=>node.id===edge.to);if(target){if(target.status!=='RUNNING')target.status='READY';const inputs=resolveGridNodeInputs(target.id);reconcileGridVideoMode(target,inputs)}saveStudioGridState();renderStudioGrid();toast('Связь удалена')});
+    if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();if(disconnectStudioGridEdge(edgeElement.dataset.gridEdge))toast('Связь удалена')});
     if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
     document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext();if(!event.target.closest('#studioGridProjectsPanel')&&!event.target.closest('#studioGridProjectsButton'))closeStudioGridProjects()});
     document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode'))return;if(event.key==='Escape'){clearStudioGridConnectionMode();hideStudioGridContext();return}if(event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});

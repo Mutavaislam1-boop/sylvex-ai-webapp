@@ -12970,7 +12970,7 @@ def _prostudio_download_filename(mode: str, job_id: str, content_type: str, obje
 
 
 @app.get("/api/public/prostudio/download/{job_id}")
-async def public_prostudio_download(request: Request, job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = ""):
+async def public_prostudio_download(request: Request, job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = "", result_index: int = 0):
     """Stream a completed job's durable R2 result without mutating the job."""
     # SecurityMiddleware has already authenticated either Telegram initData or
     # the Website/Browser Mini App's signed web-session and exposed the
@@ -13017,7 +13017,9 @@ async def public_prostudio_download(request: Request, job_id: str, telegram_id: 
             raise HTTPException(status_code=404, detail="job_has_no_svg_asset")
     else:
         media_urls = generation_result_urls(result, mode)
-        media_url = media_urls[0] if media_urls else ""
+        if result_index < 0 or result_index >= len(media_urls):
+            raise HTTPException(status_code=404, detail="generation_result_not_found")
+        media_url = media_urls[result_index]
     parsed_path = urllib.parse.unquote(urllib.parse.urlparse(media_url).path)
     if parsed_path.startswith("/webapp/generated/") or parsed_path.startswith("/generated/"):
         raise HTTPException(status_code=409, detail="job_result_is_not_in_r2")

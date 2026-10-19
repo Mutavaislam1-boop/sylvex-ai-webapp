@@ -85,10 +85,21 @@ test('Grid suppresses expired media capabilities until cloud history returns fre
 
 test('Grid image and video results open in in-app viewers', () => {
   assert.match(cabinet, /data-grid-open-result/);
-  assert.match(cabinet, /openImageViewer\(event,item\.url\|\|item\.preview_url,urls\)/);
-  assert.match(cabinet, /function openStudioGridVideoViewer\(url\)/);
-  assert.match(cabinet, /openStudioGridVideoViewer\(node\.output\.url\)/);
+  assert.match(cabinet, /data-grid-copy-text/);
+  assert.match(cabinet, /openImageViewer\(event,item\.url\|\|item\.preview_url,urls,\{jobId:/);
+  assert.match(cabinet, /data-image-viewer-download/);
+  assert.match(cabinet, /function openStudioGridVideoViewer\(url,jobId\)/);
+  assert.match(cabinet, /openStudioGridVideoViewer\(node\.output\.url,node\.generation_id/);
+  assert.match(cabinet, /data-grid-video-download/);
   assert.doesNotMatch(cabinet, /if\(event\.target\.closest\('\[data-grid-preview\]'\)\).*window\.open/);
+});
+
+test('Grid connection lines expose a wide hit target and disconnect through one state path', () => {
+  assert.match(cabinet, /class="studio-grid-edge-hit"/);
+  assert.match(cabinetCss, /\.studio-grid-edges \.studio-grid-edge-hit\{stroke:transparent!important;stroke-width:18!important/);
+  assert.match(cabinet, /function disconnectStudioGridEdge\(edgeId\)/);
+  assert.match(cabinet, /disconnectStudioGridEdge\(edgeElement\.dataset\.gridEdge\)/);
+  assert.match(cabinet, /event\.target\.closest\('\.studio-grid-node,\[data-grid-edge\]'\)/);
 });
 
 test('Grid route and the saved layout survive Grid initialization', () => {

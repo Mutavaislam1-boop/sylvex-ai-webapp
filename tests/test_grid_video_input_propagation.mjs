@@ -356,7 +356,7 @@ function buildConnectionContext(state) {
     gridDefaultModel: () => '', loadStudioGridState: () => state,
     toast: () => {}, saveStudioGridState: () => {}, renderStudioGrid: () => {},
   });
-  for (const name of ['gridConnectionCompatible','gridConnectionCreatesCycle','getGridNodeOutputValue','resolveGridNodeInputs','gridVideoCapability','gridVideoRequestPlan','reconcileGridVideoMode','markStudioGridDownstreamStale','connectStudioGridNodes']) {
+  for (const name of ['gridConnectionCompatible','gridConnectionCreatesCycle','getGridNodeOutputValue','resolveGridNodeInputs','gridVideoCapability','gridVideoRequestPlan','reconcileGridVideoMode','markStudioGridDownstreamStale','connectStudioGridNodes','disconnectStudioGridEdge']) {
     vm.runInContext(extractFunction(name), context);
   }
   return context;
@@ -405,4 +405,27 @@ test('adding text to a video keeps its completed image reference connected', () 
   assert.equal(state.nodes[1].status,'COMPLETED');
   assert.equal(state.nodes[2].inputs.image.value.url,imageUrl);
   assert.equal(state.nodes[2].inputs.effective_prompt.value,'Animate this product');
+});
+
+test('disconnecting an image edge removes only that reference from the video input', () => {
+  const state={nodes:[
+    {id:'text-1',type:'text',title:'Prompt',status:'COMPLETED',output:{type:'text',value:'Animate the scene'}},
+    {id:'image-1',type:'image',title:'Reference',status:'COMPLETED',output:{type:'image',items:[{url:'https://cdn.example.com/reference.jpg'}],selected_index:0}},
+    {id:'video-1',type:'video',title:'Video',status:'COMPLETED',model:'unknown',settings:{},output:{type:'video',url:'https://cdn.example.com/video.mp4'}},
+    {id:'video-2',type:'video',title:'Next video',status:'COMPLETED',model:'unknown',settings:{},output:{type:'video',url:'https://cdn.example.com/next.mp4'}},
+  ],edges:[
+    {id:'text-video',from:'text-1',fromPort:'text',to:'video-1',toPort:'text'},
+    {id:'image-video',from:'image-1',fromPort:'image',to:'video-1',toPort:'image'},
+    {id:'video-next',from:'video-1',fromPort:'video',to:'video-2',toPort:'video'},
+  ]};
+  const context=buildConnectionContext(state);
+  vm.runInContext("resolveGridNodeInputs('video-1')",context);
+  assert.equal(state.nodes[2].inputs.image.value.url,'https://cdn.example.com/reference.jpg');
+
+  assert.equal(vm.runInContext("disconnectStudioGridEdge('image-video')",context),true);
+  assert.equal(state.nodes[2].inputs.image,undefined);
+  assert.equal(state.nodes[2].inputs.effective_prompt.value,'Animate the scene');
+  assert.equal(state.nodes[2].status,'READY');
+  assert.equal(state.nodes[3].status,'READY');
+  assert.ok(!state.edges.some(edge=>edge.id==='image-video'));
 });

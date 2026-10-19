@@ -99,3 +99,37 @@ async def test_download_uses_authenticated_owner_and_denies_another_users_job(mo
 
     assert error.value.status_code == 403
     assert error.value.detail == "job_access_denied"
+
+
+@pytest.mark.asyncio
+async def test_download_can_select_the_opened_image_from_a_multi_result_job(monkeypatch):
+    owner_id = 9_000_000_000_778
+    result = json.dumps({
+        "ok": True,
+        "type": "image",
+        "images": [
+            "/api/public/storage/generated/images/first.png",
+            "/api/public/storage/generated/images/second.png",
+        ],
+    })
+    row = (owner_id, "completed", "image", result)
+    monkeypatch.setattr(main, "DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr(main, "db_connect", lambda _url: _Connection(row))
+    monkeypatch.setattr(main, "storage_exists", lambda key: key in {
+        "generated/images/first.png", "generated/images/second.png",
+    })
+    monkeypatch.setattr(
+        main,
+        "storage_get_object",
+        lambda key: (key.encode(), "image/png", len(key.encode())),
+    )
+    monkeypatch.setattr(main, "storage_iter_object", lambda body, max_bytes=None: iter((body,)))
+
+    response = await main.public_prostudio_download(
+        _request(owner_id, "web"),
+        "job-1",
+        result_index=1,
+    )
+
+    assert response.status_code == 200
+    assert await _response_bytes(response) == b"generated/images/second.png"
