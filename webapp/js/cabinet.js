@@ -7302,6 +7302,52 @@ function editWorkspaceChainLabel(node,index) {
   if(node.restoreModel==='sylvex_sr')return index+' · Sylvex Restore';
   return index===0?'Source reference':index+' · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===node.mode)?.[1]||'Result');
 }
+// The empty canvas' photo upload block as the React Bits PixelCard
+// (edit_pixel/, built into js/vendor/edit-pixel/, loaded on demand). The
+// upload button itself moves inside the card, so its click and the
+// workspace's drop target are unchanged; without the bundle it stays as is.
+const EDIT_PIXEL_VERSION='edit-pixel-20261019';
+// Next to this script: /webapp/ in the Mini App, api.sylvex.ai/webapp/
+// when the Website's Pro Studio loads cabinet.js from there.
+const EDIT_PIXEL_BASE=(()=>{const script=document.currentScript||document.querySelector('script[src*="js/cabinet.js"]');const match=script&&script.src?/^(.*\/)js\/cabinet\.js(?:[?#].*)?$/.exec(script.src):null;return match?match[1]:'';})();
+let editPixelBundle=null;
+function loadEditPixelBundle() {
+  if(window.SylvexEditPixel)return Promise.resolve(window.SylvexEditPixel);
+  if(editPixelBundle)return editPixelBundle;
+  editPixelBundle=new Promise((resolve,reject)=>{
+    const link=document.createElement('link');link.rel='stylesheet';link.href=EDIT_PIXEL_BASE+'js/vendor/edit-pixel/edit-pixel.css?v='+EDIT_PIXEL_VERSION;document.head.appendChild(link);
+    const script=document.createElement('script');script.src=EDIT_PIXEL_BASE+'js/vendor/edit-pixel/edit-pixel.js?v='+EDIT_PIXEL_VERSION;script.async=true;
+    script.onload=()=>window.SylvexEditPixel?resolve(window.SylvexEditPixel):reject(new Error('edit_pixel_empty'));
+    script.onerror=()=>reject(new Error('edit_pixel_failed'));
+    document.head.appendChild(script);
+  }).catch(error=>{editPixelBundle=null;throw error;});
+  return editPixelBundle;
+}
+// The task's "light" card on light Pro Studio themes, "dark" on dark ones.
+function editPixelTheme(host) {
+  const probe=document.createElement('div');probe.style.cssText='position:absolute;visibility:hidden;width:0;height:0;background:var(--edit-surface)';host.appendChild(probe);
+  const rgb=(getComputedStyle(probe).backgroundColor.match(/[\d.]+/g)||[]).map(Number);probe.remove();
+  return rgb.length>=3&&rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722>180?'light':'dark';
+}
+function mountEditUploadPixel(world) {
+  const host=world.querySelector('.edit-workspace-upload-host');
+  if(!host)return;
+  if(host._editPixel){host._editPixel.update({theme:editPixelTheme(host)});return;}
+  if(host._editPixelPending)return;
+  host._editPixelPending=true;
+  loadEditPixelBundle().then(api=>{
+    host._editPixelPending=false;
+    const button=host.querySelector('.edit-workspace-upload');
+    if(!host.isConnected||!button)return;
+    const mount=document.createElement('div');mount.className='edit-pixel-root';host.appendChild(mount);
+    host._editPixel=api.mount(mount,button,{theme:editPixelTheme(host)});
+  }).catch(()=>{host._editPixelPending=false;});
+}
+function removeEditUploadPixel(world) {
+  const host=world.querySelector('.edit-workspace-upload-host');
+  if(!host)return;
+  host._editPixel?.unmount();host.remove();
+}
 function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
   ensureEditWorkspaceChain();
@@ -7309,10 +7355,11 @@ function syncEditWorkspaceChain(root) {
     // The drawing workbench already supplies its own clean white paper. Do
     // not place the generic photo-upload card underneath that paper.
     if(s.mode==='sketch'){world.innerHTML='';return;}
-    if(!world.querySelector('.edit-workspace-upload'))world.innerHTML='<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Upload a photo or drop it here</b><small>JPEG, PNG, WebP · up to 50 MB</small></button>';
+    if(!world.querySelector('.edit-workspace-upload'))world.innerHTML='<div class="edit-workspace-upload-host"><button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Upload a photo or drop it here</b><small>JPEG, PNG, WebP · up to 50 MB</small></button></div>';
+    mountEditUploadPixel(world);
     return;
   }
-  world.querySelector('.edit-workspace-upload')?.remove();
+  removeEditUploadPixel(world);
   world.querySelectorAll('[data-chain-node]').forEach(el=>{if(!s.chain.some(node=>node.id===el.dataset.chainNode))el.remove();});
   let lines=world.querySelector('.edit-chain-lines');
   if(!lines){
@@ -29654,6 +29701,9 @@ async function waitGeneration(jobId, options) {
       try { localStorage.setItem(STUDIO_THEME_KEY, safe); } catch (_) {}
     }
     syncStudioThemeVarsToDocument();
+    // An open Edit workspace's upload card follows the theme (light / dark).
+    const editWorld = document.querySelector('#editWorkspace .edit-workspace-world');
+    if (editWorld && typeof mountEditUploadPixel === 'function') mountEditUploadPixel(editWorld);
     if (window.SYLVEX && window.SYLVEX.syncTelegramHeader) window.SYLVEX.syncTelegramHeader(true);
     return safe;
   }
