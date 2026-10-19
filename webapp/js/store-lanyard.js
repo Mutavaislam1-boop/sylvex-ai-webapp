@@ -80,10 +80,10 @@
     store_card_rate: 'Rate',
     store_card_flip: 'Tap the card to see all terms on the back',
     store_card_flip_back: 'Tap the card again to flip it back',
-    store_card_renews_month: 'Renews automatically every month until you turn renewal off. ⚡ credits are added after each payment.',
-    store_card_renews_year: 'Renews automatically every year until you turn renewal off. ⚡ credits are added after each payment.',
-    store_card_one_month: 'One payment for one month, no auto-renewal. ⚡ credits are added right after payment.',
-    store_card_one_year: 'One payment for 12 months, no auto-renewal. ⚡ credits are added right after payment.',
+    store_card_renews_month: 'Renews automatically every month until you turn renewal off. {token} credits are added after each payment.',
+    store_card_renews_year: 'Renews automatically every year until you turn renewal off. {token} credits are added after each payment.',
+    store_card_one_month: 'One payment for one month, no auto-renewal. {token} credits are added right after payment.',
+    store_card_one_year: 'One payment for 12 months, no auto-renewal. {token} credits are added right after payment.',
   };
 
   function makeT(t) {
@@ -180,7 +180,7 @@
       billing: billing,
       credits: fmt.number(price.credits),
       creditNote: tr(period === 'year' ? 'store_credits_annual' : 'store_credits_monthly'),
-      rate: '1 ⚡ = $0.01',
+      rate: '1 {token} = $0.01',
       examplesTitle: tr('store_examples_title'),
       examples: examples,
       examplesNote: tr('store_examples_note', notes),
@@ -215,6 +215,61 @@
     if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px';
   }
 
+  /* ---------------- token icon on canvas ---------------- */
+
+  // Text on the card may carry {token} (SylvexToken.MARK): the token icon
+  // is drawn in its place, sized to the current font.
+  var TOKEN_SPLIT = /(\{token\})/;
+
+  function fontPx(ctx) {
+    var match = /(\d+(?:\.\d+)?)px/.exec(ctx.font);
+    return match ? Number(match[1]) : 16;
+  }
+
+  function tokenSize(ctx) {
+    return fontPx(ctx) * 0.8;
+  }
+
+  function textWidth(ctx, text) {
+    return String(text).split(TOKEN_SPLIT).reduce(function (width, part) {
+      return width + (part === '{token}' ? tokenSize(ctx) : ctx.measureText(part).width);
+    }, 0);
+  }
+
+  function drawToken(ctx, x, y) {
+    var size = tokenSize(ctx);
+    var scale = size / 24;
+    var icon = root.SylvexToken;
+    ctx.save();
+    ctx.translate(x, y - size * 0.92);
+    ctx.scale(scale, scale);
+    ctx.strokeStyle = icon.COLOR;
+    ctx.lineWidth = icon.STROKE;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke(new Path2D(icon.PATH));
+    ctx.restore();
+  }
+
+  // fillText with {token} drawn as the icon; honours left/right/center.
+  function fillTokenText(ctx, text, x, y) {
+    var align = ctx.textAlign;
+    var width = textWidth(ctx, text);
+    var left = align === 'right' ? x - width : (align === 'center' ? x - width / 2 : x);
+    ctx.textAlign = 'left';
+    String(text).split(TOKEN_SPLIT).forEach(function (part) {
+      if (!part) return;
+      if (part === '{token}') {
+        drawToken(ctx, left, y);
+        left += tokenSize(ctx);
+      } else {
+        ctx.fillText(part, left, y);
+        left += ctx.measureText(part).width;
+      }
+    });
+    ctx.textAlign = align;
+  }
+
   // Splits `text` into lines no wider than `width` with the current font.
   function wrap(ctx, text, width) {
     var lines = [];
@@ -222,7 +277,7 @@
       var line = '';
       paragraph.split(/\s+/).filter(Boolean).forEach(function (word) {
         var next = line ? line + ' ' + word : word;
-        if (line && ctx.measureText(next).width > width) {
+        if (line && textWidth(ctx, next) > width) {
           lines.push(line);
           line = word;
         } else {
@@ -235,7 +290,7 @@
   }
 
   function drawLines(ctx, lines, x, y, lineHeight) {
-    lines.forEach(function (line, i) { ctx.fillText(line, x, y + i * lineHeight); });
+    lines.forEach(function (line, i) { fillTokenText(ctx, line, x, y + i * lineHeight); });
     return y + lines.length * lineHeight;
   }
 
@@ -257,7 +312,7 @@
     ctx.textAlign = 'right';
     ctx.fillStyle = INK;
     ctx.font = font(size, strong ? 700 : 600);
-    ctx.fillText(value, FACE_W - PAD, y);
+    fillTokenText(ctx, value, FACE_W - PAD, y);
     ctx.textAlign = 'left';
   }
 
@@ -325,7 +380,7 @@
     ctx.fillStyle = INK;
     ctx.font = font(96, 800);
     setSpacing(ctx, -2);
-    ctx.fillText(details.credits + ' ⚡', PAD - 4, y);
+    fillTokenText(ctx, details.credits + ' {token}', PAD - 4, y);
     setSpacing(ctx, 0);
     ctx.fillStyle = MUTED;
     ctx.font = font(32, 500);
@@ -369,7 +424,7 @@
       [details.labels.price, details.total],
     ];
     if (details.period === 'year') rows.push([details.labels.saving, details.discountPct + '%']);
-    rows.push([details.labels.credits, details.credits + ' ⚡']);
+    rows.push([details.labels.credits, details.credits + ' {token}']);
     rows.push([details.labels.rate, details.rate]);
     rows.forEach(function (pair, i) {
       row(ctx, pair[0], pair[1], y, 30, i === 1);
@@ -546,7 +601,7 @@
         strapImage: paintStrap(logo).toDataURL('image/png'),
       });
       host.setAttribute('role', 'img');
-      host.setAttribute('aria-label', details.title + ' · ' + details.amount + ' ' + details.unit + ' · ' + details.credits + ' ⚡');
+      host.setAttribute('aria-label', details.title + ' · ' + details.amount + ' ' + details.unit + ' · ' + details.labels.credits + ': ' + details.credits);
       current = { host: host, instance: api.mount(host, props), key: planId + '_' + period };
       return details;
     });

@@ -84,7 +84,7 @@ HTML-страница Mini App. Комментарии подписывают э
         <div class="balance-row profile-balance-action" role="button" tabindex="0" onclick="if(!event.target.closest('button'))switchView('shop')">
           <div>
             <div class="balance-label" data-i18n="balance">Balance</div>
-              <div class="balance-val" id="homeBalance">— ⚡️</div>
+              <div class="balance-val"><span id="homeBalance">—</span> <i class="sx-token" aria-hidden="true"></i></div>
               <div class="balance-usd" id="homeBalanceUsd">≈ $0.00</div>
           </div>
           <!-- ==================================================
@@ -1138,7 +1138,7 @@ HTML-страница Mini App. Комментарии подписывают э
               </div>
             </div>
             <div class="hd-user-stats">
-              <div><span>Balance</span><b id="hdUserBalance">— ⚡️</b></div>
+              <div><span>Balance</span><b><span id="hdUserBalance">—</span> <i class="sx-token" aria-hidden="true"></i></b></div>
               <div><span>Last charge</span><b id="hdUserLastSpent">—</b></div>
             </div>
           </div>
@@ -1208,11 +1208,11 @@ HTML-страница Mini App. Комментарии подписывают э
         <div class="sb-left">
           <div class="sb-label">Текущий баланс</div>
           <!-- ==================================================
-          HTML-ЭЛЕМЕНТ: —   ⚡️
+          HTML-ЭЛЕМЕНТ: — (иконка токена)
           ID используется JavaScript/CSS как точка подключения: shopBalance
           CSS-класс задаёт внешний вид и расположение: sb-val
           =================================================== -->
-          <div class="sb-val"><span id="shopBalance">—</span> <span class="sb-bolt">⚡️</span></div>
+          <div class="sb-val"><span id="shopBalance">—</span> <i class="sx-token" aria-hidden="true"></i></div>
           <!-- ==================================================
           HTML-ЭЛЕМЕНТ: ≈ $0.00
           ID используется JavaScript/CSS как точка подключения: shopBalanceUsd
@@ -1220,13 +1220,13 @@ HTML-страница Mini App. Комментарии подписывают э
           =================================================== -->
           <div class="sb-usd" id="shopBalanceUsd">≈ $0.00</div>
         </div>
-        <div class="sb-rate">1$ = 100 ⚡️</div>
+        <div class="sb-rate">1$ = 100 <i class="sx-token" aria-hidden="true"></i></div>
       </div>
 
       <!-- Subscription plan cards, rendered by js/store-cards.js (mountStoreCards in cabinet.js). -->
       <div id="storePlanCards" data-shop-panel="subscriptions"></div>
 
-      <div class="section-title" data-shop-panel="tokens" hidden><h3>Купить токены ⚡️</h3></div>
+      <div class="section-title" data-shop-panel="tokens" hidden><h3>Купить токены <i class="sx-token" aria-hidden="true"></i></h3></div>
       <!-- Credit package cards and custom amount, rendered by js/store-cards.js. -->
       <div id="storeCreditCards" data-shop-panel="tokens" hidden></div>
 
@@ -1317,11 +1317,11 @@ HTML-страница Mini App. Комментарии подписывают э
           =================================================== -->
           <div class="pay-row-k">Текущий баланс</div>
           <!-- ==================================================
-          HTML-ЭЛЕМЕНТ: 0  ⚡️  ≈ $0.00
+          HTML-ЭЛЕМЕНТ: 0 (иконка токена) ≈ $0.00
           ID используется JavaScript/CSS как точка подключения: payBalance
           CSS-класс задаёт внешний вид и расположение: pay-row-v
           =================================================== -->
-          <div class="pay-row-v"><span id="payBalance">0</span> ⚡️ <span class="pay-usd" id="payBalanceUsd">≈ $0.00</span></div>
+          <div class="pay-row-v"><span id="payBalance">0</span> <i class="sx-token" aria-hidden="true"></i> <span class="pay-usd" id="payBalanceUsd">≈ $0.00</span></div>
         </div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: pay-row
@@ -1441,11 +1441,11 @@ HTML-страница Mini App. Комментарии подписывают э
           <div>
             <div class="balance-label" data-i18n="balance">Balance</div>
             <!-- ==================================================
-            HTML-ЭЛЕМЕНТ: — ⚡️
+            HTML-ЭЛЕМЕНТ: — (иконка токена)
             ID используется JavaScript/CSS как точка подключения: profileBalance
             CSS-класс задаёт внешний вид и расположение: balance-val
             =================================================== -->
-            <div class="balance-val" id="profileBalance">— ⚡️</div>
+            <div class="balance-val"><span id="profileBalance">—</span> <i class="sx-token" aria-hidden="true"></i></div>
             <!-- ==================================================
             HTML-ЭЛЕМЕНТ: ≈ $0.00
             ID используется JavaScript/CSS как точка подключения: profileBalanceUsd
@@ -1481,11 +1481,11 @@ HTML-страница Mini App. Комментарии подписывают э
         =================================================== -->
         <div class="mini profile-linked-mini" role="button" tabindex="0" onclick="SYLVEX.openLinkedAccounts && SYLVEX.openLinkedAccounts()"><div class="k" data-i18n="linked_accounts">Linked accounts</div><div class="v" id="profileLinkedStatus">—</div></div>
         <!-- ==================================================
-        HTML-ЭЛЕМЕНТ: Токенов потрачено  0 ⚡️
+        HTML-ЭЛЕМЕНТ: Токенов потрачено  0 (иконка токена)
         ID используется JavaScript/CSS как точка подключения: profileSpent
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini" role="button" tabindex="0" onclick="SYLVEX.openSpendingStats()"><div class="k">Токенов потрачено</div><div class="v" id="profileSpent">0 ⚡️</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="SYLVEX.openSpendingStats()"><div class="k">Токенов потрачено</div><div class="v"><span id="profileSpent">0</span> <i class="sx-token" aria-hidden="true"></i></div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: Referrals  0
         ID используется JavaScript/CSS как точка подключения: profileReferrals
@@ -1506,7 +1506,7 @@ HTML-страница Mini App. Комментарии подписывают э
         <div class="row" onclick="switchView('history')"><div class="ico">↻</div><div class="label"><span data-i18n="gen_history">История генераций</span><small>Все созданные материалы</small></div><div class="chev">›</div></div>
         <div class="row" onclick="SYLVEX.openEditProfile()"><div class="ico">👤</div><div class="label"><span>Редактировать профиль</span><small>Имя, аватарка и оформление</small></div><div class="chev">›</div></div>
         <div class="row" onclick="SYLVEX.openManageSub()"><div class="ico">⭐</div><div class="label"><span>Управление подпиской</span><small id="manageSubSub">Статус и продление</small></div><div class="chev">›</div></div>
-        <div class="row profile-invite-row" onclick="SYLVEX.openReferrals()"><div class="ico">🎁</div><div class="label"><span>Пригласить друзей</span><small>10 ⚡️ за друга + 0.5% за активность</small></div><div class="chev">›</div></div>
+        <div class="row profile-invite-row" onclick="SYLVEX.openReferrals()"><div class="ico">🎁</div><div class="label"><span>Пригласить друзей</span><small>10 <i class="sx-token" aria-hidden="true"></i> за друга + 0.5% за активность</small></div><div class="chev">›</div></div>
       </div>
     </section>
 
@@ -1624,7 +1624,7 @@ HTML-страница Mini App. Комментарии подписывают э
 <div class="price-bar" id="priceBar">
   <div>
     <div class="pl" data-i18n="total">Total</div>
-    <div class="pv"><span id="priceVal">0</span> ⚡️</div>
+    <div class="pv"><span id="priceVal">0</span> <i class="sx-token" aria-hidden="true"></i></div>
   </div>
   <!-- ==================================================
   HTML-ЭЛЕМЕНТ: pbtn

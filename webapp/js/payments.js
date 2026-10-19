@@ -139,7 +139,7 @@
               <div class="payment-amount">${product.name || "SYLVEX"}</div>
               <div class="payment-price">${product.price_formatted || ""}</div>
             </div>
-            <div class="payment-icon">⚡</div>
+            <div class="payment-icon">${window.SylvexToken.ICON}</div>
           </div>
 
           ${description ? `<p class="payment-desc">${description}</p>` : ""}

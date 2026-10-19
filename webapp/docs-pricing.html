@@ -2,15 +2,16 @@
 <html lang="ru" data-theme="dark">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Прайс · SYLVEX</title><link rel="stylesheet" href="css/docs-center.css">
+  <title>Прайс · SYLVEX</title><link rel="stylesheet" href="css/docs-center.css"><link rel="stylesheet" href="css/token-icon.css?v=token-icon-20261019">
   <style>html,body{height:auto;min-height:100%;overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}body{padding:28px;max-width:1120px;margin:auto}.lead{color:var(--muted,#8d94a7)}table{width:100%;border-collapse:collapse;margin:22px 0;font-size:14px}th,td{padding:11px;border-bottom:1px solid rgba(128,140,165,.22);text-align:left;vertical-align:top}th{color:#aeb6c8}h2{margin-top:34px}.notice{padding:14px 16px;border-radius:12px;background:rgba(100,130,255,.12);line-height:1.5}.providers{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.providers a{color:inherit;text-decoration:none;padding:8px 11px;border:1px solid rgba(128,140,165,.3);border-radius:999px}.providers a.active{background:#5b7cff;border-color:#5b7cff;color:#fff}.error{color:#ff8b8b}@media(max-width:640px){body{padding:20px 14px 36px}table{font-size:12px}th,td{padding:9px 6px;overflow-wrap:anywhere}}</style>
 </head>
 <body>
   <h1>Прайс SYLVEX</h1>
-  <p class="lead">Полный каталог цен SYLVEX. Для каждой модели указаны инструмент, единица тарификации и стоимость в ⚡.</p>
+  <p class="lead">Полный каталог цен SYLVEX. Для каждой модели указаны инструмент, единица тарификации и стоимость в <i class="sx-token" aria-hidden="true"></i>.</p>
   <div class="notice">Перед запуском сервер только применяет опубликованный тариф к выбранным параметрам — длительности, разрешению, звуку и референсам — и показывает итог. При ошибке провайдера резерв возвращается.</div>
   <nav class="providers" id="providers" aria-label="Страницы прайса по провайдерам"></nav>
   <div id="catalog">Загружаем прайс…</div>
+  <script src="js/token-icon.js?v=token-icon-20261019"></script>
   <script>
   (async () => {
     const target = document.getElementById('catalog');
@@ -30,7 +31,7 @@
       const esc = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       document.getElementById('providers').innerHTML = names.map(name => `<a class="${name === current ? 'active' : ''}" href="docs-pricing.html?embed=1&provider=${encodeURIComponent(name)}">${esc(name)}</a>`).join('');
       const rows = groups[current];
-      target.innerHTML = `<h2>${esc(current)}</h2><p class="lead">Страница ${esc(current)}. Формат: <b>Модель · Инструмент · Единица · Цена SYLVEX</b>.</p><table><thead><tr><th>Модель</th><th>Инструмент</th><th>Единица</th><th>Цена SYLVEX</th></tr></thead><tbody>${rows.map(row => `<tr><td>${esc(row.model)}</td><td>${esc(row.category)}</td><td>${esc(row.mode)}</td><td>${esc(row.price)}</td></tr>`).join('')}</tbody></table>`;
+      target.innerHTML = `<h2>${esc(current)}</h2><p class="lead">Страница ${esc(current)}. Формат: <b>Модель · Инструмент · Единица · Цена SYLVEX</b>.</p><table><thead><tr><th>Модель</th><th>Инструмент</th><th>Единица</th><th>Цена SYLVEX</th></tr></thead><tbody>${rows.map(row => `<tr><td>${esc(row.model)}</td><td>${esc(row.category)}</td><td>${esc(row.mode)}</td><td>${SylvexToken.text(row.price)}</td></tr>`).join('')}</tbody></table>`;
     } catch (_) { target.innerHTML = '<p class="error">Не удалось загрузить каталог. Обновите страницу.</p>'; }
   })();
   </script>

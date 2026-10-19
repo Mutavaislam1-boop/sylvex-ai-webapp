@@ -85,9 +85,9 @@
     store_per_year: '/ year',
     store_billed_annually_stars: 'One payment for 12 months · save {pct}% · no auto-renewal',
     store_renews_every_30_days: 'Automatically renews every 30 days. Cancel anytime.',
-    store_custom_input_credits: 'Amount of ⚡',
-    store_custom_range_credits: 'From {min} to {max} ⚡',
-    store_custom_error_credits: 'Enter a whole number of ⚡ from {min} to {max}.',
+    store_custom_input_credits: 'Amount of {token}',
+    store_custom_range_credits: 'From {min} to {max} {token}',
+    store_custom_error_credits: 'Enter a whole number of {token} from {min} to {max}.',
     store_examples_title: 'What you can create',
     store_example_photo: 'Images',
     store_example_video: 'Video · 5 sec',
@@ -116,11 +116,11 @@
     store_pack_soon: 'This package isn’t available for purchase yet.',
     store_custom_soon: 'Custom amounts will be available soon.',
     store_examples_note: 'Examples are alternative uses of the same balance, not separate allowances. Each uses the cheapest model in its category at current prices: images {photo}; video {video}; music {music}; voice {voice}; text {text}.',
-    store_note_photo: '{model}, {credits} ⚡ per image',
-    store_note_video: '{model} {resolution}, {credits} ⚡ per {seconds} sec',
-    store_note_music: '{model}, {credits} ⚡ per {seconds} sec',
-    store_note_voice: '{model}, {credits} ⚡ per 1,000 characters',
-    store_note_text: '{model}, {input} ⚡ for 1,000 input + {output} ⚡ for 1,000 output tokens, minimum {credits} ⚡ per request',
+    store_note_photo: '{model}, {credits} {token} per image',
+    store_note_video: '{model} {resolution}, {credits} {token} per {seconds} sec',
+    store_note_music: '{model}, {credits} {token} per {seconds} sec',
+    store_note_voice: '{model}, {credits} {token} per 1,000 characters',
+    store_note_text: '{model}, {input} {token} for 1,000 input + {output} {token} for 1,000 output tokens, minimum {credits} {token} per request',
   };
 
   var ICONS = {
@@ -129,7 +129,6 @@
     music: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
     voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
     text: '<path d="M4 12a8 8 0 1 1 3.4 6.5L4 20l1.1-3.6A7.9 7.9 0 0 1 4 12z"/>',
-    bolt: '<path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z"/>',
     sliders: '<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><path d="M15 5v4M9 10v4M17 15v4"/>',
     chevron: '<path d="M6 9l6 6 6-6"/>',
     check: '<circle cx="12" cy="12" r="9"/><path d="M8.3 12.3l2.5 2.5 5-5.2"/>',
@@ -138,6 +137,11 @@
 
   function icon(name, cls) {
     return '<svg class="' + (cls || 'sxs-icon') + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + ICONS[name] + '</svg>';
+  }
+
+  // Translations and data attributes carry {token} where the token icon goes.
+  function tokenHtml(value) {
+    return root.SylvexToken.text(value);
   }
 
   function escapeHtml(value) {
@@ -213,7 +217,7 @@
 
   function creditPanel(fmt, credits, note, strong) {
     return '<div class="sxs-credit' + (strong ? ' sxs-credit--strong' : '') + '">' +
-      '<div class="sxs-credit-amount">' + icon('bolt', 'sxs-bolt') + '<span data-sxs-credits>' + escapeHtml(fmt.number(credits)) + '</span><span class="sxs-emoji" aria-hidden="true">⚡</span></div>' +
+      '<div class="sxs-credit-amount">' + root.SylvexToken.ICON + '<span data-sxs-credits>' + escapeHtml(fmt.number(credits)) + '</span></div>' +
       '<div class="sxs-credit-note">' + escapeHtml(note) + '</div>' +
     '</div>';
   }
@@ -249,7 +253,7 @@
         output: fmt.decimal(example.outputCredits),
       }).replace(/\s+,/g, ',');
     });
-    return '<p class="sxs-footnote">' + escapeHtml(tr('store_examples_note', parts)) + '</p>';
+    return '<p class="sxs-footnote">' + tokenHtml(tr('store_examples_note', parts)) + '</p>';
   }
 
   /* ---------------- scroll stability ---------------- */
@@ -427,7 +431,7 @@
     var state = creditState.get(container) || { usd: opts.defaultUsd || DEFAULT_PACK_USD, customOpen: false, customRaw: '' };
     creditState.set(container, state);
     var starsPrice = typeof opts.starsPrice === 'function' ? opts.starsPrice : null;
-    // Stars mode takes custom amounts in whole credits (⚡), within the
+    // Stars mode takes custom amounts in whole credits, within the
     // host's customCredits {min, max}; otherwise in USD.
     var customCredits = starsPrice ? (opts.customCredits || { min: CUSTOM_MIN_USD * CREDITS_PER_USD, max: CUSTOM_MAX_USD * CREDITS_PER_USD }) : null;
     var range = customCredits
@@ -460,7 +464,7 @@
       var selected = !state.customOpen && state.usd === usd;
       var credits = creditsForUsd(usd);
       return '<article class="sxs-card sxs-pack' + (selected ? ' is-selected' : '') + '" data-pack-usd="' + usd + '"' +
-          ' data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ⚡') + '" data-checkout-price="' + escapeHtml(priceLabel(usd, 0)) + '">' +
+          ' data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ' + root.SylvexToken.MARK) + '" data-checkout-price="' + escapeHtml(priceLabel(usd, 0)) + '">' +
         '<div class="sxs-pack-head"><span class="sxs-pack-price">' + escapeHtml(priceLabel(usd, 0)) + '</span>' +
           (selected ? icon('check', 'sxs-pick sxs-pick--on') : '<span class="sxs-pick" aria-hidden="true"></span>') + '</div>' +
         creditPanel(fmt, credits, tr('store_credits_label'), false) +
@@ -477,15 +481,15 @@
         '<button type="button" class="sxs-custom-head" data-sxs-custom-toggle aria-expanded="' + state.customOpen + '" aria-controls="sxsCustomBody">' +
           icon('sliders', 'sxs-custom-icon') +
           '<span class="sxs-custom-text"><span class="sxs-custom-title">' + escapeHtml(tr('store_custom_title')) + '</span>' +
-          '<span class="sxs-custom-range">' + escapeHtml(tr(customCredits ? 'store_custom_range_credits' : 'store_custom_range', range)) + '</span></span>' +
+          '<span class="sxs-custom-range">' + tokenHtml(tr(customCredits ? 'store_custom_range_credits' : 'store_custom_range', range)) + '</span></span>' +
           icon('chevron', 'sxs-chevron') +
         '</button>' +
         '<div class="sxs-custom-body" id="sxsCustomBody"' + (state.customOpen ? '' : ' hidden') + '>' +
-          '<label class="sxs-amount"><span class="sxs-amount-label">' + escapeHtml(tr(customCredits ? 'store_custom_input_credits' : 'store_custom_input')) + '</span>' +
-            '<span class="sxs-amount-field' + (error ? ' is-invalid' : '') + '"><span aria-hidden="true">' + (customCredits ? '⚡' : '$') + '</span>' +
+          '<label class="sxs-amount"><span class="sxs-amount-label">' + tokenHtml(tr(customCredits ? 'store_custom_input_credits' : 'store_custom_input')) + '</span>' +
+            '<span class="sxs-amount-field' + (error ? ' is-invalid' : '') + '"><span aria-hidden="true">' + (customCredits ? root.SylvexToken.ICON : '$') + '</span>' +
             '<input type="text" inputmode="' + (customCredits ? 'numeric' : 'decimal') + '" autocomplete="off" data-sxs-custom-input value="' + escapeHtml(state.customRaw) + '" placeholder="' + (customCredits ? '1000' : '10') + '"' +
               ' aria-invalid="' + !!error + '" aria-describedby="sxsCustomError"></span></label>' +
-          '<div class="sxs-field-error" id="sxsCustomError" role="alert">' + escapeHtml(error) + '</div>' +
+          '<div class="sxs-field-error" id="sxsCustomError" role="alert">' + tokenHtml(error) + '</div>' +
           creditPanel(fmt, credits, tr('store_credits_label'), false) +
           examplesBlock(tr, fmt, credits, examples) +
         '</div>' +
@@ -523,9 +527,9 @@
         credits = creditsForUsd(usd);
       }
       var price = credits ? priceLabel(usd, 2) : (starsPrice ? '—' : fmt.usd(0, 2));
-      return '<div class="sxs-summary" data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ⚡') + '" data-checkout-price="' + escapeHtml(price) + '">' +
+      return '<div class="sxs-summary" data-checkout-card data-checkout-title="' + escapeHtml(fmt.number(credits) + ' ' + root.SylvexToken.MARK) + '" data-checkout-price="' + escapeHtml(price) + '">' +
         '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_package')) + '</span><b data-sxs-summary-usd>' + escapeHtml(price) + '</b></div>' +
-        '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_credits')) + '</span><b>' + icon('bolt', 'sxs-bolt') + '<span data-sxs-summary-credits>' + escapeHtml(fmt.number(credits)) + '</span><span class="sxs-emoji" aria-hidden="true">⚡</span></b></div>' +
+        '<div class="sxs-summary-row"><span>' + escapeHtml(tr('store_summary_credits')) + '</span><b>' + root.SylvexToken.ICON + '<span data-sxs-summary-credits>' + escapeHtml(fmt.number(credits)) + '</span></b></div>' +
         '<button type="button" class="sxs-continue" data-sxs-continue' + continueAttrs(target) + '>' +
           escapeHtml(tr('store_continue')) + icon('arrow', 'sxs-arrow') + '</button>' +
         (note ? '<p class="sxs-summary-note">' + escapeHtml(note) + '</p>' : '') +
@@ -571,7 +575,7 @@
       var field = container.querySelector('.sxs-amount-field');
       var input = container.querySelector('[data-sxs-custom-input]');
       var error = customError(parsed);
-      container.querySelector('#sxsCustomError').textContent = error;
+      container.querySelector('#sxsCustomError').innerHTML = tokenHtml(error);
       field.classList.toggle('is-invalid', !!error);
       input.setAttribute('aria-invalid', String(!!error));
       body.querySelector('[data-sxs-credits]').textContent = fmt.number(credits);
@@ -583,7 +587,7 @@
       var summaryEl = container.querySelector('.sxs-summary');
       summaryEl.querySelector('[data-sxs-summary-usd]').textContent = price;
       summaryEl.querySelector('[data-sxs-summary-credits]').textContent = fmt.number(credits);
-      summaryEl.dataset.checkoutTitle = fmt.number(credits) + ' ⚡';
+      summaryEl.dataset.checkoutTitle = fmt.number(credits) + ' ' + root.SylvexToken.MARK;
       summaryEl.dataset.checkoutPrice = price;
       var button = summaryEl.querySelector('[data-sxs-continue]');
       var target = continueTarget();

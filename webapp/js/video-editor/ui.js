@@ -61,7 +61,7 @@ const formatTime = (seconds, precise) => {
   const rest = value - minutes * 60;
   return String(minutes).padStart(2, '0') + ':' + (precise ? rest.toFixed(1).padStart(4, '0') : String(Math.floor(rest)).padStart(2, '0'));
 };
-const credits = (value) => (value ? Math.ceil(value) + ' ⚡' : '');
+const credits = (value) => (value ? Math.ceil(value) + ' ' + window.SylvexToken.ICON : '');
 const ICON = {
   play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor" stroke="none"/></svg>',

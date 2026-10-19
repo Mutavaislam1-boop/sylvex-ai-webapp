@@ -57,18 +57,18 @@
   });
 
   const prices = [
-    ['Kling 3.0 Turbo', 'Native audio', '84 ⚡️', '1080p: 105 ⚡️'],
-    ['Kling 3.0', 'Standard', '63 ⚡️', 'native audio: 95 ⚡️; 1080p: 84 ⚡️; 4K: 315 ⚡️'],
-    ['Kling 3.0 Omni', 'Standard', '63 ⚡️', 'native audio: 84 ⚡️; video input: 95 ⚡️; 4K: 315 ⚡️'],
-    ['Kling 3.0 Omni Edit', 'Video input', '95 ⚡️', '1080p: 126 ⚡️; 4K: 315 ⚡️'],
-    ['Kling O1', 'Standard', '63 ⚡️', 'video input: 95 ⚡️; 1080p: 84 ⚡️'],
-    ['Kling 2.6', 'Standard', '32 ⚡️', '1080p: 53 ⚡️; native audio 1080p: 105 ⚡️'],
-    ['Kling Motion 2.6', 'Motion control', '53 ⚡️', '1080p: 84 ⚡️'],
-    ['Kling 2.5 Turbo', 'Standard', '32 ⚡️', '1080p: 53 ⚡️'],
-    ['Kling 2.1', 'Image to video', '42 ⚡️', '1080p: 74 ⚡️'],
-    ['Kling Video Effects', 'Video effects', '95 ⚡️', '1080p: 126 ⚡️'],
+    ['Kling 3.0 Turbo', 'Native audio', '84 {token}', '1080p: 105 {token}'],
+    ['Kling 3.0', 'Standard', '63 {token}', 'native audio: 95 {token}; 1080p: 84 {token}; 4K: 315 {token}'],
+    ['Kling 3.0 Omni', 'Standard', '63 {token}', 'native audio: 84 {token}; video input: 95 {token}; 4K: 315 {token}'],
+    ['Kling 3.0 Omni Edit', 'Video input', '95 {token}', '1080p: 126 {token}; 4K: 315 {token}'],
+    ['Kling O1', 'Standard', '63 {token}', 'video input: 95 {token}; 1080p: 84 {token}'],
+    ['Kling 2.6', 'Standard', '32 {token}', '1080p: 53 {token}; native audio 1080p: 105 {token}'],
+    ['Kling Motion 2.6', 'Motion control', '53 {token}', '1080p: 84 {token}'],
+    ['Kling 2.5 Turbo', 'Standard', '32 {token}', '1080p: 53 {token}'],
+    ['Kling 2.1', 'Image to video', '42 {token}', '1080p: 74 {token}'],
+    ['Kling Video Effects', 'Video effects', '95 {token}', '1080p: 126 {token}'],
   ];
-  document.getElementById('klingPricingRows').innerHTML = prices.map((row) => '<tr>' + row.map((cell) => '<td>' + cell + '</td>').join('') + '</tr>').join('');
+  document.getElementById('klingPricingRows').innerHTML = prices.map((row) => '<tr>' + row.map((cell) => '<td>' + cell.replace(/\{token\}/g, '<i class="sx-token" aria-hidden="true"></i>') + '</td>').join('') + '</tr>').join('');
 
   const telegram = window.Telegram && window.Telegram.WebApp;
   if (telegram && telegram.BackButton) {

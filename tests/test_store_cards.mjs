@@ -16,9 +16,12 @@ import vm from 'node:vm';
 
 const candidates = ['../webapp/js/store-cards.js', '../js/store-cards.js'].map((p) => new URL(p, import.meta.url));
 const source = readFileSync(candidates.find((url) => existsSync(url)), 'utf8');
+const tokenIcon = ['../webapp/js/token-icon.js', '../js/token-icon.js'].map((p) => new URL(p, import.meta.url)).find((url) => existsSync(url));
 const context = vm.createContext({Intl, WeakMap});
+vm.runInContext(readFileSync(tokenIcon, 'utf8'), context);
 vm.runInContext(source, context);
 const S = context.SylvexStoreCards;
+const TOKEN_ICON = context.SylvexToken.ICON;
 
 function fakeContainer() {
   return {innerHTML: '', classList: {add() {}}, addEventListener() {}};
@@ -76,8 +79,8 @@ test('examples are counts of one example each, with live server costs overriding
   const html = container.innerHTML;
   assert.match(html, /data-example="photo">[\s\S]*?data-sxs-example-value>250</);
   assert.match(html, /data-example="text">[\s\S]*?data-sxs-example-value>500</);
-  assert.match(html, /Cheap Image, 4 ⚡ per image/);
-  assert.match(html, /Tiny LLM, 0\.01 ⚡ for 1,000 input \+ 0\.04 ⚡ for 1,000 output tokens, minimum 2 ⚡ per request/);
+  assert.ok(html.includes('Cheap Image, 4 ' + TOKEN_ICON + ' per image'));
+  assert.ok(html.includes('Tiny LLM, 0.01 ' + TOKEN_ICON + ' for 1,000 input + 0.04 ' + TOKEN_ICON + ' for 1,000 output tokens, minimum 2 ' + TOKEN_ICON + ' per request'));
   assert.match(html, /Text · 1K in \+ 1K out/);
   assert.doesNotMatch(html, /By tokens/);
 });
@@ -170,7 +173,7 @@ test('credit cards: selected legacy pack continues, $100/$200 do not', () => {
   assert.match(large.innerHTML, /data-sxs-continue disabled aria-disabled="true"/);
   assert.doesNotMatch(large.innerHTML, /data-pack-id=/);
   assert.match(large.innerHTML, /isn’t available for purchase yet/);
-  assert.match(large.innerHTML, /data-checkout-title="20,000 ⚡" data-checkout-price="\$200.00"/);
+  assert.match(large.innerHTML, /data-checkout-title="20,000 \{token\}" data-checkout-price="\$200.00"/);
 });
 
 test('locale grouping with a point before cents, host strings with English fallback', () => {
@@ -245,7 +248,7 @@ test('stars mode credits: host packs, Stars prices and custom amounts in credits
     assert.match(html, new RegExp('<span class="sxs-pack-price">' + stars + ' ⭐</span>'));
   }
   assert.doesNotMatch(html, /\$\d/);
-  assert.match(html, /From 100 to 10,020 ⚡/);
+  assert.ok(html.includes('From 100 to 10,020 ' + TOKEN_ICON));
   container.fire('click', {closest: (sel) => (sel === '[data-sxs-custom-toggle]' ? {} : null)});
   for (const [raw, ok] of [['1234', true], ['10020', true], ['10021', false], ['99', false], ['12.5', false], ['', false]]) {
     container.fire('input', {matches: () => true, value: raw});

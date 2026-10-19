@@ -67,9 +67,9 @@ def test_published_price_list_and_music_docs_show_suno_prices():
     assert suno == {"Chirp v6": "18 ⚡", "Chirp v5.5": "18 ⚡", "Chirp v6 Mini": "15 ⚡"}
     webapp = Path(__file__).resolve().parent.parent / "webapp"
     docs = (webapp / "docs-music.html").read_text(encoding="utf-8")
-    for row in ("<td>Suno Chirp v6</td><td>$0.18</td><td>18 ⚡️</td>",
-                "<td>Suno Chirp v5.5</td><td>$0.18</td><td>18 ⚡️</td>",
-                "<td>Suno Chirp v6 Mini</td><td>$0.15</td><td>15 ⚡️</td>"):
+    for row in ('<td>Suno Chirp v6</td><td>$0.18</td><td>18 <i class="sx-token" aria-hidden="true"></i></td>',
+                '<td>Suno Chirp v5.5</td><td>$0.18</td><td>18 <i class="sx-token" aria-hidden="true"></i></td>',
+                '<td>Suno Chirp v6 Mini</td><td>$0.15</td><td>15 <i class="sx-token" aria-hidden="true"></i></td>'):
         assert row in docs
     assert "model=suno_chirp_6" in docs and "model=suno_chirp_6_mini" in docs
     pricing_page = (webapp / "docs-pricing.html").read_text(encoding="utf-8")
