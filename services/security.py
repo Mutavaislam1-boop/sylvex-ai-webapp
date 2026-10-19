@@ -410,24 +410,16 @@ def tg_session_set_cookie_bytes(telegram_id,generation=0):
  return morsel.OutputString().encode()
 
 # ---------------------------------------------------------------------------
-# Bridge: website session -> the same telegram_id-keyed business data.
+# Web account -> legacy business-data storage key.
 #
-# Every protected /api/ route below still requires Telegram initData except
-# the narrow /api/web/* auth surface (PUBLIC_POSTS/PUBLIC_GETS above) - so a
-# website-embedded Pro Studio session (sylvex-website/pro-studio.html's
-# iframe, ?embed=web; see webapp/js/cabinet.js's usesWebSessionAuth()) has
-# no Telegram initData to present for the actual generation/jobs/
-# characters/objects/history surface, only the sylvex_web_session cookie.
-# verify_web_session_token() above already turns that cookie into a
-# sylvex_accounts.account_id; this resolves it one step further to that
-# account's active_telegram_id, the exact storage key every existing
-# telegram_id-keyed table and handler already reads (see
-# services/account_identity.py's _new_web_account). Once that id is `uid`
-# below, in place of a Telegram-validated one, nothing downstream - not the
-# generation endpoints, not the query/body telegram_id rewrite a few lines
-# down - needs to know the difference. Small TTL cache since this runs on
-# every protected website-embedded request and the mapping only changes on
-# the rare Telegram-merge event.
+# The public identity of a Website/Browser Mini App user is account_id from
+# the signed web-session cookie.  Existing business tables still use a
+# numeric owner column named ``telegram_id`` for historical reasons.  A web
+# account therefore has an opaque internal storage key, resolved here only
+# inside the Core.  It is never a client credential and must never be sent to
+# the Website/Browser client.  SecurityMiddleware exposes both values in the
+# request state (account_id + account_storage_id) and keeps ``telegram_id`` as
+# an internal compatibility alias until those tables are migrated.
 # ---------------------------------------------------------------------------
 _WEB_UID_CACHE_TTL=30.0
 _web_uid_cache={}
@@ -753,10 +745,20 @@ class SecurityMiddleware:
      try:json_body=json.loads(body)
      except (ValueError,UnicodeError):raise SecurityError('invalid_json',400)
      if not isinstance(json_body,dict):raise SecurityError('json_object_required',400)
-   init_data=headers.get(b'x-telegram-init-data',b'').decode()
+   telegram_header=headers.get(b'x-telegram-init-data',b'').decode()
+   init_data=telegram_header
    if not init_data and json_body:init_data=str(json_body.get('initData') or json_body.get('init_data') or '')
    if not init_data:init_data=next((v for k,v in query if k in {'init_data','initData'}),'')
+   # A real Telegram client always authenticates through the dedicated
+   # header installed by its adapter. If that header is absent and a valid
+   # web-session cookie exists, legacy/stale initData fields must not turn a
+   # Website or Browser request back into Telegram authentication.
+   if not telegram_header:
+    cookie_account_id,_=web_session_account_id_from_cookie_header(headers.get(b'cookie',b'').decode())
+    if cookie_account_id:init_data=''
    uid=0
+   web_account_id=0
+   auth_kind='public'
    tg_session_uid_to_refresh=0
    # The Support Bot is a separate Telegram bot/token and can never produce
    # a valid initData signature for this app's BOT_TOKEN. A matching shared
@@ -780,11 +782,13 @@ class SecurityMiddleware:
      except (TypeError,ValueError):uid=0
      if not uid:raise SecurityError('telegram_user_missing')
      user={'id':uid};admin=True
+     auth_kind='service'
     else:
      admin=path.startswith('/api/admin/')
      if init_data:
       try:
        user=validated_user(init_data);uid=user['id']
+       auth_kind='telegram'
        if not admin:tg_session_uid_to_refresh=uid
       except SecurityError:
        # initData present but stale (Mini App open longer than
@@ -801,13 +805,11 @@ class SecurityMiddleware:
          if tg_generation<current_generation:uid=0
        if not uid:raise
        user={'id':uid};tg_session_uid_to_refresh=uid
+       auth_kind='telegram'
      else:
-      # No Telegram initData at all (never true inside real Telegram - see
-      # api-auth.js's fetch wrapper, which only ever sends this header when
-      # window.Telegram.WebApp.initData is real): the website-embedded Pro
-      # Studio path. Admin routes are deliberately excluded - they must
-      # still go through real Telegram initData or the support-bot service
-      # token above, never a website session cookie.
+      # No Telegram initData: Website or standalone Browser Mini App.  Their
+      # identity is exclusively the signed SYLVEX web-session account_id.
+      # Admin routes are deliberately excluded.
       uid=0
       if not admin:
        cookie_header=headers.get(b'cookie',b'').decode()
@@ -823,15 +825,22 @@ class SecurityMiddleware:
         uid=await asyncio.to_thread(resolve_web_session_uid,web_account_id)
       if not uid:raise SecurityError('invalid_init_data')
       user={'id':uid}
+      auth_kind='web'
      if not admin:
-      ids=[v for k,v in query if k=='telegram_id']
-      if json_body is not None and 'telegram_id' in json_body:ids.append(json_body['telegram_id'])
-      if path.startswith('/api/cabinet/'):ids.append(path.rsplit('/',1)[-1])
-      for claimed in ids:
-       try:
-        if isinstance(claimed, (bool, list, dict)) or int(claimed or 0) not in (0,uid):raise ValueError()
-       except (ValueError,TypeError):raise SecurityError('user_mismatch',403)
-      query=[(k,v) for k,v in query if k!='telegram_id']+[('telegram_id',str(uid))]
+      # Telegram clients may claim their own id for old handlers, but it
+      # must match the verified initData.  Website/browser claims are
+      # ignored: account identity comes from the cookie only and the client
+      # is never required (or allowed) to know the internal storage key.
+      if auth_kind=='telegram':
+       ids=[v for k,v in query if k=='telegram_id']
+       if json_body is not None and 'telegram_id' in json_body:ids.append(json_body['telegram_id'])
+       if path.startswith('/api/cabinet/'):ids.append(path.rsplit('/',1)[-1])
+       for claimed in ids:
+        try:
+         if isinstance(claimed, (bool, list, dict)) or int(claimed or 0) not in (0,uid):raise ValueError()
+        except (ValueError,TypeError):raise SecurityError('user_mismatch',403)
+      blocked_query_identity={'telegram_id'} if auth_kind=='telegram' else {'telegram_id','initData','init_data'}
+      query=[(k,v) for k,v in query if k not in blocked_query_identity]+[('telegram_id',str(uid))]
       scope['query_string']=urlencode(query).encode()
       if json_body is not None:json_body['telegram_id']=uid
     if json_body is not None:
@@ -843,11 +852,24 @@ class SecurityMiddleware:
       if len(json_body.get('prompt',''))>100000:raise SecurityError('prompt_too_large',413)
       if 'history' in json_body and (not isinstance(json_body['history'],list) or len(json_body['history'])>100):raise SecurityError('invalid_history',422)
       validate_input_media(json_body)
-     # Legacy handlers now see the same verified credentials as middleware.
-     json_body['initData']=init_data;json_body['init_data']=init_data
+     # Only a Telegram request gets Telegram compatibility fields. Website
+     # and Browser Mini App requests stay free of Telegram auth material.
+     if auth_kind=='telegram':
+      json_body['initData']=init_data;json_body['init_data']=init_data
+     else:
+      json_body.pop('initData',None);json_body.pop('init_data',None);json_body.pop('initDataUnsafe',None)
      body=json.dumps(json_body,separators=(',',':')).encode()
     if init_data and path in TELEGRAM_BLOCKED_PURCHASE_ROUTES:raise SecurityError('telegram_stars_only',403)
-    scope.setdefault('state',{}).update(telegram_id=uid,telegram_user=user,telegram_init_data=init_data)
+    scope.setdefault('state',{}).update(
+     account_id=web_account_id or None,
+     account_storage_id=uid if auth_kind=='web' else None,
+     auth_kind=auth_kind,
+     # Compatibility for legacy Core services whose owner column is still
+     # named telegram_id. This value never comes from a Website client.
+     telegram_id=uid,
+     telegram_user=user if auth_kind=='telegram' else None,
+     telegram_init_data=init_data if auth_kind=='telegram' else '',
+    )
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)
   except SecurityError as exc:

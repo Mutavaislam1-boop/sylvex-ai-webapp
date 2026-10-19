@@ -126,6 +126,8 @@
       subscription_expires_at: until,
       last_subscription_expires_at: state.last_subscription_expires_at || until,
       subscription_expired: !!state.subscription_expired,
+      account_id: state.account_id || state.sylvex_user_id,
+      sylvex_user_id: state.sylvex_user_id || state.account_id,
       telegram_id: state.telegram_id,
       username: state.username,
       first_name: state.first_name,
@@ -237,8 +239,9 @@
     if (normalized.subscription_expired && S.showExpiredSubscriptionModal) {
       S.showExpiredSubscriptionModal(normalized);
     }
-    if (u.telegram_id && typeof CustomEvent !== 'undefined') {
-      document.dispatchEvent(new CustomEvent('sylvex:user-ready', { detail: { telegram_id: u.telegram_id } }));
+    const readyIdentity = u.account_id || u.sylvex_user_id || u.telegram_id;
+    if (readyIdentity && typeof CustomEvent !== 'undefined') {
+      document.dispatchEvent(new CustomEvent('sylvex:user-ready', { detail: { account_id: readyIdentity } }));
     }
   }
 
@@ -401,10 +404,8 @@
 
   // =====================================================
   // JAVASCRIPT-БЛОК: syncWebSession
-  // Website embed only (?embed=web, see sylvex-website/pro-studio.html): reads
-  // the browser's /api/web/session/me cookie session instead of Telegram
-  // initData, and renders it through the same renderUserState() the Telegram
-  // path uses, so it is the same account, balance and history either way.
+  // Standalone Browser Mini App: reads the signed SYLVEX web session instead
+  // of Telegram initData and keeps the public account_id as client identity.
   // =====================================================
   async function syncWebSession() {
     try {
@@ -412,10 +413,8 @@
       if (!res.ok) return null;
       const json = await res.json();
       if (!json || !json.authenticated) return null;
-      // storage_id is the account's internal storage key; API calls send it
-      // as telegram_id, which the server checks against this same cookie.
       const identity = {
-        telegram_id: json.storage_id || undefined,
+        account_id: json.account_id || json.sylvex_user_id,
         sylvex_user_id: json.sylvex_user_id,
         email: json.email || undefined,
         display_name: json.display_name || undefined,
@@ -423,7 +422,7 @@
         username: json.username || undefined,
         custom_avatar_url: json.avatar_url || undefined,
       };
-      renderUserState(Object.assign({}, json, { telegram_id: identity.telegram_id }));
+      renderUserState(identity);
       renderIdentity(identity);
       return S.user;
     } catch { return null; }

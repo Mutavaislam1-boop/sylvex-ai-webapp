@@ -7223,10 +7223,30 @@ def payment_url(pack_id: str, method: str = "paypal") -> str:
 # Маршрут FastAPI: @app.get("/api/public/prostudio/conversations")
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
-def _edit_sessions_owner(request: Request):
-    owner = int(getattr(request.state, "telegram_id", 0) or 0)
+def _core_account_owner(request: Request, canonical_payload: dict | None = None):
+    """Resolved Core storage owner.
+
+    Website/Browser callers are authenticated by account_id and receive an
+    opaque account_storage_id from SecurityMiddleware. Telegram callers keep
+    their verified Telegram id. No handler trusts a client-supplied id.
+    """
+    state = getattr(request, "state", None)
+    owner = int(
+        (getattr(state, "account_storage_id", 0) if state is not None else 0)
+        or (getattr(state, "telegram_id", 0) if state is not None else 0)
+        # SecurityMiddleware canonicalizes this field before the handler is
+        # called. Keeping it as a final compatibility source lets internal
+        # callers invoke the handler directly without weakening HTTP auth.
+        or ((canonical_payload or {}).get("telegram_id") if isinstance(canonical_payload, dict) else 0)
+        or 0
+    )
     if not owner:
         raise HTTPException(status_code=401, detail="authentication_required")
+    return owner
+
+
+def _edit_sessions_owner(request: Request):
+    owner = _core_account_owner(request)
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="edit_history_unavailable")
     return owner
@@ -7272,9 +7292,7 @@ async def public_delete_edit_session(request: Request, session_id: str):
 
 
 def _grid_projects_owner(request: Request):
-    owner = int(getattr(request.state, "telegram_id", 0) or 0)
-    if not owner:
-        raise HTTPException(status_code=401, detail="authentication_required")
+    owner = _core_account_owner(request)
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="grid_history_unavailable")
     return owner
@@ -8690,10 +8708,9 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/draft")
-async def public_prostudio_get_draft(telegram_id: int = 0, mode: str = ""):
-    if not telegram_id:
-        return telegram_id_required_response()
-    drafts = load_prostudio_drafts(telegram_id)
+async def public_prostudio_get_draft(request: Request, mode: str = ""):
+    owner = _core_account_owner(request)
+    drafts = load_prostudio_drafts(owner)
     normalized = (mode or "").strip().lower()
     if normalized:
         return {"ok": True, "draft": drafts.get(normalized) or {}}
@@ -8712,17 +8729,15 @@ async def public_prostudio_get_draft(telegram_id: int = 0, mode: str = ""):
 # =====================================================
 async def public_prostudio_save_draft(request: Request):
     data = await request.json()
-    telegram_id = int(data.get("telegram_id") or 0)
-    if not telegram_id:
-        return telegram_id_required_response()
+    owner = _core_account_owner(request, data)
     draft = save_prostudio_draft(
-        telegram_id=telegram_id,
+        telegram_id=owner,
         mode=data.get("mode") or data.get("category") or "image",
         draft_text=data.get("draft_text") or data.get("text") or "",
         conversation_id=data.get("conversation_id") or "",
         attachment=data.get("attachment") or {},
     )
-    log_user_event(telegram_id, "miniapp", "draft", "draft_saved", {
+    log_user_event(owner, "website" if getattr(request.state, "auth_kind", "") == "web" else "miniapp", "draft", "draft_saved", {
         "mode": draft.get("mode"),
         "has_text": bool(draft.get("draft_text")),
     })
@@ -10036,7 +10051,8 @@ async def internal_telegram_media(request: Request):
 # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
 # =====================================================
 @app.post("/api/public/prostudio/upload-media")
-async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str = "image"):
+async def public_prostudio_upload_media(request: Request, file: UploadFile = File(...), kind: str = "image"):
+    _core_account_owner(request)
     media_kind = (kind or "").strip().lower()
     filename = pathlib.Path(file.filename or "").name
     suffix = pathlib.Path(filename).suffix.lower()
@@ -14863,21 +14879,17 @@ async def public_telegram_sync(request: Request):
 
 
 # =====================================================
-# WEB SESSION: sylvex-website account (email/Google/Apple + optional Telegram)
+# WEB SESSION: independent SYLVEX Website/Browser account
 #
 # The website is a second client of this same backend (see
 # sylvex-website/backend/WEB_API_CONTRACT.md). Every route below
 # authenticates with a browser session cookie (or a mailed one-time token),
 # never Telegram initData. See services/account_identity.py for the account
 # model: a website registration gets its own real `sylvex_accounts.account_id`
-# (the "SYLVEX ID"), independent of Telegram - never a fake/negative
-# telegram_id. Its business data (balance/subscription/history) still lives
-# in the same telegram_id-keyed tables the Mini App uses, under a hidden
-# internal storage id, until the user explicitly and permanently connects a
-# real Telegram identity (see the /api/web/account/telegram/* and
-# /api/account/link/* routes below) - only then do the two become one
-# account, one balance, one history. The session cookie always carries the
-# account_id; unlike the old model, that id never changes, merge or not.
+# (the "SYLVEX ID"), independent of Telegram. The session cookie carries
+# only that account_id. Legacy business tables retain an internal numeric
+# storage key, but it is resolved inside the Core and is never returned as
+# client identity or required in a Website/Browser request.
 # =====================================================
 # Optional: scope the session cookie to the whole registrable domain (e.g.
 # ".sylvex.ai") instead of the default host-only cookie (api.sylvex.ai
@@ -14950,13 +14962,9 @@ def _web_session_payload(account_id: int) -> dict:
         member_since = None
     return {
         "authenticated": True,
+        "account_id": int(account_id),
         "sylvex_user_id": int(account_id),
-        # The account's internal storage key - the id SecurityMiddleware
-        # already resolves this cookie to for every protected route. The
-        # Mini App opened in a plain browser sends it as telegram_id (any
-        # other value is rejected as user_mismatch), exactly like the
-        # Telegram path sends the real Telegram id.
-        "storage_id": int(summary["active_telegram_id"]) if summary.get("active_telegram_id") else None,
+        "identity_type": "web_account",
         "display_name": state.get("display_name") or state.get("first_name"),
         "first_name": state.get("first_name"),
         "username": state.get("username"),
@@ -14969,8 +14977,6 @@ def _web_session_payload(account_id: int) -> dict:
         "email_verified": bool(summary.get("email_verified")),
         "has_email": bool(summary.get("has_email")),
         "has_password": bool(summary.get("has_password")),
-        "telegram_connected": bool(summary.get("telegram_connected")),
-        "telegram_username": state.get("username") if summary.get("telegram_connected") else None,
         "oauth": summary.get("oauth") or {},
     }
 
@@ -25546,7 +25552,7 @@ async def public_prostudio_generate(request: Request):
             count=resolved_grid_references,
         )
     normalize_grid_video_request(payload)
-    telegram_id = int(payload.get("telegram_id") or 0)
+    telegram_id = _core_account_owner(request, payload)
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
     category = (payload.get("category") or mode).lower()
     prompt = (payload.get("prompt") or "").strip()

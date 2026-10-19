@@ -1,11 +1,9 @@
 // =====================================================
 // АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/account-auth.js
-// Cross-platform identity UI: the standalone-browser login/register gate
-// (spec requirement #24-#26) and the "Linked accounts" panel (Connect
-// Telegram from a browser session, Connect Email from inside Telegram -
-// requirements #6-#20). Talks only to the existing /api/web/* and
-// /api/account/link/* endpoints in services/account_identity.py; never
-// touches the Telegram Mini App's own initData auth path.
+// Identity UI for the standalone Browser Mini App. It authenticates with a
+// SYLVEX web session (email/Google/Apple) and never links to or merges with
+// a Telegram identity. The real Telegram Mini App keeps its own initData
+// authentication in its separate client boundary.
 // =====================================================
 (function () {
   const S = (window.SYLVEX = window.SYLVEX || {});
@@ -242,7 +240,7 @@
       const hasApple = !!(metaContent('sylvex-apple-client-id') && metaContent('sylvex-apple-redirect-uri'));
       setBody(overlay,
         `<div class="sylvexAuth-title">${isLogin ? 'Sign in to SYLVEX' : 'Create your SYLVEX account'}</div>
-         <div class="sylvexAuth-sub">${isLogin ? 'Use your SYLVEX account from sylvex.ai, or Telegram if it has already been connected.' : 'One SYLVEX account for sylvex.ai and the SYLVEX app.'}</div>
+         <div class="sylvexAuth-sub">${isLogin ? 'Use your SYLVEX account from sylvex.ai.' : 'One SYLVEX account for sylvex.ai and the SYLVEX browser app.'}</div>
          <div class="sylvexAuth-error" id="saErr"></div>
          ${isLogin ? '' : '<input class="sylvexAuth-field" type="text" id="saName" placeholder="Display name" autocomplete="name">'}
          <input class="sylvexAuth-field" type="email" id="saEmail" placeholder="Email" autocomplete="email">
@@ -251,7 +249,6 @@
          <button class="sylvexAuth-btn" id="saSubmit">${isLogin ? 'Sign in' : 'Create Account'}</button>
          ${hasGoogle ? '<button class="sylvexAuth-btn secondary" id="saGoogle">Continue with Google</button><div class="sylvexAuth-gbtn" id="saGoogleHost"></div>' : ''}
          ${hasApple ? '<button class="sylvexAuth-btn secondary" id="saApple">Sign in with Apple</button>' : ''}
-         <div id="saTgHost"></div>
          <div class="sylvexAuth-link" id="saToggle">${isLogin ? 'New to SYLVEX? Create an account' : 'Already have an account? Sign in'}</div>
          ${isLogin ? '<div class="sylvexAuth-link" id="saForgot">Forgot password?</div>' : ''}
          <div class="sylvexAuth-link sylvexAuth-guest" id="saGuest">Continue as guest</div>`
@@ -262,13 +259,6 @@
       q(overlay, '#saSubmit').onclick = () => submit(isLogin);
       if (hasGoogle) q(overlay, '#saGoogle').onclick = () => oauthFlow('google');
       if (hasApple) q(overlay, '#saApple').onclick = () => oauthFlow('apple');
-      mountTelegramWidget(q(overlay, '#saTgHost'), async (payload) => {
-        const res = await apiFetch('/api/web/auth/telegram', { method: 'POST', body: JSON.stringify(payload) });
-        if (!res.ok) { showErr(res.json.error === 'telegram_not_linked'
-          ? 'This Telegram account is not connected to a SYLVEX account yet. Register with email, then connect Telegram from Linked Accounts.'
-          : (res.json.error || 'Could not sign in with Telegram')); return; }
-        await onAuthenticated();
-      });
     }
 
     function showErr(msg) { const e = q(overlay, '#saErr'); if (e) e.textContent = msg || ''; }
@@ -809,7 +799,6 @@
       email_already_registered: 'An account with this email already exists. Log in or reset your password instead.',
       invalid_email: 'Enter a valid email address.',
       password_too_short: 'Password must be at least 8 characters.',
-      telegram_not_linked: 'This Telegram account isn’t connected to a SYLVEX account yet. Log in or register with email/Google, then connect Telegram from Linked accounts.',
       invalid_google_token: 'Sign-in failed. Please try again.',
       invalid_apple_token: 'Sign-in failed. Please try again.',
       google_oauth_not_configured: 'This sign-in method isn’t available yet.',
@@ -839,237 +828,57 @@
   }
 
   // ---------------------------------------------------------------------
-  // Telegram Login Widget embed (website-initiated Connect Telegram
-  // direction, spec requirement #7) - the real widget, not a hand-rolled
-  // login form, per Telegram's own docs.
-  // ---------------------------------------------------------------------
-  let widgetCallbackSeq = 0;
-  function mountTelegramWidget(host, onAuth) {
-    if (!host) return;
-    const botUsername = metaContent('sylvex-telegram-bot') || 'sylvexai_bot';
-    const cbName = 'sylvexTgWidgetCb' + (++widgetCallbackSeq);
-    window[cbName] = (user) => { onAuth(user); };
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = 'https://telegram.org/js/telegram-widget.js?22';
-    script.setAttribute('data-telegram-login', botUsername);
-    script.setAttribute('data-size', 'medium');
-    script.setAttribute('data-radius', '10');
-    script.setAttribute('data-onauth', `${cbName}(user)`);
-    script.setAttribute('data-request-access', 'write');
-    host.innerHTML = '';
-    host.appendChild(script);
-  }
-
-  // ---------------------------------------------------------------------
-  // Linked Accounts panel: entry point from Profile ("Linked accounts").
-  // Context-aware per spec requirement #26: a real Telegram Mini App shows
-  // Connect Email (#8); a browser/web session shows Connect Telegram (#7).
+  // Identity panel. Website and standalone Browser Mini App accounts remain
+  // independent from Telegram. Self-service account linking and merging are
+  // intentionally absent; exceptional transfers are handled by Support.
   // ---------------------------------------------------------------------
   async function refreshLinkedStatusBadge() {
     const badge = document.getElementById('profileLinkedStatus');
     if (!badge) return;
+    if (S.hasTelegramContext && S.hasTelegramContext()) {
+      badge.textContent = 'Telegram account';
+      return;
+    }
     try {
-      if (S.hasTelegramContext && S.hasTelegramContext()) {
-        const res = await apiFetch('/api/account/link-status?initData=' + encodeURIComponent(telegramInitData()));
-        badge.textContent = res.json.connected ? 'Connected' : 'Connect email';
-      } else {
-        const res = await apiFetch('/api/web/session/me');
-        badge.textContent = res.json.authenticated ? (res.json.telegram_connected ? 'Connected' : 'Connect Telegram') : 'Sign in';
-      }
-    } catch { badge.textContent = '—'; }
+      const res = await apiFetch('/api/web/session/me');
+      badge.textContent = res.json && res.json.authenticated ? 'SYLVEX account' : 'Sign in';
+    } catch {
+      badge.textContent = '-';
+    }
   }
   S.refreshLinkedAccountsBadge = refreshLinkedStatusBadge;
 
   function openLinkedAccounts() {
     if (S.hasTelegramContext && S.hasTelegramContext()) {
-      openLinkedAccountsFromTelegram();
-    } else {
-      openLinkedAccountsFromWeb();
+      const overlay = openOverlay('');
+      setBody(overlay,
+        '<div class="sylvexAuth-title">Account</div>' +
+        '<div class="sylvexAuth-row"><span>Sign-in method</span><span class="v">Telegram</span></div>' +
+        '<div class="sylvexAuth-perm">This Telegram account is independent from Website and Browser Mini App accounts.</div>'
+      );
+      return;
     }
+    apiFetch('/api/web/session/me').then((res) => {
+      if (!res.json || !res.json.authenticated) {
+        openWebAuthGate();
+        return;
+      }
+      const session = res.json;
+      const overlay = openOverlay('');
+      setBody(overlay,
+        '<div class="sylvexAuth-title">Sign-in methods</div>' +
+        '<div class="sylvexAuth-row"><span>Email</span><span class="v">' +
+          (session.email ? S.escapeHtml(session.email_verified ? session.email : session.email + ' (unverified)') : 'Not set') +
+        '</span></div>' +
+        '<div class="sylvexAuth-row"><span>Google</span><span class="v">' +
+          (session.oauth && session.oauth.google ? 'Connected' : 'Not connected') +
+        '</span></div>' +
+        '<div class="sylvexAuth-row"><span>Apple</span><span class="v">' +
+          (session.oauth && session.oauth.apple ? 'Connected' : 'Not connected') +
+        '</span></div>' +
+        '<div class="sylvexAuth-perm">Your SYLVEX web account is independent from Telegram.</div>'
+      );
+    });
   }
   S.openLinkedAccounts = openLinkedAccounts;
-
-  function renderMergeSummary(preview) {
-    const res = preview.resolution || {};
-    let subLine = 'No active subscription on either side.';
-    if (res.surviving_plan) {
-      subLine = `Subscription after merge: <b>${res.surviving_plan === 'sub_year' ? 'Pro · 1 year' : 'Pro · 1 month'}</b>` +
-        (res.credits_from_conversion ? ` &mdash; the other side's unused subscription time converts to <b>${res.credits_from_conversion.toLocaleString()} ⚡</b>` : '');
-    }
-    let warn = '';
-    if (preview.requires_subscription_confirmation) {
-      warn = `<div class="sylvexAuth-warn">Both accounts have an active subscription. Only one can survive the merge - the other's remaining paid time becomes SYLVEX credits (⚡), never extra months. Review below and confirm to continue.</div>`;
-    }
-    return `
-      ${warn}
-      <div class="sylvexAuth-summary">
-        Website balance: <b>${Number(preview.website_balance || 0).toLocaleString()} ⚡</b><br>
-        Telegram balance: <b>${Number(preview.telegram_balance || 0).toLocaleString()} ⚡</b><br>
-        Combined balance after merge: <b>${Number(preview.combined_balance || 0).toLocaleString()} ⚡</b><br>
-        ${subLine}
-      </div>
-      <div class="sylvexAuth-sub">After confirmation these accounts will become one SYLVEX account. This action cannot be reversed through normal account settings.</div>
-    `;
-  }
-
-  // --- Web-session direction: Connect Telegram ---
-  function openLinkedAccountsFromWeb() {
-    apiFetch('/api/web/session/me').then((res) => {
-      if (!res.json.authenticated) { openWebAuthGate(); return; }
-      renderWebLinkedPanel(res.json);
-    });
-  }
-
-  function renderWebLinkedPanel(session) {
-    const overlay = openOverlay('');
-    function base() {
-      setBody(overlay,
-        `<div class="sylvexAuth-title">Linked accounts</div>
-         <div class="sylvexAuth-row"><span>Email</span><span class="v">${session.email ? S.escapeHtml(session.email_verified ? session.email : session.email + ' (unverified)') : 'Not set'}</span></div>
-         <div class="sylvexAuth-row"><span>Google</span><span class="v">${session.oauth && session.oauth.google ? 'Connected' : 'Not connected'}</span></div>
-         <div class="sylvexAuth-row"><span>Apple</span><span class="v">${session.oauth && session.oauth.apple ? 'Connected' : 'Not connected'}</span></div>
-         <div class="sylvexAuth-row"><span>Telegram</span><span class="v">${session.telegram_connected ? ('@' + S.escapeHtml(session.telegram_username || '')) + ' · Connected' : 'Not connected'}</span></div>
-         ${session.telegram_connected ? '' : '<div id="wlaConnectHost"></div>'}
-         <div class="sylvexAuth-perm">${session.telegram_connected ? 'Connecting Telegram is a one-time, permanent merge and cannot be undone from here.' : 'Connecting Telegram permanently merges its balance, subscription and history into this account.'}</div>`
-      );
-      if (!session.telegram_connected) {
-        mountTelegramWidget(q(overlay, '#wlaConnectHost'), (payload) => previewFromWidget(payload));
-      }
-    }
-
-    async function previewFromWidget(payload) {
-      const res = await apiFetch('/api/web/account/telegram/preview', { method: 'POST', body: JSON.stringify(payload) });
-      if (!res.ok) {
-        setBody(overlay, res.json.conflict
-          ? '<div class="sylvexAuth-title">Already connected</div><div class="sylvexAuth-warn">This Telegram account is already connected to another SYLVEX account.</div>'
-          : `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${S.escapeHtml(res.json.error || 'Something went wrong')}</div>`);
-        return;
-      }
-      if (res.json.status === 'already_linked') { toast('Already connected'); base(); return; }
-      setBody(overlay,
-        `<div class="sylvexAuth-title">Confirm merge</div>
-         ${renderMergeSummary(res.json)}
-         <button class="sylvexAuth-btn" id="wlaConfirm">Confirm merge</button>
-         <button class="sylvexAuth-btn secondary" id="wlaCancel">Cancel</button>`
-      );
-      q(overlay, '#wlaCancel').onclick = () => base();
-      q(overlay, '#wlaConfirm').onclick = () => confirmFromWidget(payload, res.json.requires_subscription_confirmation);
-    }
-
-    async function confirmFromWidget(payload, needsSubConfirm) {
-      const res = await apiFetch('/api/web/account/telegram/confirm', {
-        method: 'POST', body: JSON.stringify(Object.assign({}, payload, { confirmed_subscription_merge: !!needsSubConfirm })),
-      });
-      if (!res.ok) {
-        setBody(overlay, `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${S.escapeHtml(res.json.error || 'Something went wrong')}</div>`);
-        return;
-      }
-      if (S.syncWebSession) await S.syncWebSession();
-      refreshLinkedStatusBadge();
-      setBody(overlay, '<div class="sylvexAuth-title">Connected</div><div class="sylvexAuth-sub">Your Telegram and website accounts are now one SYLVEX account.</div>');
-      toast('Accounts merged');
-    }
-
-    base();
-  }
-
-  // --- Telegram direction: Connect Email ("Connect existing SYLVEX account") ---
-  function openLinkedAccountsFromTelegram() {
-    apiFetch('/api/account/link-status?initData=' + encodeURIComponent(telegramInitData())).then((res) => {
-      renderTelegramLinkedPanel(res.json || {});
-    });
-  }
-
-  function renderTelegramLinkedPanel(status) {
-    const overlay = openOverlay('');
-    function base() {
-      setBody(overlay,
-        `<div class="sylvexAuth-title">Linked accounts</div>
-         <div class="sylvexAuth-row"><span>Telegram</span><span class="v">Connected</span></div>
-         <div class="sylvexAuth-row"><span>SYLVEX Web Account</span><span class="v">${status.connected ? (status.email || 'Connected') : 'Not connected'}</span></div>
-         ${status.connected ? '<div class="sylvexAuth-perm">This is a permanent, one-time merge and cannot be undone from here.</div>' : ''}
-         ${status.connected ? '' : '<button class="sylvexAuth-btn" id="tlaConnect">Connect existing SYLVEX account</button>'}`
-      );
-      if (!status.connected) q(overlay, '#tlaConnect').onclick = () => stepEmail();
-    }
-
-    function stepEmail() {
-      setBody(overlay,
-        `<div class="sylvexAuth-title">Connect Email</div>
-         <div class="sylvexAuth-sub">Enter the email address of your existing SYLVEX website account. We'll send it a one-time code.</div>
-         <div class="sylvexAuth-error" id="tlaErr"></div>
-         <input class="sylvexAuth-field" type="email" id="tlaEmail" placeholder="Email" autocomplete="email">
-         <button class="sylvexAuth-btn" id="tlaSend">Send code</button>
-         <button class="sylvexAuth-link" id="tlaBack">Back</button>`
-      );
-      q(overlay, '#tlaBack').onclick = () => base();
-      q(overlay, '#tlaSend').onclick = async () => {
-        const email = q(overlay, '#tlaEmail').value.trim();
-        if (!email) return;
-        const btn = q(overlay, '#tlaSend'); btn.disabled = true;
-        const res = await apiFetch('/api/account/link/request-code', {
-          method: 'POST', body: JSON.stringify({ email, initData: telegramInitData() }),
-        });
-        btn.disabled = false;
-        if (!res.ok) { q(overlay, '#tlaErr').textContent = res.json.error === 'code_recently_sent' ? 'Please wait a minute before requesting another code' : (res.json.error || 'Could not send code'); return; }
-        stepCode(email);
-      };
-    }
-
-    function stepCode(email) {
-      setBody(overlay,
-        `<div class="sylvexAuth-title">Enter the code</div>
-         <div class="sylvexAuth-sub">We sent a 6-digit code to ${S.escapeHtml(email)}. It expires in 10 minutes.</div>
-         <div class="sylvexAuth-error" id="tlaCodeErr"></div>
-         <input class="sylvexAuth-field" inputmode="numeric" maxlength="6" id="tlaCode" placeholder="6-digit code">
-         <button class="sylvexAuth-btn" id="tlaVerify">Continue</button>
-         <button class="sylvexAuth-link" id="tlaBack2">Back</button>`
-      );
-      q(overlay, '#tlaBack2').onclick = () => stepEmail();
-      q(overlay, '#tlaVerify').onclick = async () => {
-        const code = q(overlay, '#tlaCode').value.trim();
-        if (!code) return;
-        const btn = q(overlay, '#tlaVerify'); btn.disabled = true;
-        const res = await apiFetch('/api/account/link/preview', {
-          method: 'POST', body: JSON.stringify({ email, code, initData: telegramInitData() }),
-        });
-        btn.disabled = false;
-        if (!res.ok) {
-          q(overlay, '#tlaCodeErr').textContent = res.json.conflict
-            ? 'This SYLVEX account is already connected to another Telegram account.'
-            : (res.json.error === 'invalid_or_expired_code' ? 'That code is invalid or has expired' : (res.json.error || 'Something went wrong'));
-          return;
-        }
-        if (res.json.status === 'already_linked') { toast('Already connected'); base(); return; }
-        stepConfirm(email, code, res.json);
-      };
-    }
-
-    function stepConfirm(email, code, preview) {
-      setBody(overlay,
-        `<div class="sylvexAuth-title">Confirm merge</div>
-         ${renderMergeSummary(preview)}
-         <button class="sylvexAuth-btn" id="tlaConfirm">Confirm merge</button>
-         <button class="sylvexAuth-btn secondary" id="tlaCancel">Cancel</button>`
-      );
-      q(overlay, '#tlaCancel').onclick = () => base();
-      q(overlay, '#tlaConfirm').onclick = async () => {
-        const res = await apiFetch('/api/account/link/confirm', {
-          method: 'POST',
-          body: JSON.stringify({ email, code, initData: telegramInitData(), confirmed_subscription_merge: !!preview.requires_subscription_confirmation }),
-        });
-        if (!res.ok) {
-          setBody(overlay, `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${S.escapeHtml(res.json.error || 'Something went wrong')}</div>`);
-          return;
-        }
-        if (S.syncUser) await S.syncUser({ force: true });
-        refreshLinkedStatusBadge();
-        setBody(overlay, '<div class="sylvexAuth-title">Connected</div><div class="sylvexAuth-sub">Your Telegram and website accounts are now one SYLVEX account.</div>');
-        toast('Accounts merged');
-      };
-    }
-
-    base();
-  }
 })();

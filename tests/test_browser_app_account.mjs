@@ -81,17 +81,17 @@ test('a guest load after an account clears its data and reloads once, never in a
 
 test('another account on this browser starts clean', () => {
   const { context, localStorage, reloads } = stateHarness(Object.assign({ 'sylvex-browser-state-owner': '900000000001' }, ACCOUNT_DATA));
-  assert.equal(context.settle({ telegram_id: 900000000002 }), true);
+  assert.equal(context.settle({ account_id: 102 }), true);
   assert.equal(reloads.length, 1);
   assert.equal(localStorage.getItem('sylvex-prostudio-chat-900000000001-image'), null);
-  assert.equal(localStorage.getItem('sylvex-browser-state-owner'), '900000000002');
+  assert.equal(localStorage.getItem('sylvex-browser-state-owner'), '102');
 });
 
 test('the signed-in account keeps its own data, and a first guest visit does not reload', () => {
   const own = stateHarness(Object.assign({}, ACCOUNT_DATA));
-  assert.equal(own.context.settle({ telegram_id: 900000000001 }), false);
+  assert.equal(own.context.settle({ account_id: 101 }), false);
   assert.equal(own.localStorage.getItem('sylvex-prostudio-grid-v2'), '{"nodes":[1]}');
-  assert.equal(own.localStorage.getItem('sylvex-browser-state-owner'), '900000000001');
+  assert.equal(own.localStorage.getItem('sylvex-browser-state-owner'), '101');
   // The app wrote its own defaults this load, but nothing was there before.
   const fresh = stateHarness({ 'sylvex-prostudio-last-mode-anon': 'image' }, []);
   assert.equal(fresh.context.settle(null), false);

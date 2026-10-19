@@ -5051,7 +5051,9 @@ let styleSheetCssInjected = false;
     try {
       const tg = S.tg;
       const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-      return u && u.id ? Number(u.id) : Number(S.user && S.user.telegram_id ? S.user.telegram_id : 0);
+      if (tg && tg.initData && u && u.id) return Number(u.id);
+      const accountId = S.user && (S.user.account_id || S.user.sylvex_user_id);
+      return Number(accountId || 0);
     } catch { return 0; }
   }
 
@@ -27950,7 +27952,8 @@ async function waitGeneration(jobId, options) {
   // local storage when this load started and may already be on screen.
   function settleBrowserAccountState(user) {
     if (!isBrowserApp()) return false;
-    const identity = user && user.telegram_id ? String(user.telegram_id) : 'guest';
+    const accountId = user && (user.account_id || user.sylvex_user_id);
+    const identity = accountId ? String(accountId) : 'guest';
     let owner = '';
     try { owner = localStorage.getItem(BROWSER_STATE_OWNER_KEY) || ''; } catch {}
     if (owner === identity) return false;

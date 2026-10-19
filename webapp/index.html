@@ -6,16 +6,14 @@ HTML-страница Mini App. Комментарии подписывают э
 <!DOCTYPE html>
 <html lang="en" data-theme="dark" data-lang="en">
 <head>
-  <script src="/js/api-auth.js?v=security-2"></script>
+  <script src="/js/api-auth.js?v=account-separation-v1-20261019"></script>
 <script>console.log("SYLVEX_INDEX_HTML_LOADED");</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>SYLVEX</title>
-<!-- Standalone-browser / website web-session sign-in (see js/account-auth.js).
-     sylvex-telegram-bot must match the real bot's @BotFather username with
-     its Domain set to this app's deployed domain. The Google/Apple client
-     ids are optional - those buttons hide themselves until configured. -->
-<meta name="sylvex-telegram-bot" content="sylvexai_bot" />
+<!-- Standalone Browser Mini App uses the SYLVEX web account directly.
+     Telegram authentication is provided only by the Telegram WebApp SDK
+     when this same client is genuinely opened inside Telegram. -->
 <meta name="sylvex-google-client-id" content="" />
 <meta name="sylvex-apple-client-id" content="" />
 <meta name="sylvex-apple-redirect-uri" content="" />
@@ -56,13 +54,13 @@ HTML-ЭЛЕМЕНТ: элемент
 <script src="js/language.js?v=store-lanyard-20261018"></script>
 <script src="js/data.js"></script>
 <script src="js/ui.js?v=browser-account-20261017"></script>
-<script src="js/user.js?v=edit-history-durable-20261014"></script>
-<script src="js/account-auth.js?v=browser-account-20261017"></script>
+<script src="js/user.js?v=account-separation-v1-20261019"></script>
+<script src="js/account-auth.js?v=account-separation-v1-20261019"></script>
 <script src="js/store-cards.js?v=stars-subscriptions-final-20261012"></script>
 <script src="js/store-lanyard.js?v=store-lanyard-shared-20261018"></script>
 <script src="js/store-glow.js?v=store-glow-static-20261019"></script>
 <script src="js/edit-sketch.js?v=edit-sketch-photo-20261014"></script>
-<script src="js/cabinet.js?v=edit-pixel-20261019"></script>
+<script src="js/cabinet.js?v=account-separation-v1-20261019"></script>
 <script>
   // Load the cabinet markup, then boot the app.
   fetch('cabinet.html?v=edit-pixel-20261019')
