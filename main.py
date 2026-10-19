@@ -12970,14 +12970,16 @@ def _prostudio_download_filename(mode: str, job_id: str, content_type: str, obje
 
 
 @app.get("/api/public/prostudio/download/{job_id}")
-async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = ""):
+async def public_prostudio_download(request: Request, job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = ""):
     """Stream a completed job's durable R2 result without mutating the job."""
-    if not telegram_id:
-        raise HTTPException(status_code=400, detail="telegram_id_required")
-    if BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
-        if not signed_telegram_id or signed_telegram_id != int(telegram_id):
-            raise HTTPException(status_code=403, detail="telegram_auth_failed")
+    # SecurityMiddleware has already authenticated either Telegram initData or
+    # the Website/Browser Mini App's signed web-session and exposed the
+    # canonical storage owner here.  Requiring Telegram initData a second time
+    # made an authenticated Website download fail after it had started because
+    # a web account deliberately has no Telegram identity.
+    owner_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="authentication_required")
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_not_configured")
 
@@ -13000,7 +13002,7 @@ async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data
 
     if not row:
         raise HTTPException(status_code=404, detail="job_not_found")
-    if int(row[0] or 0) != int(telegram_id):
+    if int(row[0] or 0) != owner_id:
         raise HTTPException(status_code=403, detail="job_access_denied")
     if str(row[1] or "").lower() != "completed":
         raise HTTPException(status_code=409, detail="job_not_completed")
