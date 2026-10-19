@@ -28,8 +28,9 @@
 // unaffected - the image port's own resolution is untouched, and
 // text_to_video has never required a video source.
 //
-// This patch deliberately does NOT touch connectStudioGridNodes() - no
-// auto-change of generation_mode when a video edge is connected.
+// Connections also invalidate only their target branch. Invalidating every
+// descendant of the source used to mark a completed image sibling READY when
+// text was connected to the same video node, making its image reference vanish.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -385,4 +386,23 @@ test('input resolution stays direct and never inherits a grandparent through an 
   assert.equal(inputs.image.source_node_id,'image-1');
   assert.equal(inputs.text,undefined);
   assert.equal(inputs.effective_prompt,undefined);
+});
+
+test('adding text to a video keeps its completed image reference connected', () => {
+  const imageUrl='https://cdn.example.com/generated-reference.jpg';
+  const state={nodes:[
+    {id:'text-1',type:'text',title:'Video prompt',prompt:'write a video prompt',status:'COMPLETED',output:{type:'text',value:'Animate this product'}},
+    {id:'image-1',type:'image',title:'Generated reference',prompt:'product photo',status:'COMPLETED',settings:{},output:{type:'image',items:[{url:imageUrl}],selected_index:0}},
+    {id:'video-1',type:'video',title:'Video',prompt:'',status:'IDLE',model:'unknown',settings:{}},
+  ],edges:[{id:'text-image',from:'text-1',fromPort:'text',to:'image-1',toPort:'text'}]};
+  const context=buildConnectionContext(state);
+
+  assert.equal(vm.runInContext("connectStudioGridNodes('image-1','image','video-1','image')",context),true);
+  assert.equal(state.nodes[1].status,'COMPLETED');
+  assert.equal(state.nodes[2].inputs.image.value.url,imageUrl);
+
+  assert.equal(vm.runInContext("connectStudioGridNodes('text-1','text','video-1','text')",context),true);
+  assert.equal(state.nodes[1].status,'COMPLETED');
+  assert.equal(state.nodes[2].inputs.image.value.url,imageUrl);
+  assert.equal(state.nodes[2].inputs.effective_prompt.value,'Animate this product');
 });
