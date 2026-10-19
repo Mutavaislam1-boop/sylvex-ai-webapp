@@ -8749,22 +8749,25 @@ JavaScript добавляет класс is-compact, когда сам composer 
   min-height:58px;
 }
 
+/* Edit video / Motion control keep the composer's level: the upload
+   card takes what the uploads row leaves of the video column height. */
 .studio-video-composer.is-compact[data-video-section="edit"] .studio-video-tools,
 .studio-video-composer.is-compact[data-video-section="motion"] .studio-video-tools{
-  gap:12px;
+  gap:8px;
 }
 .studio-video-composer.is-compact[data-video-section="edit"] .studio-video-edit-upload,
 .studio-video-composer.is-compact[data-video-section="motion"] .studio-video-edit-upload{
-  min-height:128px;
+  min-height:0;
+  padding:8px 14px;
   border-radius:24px;
 }
 .studio-video-composer.is-compact[data-video-section="edit"] .studio-video-edit-upload b,
 .studio-video-composer.is-compact[data-video-section="motion"] .studio-video-edit-upload b{
-  font-size:20px;
+  font-size:16px;
 }
 .studio-video-composer.is-compact[data-video-section="edit"] .studio-video-edit-upload small,
 .studio-video-composer.is-compact[data-video-section="motion"] .studio-video-edit-upload small{
-  font-size:13px;
+  font-size:12px;
 }
 .studio-video-composer.is-compact[data-video-section="edit"] .studio-links-btn{
   min-height:84px;
@@ -10462,3 +10465,34 @@ html.browser-app .ep-danger{display:block;margin-top:22px}
   .studio-grid-node-footer button:hover,.studio-grid-attachments>button:hover{filter:var(--pc-hover)}
   .studio-grid-node-footer button:hover:active,.studio-grid-attachments>button:hover:active{filter:var(--pc-press)}
 }
+
+/* Pro Studio composer: one level in every mode. The video section is the
+   reference: its left column is 228px tall in the wide layout, 150px in the
+   compact one (composer up to 900px) and 164px on phones, and its prompt
+   column matches (145px when compact). Every mode's left blocks fill
+   exactly that height and the prompt column keeps the video's, so the
+   panel, the mode tabs and the blocks above never move on a mode switch
+   (or into Edit video). Voice dialogue keeps its own layout. */
+.studio-video-composer{--sx-media-h:228px;--sx-prompt-h:228px}
+.studio-video-composer.is-compact{--sx-media-h:150px;--sx-prompt-h:145px}
+@media(max-width:560px){.studio-video-composer.is-compact{--sx-media-h:164px}}
+.studio-video-composer:not([data-composer-mode="voice"][data-voice-workspace="dialogue"]) .studio-video-panel>:is(.studio-media-column,.studio-voice-full){height:var(--sx-media-h);min-height:0;box-sizing:border-box}
+.studio-video-composer:not([data-composer-mode="voice"][data-voice-workspace="dialogue"]) .studio-video-panel>.studio-prompt-column{height:var(--sx-prompt-h);min-height:0;box-sizing:border-box}
+.studio-video-composer:not([data-composer-mode="voice"][data-voice-workspace="dialogue"]) .studio-video-panel>.studio-prompt-column textarea{flex:1 1 auto;height:auto!important;min-height:0!important}
+/* Video: the frames (or the Edit video upload) take what the uploads row leaves. */
+.studio-video-composer .studio-video-tools>*{flex:0 0 auto}
+.studio-video-composer .studio-video-tools>:is(.studio-frame-row,.studio-video-edit-upload){flex:1 1 auto;min-height:0}
+/* Image: Styles, Character, Upload and Object grow into two equal rows. */
+.studio-video-composer .studio-media-column>.image-visual-grid{flex:1 1 auto;min-height:0;margin:0;grid-template-rows:repeat(2,minmax(0,1fr))}
+.studio-video-composer .image-visual-grid .studio-image-tool{min-height:0}
+/* Voice: Create voice and the voice list grow; Upload keeps the video's uploads row. */
+.studio-video-composer .studio-voice-full>.vgen-actions{flex:1 1 auto;min-height:0}
+.studio-video-composer .studio-voice-full .vgen-btn{min-height:0}
+.studio-video-composer .studio-voice-full>.vgen-upload-row{flex:0 0 auto;min-height:64px;height:64px;box-sizing:border-box}
+.studio-video-composer.is-compact .studio-voice-full>.vgen-upload-row{min-height:58px;height:58px}
+/* Text: the upload block fills the whole column. */
+.studio-video-composer .studio-text-tools>.studio-image-tool{flex:1 1 auto;min-height:0}
+/* Music: the player spreads over the column; compact, it tightens to fit. */
+.studio-video-composer .studio-music-player{justify-content:space-between}
+.studio-video-composer.is-compact .studio-music-player{gap:3px;padding:8px 12px}
+.studio-video-composer.is-compact .studio-music-player .smp-cover{width:46px;height:46px}
