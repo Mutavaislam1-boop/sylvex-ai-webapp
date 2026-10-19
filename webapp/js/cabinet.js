@@ -7392,6 +7392,44 @@ function mountStudioGridDock() {
     new MutationObserver(()=>panel._gridDock.update(gridDockItems(panel))).observe(panel,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});
   }).catch(()=>{panel._gridDockPending=false;});
 }
+// Pro Studio's mode switch (image, video, music, voice, text) as the React
+// Bits RubberSegment (mode_segment/, built into js/vendor/mode-segment/ next
+// to the Edit card bundle, loaded on demand). The original tabs stay,
+// hidden: each segment clicks its tab (the same genAction), and the segment
+// follows the tab updateComposerMode() marks active. Without the bundle the
+// tabs stay as they are.
+const MODE_SEGMENT_VERSION='mode-segment-20261019';
+let modeSegmentBundle=null;
+function loadModeSegmentBundle() {
+  if(window.SylvexModeSegment)return Promise.resolve(window.SylvexModeSegment);
+  if(modeSegmentBundle)return modeSegmentBundle;
+  modeSegmentBundle=new Promise((resolve,reject)=>{
+    const link=document.createElement('link');link.rel='stylesheet';link.href=EDIT_PIXEL_BASE+'js/vendor/mode-segment/mode-segment.css?v='+MODE_SEGMENT_VERSION;document.head.appendChild(link);
+    const script=document.createElement('script');script.src=EDIT_PIXEL_BASE+'js/vendor/mode-segment/mode-segment.js?v='+MODE_SEGMENT_VERSION;script.async=true;
+    script.onload=()=>window.SylvexModeSegment?resolve(window.SylvexModeSegment):reject(new Error('mode_segment_empty'));
+    script.onerror=()=>reject(new Error('mode_segment_failed'));
+    document.head.appendChild(script);
+  }).catch(error=>{modeSegmentBundle=null;throw error;});
+  return modeSegmentBundle;
+}
+function mountModeSegment() {
+  const host=document.querySelector('#studioComposer .studio-mini-tabs');
+  if(!host)return;
+  const tabs=Array.from(host.querySelectorAll(':scope > .studio-mini-tab'));
+  const value=String(Math.max(0,tabs.findIndex(tab=>tab.classList.contains('active'))));
+  if(host._modeSegment){host._modeSegment.update({value});return;}
+  if(host._modeSegmentPending||!tabs.length)return;
+  host._modeSegmentPending=true;
+  loadModeSegmentBundle().then(api=>{
+    host._modeSegmentPending=false;
+    if(!host.isConnected)return;
+    const mount=document.createElement('div');mount.className='mode-segment-root';host.appendChild(mount);
+    const items=tabs.map((tab,index)=>({value:String(index),label:tab.getAttribute('aria-label')||'',html:tab.querySelector('svg')?.outerHTML||''}));
+    const active=String(Math.max(0,tabs.findIndex(tab=>tab.classList.contains('active'))));
+    host._modeSegment=api.mount(mount,items,{value:active,onChange:next=>tabs[Number(next)]?.click()});
+    host.dataset.segment='';
+  }).catch(()=>{host._modeSegmentPending=false;});
+}
 function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
   ensureEditWorkspaceChain();
@@ -22506,6 +22544,7 @@ function maybeShowVideoTemplateIntro(force) {
       1;
     const minis = document.querySelectorAll('.studio-mini-tab');
     if (minis[miniIndex]) minis[miniIndex].classList.add('active');
+    mountModeSegment();
     const ta = document.getElementById('chatInput');
     if (ta) {
       PromptPlaceholderManager.setMode(

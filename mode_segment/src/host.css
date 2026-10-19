@@ -1,0 +1,60 @@
+/* Pro Studio mode switch as the RubberSegment. The old tabs stay in the
+   same box, hidden; the box keeps its size (its padding makes room for the
+   segment's track), so the composer and the chips beside it do not move. */
+.studio-mini-tabs[data-segment] {
+  gap: 0 !important;
+  padding: 2px !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.studio-mini-tabs[data-segment] > .studio-mini-tab {
+  display: none !important;
+}
+
+.mode-segment-root {
+  display: flex;
+}
+
+.rubber-segment.mode-segment {
+  --rs-h: 50px !important;
+  --rs-min: 55px !important;
+  --rs-pad: 0px !important;
+}
+
+.mode-segment .mode-segment-icon {
+  display: grid;
+  place-items: center;
+}
+
+.mode-segment .mode-segment-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.studio-video-composer.is-compact .rubber-segment.mode-segment {
+  --rs-h: 44px !important;
+  --rs-min: 47px !important;
+}
+
+.studio-video-composer.is-compact .mode-segment .mode-segment-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 560px) {
+  .studio-mini-tabs[data-segment] {
+    padding: 0 !important;
+  }
+
+  .studio-video-composer.is-compact .rubber-segment.mode-segment {
+    --rs-h: 34px !important;
+    --rs-min: 36px !important;
+  }
+
+  .studio-video-composer.is-compact .mode-segment .mode-segment-icon svg {
+    width: 14px;
+    height: 14px;
+  }
+}

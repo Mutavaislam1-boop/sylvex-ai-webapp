@@ -82,6 +82,7 @@ function makeContext(videoState) {
     VoiceDialogueComposer: { closeMenus: () => {} },
     currentModeAttachment: () => null,
     applyVoiceWorkspaceMode: () => {},
+    mountModeSegment: () => {},
     PromptPlaceholderManager: { setMode: () => {} },
     imageState: { modelId: 'x' },
     IMAGE_MODEL_LIST: [],
