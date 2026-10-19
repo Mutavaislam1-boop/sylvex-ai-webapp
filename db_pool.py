@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
+import sys
 import threading
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import Optional
 
 from psycopg2 import extensions
@@ -31,6 +35,7 @@ def _positive_float(name: str, default: float, minimum: float) -> float:
 DB_POOL_MAX_SIZE = _bounded_int("DB_POOL_MAX_SIZE", 10, 1, 100)
 DB_POOL_MIN_SIZE = min(_bounded_int("DB_POOL_MIN_SIZE", 2, 1, 100), DB_POOL_MAX_SIZE)
 DB_POOL_TIMEOUT_SECONDS = _positive_float("DB_POOL_TIMEOUT_SECONDS", 30.0, 0.1)
+DB_POOL_DIAGNOSTICS = os.getenv("DB_POOL_DIAGNOSTICS", "0").lower() in {"1", "true", "yes"}
 
 _lock = threading.RLock()
 _condition = threading.Condition(_lock)
@@ -43,6 +48,72 @@ _last_status_log = 0.0
 _last_wait_log = 0.0
 _invariant_since: Optional[float] = None
 _last_invariant_log = 0.0
+_trace_job_id: ContextVar[str] = ContextVar("db_trace_job_id", default="")
+
+
+def set_db_trace_job(job_id: str):
+    """Tag DB work in this async job, including asyncio.to_thread calls."""
+    return _trace_job_id.set(str(job_id or ""))
+
+
+def reset_db_trace_job(token) -> None:
+    _trace_job_id.reset(token)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _sql_label(statement) -> str:
+    """Retain the SQL action and relation, never parameter values or literals."""
+    if not isinstance(statement, str):
+        return "sql:dynamic"
+    compact = re.sub(r"\s+", " ", statement.strip())
+    match = re.search(
+        r"\b(SELECT|UPDATE|INSERT\s+INTO|DELETE\s+FROM|CREATE\s+TABLE|"
+        r"ALTER\s+TABLE|WITH|COMMIT|ROLLBACK)\b(?:\s+([\w.\"]+))?",
+        compact, re.IGNORECASE,
+    )
+    if not match:
+        return "sql:other"
+    verb = match.group(1).upper().replace(" ", "_")
+    relation = (match.group(2) or "").strip('"')
+    if verb == "SELECT":
+        from_match = re.search(r"\bFROM\s+([\w.\"]+)", compact, re.IGNORECASE)
+        relation = from_match.group(1).strip('"') if from_match else ""
+    return f"sql:{verb}:{relation}" if relation else f"sql:{verb}"
+
+
+def _caller_site() -> str:
+    """Name the application caller without retaining a frame or its arguments."""
+    frame = sys._getframe(1)
+    try:
+        while frame is not None:
+            path = frame.f_code.co_filename
+            if path != __file__ and not path.endswith("contextlib.py"):
+                return f"{os.path.basename(path)}:{frame.f_code.co_name}:{frame.f_lineno}"
+            frame = frame.f_back
+        return "unknown"
+    finally:
+        del frame
+
+
+def _active_leases_locked() -> list[dict]:
+    now = time.monotonic()
+    return [
+        {
+            "connection_id": connection_id,
+            "backend_pid": lease["backend_pid"],
+            "thread_id": lease["thread_id"],
+            "checkout_at_utc": lease["checkout_at_utc"],
+            "held_so_far_ms": round((now - lease["checked_out_at"]) * 1000),
+            "operation": lease["operation"],
+            "call_site": lease["call_site"],
+            "job_id": lease["job_id"],
+            "phase": lease["phase"],
+        }
+        for connection_id, lease in _leases.items()
+    ]
 
 
 def _pool_size_locked() -> int:
@@ -107,7 +178,14 @@ def _log_status_if_due(force: bool = False) -> None:
             return
         _last_status_log = now
         status = _snapshot_locked()
+        leases = (
+            _active_leases_locked()
+            if DB_POOL_DIAGNOSTICS and status["free"] == 0 and status["waiting"] > 0
+            else None
+        )
     print("DB_POOL_STATUS:", status)
+    if leases is not None:
+        print("DB_POOL_LEASES:", {"captured_at_utc": _utc_now(), "leases": leases})
 
 
 def _log_wait_if_due() -> None:
@@ -144,10 +222,15 @@ def start_db_pool(database_url: str) -> None:
     _log_status_if_due(force=True)
 
 
-def _checkout_connection(database_url: str = "", timeout: Optional[float] = None):
+def _checkout_connection(
+    database_url: str = "", timeout: Optional[float] = None,
+    *, operation: str = "", call_site: str = "",
+):
     """Wait on the driver's actual capacity and register one checked-out connection."""
     global _waiting
     checkout_call_started = time.monotonic()
+    checkout_requested_at_utc = _utc_now()
+    operation = str(operation or call_site or "unknown")
     url = str(database_url or _database_url or "").strip()
     if not url:
         raise RuntimeError("DATABASE_URL is not configured")
@@ -156,6 +239,7 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
     deadline = time.monotonic() + wait_timeout
     registered_waiter = False
     wait_started_at: Optional[float] = None
+    wait_snapshot = None
     try:
         with _condition:
             while True:
@@ -168,6 +252,11 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
                         _waiting += 1
                         registered_waiter = True
                         wait_started_at = time.monotonic()
+                        if DB_POOL_DIAGNOSTICS:
+                            wait_snapshot = {
+                                "captured_at_utc": _utc_now(),
+                                "leases": _active_leases_locked(),
+                            }
                         _log_wait_if_due()
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -185,7 +274,16 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
                 _leases[id(connection)] = {
                     "connection": connection,
                     "checked_out_at": time.monotonic(),
+                    "checkout_at_utc": _utc_now(),
+                    "backend_pid": (
+                        connection.get_backend_pid()
+                        if hasattr(connection, "get_backend_pid") else None
+                    ),
                     "thread_id": threading.get_ident(),
+                    "operation": operation,
+                    "call_site": call_site,
+                    "job_id": _trace_job_id.get(),
+                    "phase": "acquired",
                 }
                 _check_invariant_locked()
                 break
@@ -196,6 +294,8 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
                 _check_invariant_locked()
                 _condition.notify_all()
     if wait_started_at is not None:
+        if wait_snapshot is not None:
+            print("DB_POOL_LEASES_AT_WAIT:", wait_snapshot)
         # Every acquisition that actually had to wait for the pool gets its
         # own timing line, not just the rate-limited DB_POOL_WAIT snapshot -
         # this is the concrete number that answers "was this specific slow
@@ -204,23 +304,35 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
             "wait_ms": round((time.monotonic() - wait_started_at) * 1000),
             "thread_id": threading.get_ident(),
         })
-    # Unconditional (unlike the wait-only line above) - answers "how long did
-    # acquiring a connection take at all", including the un-contended case,
-    # so a slow checkout is visible even when the pool itself never blocked
-    # (e.g. the driver-level connect() call stalling, not pool contention).
-    checkout_total_ms = round((time.monotonic() - checkout_call_started) * 1000)
-    print("DB_CHECKOUT_MS:", {
-        "checkout_ms": checkout_total_ms,
-        "connection_id": id(connection),
-        "thread_id": threading.get_ident(),
-    })
+    # A connection is already leased at this point. The status logger also
+    # needs the pool lock, so its delay must count as checkout time, not SQL.
+    driver_checkout_ms = round((time.monotonic() - checkout_call_started) * 1000)
+    _leases[id(connection)]["phase"] = "checkout:status_log"
     _log_status_if_due()
+    ready_to_log_at = time.monotonic()
+    _leases[id(connection)]["phase"] = "checkout:emit_log"
+    print("DB_CHECKOUT_MS:", {
+        "checkout_ms": round((ready_to_log_at - checkout_call_started) * 1000),
+        "driver_checkout_ms": driver_checkout_ms,
+        "post_acquire_ms": round((ready_to_log_at - _leases[id(connection)]["checked_out_at"]) * 1000),
+        "connection_id": id(connection),
+        "backend_pid": _leases[id(connection)]["backend_pid"],
+        "thread_id": threading.get_ident(),
+        "checkout_requested_at_utc": checkout_requested_at_utc,
+        "checkout_at_utc": _leases[id(connection)]["checkout_at_utc"],
+        "operation": operation,
+        "call_site": call_site,
+        "job_id": _trace_job_id.get(),
+    })
+    _leases[id(connection)]["ready_at"] = time.monotonic()
+    _leases[id(connection)]["phase"] = "caller:before_sql"
     return connection
 
 
 def _return_connection(connection) -> None:
     """Rollback unfinished work, put the connection back, then wake waiters."""
     release_started_at = time.monotonic()
+    release_started_at_utc = _utc_now()
     broken = bool(connection.closed)
     try:
         if not broken and connection.status != extensions.STATUS_READY:
@@ -230,10 +342,25 @@ def _return_connection(connection) -> None:
 
     held_ms = None
     checkout_thread_id = None
+    lease_details = {}
     with _condition:
         lease = _leases.pop(id(connection), None)
         if lease is None:
             return
+        lease_details = {
+            "checkout_at_utc": lease["checkout_at_utc"],
+            "backend_pid": lease["backend_pid"],
+            "operation": lease["operation"],
+            "call_site": lease["call_site"],
+            "job_id": lease["job_id"],
+            "phase": lease["phase"],
+            "pre_caller_ms": round(
+                (lease.get("ready_at", release_started_at) - lease["checked_out_at"]) * 1000
+            ),
+            "caller_hold_ms": round(
+                (release_started_at - lease.get("ready_at", lease["checked_out_at"])) * 1000
+            ),
+        }
         # Total time this connection was checked out, start to finish -
         # includes every cursor.execute() the caller ran, plus its own
         # commit/rollback, plus this release-time rollback-of-unfinished-work
@@ -262,8 +389,55 @@ def _return_connection(connection) -> None:
         "checkout_thread_id": checkout_thread_id,
         "release_thread_id": threading.get_ident(),
         "broken": broken,
+        "release_started_at_utc": release_started_at_utc,
+        "released_at_utc": _utc_now(),
+        "pool_return_wait_ms": round((time.monotonic() - release_started_at) * 1000),
+        **lease_details,
     })
     _log_status_if_due()
+
+
+class _TraceCursor:
+    """Diagnostic cursor proxy, used only when DB_POOL_DIAGNOSTICS is enabled."""
+
+    def __init__(self, cursor, connection):
+        self._cursor = cursor
+        self._connection = connection
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+    def __enter__(self):
+        self._cursor.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return self._cursor.__exit__(exc_type, exc, traceback)
+
+    def execute(self, statement, parameters=None):
+        self._connection.set_trace_phase(_sql_label(statement))
+        try:
+            return self._cursor.execute(statement, parameters)
+        finally:
+            self._connection.set_trace_phase("after:" + _sql_label(statement))
+
+    def executemany(self, statement, parameters):
+        self._connection.set_trace_phase(_sql_label(statement) + ":many")
+        try:
+            return self._cursor.executemany(statement, parameters)
+        finally:
+            self._connection.set_trace_phase("after:" + _sql_label(statement))
+
+    def callproc(self, name, parameters=None):
+        label = "sql:CALLPROC:" + re.sub(r"[^\w.]", "", str(name))[:64]
+        self._connection.set_trace_phase(label)
+        try:
+            return self._cursor.callproc(name, parameters)
+        finally:
+            self._connection.set_trace_phase("after:" + label)
 
 
 class PooledConnection:
@@ -277,14 +451,29 @@ class PooledConnection:
     def __getattr__(self, name):
         return getattr(self._connection, name)
 
+    def cursor(self, *args, **kwargs):
+        cursor = self._connection.cursor(*args, **kwargs)
+        return _TraceCursor(cursor, self) if DB_POOL_DIAGNOSTICS else cursor
+
+    def set_trace_phase(self, phase: str) -> None:
+        """Temporary diagnostic marker for the current SQL/commit stage."""
+        if not DB_POOL_DIAGNOSTICS:
+            return
+        with _lock:
+            lease = _leases.get(id(self._connection))
+            if lease is not None:
+                lease["phase"] = str(phase)
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, traceback):
         try:
             if exc_type is None:
+                self.set_trace_phase("commit:connection_context")
                 self._connection.commit()
             else:
+                self.set_trace_phase("rollback:connection_context")
                 self._connection.rollback()
         finally:
             self.close()
@@ -298,20 +487,29 @@ class PooledConnection:
         _return_connection(self._connection)
 
 
-def db_connect(database_url: str = "", timeout: Optional[float] = None) -> PooledConnection:
+def db_connect(
+    database_url: str = "", timeout: Optional[float] = None, *, operation: str = "",
+) -> PooledConnection:
     """Compatibility helper for existing code; close() returns its lease once."""
-    return PooledConnection(_checkout_connection(database_url, timeout))
+    return PooledConnection(_checkout_connection(
+        database_url, timeout, operation=operation, call_site=_caller_site(),
+    ))
 
 
 @contextmanager
-def db_connection(database_url: str = "", timeout: Optional[float] = None):
+def db_connection(
+    database_url: str = "", timeout: Optional[float] = None, *, operation: str = "",
+):
     """Preferred explicit transaction/return helper for new and migrated code."""
-    connection = _checkout_connection(database_url, timeout)
+    connection = PooledConnection(_checkout_connection(
+        database_url, timeout, operation=operation, call_site=_caller_site(),
+    ))
     body_started = time.monotonic()
     try:
         yield connection
         body_ms = round((time.monotonic() - body_started) * 1000)
         commit_started = time.monotonic()
+        connection.set_trace_phase("commit:db_connection")
         connection.commit()
         # Splits held-time into "running the caller's own queries" vs
         # "committing" - a stuck cursor.execute() shows up in body_ms, a
@@ -320,24 +518,25 @@ def db_connection(database_url: str = "", timeout: Optional[float] = None):
         print("DB_CONNECTION_BODY_MS:", {
             "body_ms": body_ms,
             "commit_ms": round((time.monotonic() - commit_started) * 1000),
-            "connection_id": id(connection),
+            "connection_id": id(connection._connection),
             "thread_id": threading.get_ident(),
         })
     except BaseException:
         body_ms = round((time.monotonic() - body_started) * 1000)
         rollback_started = time.monotonic()
+        connection.set_trace_phase("rollback:db_connection")
         if not connection.closed:
             connection.rollback()
         print("DB_CONNECTION_BODY_MS:", {
             "body_ms": body_ms,
             "rollback_ms": round((time.monotonic() - rollback_started) * 1000),
-            "connection_id": id(connection),
+            "connection_id": id(connection._connection),
             "thread_id": threading.get_ident(),
             "raised": True,
         })
         raise
     finally:
-        _return_connection(connection)
+        connection.close()
 
 
 def db_pool_status() -> dict:
