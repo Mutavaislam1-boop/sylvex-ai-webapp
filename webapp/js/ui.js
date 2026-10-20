@@ -69,7 +69,7 @@
   // Bits SwipeToast (swipe_toast/, built into js/vendor/swipe-toast/, loaded
   // with the first notice). The #toast element, in the same corner, shows a
   // notice only if the bundle cannot load.
-  const SWIPE_TOAST_VERSION = 'swipe-toast-20261019';
+  const SWIPE_TOAST_VERSION = 'swipe-toast-20261020';
   // Next to this script: /webapp/ in the Mini App (or the site root for the
   // pages that load /js/ui.js).
   const SWIPE_TOAST_BASE = (() => {

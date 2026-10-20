@@ -237,7 +237,6 @@
       });
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Save failed');
-      toast('Настройки сохранены');
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
       if (tg && typeof tg.close === 'function') {
         setTimeout(() => tg.close(), 900);

@@ -315,7 +315,6 @@
     if (S.renderSubscription) S.renderSubscription();
     if (S.onWebSignedIn) S.onWebSignedIn();
     refreshLinkedStatusBadge();
-    toast('Signed in');
   }
 
   // ---------------------------------------------------------------------

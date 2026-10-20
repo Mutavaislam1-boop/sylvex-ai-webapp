@@ -3389,7 +3389,6 @@ const VoiceDialogueComposer = (() => {
     if (!text) return toast('Сначала выделите текст');
     try {
       await navigator.clipboard.writeText(text);
-      toast('Текст скопирован');
     } catch { toast('Не удалось получить доступ к буферу обмена'); }
     restoreCaret();
   };
@@ -4049,7 +4048,6 @@ function addVoiceCustomOption(event, kind) {
   try { localStorage.setItem(VOICE_CUSTOM_OPTIONS_KEY, JSON.stringify(voiceCustomOptions)); } catch {}
   closeVoiceAddon();
   renderVoiceSpeakerComposer();
-  toast('Вариант добавлен');
 }
 
 function setVoiceEditorSetting(event, key, rawValue) {
@@ -4081,7 +4079,6 @@ function saveVoicePronunciation(event) {
   if (!word || !spoken) return toast('Заполните слово и произношение');
   voiceState.pronunciationRules[word] = spoken;
   try { localStorage.setItem('sylvex_voice_pronunciations', JSON.stringify(voiceState.pronunciationRules)); } catch {}
-  toast('Произношение сохранено');
   closeVoiceAddon();
 }
 
@@ -4132,7 +4129,6 @@ function applyVoiceTemplate(event, template) {
     voiceState.audioSettings.style = 'auto';
     voiceState.audioSettings.speed = 1;
     document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.remove('active'));
-    toast('Шаблон отменён');
     return;
   }
   voiceState.editorTemplate = template;
@@ -4141,7 +4137,6 @@ function applyVoiceTemplate(event, template) {
   const preset = presets[template] || ['auto',1];
   settings.style = preset[0]; settings.speed = preset[1];
   document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.toggle('active', (button.getAttribute('onclick') || '').includes("'" + template + "'")));
-  toast('Шаблон применён');
 }
 
 function addVoiceSpeaker(event) {
@@ -4210,7 +4205,7 @@ async function copyVoiceTranslation(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const value = document.getElementById('voiceTranslationResult')?.textContent || '';
   if (!value) return;
-  try { await navigator.clipboard.writeText(value); toast('Перевод скопирован'); }
+  try { await navigator.clipboard.writeText(value); }
   catch { toast('Не удалось скопировать перевод'); }
 }
 
@@ -5566,6 +5561,7 @@ function localizedGreeting() {
           if (index >= 0) {
             chatMessages[index] = resolveFailureMessage(err, { mode: (jobInfo && jobInfo.mode) || '', jobId });
           }
+          toast('Ошибка генерации');
           renderChat();
           rememberCurrentChatSpace();
           clearActiveProStudioJob(jobId);
@@ -5633,6 +5629,7 @@ function localizedGreeting() {
     renderChat();
     rememberCurrentChatSpace();
     clearActiveProStudioJob(activeGeneration.jobId);
+    toast('Генерация завершена');
   }
 
   function applyCurrentDraft() {
@@ -6544,7 +6541,6 @@ function clearSelectionButton(kind) {
   renderAllUploadPreviews();
   renderUploadedPhotoGrid();
   updateSendButton();
-  toast('Выбор очищен');
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
@@ -8713,6 +8709,7 @@ async function generateEditWorkspace(e){
     if(historyIndex>=0)chatMessages[historyIndex]={role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)};
     else chatMessages.push({role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)});
     loadConversations();
+    editWorkspaceToast('Генерация завершена');
   }catch(error){
     if(isSylvex)restore.guidesHidden=false;
     if(chainResult.status==='pending'&&(!chainResult.jobId||['failed','cancelled','timeout'].includes(error.terminalStatus)))chainResult.status='failed';
@@ -9125,14 +9122,14 @@ function updateReplaceObjectBrushSizeLabel() {
 function saveReplaceObjectMask(e) {
   if(e){e.preventDefault();e.stopPropagation()}
   const runtime=replaceObjectEditorRuntime,state=photoToolStateFor('replace_object');if(!runtime.canvas||!state)return;
-  if(!runtime.strokes.length){if(state.markedPhotoStrokes&&state.markedPhotoStrokes.length){state.markedPhotoStrokes=[];state.markedPhotoUrl='';finishSaveReplaceObjectPhoto();toast('Сохранённая отметка удалена');return}toast('Сначала отметьте кистью область предмета на фото');return}
+  if(!runtime.strokes.length){if(state.markedPhotoStrokes&&state.markedPhotoStrokes.length){state.markedPhotoStrokes=[];state.markedPhotoUrl='';finishSaveReplaceObjectPhoto();return}toast('Сначала отметьте кистью область предмета на фото');return}
   const canvas=runtime.canvas,token=runtime.token,strokes=runtime.strokes.map(stroke=>({width:stroke.width,points:stroke.points.map(point=>({x:point.x,y:point.y}))})),saveButton=document.querySelector('#replaceObjectMaskEditorModal .replace-object-mask-toolbar .save');
   canvas.style.pointerEvents='none';if(saveButton)saveButton.disabled=true;
   const resume=()=>{if(token!==replaceObjectEditorRuntime.token)return;canvas.style.pointerEvents='';if(saveButton)saveButton.disabled=false};
   try{canvas.toBlob(blob=>{
     if(token!==replaceObjectEditorRuntime.token)return;
     if(!blob){resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.');return}
-    const reader=new FileReader();reader.onload=()=>{if(token!==replaceObjectEditorRuntime.token)return;state.markedPhotoStrokes=strokes;state.markedPhotoUrl=String(reader.result||'');finishSaveReplaceObjectPhoto();toast('Фото с отметкой сохранено')};reader.onerror=()=>{resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.')};reader.readAsDataURL(blob);
+    const reader=new FileReader();reader.onload=()=>{if(token!==replaceObjectEditorRuntime.token)return;state.markedPhotoStrokes=strokes;state.markedPhotoUrl=String(reader.result||'');finishSaveReplaceObjectPhoto()};reader.onerror=()=>{resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.')};reader.readAsDataURL(blob);
   },'image/jpeg',.9)}catch{resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.')}
 }
 
@@ -9438,7 +9435,7 @@ function closeRemoveObjectMaskEditor(e) {
 // cabinet.js:11184) - Photo Tools' own "Create" button only checked for
 // 'character', so picking Object in a Photo Tool's library silently fell
 // through to a placeholder toast instead of the real creation modal.
-function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character'||kind==='object')return openVisualCreateModal(e,kind);toast('Слот для нового референса подготовлен')}
+function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character'||kind==='object')return openVisualCreateModal(e,kind);}
 function selectPhotoToolReference(e,url){if(e){e.preventDefault();e.stopPropagation()}const config=PHOTO_TOOL_CONFIG[activePhotoTool],state=photoToolStateFor(activePhotoTool);if(!config||!state||!url)return;const slot=config.library==='character'?1:Math.max(0,config.max-1);state.files[slot]={name:'Референс из каталога',mime:'image/*',url};renderPhotoToolModal()}
 
 function hideEditOnThisScreen() {
@@ -12093,7 +12090,6 @@ function confirmCharacterDetailSelection(e) {
     closeCharacterDetail(e);
     closeImageStylePanel(e);
     renderPhotoToolModal();
-    toast('Персонаж выбран');
     return;
   }
   // Try-On borrowed this exact picker/detail page too (DUP-1) - same shape
@@ -12120,7 +12116,6 @@ function confirmCharacterDetailSelection(e) {
     closeCharacterDetail(e);
     closeImageStylePanel(e);
     renderPhotoToolModal();
-    toast('Персонаж выбран');
     return;
   }
   if (item) {
@@ -12131,7 +12126,6 @@ function confirmCharacterDetailSelection(e) {
   }
   closeCharacterDetail(e);
   closeImageStylePanel(e);
-  toast('Персонаж выбран');
 }
 
 function deleteResourceKindLabel(kind) {
@@ -12230,7 +12224,6 @@ async function deleteUserVoice(e, resourceId, voiceId) {
   renderVoiceToolPanel();
   renderVoiceControls();
   await deleteVisualItemFromBackend('voice', id);
-  toast('Голос удалён');
 }
 
 function visualCreatePhotoSlot(index) {
@@ -12812,7 +12805,6 @@ async function retryFailedCharacterJob(e, id) {
   renderImageStylePanel();
   renderImageReferenceSections();
   startCharacterCreationCardPoll(newJobId);
-  toast(name + ' создаётся заново');
 }
 
 function deleteFailedCharacterJob(e, id) {
@@ -12824,7 +12816,6 @@ function deleteFailedCharacterJob(e, id) {
   rememberDismissedCharacterJob(jobId);
   renderImageStylePanel();
   renderImageReferenceSections();
-  toast('Запись удалена');
 }
 
 // A no-op click target for a "creating" card: it is not selectable and
@@ -13209,7 +13200,6 @@ async function retryFailedObjectJob(e, id) {
   renderImageStylePanel();
   renderImageReferenceSections();
   startObjectCreationCardPoll(newJobId);
-  toast(name + ' создаётся заново');
 }
 
 function deleteFailedObjectJob(e, id) {
@@ -13221,7 +13211,6 @@ function deleteFailedObjectJob(e, id) {
   rememberDismissedObjectJob(jobId);
   renderImageStylePanel();
   renderImageReferenceSections();
-  toast('Запись удалена');
 }
 
 function handlePendingObjectCardClick(e) {
@@ -13341,7 +13330,6 @@ async function startCharacterCreationFromDraft(e, name, photos) {
   renderImageControls();
   renderImageStylePanel();
   renderVideoReferencesPreview();
-  toast(name + ' создаётся в фоне');
   visualCreateDraft.saving = false;
   visualCreateDraft.done = false;
   visualCreateDraft.statusText = '';
@@ -13380,7 +13368,6 @@ async function startObjectCreationFromDraft(e, name, photos) {
   renderImageControls();
   renderImageStylePanel();
   renderVideoReferencesPreview();
-  toast(name + ' создаётся в фоне');
   visualCreateDraft.saving = false;
   visualCreateDraft.done = false;
   visualCreateDraft.statusText = '';
@@ -13460,7 +13447,6 @@ async function deleteVisualReference(e, kind, id) {
   renderImageReferenceSections();
   renderImageControls();
   renderVideoReferencesPreview();
-  toast(kind === 'character' ? 'Персонаж удалён' : 'Объект удалён');
 }
 
 // =====================================================
@@ -13579,7 +13565,6 @@ function pickVisualReference(e, kind, id) {
     closeVisualPicker(e);
     closeImageStylePanel(e);
     updateSendButton();
-    toast(kind === 'character' ? 'Персонаж добавлен' : 'Объект добавлен');
     return;
   }
   if (kind === 'character') {
@@ -16990,13 +16975,11 @@ function renderGeneratedTelegramButton(url, kind) {
       updateComposerMode('music');
       musicState.attachment = attachment;
       musicState.uploads = [attachment];
-      toast('Озвучка передана в Music Studio');
     } else {
       updateComposerMode('video');
       videoState.attachment = attachment;
       videoState.audioUrl = url;
       videoState.handoffAction = target;
-      toast(target === 'lipsync' ? 'Озвучка передана в LipSync' : (target === 'avatar' ? 'Озвучка готова для оживления аватара' : 'Озвучка передана в Video Studio'));
     }
     pendingAttachment = attachment;
     updateSendButton();
@@ -17960,7 +17943,7 @@ function renderGeneratedTelegramButton(url, kind) {
   function bindCommunityScrollChrome(){if(communityScrollBound)return;const scroller=document.querySelector('.scroll');if(!scroller)return;communityScrollBound=true;communityLastScrollTop=scroller.scrollTop;scroller.addEventListener('scroll',()=>{if(!document.querySelector('.view[data-view="community"].active'))return;const current=scroller.scrollTop,delta=current-communityLastScrollTop,atEnd=current+scroller.clientHeight>=scroller.scrollHeight-28;if(atEnd||current<20||delta<-7)setCommunityChromeVisible(true);else if(delta>7)setCommunityChromeVisible(false);communityLastScrollTop=current},{passive:true})}
   function ensureCommunityFixedNav(){const nav=document.querySelector('.community-mobile-nav');if(nav&&nav.parentNode!==document.body){if(!communityNavMarker){communityNavMarker=document.createComment('community-mobile-nav-home');nav.parentNode.insertBefore(communityNavMarker,nav)}document.body.appendChild(nav)}bindCommunityScrollChrome();setCommunityChromeVisible(true)}
   async function loadCommunityFeed(force){ensureCommunityFixedNav();const allowed=new Set(['image','video']),fresh=communityItems.length&&Date.now()-communityFeedLoadedAt<45000;if(!communityItems.length){const cached=readCommunityFeedCache();if(cached){communityItems=[communityDemoPost()].concat(cached.items.filter(item=>allowed.has(normalizeGalleryType(item.type))));communityFeedLoadedAt=Number(cached.savedAt||0);renderCommunityFeed()}}else renderCommunityFeed();if(!force&&fresh)return;if(communityFeedPromise)return communityFeedPromise;const host=document.getElementById('communityFeed');if(host&&!communityItems.length)host.innerHTML='<div class="community-state">Загрузка публикаций…</div>';communityFeedPromise=(async()=>{try{const r=await communityFetch('/api/public/community/feed?telegram_id='+encodeURIComponent(getTelegramId()||0),{cache:'no-store'},9000);if(!r.ok)throw new Error('feed_'+r.status);const j=await r.json(),items=(Array.isArray(j.items)?j.items:[]).filter(item=>allowed.has(normalizeGalleryType(item.type)));communityItems=[communityDemoPost()].concat(items);communityFeedLoadedAt=Date.now();writeCommunityFeedCache(items);renderCommunityFeed();loadCommunityNotificationBadge()}catch(_){if(!communityItems.length)communityItems=[communityDemoPost()];renderCommunityFeed()}finally{communityFeedPromise=null}})();return communityFeedPromise}
-  async function deleteCommunityPost(id,button){if(!window.confirm('Удалить публикацию?'))return;if(button)button.disabled=true;try{const r=await fetch('/api/public/community/posts/'+id,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),initData:S.tg&&S.tg.initData||''})});if(!r.ok)throw new Error();communityItems=communityItems.filter(item=>Number(item.id)!==Number(id));renderCommunityFeed();toast('Публикация удалена')}catch(_){toast('Не удалось удалить публикацию');if(button)button.disabled=false}}
+  async function deleteCommunityPost(id,button){if(!window.confirm('Удалить публикацию?'))return;if(button)button.disabled=true;try{const r=await fetch('/api/public/community/posts/'+id,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),initData:S.tg&&S.tg.initData||''})});if(!r.ok)throw new Error();communityItems=communityItems.filter(item=>Number(item.id)!==Number(id));renderCommunityFeed()}catch(_){toast('Не удалось удалить публикацию');if(button)button.disabled=false}}
   function openCommunityUserCard(authorId){const own=S.user||{},post=communityItems.find(i=>String(i.author_id)===String(authorId))||{},isOwn=!authorId||String(authorId)===String(getTelegramId()),name=isOwn?(own.display_name||own.first_name||'SYLVEX User'):(post.author_name||'SYLVEX User'),avatar=isOwn?(own.custom_avatar_url||own.photo_url||''):(post.author_avatar||''),posts=communityItems.filter(i=>String(i.author_id)===String(authorId)).length,likes=communityItems.filter(i=>String(i.author_id)===String(authorId)).reduce((s,i)=>s+Number(i.likes||0),0),rank=communityRank(likes);let modal=document.getElementById('communityUserModal');if(!modal){modal=document.createElement('div');modal.id='communityUserModal';modal.className='community-modal community-user-modal';document.body.appendChild(modal)}modal.innerHTML='<section><header><h3>Карточка пользователя</h3><button onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">'+communitySvg('close')+'</button></header><div class="community-profile-card"><span class="community-avatar" data-rank="'+rank.level+'">'+(avatar?'<img src="'+S.escapeHtml(avatar)+'" alt="">':S.escapeHtml(name.slice(0,2)))+'</span><h2>'+S.escapeHtml(name)+' <em>'+rank.icon+'</em></h2><p>'+rank.name+' · активен</p><div><span><b>'+posts+'</b><small>Публикаций</small></span><span><b>'+likes+'</b><small>Лайков</small></span><span><b>0</b><small>Подписок</small></span><span><b>0</b><small>Друзей</small></span></div>'+(isOwn?'':'<footer><button onclick="SYLVEX.followCommunityAuthor('+Number(authorId)+')">Подписаться</button><button onclick="SYLVEX.messageCommunityAuthor('+Number(authorId)+')">Написать</button></footer>')+'</div></section>';modal.classList.add('show')}
   function followCommunityAuthor(authorId){return sendCommunityFriendRequest(authorId)}
   function messageCommunityAuthor(authorId){return openCommunityHub('chat',authorId)}
@@ -17976,18 +17959,18 @@ function renderGeneratedTelegramButton(url, kind) {
   async function refreshCommunityChatMessages(peerId,keepPosition=false){const modal=document.getElementById('communityHubModal'),list=modal?.querySelector('.community-chat-messages');if(!list||Number(modal.dataset.peerId)!==Number(peerId))return;try{const r=await fetch('/api/public/community/messages/'+peerId+'?telegram_id='+encodeURIComponent(getTelegramId()||0));if(!r.ok)return;const j=await r.json(),items=j.items||[],signature=items.map(item=>item.id).join(',');if(list.dataset.signature===signature)return;const nearBottom=list.scrollHeight-list.scrollTop-list.clientHeight<80;list.dataset.signature=signature;list.innerHTML=items.map(communityChatMessageHtml).join('')||'<div class="community-state">Начните общение первым.</div>';if(!keepPosition||nearBottom)list.scrollTop=list.scrollHeight}catch(_){}}
   async function renderCommunityChat(modal,peerId,hub){const peer=peerId===0?{name:'Общий чат'}:[...(hub.friends||[]),...(hub.conversations||[])].find(item=>Number(item.id)===peerId)||communityItems.find(item=>Number(item.author_id)===peerId)||{name:'Личные сообщения'};modal.querySelector('header b').textContent=peer.name||peer.author_name||'Чат';modal.dataset.peerId=peerId;modal.querySelector('main').innerHTML='<div class="community-chat-messages"><div class="community-state">Загрузка…</div></div><form class="community-chat-form" onsubmit="SYLVEX.sendCommunityMessage(event,'+peerId+')"><input name="message" maxlength="2000" autocomplete="off" placeholder="Сообщение…" required><button type="submit">'+communitySvg('send')+'</button></form>';await refreshCommunityChatMessages(peerId);clearInterval(communityChatPollTimer);communityChatPollTimer=window.setInterval(()=>refreshCommunityChatMessages(peerId,true),3000)}
   async function sendCommunityMessage(event,recipientId){event.preventDefault();const form=event.currentTarget,input=form.elements.message,body=input.value.trim(),list=form.parentElement.querySelector('.community-chat-messages');if(!body)return;const tempId='pending-'+Date.now(),own=S.user||{};input.value='';list.querySelector('.community-state')?.remove();list.insertAdjacentHTML('beforeend',communityChatMessageHtml({id:tempId,is_own:true,pending:true,body,created_at:new Date().toISOString(),author_name:own.display_name||own.first_name||'Вы',author_avatar:own.custom_avatar_url||own.photo_url||''}));list.scrollTop=list.scrollHeight;try{const r=await communityFetch('/api/public/community/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),recipient_id:recipientId,body,initData:S.tg&&S.tg.initData||''})},9000);if(!r.ok)throw new Error();refreshCommunityChatMessages(recipientId)}catch(_){list.querySelector('[data-message-id="'+tempId+'"]')?.classList.add('failed');toast('Не удалось отправить сообщение')}}
-  async function sendCommunityFriendRequest(targetId){if(!targetId||Number(targetId)===Number(getTelegramId()))return;try{const r=await fetch('/api/public/community/friends/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),target_id:targetId,initData:S.tg&&S.tg.initData||''})});if(!r.ok)throw new Error();toast('Приглашение отправлено')}catch(_){toast('Не удалось отправить приглашение')}}
+  async function sendCommunityFriendRequest(targetId){if(!targetId||Number(targetId)===Number(getTelegramId()))return;try{const r=await fetch('/api/public/community/friends/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),target_id:targetId,initData:S.tg&&S.tg.initData||''})});if(!r.ok)throw new Error()}catch(_){toast('Не удалось отправить приглашение')}}
   async function communityFriendAction(otherId,action){try{const r=await fetch('/api/public/community/friends/'+otherId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),action,initData:S.tg&&S.tg.initData||''})});if(!r.ok)throw new Error();openCommunityHub('friends')}catch(_){toast('Не удалось изменить список друзей')}}
   function openCommunityNotification(kind,actorId,postId){if(kind==='message')return openCommunityHub('chat',actorId);if(kind==='friend_request'||kind==='friend_accept')return openCommunityHub('friends');closeCommunityHub();const post=document.querySelector('.community-post[data-post-id="'+Number(postId)+'"]');if(post)post.scrollIntoView({behavior:'smooth',block:'center'});if(kind==='comment'&&postId)setTimeout(()=>openCommunityComments(postId),350)}
   function renderCommunityNotifications(modal,items){modal.querySelector('header b').textContent='Уведомления';modal.querySelector('main').innerHTML='<nav class="community-hub-tabs"><button onclick="SYLVEX.openCommunityHub(\'messages\')">Сообщения</button><button onclick="SYLVEX.openCommunityHub(\'friends\')">Друзья</button><button class="active">Уведомления</button></nav><div class="community-notifications">'+(items.map(item=>'<button type="button" class="'+(item.read?'':'unread')+'" onclick="SYLVEX.openCommunityNotification(\''+S.escapeHtml(item.kind)+'\','+Number(item.actor_id||0)+','+Number(item.post_id||0)+')"><span class="community-avatar">'+(item.actor_avatar?'<img src="'+S.escapeHtml(item.actor_avatar)+'" alt="">':S.escapeHtml(String(item.actor_name||'SY').slice(0,2)))+'</span><div><b>'+S.escapeHtml(item.actor_name||'Пользователь')+'</b><p>'+S.escapeHtml(item.body||({like:'поставил(а) лайк',comment:'оставил(а) комментарий',friend_request:'отправил(а) запрос в друзья',message:'отправил(а) сообщение'}[item.kind]||'Новое событие'))+'</p><time>'+S.escapeHtml(communityCommentTime(item.created_at))+'</time></div></button>').join('')||'<div class="community-state">Новых уведомлений нет.</div>')+'</div>'}
-  function shareCommunityPost(){if(navigator.share)navigator.share({title:'SYLVEX Community',url:location.href}).catch(()=>{});else toast('Ссылка скопирована')}
+  function shareCommunityPost(){if(navigator.share)navigator.share({title:'SYLVEX Community',url:location.href}).catch(()=>{})}
   function downloadCommunityPost(url){if(!url)return;const a=document.createElement('a');a.href=url;a.download='sylvex-community';a.target='_blank';a.click()}
   async function toggleCommunityLike(id,button){const item=communityItems.find(x=>Number(x.id)===Number(id));if(!item||button?.disabled)return;const previous=!!item.liked;item.liked=!previous;item.likes=Math.max(0,Number(item.likes||0)+(item.liked?1:-1));if(button){button.disabled=true;button.classList.toggle('liked',item.liked);button.querySelector('span').textContent=item.likes}try{const r=await communityFetch('/api/public/community/posts/'+id+'/like',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),initData:S.tg&&S.tg.initData||''})},7000);const j=await r.json();if(!r.ok||j.error)throw new Error(j.error||'like_failed');if(item.liked!==!!j.liked){item.likes=Math.max(0,item.likes+(j.liked?1:-1));item.liked=!!j.liked}if(button){button.classList.toggle('liked',item.liked);button.querySelector('span').textContent=item.likes}}catch(_){item.liked=previous;item.likes=Math.max(0,item.likes+(previous?1:-1));if(button){button.classList.toggle('liked',item.liked);button.querySelector('span').textContent=item.likes}}finally{if(button)button.disabled=false}}
   function renderCommunityPublisher(modal,loading){const allowed=new Set(['image','video']),items=profileGalleryItems.filter(item=>allowed.has(normalizeGalleryType(item.type))),choices=items.map(item=>{const kind=normalizeGalleryType(item.type);return '<label class="community-publish-choice" data-kind="'+kind+'" hidden><input type="checkbox" value="'+S.escapeHtml(String(item.id))+'" data-kind="'+kind+'" onchange="SYLVEX.limitCommunitySelection(this)"><span>'+profileGalleryIcon(kind)+'</span><b>'+S.escapeHtml(String(item.prompt||item.text||'Генерация').slice(0,70))+'</b></label>'}).join(''),typeButton=(kind,label)=>'<button type="button" data-kind="'+kind+'" onclick="SYLVEX.filterCommunityPublisher(\''+kind+'\')"><span>'+profileGalleryIcon(kind)+'</span><b>'+label+'</b></button>',state=loading&&!choices?'<div class="community-publisher-loading"><i></i><b>Загружаем ваши работы…</b><small>Окно уже открыто — повторно нажимать не нужно</small></div>':(choices||'<p>Сначала создайте фото или видео в Pro Studio.</p>');modal.innerHTML='<section><header><div><small>Новая публикация</small><h3>Выберите медиа</h3></div><button onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">'+communitySvg('close')+'</button></header><div class="community-publish-types">'+typeButton('image','Фото')+typeButton('video','Видео')+'</div><div class="community-publish-list">'+state+'</div><div class="community-caption-field" hidden><textarea id="communityCaption" maxlength="360" rows="3" placeholder="Добавьте подпись…"></textarea><small>Необязательно</small></div><button class="community-publish-submit" '+(choices?'':'disabled')+' onclick="SYLVEX.publishCommunitySelection()">Опубликовать</button></section>'}
   function openCommunityPublisher(){let modal=document.getElementById('communityPublishModal');if(!modal){modal=document.createElement('div');modal.id='communityPublishModal';modal.className='community-modal';document.body.appendChild(modal)}const hasCache=hydrateProfileGalleryCache();renderCommunityPublisher(modal,!hasCache);modal.classList.add('show');loadProfileGallery(true).then(()=>{if(modal.classList.contains('show'))renderCommunityPublisher(modal,false)})}
   function filterCommunityPublisher(kind){const modal=document.getElementById('communityPublishModal');if(!modal)return;modal.querySelectorAll('.community-publish-types button').forEach(button=>button.classList.toggle('active',button.dataset.kind===kind));modal.querySelectorAll('.community-publish-choice').forEach(choice=>{choice.hidden=choice.dataset.kind!==kind;const input=choice.querySelector('input');input.checked=false;input.disabled=false});modal.querySelector('.community-caption-field').hidden=true}
   function limitCommunitySelection(input){const modal=document.getElementById('communityPublishModal'),checked=Array.from(modal.querySelectorAll('.community-publish-choice input:checked'));if(checked.length>4){input.checked=false;toast('Можно выбрать не более четырёх фотографий');return}if(checked.length>1&&checked.some(el=>el.dataset.kind!=='image')){input.checked=false;toast('Несколько файлов можно объединять только для фотографий')}const selected=Array.from(modal.querySelectorAll('.community-publish-choice input:checked'));modal.querySelectorAll('.community-publish-choice input').forEach(el=>{el.disabled=selected.length>0&&el.dataset.kind!==selected[0].dataset.kind});modal.querySelector('.community-caption-field').hidden=!selected.length}
-  async function publishCommunitySelection(){const ids=Array.from(document.querySelectorAll('#communityPublishModal input:checked')).map(el=>Number(el.value)),caption=document.getElementById('communityCaption')?.value.trim()||'';if(!ids.length){toast('Выберите работу');return}if(/(?:https?:\/\/|www\.|t\.me\/|@[A-Za-z0-9_]{4,})/i.test(caption)){toast('Сторонние ссылки в подписи запрещены');return}try{const r=await fetch('/api/public/community/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),message_ids:ids,caption,initData:S.tg&&S.tg.initData||''})});const j=await r.json();if(!r.ok||j.error)throw new Error(j.error||'publish_failed');document.getElementById('communityPublishModal').classList.remove('show');toast('Работа опубликована');loadCommunityFeed(true)}catch(_){toast('Не удалось опубликовать работу')}}
+  async function publishCommunitySelection(){const ids=Array.from(document.querySelectorAll('#communityPublishModal input:checked')).map(el=>Number(el.value)),caption=document.getElementById('communityCaption')?.value.trim()||'';if(!ids.length){toast('Выберите работу');return}if(/(?:https?:\/\/|www\.|t\.me\/|@[A-Za-z0-9_]{4,})/i.test(caption)){toast('Сторонние ссылки в подписи запрещены');return}try{const r=await fetch('/api/public/community/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),message_ids:ids,caption,initData:S.tg&&S.tg.initData||''})});const j=await r.json();if(!r.ok||j.error)throw new Error(j.error||'publish_failed');document.getElementById('communityPublishModal').classList.remove('show');loadCommunityFeed(true)}catch(_){toast('Не удалось опубликовать работу')}}
   function publishCommunityItem(id){return publishCommunitySelection(id)}
   function communityCommentTime(value){if(!value)return'';const date=new Date(value),seconds=Math.max(0,Math.floor((Date.now()-date.getTime())/1000));if(seconds<60)return'только что';if(seconds<3600)return Math.floor(seconds/60)+' мин.';if(seconds<86400)return Math.floor(seconds/3600)+' ч.';return date.toLocaleDateString([], {day:'2-digit',month:'2-digit',year:'numeric'})+' '+date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
   function renderCommunityComments(modal,postId,items){modal.dataset.postId=postId;modal._communityComments=items;modal.querySelector('.community-comments').innerHTML=items.map(c=>'<article class="community-comment '+(c.parent_comment_id?'reply':'')+'" data-comment-id="'+Number(c.id)+'"><span class="community-avatar">'+(c.author_avatar?'<img src="'+S.escapeHtml(c.author_avatar)+'" alt="">':S.escapeHtml(String(c.author_name||'S').slice(0,2)))+'</span><div><header><b>'+S.escapeHtml(c.author_name||'User')+'</b><time>'+S.escapeHtml(communityCommentTime(c.created_at))+(c.edited_at?' · изменено':'')+'</time></header>'+(c.reply_to_name?'<small>Ответ для '+S.escapeHtml(c.reply_to_name)+'</small>':'')+'<p>'+S.escapeHtml(c.body)+'</p><footer><button type="button" onclick="SYLVEX.replyCommunityComment('+Number(c.id)+')">Ответить</button><button type="button" class="'+(c.liked?'liked':'')+'" onclick="SYLVEX.likeCommunityComment('+Number(c.id)+',this)">'+communitySvg('heart')+' <span>'+Number(c.likes||0)+'</span></button>'+(c.is_own?'<button type="button" onclick="SYLVEX.editCommunityComment('+Number(c.id)+')">Изменить</button><button type="button" onclick="SYLVEX.deleteCommunityComment('+Number(c.id)+')">Удалить</button>':'')+'</footer></div></article>').join('')||'<p class="community-comments-empty">Комментариев пока нет.</p>'}
@@ -18114,7 +18097,7 @@ function renderGeneratedTelegramButton(url, kind) {
         try { await navigator.share({ title: 'SYLVEX', text, url: shareUrl }); } catch {}
         return;
       }
-      try { await navigator.clipboard.writeText(shareUrl); toast('Ссылка скопирована'); } catch { toast(shareUrl); }
+      try { await navigator.clipboard.writeText(shareUrl); } catch { toast(shareUrl); }
       return;
     }
     const url = 'https://t.me/share/url?url=' + encodeURIComponent(shareUrl) + '&text=' + encodeURIComponent(text);
@@ -18135,7 +18118,6 @@ function renderGeneratedTelegramButton(url, kind) {
       if (!response.ok) throw new Error('delete_failed');
       profileGalleryItems = profileGalleryItems.filter((item) => String(item.id) !== String(id));
       renderProfileGallery();
-      toast('Генерация удалена');
     } catch { toast('Не удалось удалить генерацию'); }
   }
   function renderDynamic() {
@@ -18721,7 +18703,6 @@ function renderGeneratedTelegramButton(url, kind) {
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        toast('Трек сохранён');
         return;
       }
       const objectUrl = URL.createObjectURL(blob);
@@ -19086,8 +19067,7 @@ function renderGeneratedTelegramButton(url, kind) {
   // =====================================================
   function generateNow() {
     if (guestNeedsAccount('create')) return;
-    if (!activeCat) { toast(t('generating')); return; }
-    toast(t('generating') + ' · ' + computePrice() + ' ⚡️');
+    if (!activeCat) return;
     S.haptic.impact('medium');
   }
 
@@ -19172,7 +19152,6 @@ function renderGeneratedTelegramButton(url, kind) {
       }
       renderTextControls();
       updateSendButton();
-      toast('Ссылка добавлена');
       return;
     }
 
@@ -19189,7 +19168,6 @@ function renderGeneratedTelegramButton(url, kind) {
         applyUploadToTarget(url, getUploadTarget());
       }
       updateSendButton();
-      toast('Ссылка добавлена');
       return;
     }
 
@@ -19199,7 +19177,6 @@ function renderGeneratedTelegramButton(url, kind) {
       state.uploads.push({ kind: isVoiceMode() ? kind : (kind === 'video' ? 'audio' : kind), url });
       state.uploads = state.uploads.slice(0, 4);
       updateSendButton();
-      toast('Ссылка добавлена');
       if (isVoiceMode()) renderVoiceToolPanel();
       return;
     }
@@ -19208,7 +19185,6 @@ function renderGeneratedTelegramButton(url, kind) {
       applyUploadToTarget(url, UPLOAD_TARGETS.IMAGE_UPLOAD);
       renderComposerImageDraft();
       updateSendButton();
-      toast('Ссылка добавлена');
     }
   }
   // =====================================================
@@ -19625,7 +19601,6 @@ function uploadPhotoButtonHtml() {
     }
     renderUploadPanelImages();
     renderUploadPreviewForTarget(target);
-    toast('Очищено');
   }
 
   function clearVideoReference(e) {
@@ -20423,7 +20398,7 @@ async function shareGenerationCard(e, index) {
       try { await navigator.share({ title: 'SYLVEX Pro Studio', text: shareText, url: shareUrl }); return; }
       catch (error) { if (error && error.name === 'AbortError') return; }
     }
-    try { await navigator.clipboard.writeText(shareUrl); toast('Ссылка скопирована'); }
+    try { await navigator.clipboard.writeText(shareUrl); }
     catch { toast(shareUrl); }
     return;
   }
@@ -20569,7 +20544,7 @@ function applySharedMedia(share, includeSettings) {
   updateImageUploadButtonPreview();
   updateSendButton();
   closeGenerationSharePage();
-  toast(includeSettings ? 'Параметры генерации перенесены' : 'Медиа добавлено как референс');
+  if (!includeSettings) toast('Медиа добавлено как референс');
 }
 
 async function handleGenerationShareAction(event) {
@@ -21280,7 +21255,6 @@ function closeUploadPanel(e) {
       };
       renderTextControls();
       updateSendButton();
-      toast(uploadKind === 'video' ? 'Загружаем видео…' : (uploadKind === 'audio' ? 'Загружаем аудио…' : (uploadKind === 'image' ? 'Загружаем фото…' : 'Загружаем файл…')));
       uploadProStudioMediaFile(f, uploadKind, true)
         .then((url) => {
           textState.attachment = {
@@ -21761,7 +21735,6 @@ function closeUploadPanel(e) {
     revokeVoiceUploadPreview();
     renderVoiceToolPanel();
     updateSendButton();
-    toast('Файлы озвучки очищены');
   }
 
   function videoTemplateText(key) {
@@ -22598,12 +22571,9 @@ function maybeShowVideoTemplateIntro(force) {
     if (sheet) sheet.classList.remove('show');
     if (kind === 'voice' && !tabKey) {
       setVoiceWorkspaceMode(null, 'voiceover');
-      toast('Generate Voiceover');
       return;
     }
     updateComposerMode(tabKey || kind);
-    const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Generate Voiceover' };
-    toast(labels[kind] || kind);
   }
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleHistory
@@ -23503,11 +23473,13 @@ async function waitGeneration(jobId, options) {
         };
       }
       loadConversations();
+      toast('Генерация завершена');
     } catch (err) {
       if (err && err.paywall) {
         chatMessages[index] = buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, snapshot.imageOptions || null, videoOptions, snapshot.audioUploads || []);
       } else {
         chatMessages[index] = resolveFailureMessage(err, { mode, prompt });
+        toast('Ошибка генерации');
       }
     } finally {
       document.body.classList.remove('ai-generating');
@@ -23545,7 +23517,9 @@ async function waitGeneration(jobId, options) {
       };
       if (result.conversation_id) currentConvId = result.conversation_id;
       loadConversations();
+      toast('Генерация завершена');
     } catch (err) {
+      if (!(err && err.subscriptionRequired)) toast('Ошибка генерации');
       chatMessages[index] = (err && err.subscriptionRequired)
         ? buildSubscriptionRequiredMessage()
         : Object.assign(
@@ -23867,6 +23841,7 @@ async function waitGeneration(jobId, options) {
       loadConversations(); // refresh sidebar order
       rememberCurrentChatSpace();
       unlockAfterRender = true;
+      toast('Генерация завершена');
     } catch (err) {
       if (err && err.activeGeneration) {
         if (catalogGeneration) pendingCatalogImageGeneration = catalogGeneration;
@@ -23900,6 +23875,7 @@ async function waitGeneration(jobId, options) {
       loadingIndex = activeGenerationPlaceholderIndex() >= 0 ? activeGenerationPlaceholderIndex() : loadingIndex;
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       chatMessages.push(resolveFailureMessage(err, { prompt: v }));
+      toast('Ошибка генерации');
       if (catalogGeneration) pendingCatalogImageGeneration = catalogGeneration;
       rememberCurrentChatSpace();
       if (err && err.terminalStatus) unlockAfterRender = true;
@@ -24046,7 +24022,6 @@ async function waitGeneration(jobId, options) {
     const text = m.text || (m.metadata && m.metadata.prompt) || m.prompt || '';
     if (!text) return;
     if (navigator.clipboard) navigator.clipboard.writeText(text);
-    toast(t('copied'));
   }
 
   // =====================================================
@@ -24083,7 +24058,6 @@ async function waitGeneration(jobId, options) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data || data.ok === false) throw new Error('report failed');
       m.errorReported = true;
-      toast('Жалоба отправлена. Спасибо!');
       S.haptic && S.haptic.impact && S.haptic.impact('light');
     } catch (err) {
       toast('Не удалось отправить жалобу. Попробуйте ещё раз.');
@@ -24160,9 +24134,11 @@ async function waitGeneration(jobId, options) {
       rememberCurrentChatSpace();
       renderChat();
       clearActiveProStudioJob(activeGeneration.jobId);
+      toast('Генерация завершена');
     })
     .catch((err) => {
       chatMessages[i] = resolveFailureMessage(err, { prompt: prev.text || '' });
+      toast('Ошибка генерации');
 
       rememberCurrentChatSpace();
       renderChat();
@@ -24991,7 +24967,6 @@ async function waitGeneration(jobId, options) {
     if (!STORE_METHODS[method]) { toast(STORE_ERRORS.telegram_stars_only); return; }
     const state = storeMethodState(selected.product, method);
     if (!state.available) { toast(state.message); return; }
-    toast('Создаём счёт…');
     let response, data;
     try {
       response = await fetch('/api/public/payments/stars/invoice', {
@@ -25017,10 +24992,7 @@ async function waitGeneration(jobId, options) {
     if (!tgApp || !tgApp.openInvoice || !data.invoice_url) { toast('Оплата звёздами доступна в Telegram'); return; }
     tgApp.openInvoice(data.invoice_url, (status) => {
       if (status === 'paid') {
-        toast('Оплата получена, начисляем…');
         watchStoreOrder(data.order_id, 3 * 60 * 1000);
-      } else if (status === 'cancelled') {
-        toast('Оплата отменена');
       } else if (status === 'failed') {
         toast('Оплата не прошла');
       }
@@ -25048,7 +25020,6 @@ async function waitGeneration(jobId, options) {
         if (result.user && S.renderUser && !isBrowserApp()) S.renderUser(result.user);
         if (S.syncUser) S.syncUser({ force: true });
         if (order.kind === 'subscription') showSubscriptionCelebration(result.user || S.user || {}, order.plan_key);
-        else toast('Зачислено ' + Number(order.credits).toLocaleString('ru-RU') + ' ⚡');
         return;
       }
       if (order && (order.status === 'expired' || order.status === 'failed')) {
@@ -25173,7 +25144,6 @@ async function waitGeneration(jobId, options) {
             toast('Ошибка: ' + (result.error || response.status));
             return;
           }
-          toast('Подписка оформляется. После подтверждения PayPal статус обновится.');
           resetPayPalSubscriptionPanel();
           if (S.syncUser) setTimeout(() => S.syncUser(), 2500);
         } catch (e) {
@@ -25184,9 +25154,7 @@ async function waitGeneration(jobId, options) {
         console.warn('PAYPAL SUBSCRIPTION ERROR:', err);
         toast('PayPal подписка не открылась');
       },
-      onCancel() {
-        toast('Подписка PayPal отменена');
-      },
+      onCancel() {},
     }).render('#' + config.containerId).then(() => {
       paypalSubscriptionRendered[config.containerId] = true;
     }).catch((err) => {
@@ -25276,7 +25244,7 @@ async function waitGeneration(jobId, options) {
   function showSubResult(ok, text) {
     const el = document.getElementById('saResult');
     if (el) { el.hidden = false; el.textContent = text; el.classList.toggle('is-error', !ok); }
-    toast(text);
+    if (!ok) toast(text);
   }
   async function cancelSubscriptionRenewal() {
     const d = subDetails();
@@ -26105,7 +26073,6 @@ async function waitGeneration(jobId, options) {
     syncAppearanceEditor();
     applyProfileAppearance(epAppearanceDraft);
     renderThemeGrid();
-    toast('Настройки сброшены. Нажмите «Сохранить»');
   }
   function cancelEditProfile(event) {
     if (event && event.target && event.target.id !== 'editProfileModal') return;
@@ -26187,7 +26154,6 @@ async function waitGeneration(jobId, options) {
     const v = (_refData && (_refData.link || _refData.code)) || document.getElementById('refLinkVal').textContent;
     if (!v || v === '—') return;
     if (navigator.clipboard) navigator.clipboard.writeText(v).catch(() => {});
-    toast('Ссылка скопирована');
     S.haptic && S.haptic.notify && S.haptic.notify('success');
   }
   async function activateRefLink() {
@@ -26203,7 +26169,6 @@ async function waitGeneration(jobId, options) {
       });
       const j = await r.json();
       if (!r.ok || j.error) { toast('Ошибка: ' + (j.error || r.status)); return; }
-      toast('Ссылка активирована ✓');
       openReferrals();
     } catch { toast('Сетевая ошибка'); }
   }
@@ -26413,7 +26378,6 @@ async function waitGeneration(jobId, options) {
       }
       ta.value = '';
       closeSupport();
-      toast(t('support_sent'));
       S.haptic.notify('success');
     } catch (_) {
       toast(t('support_failed'));
@@ -26642,7 +26606,6 @@ async function waitGeneration(jobId, options) {
       textState.modelId = id;
       renderTextControls();
       renderModelPop();
-      toast('Модель: ' + ((TEXT_MODEL_LIST.find((m) => m.id === id) || {}).label || id));
       return;
     }
     if (opts && opts.quickText) closeKnowledgeWorkspace();
@@ -27028,9 +26991,7 @@ async function waitGeneration(jobId, options) {
       const query = clean.toString();
       window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
     } catch {}
-    if (status === 'cancelled') { toast('Оплата отменена — деньги не списаны'); return; }
     if (status !== 'success' || !/^[0-9a-f]{32}$/.test(orderId)) return;
-    toast('Оплата получена, начисляем…');
     watchStoreOrder(orderId, 3 * 60 * 1000);
   }
   // Card subscription bought in the browser: Stripe's own page to change the
@@ -27336,7 +27297,6 @@ async function waitGeneration(jobId, options) {
             const mv = document.getElementById('modelVal');
             const label = k === 'pro' ? 'SYLVEX Pro' : k === 'lite' ? 'SYLVEX Lite' : 'SYLVEX Studio';
             if (mv) mv.textContent = label;
-            toast(label);
           }
         });
       });
@@ -28149,7 +28109,6 @@ async function waitGeneration(jobId, options) {
 
     const status = (params.get('payment') || '').toLowerCase();
     if (status === 'success') {
-      toast('Оплата принята. Обновляем баланс…');
       if (S.syncUser) setTimeout(async () => {
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const user = await S.syncUser({ force: true });
@@ -28160,8 +28119,6 @@ async function waitGeneration(jobId, options) {
           await new Promise(resolve => setTimeout(resolve, 1800));
         }
       }, 1200);
-    } else if (status === 'cancel') {
-      toast('Оплата PayPal отменена');
     }
   }
 
@@ -29486,7 +29443,6 @@ async function waitGeneration(jobId, options) {
       resetStudioGridView();
     }
     renderStudioGridProjects();
-    toast('Grid project deleted');
   }
 
   function createStudioGridProject() {
@@ -29497,7 +29453,7 @@ async function waitGeneration(jobId, options) {
     clearTimeout(studioGridCloudSaveTimer);
     if(studioGridAccountOwner())void queueStudioGridCloudSave(previous);
     studioGridProjectSwitchRevision += 1;
-    studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('New Grid project created');
+    studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();closeStudioGridProjects();renderStudioGrid();resetStudioGridView();
   }
 
   async function manageStudioGridProject(projectId,action){
@@ -29522,7 +29478,7 @@ async function waitGeneration(jobId, options) {
     if(studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)stored=(await response.json()).state}catch(_){}
     if(!stored||!Array.isArray(stored.nodes))try{stored=JSON.parse(localStorage.getItem(studioGridProjectStorageKey(projectId))||'null')}catch(_){}
     if(switchRevision!==studioGridProjectSwitchRevision)return;
-    if(!stored||!Array.isArray(stored.nodes)){toast('Could not open this Grid project');return}studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();restoreStudioGridJobs();toast('Grid project opened');
+    if(!stored||!Array.isArray(stored.nodes)){toast('Could not open this Grid project');return}studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();restoreStudioGridJobs();
   }
 
   function normalizeStudioGridState(state) {
@@ -30000,7 +29956,7 @@ async function waitGeneration(jobId, options) {
     studioGridTextEditorNodeId=id;input.value=inline?.value??node.prompt??'';if(title)title.textContent=node.title||GRID_TYPES[node.type]?.title||'Редактирование текста';modal.hidden=false;document.body.classList.add('studio-grid-editor-open');requestAnimationFrame(()=>{input.focus();input.setSelectionRange(input.value.length,input.value.length)});
   }
   function closeStudioGridTextEditor(){const modal=document.getElementById('studioGridTextEditor');if(modal)modal.hidden=true;document.body.classList.remove('studio-grid-editor-open');studioGridTextEditorNodeId=''}
-  function saveStudioGridTextEditor(){const node=loadStudioGridState().nodes.find(item=>item.id===studioGridTextEditorNodeId),input=document.getElementById('studioGridTextEditorInput');if(!node||!input){closeStudioGridTextEditor();return}const changed=node.prompt!==input.value;node.prompt=input.value;if(changed){node.status=node.type==='task'?'IDLE':'READY';node.output=node.type==='task'?null:node.output;markStudioGridDownstreamStale(node.id)}saveStudioGridState();renderStudioGrid();closeStudioGridTextEditor();toast('Текст сохранён')}
+  function saveStudioGridTextEditor(){const node=loadStudioGridState().nodes.find(item=>item.id===studioGridTextEditorNodeId),input=document.getElementById('studioGridTextEditorInput');if(!node||!input){closeStudioGridTextEditor();return}const changed=node.prompt!==input.value;node.prompt=input.value;if(changed){node.status=node.type==='task'?'IDLE':'READY';node.output=node.type==='task'?null:node.output;markStudioGridDownstreamStale(node.id)}saveStudioGridState();renderStudioGrid();closeStudioGridTextEditor()}
   function openStudioGridMediaPicker(id,referenceId=''){studioGridMediaNodeId=id;studioGridMediaReferenceId=String(referenceId||'');const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.multiple=!studioGridMediaReferenceId;input.accept=studioGridMediaReferenceId?'image/*':'image/*,video/*,audio/*,.pdf,.txt,.doc,.docx';input.click()}}
   function setStudioGridReferenceAttachment(node,referenceId,item){
     if(!node||!referenceId||!item?.url)return;
@@ -30010,13 +29966,13 @@ async function waitGeneration(jobId, options) {
     node.status='WAITING';saveStudioGridState();renderStudioGrid();
   }
   function clearStudioGridReference(nodeId,referenceId,skip=false){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId);if(!node)return;node.attachments=(node.attachments||[]).filter(item=>item.reference_id!==referenceId);const request=(node.output?.requests||[]).find(item=>item.id===referenceId);if(request)request.skipped=!!skip;node.status='WAITING';saveStudioGridState();renderStudioGrid()}
-  async function onStudioGridMediaFiles(event){const files=[...(event?.target?.files||[])],node=loadStudioGridState().nodes.find(item=>item.id===studioGridMediaNodeId),referenceId=studioGridMediaReferenceId;if(!node||!files.length)return;node.attachments=Array.isArray(node.attachments)?node.attachments:[];toast('Uploading references…');for(const file of (referenceId?files.slice(0,1):files)){const kind=file.type.startsWith('image/')?'image':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';try{const url=await uploadProStudioMediaFile(file,kind),item={url,kind,name:file.name,mime:file.type};if(referenceId)setStudioGridReferenceAttachment(node,referenceId,item);else{if(node.type==='task')item.reference_id=`task_upload_${node.attachments.length+1}`;node.attachments.push(item)}}catch(error){toast(error?.message||`Could not upload ${file.name}`)}}node.status=referenceId?'WAITING':(node.type==='task'?'IDLE':'READY');saveStudioGridState();renderStudioGrid();studioGridMediaNodeId='';studioGridMediaReferenceId='';toast('References added')}
+  async function onStudioGridMediaFiles(event){const files=[...(event?.target?.files||[])],node=loadStudioGridState().nodes.find(item=>item.id===studioGridMediaNodeId),referenceId=studioGridMediaReferenceId;if(!node||!files.length)return;node.attachments=Array.isArray(node.attachments)?node.attachments:[];for(const file of (referenceId?files.slice(0,1):files)){const kind=file.type.startsWith('image/')?'image':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';try{const url=await uploadProStudioMediaFile(file,kind),item={url,kind,name:file.name,mime:file.type};if(referenceId)setStudioGridReferenceAttachment(node,referenceId,item);else{if(node.type==='task')item.reference_id=`task_upload_${node.attachments.length+1}`;node.attachments.push(item)}}catch(error){toast(error?.message||`Could not upload ${file.name}`)}}node.status=referenceId?'WAITING':(node.type==='task'?'IDLE':'READY');saveStudioGridState();renderStudioGrid();studioGridMediaNodeId='';studioGridMediaReferenceId='';toast('References added')}
   function removeStudioGridMedia(id,index){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(!node||!Array.isArray(node.attachments))return;node.attachments.splice(Number(index),1);node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid()}
 
   function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source)),mobile=window.matchMedia('(max-width:700px)').matches;copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+(mobile?0:34);copy.y=Number(copy.y)+(mobile?330:34);copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.request_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.result_versions=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid();if(mobile)requestAnimationFrame(resetStudioGridView) }
 
   async function copyStudioGridTextResult(id){
-    const node=loadStudioGridState().nodes.find(item=>item.id===id),text=String(node?.output?.value||'');if(!text){toast('No generated text to copy');return}let copied=false;try{if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);copied=true}}catch(_){}if(!copied)try{const input=document.createElement('textarea');input.value=text;input.style.position='fixed';input.style.opacity='0';document.body.appendChild(input);input.select();copied=document.execCommand('copy');input.remove()}catch(_){}toast(copied?'Text copied':'Could not copy text')
+    const node=loadStudioGridState().nodes.find(item=>item.id===id),text=String(node?.output?.value||'');if(!text){toast('No generated text to copy');return}let copied=false;try{if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);copied=true}}catch(_){}if(!copied)try{const input=document.createElement('textarea');input.value=text;input.style.position='fixed';input.style.opacity='0';document.body.appendChild(input);input.select();copied=document.execCommand('copy');input.remove()}catch(_){}if(!copied)toast('Could not copy text')
   }
 
   function disconnectStudioGridEdge(edgeId){
@@ -30352,11 +30308,11 @@ async function waitGeneration(jobId, options) {
   async function runStudioGridWorkflow() {
     if (guestNeedsAccount('create')) return;
     const state=loadStudioGridState();
-    if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();toast('Цепочка будет остановлена после текущей генерации');return}
+    if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();return}
     const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
     state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState();renderStudioGrid();
     studioGridWorkflowRun=(async()=>{
-      const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);
+      const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');
       const pending=new Set(order.filter(id=>{const node=state.nodes.find(item=>item.id===id);return node&&node.type!=='task'&&node.status!=='COMPLETED'})),active=new Map(),maxParallel=3;
       studioGridNodeRuns.forEach((promise,id)=>{if(pending.has(id)){active.set(id,Promise.resolve(promise).then(()=>id));pending.delete(id)}});
       while(pending.size||active.size){
@@ -30475,7 +30431,7 @@ async function waitGeneration(jobId, options) {
       canvas.addEventListener('gesturechange',(event)=>{event.preventDefault();const state=loadStudioGridState(),target=Math.max(.2,Math.min(2.5,gestureZoomStart*Number(event.scale||1)));zoomStudioGrid(target-(state.zoom||1),event.clientX,event.clientY)},{passive:false});
       canvas.addEventListener('gestureend',(event)=>{event.preventDefault();saveStudioGridState()},{passive:false});
     }
-    if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();if(disconnectStudioGridEdge(edgeElement.dataset.gridEdge))toast('Связь удалена')});
+    if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();disconnectStudioGridEdge(edgeElement.dataset.gridEdge)});
     if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
     document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext();if(!event.target.closest('#studioGridProjectsPanel')&&!event.target.closest('#studioGridProjectsButton'))closeStudioGridProjects()});
     document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode'))return;if(event.key==='Escape'){clearStudioGridConnectionMode();hideStudioGridContext();return}if(event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});

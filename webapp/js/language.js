@@ -284,7 +284,6 @@
     localStorage.setItem('sylvex-lang', L);
     applyLang();
     window.dispatchEvent(new CustomEvent('sylvex:languagechange', { detail: { lang: L } }));
-    if (typeof window.toast === 'function') window.toast(LANG_META[L].name);
   }
 
   window.SYLVEX = window.SYLVEX || {};
