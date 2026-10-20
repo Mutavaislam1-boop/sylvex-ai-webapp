@@ -5,6 +5,8 @@ from services.safe_io import safe_get, safe_client_get, safe_local_path, read_up
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
 import os
+import io
+import zipfile
 import math
 import pathlib
 import json
@@ -10399,7 +10401,7 @@ async def public_prostudio_job(job_id: str):
                 {"ok": False, "error": "job_not_found"},
                 status_code=404,
             )
-        result_json = _json_obj(row[1])
+        result_json = grid_projects_service.refresh_media(_json_obj(row[1]))
         error_json = _public_error_json(_json_obj(row[2]))
         if error_json:
             normalized_error = user_generation_error_text(error_json.get("error") or error_json.get("message") or error_json)
@@ -12969,8 +12971,27 @@ def _prostudio_download_filename(mode: str, job_id: str, content_type: str, obje
     return f"sylvex-{normalized_mode}-{safe_id}{extension}"
 
 
+def _grid_project_node_media_urls(owner_id: int, project_id: str, node_id: str) -> list[str]:
+    """Resolve the exact media currently saved in one private Grid node."""
+    if not project_id or not node_id:
+        return []
+    try:
+        state = grid_projects_service.get(lambda: db_connect(DATABASE_URL), owner_id, project_id)
+    except Exception:
+        return []
+    node = next((item for item in (state or {}).get("nodes", []) if str(item.get("id") or "") == node_id), None)
+    output = node.get("output") if isinstance(node, dict) else None
+    if not isinstance(output, dict):
+        return []
+    if str(output.get("type") or "") == "image":
+        values = [str(item.get("url") or item.get("preview_url") or "").strip() for item in (output.get("items") or []) if isinstance(item, dict)]
+    else:
+        values = [str(output.get("url") or output.get("preview_url") or "").strip()]
+    return list(dict.fromkeys(value for value in values if value))
+
+
 @app.get("/api/public/prostudio/download/{job_id}")
-async def public_prostudio_download(request: Request, job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = "", result_index: int = 0):
+async def public_prostudio_download(request: Request, job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = "", result_index: int = 0, grid_project_id: str = "", grid_node_id: str = "", download_all: bool = False):
     """Stream a completed job's durable R2 result without mutating the job."""
     # SecurityMiddleware has already authenticated either Telegram initData or
     # the Website/Browser Mini App's signed web-session and exposed the
@@ -13016,10 +13037,47 @@ async def public_prostudio_download(request: Request, job_id: str, telegram_id: 
         if mode != "image" or not media_url:
             raise HTTPException(status_code=404, detail="job_has_no_svg_asset")
     else:
-        media_urls = generation_result_urls(result, mode)
-        if result_index < 0 or result_index >= len(media_urls):
+        job_media_urls = list(dict.fromkeys(generation_result_urls(result, mode)))
+        project_media_urls = await asyncio.to_thread(
+            _grid_project_node_media_urls, owner_id, str(grid_project_id or ""), str(grid_node_id or "")
+        ) if grid_project_id and grid_node_id else []
+        if download_all:
+            if mode != "image":
+                raise HTTPException(status_code=400, detail="download_all_requires_images")
+            resolved_keys = []
+            for index in range(max(len(project_media_urls), len(job_media_urls))):
+                choices = []
+                if index < len(project_media_urls): choices.append(project_media_urls[index])
+                if index < len(job_media_urls): choices.append(job_media_urls[index])
+                key = next((storage_key_from_url(value) for value in choices if storage_key_from_url(value) and storage_exists(storage_key_from_url(value))), "")
+                if key and key not in resolved_keys:
+                    resolved_keys.append(key)
+            if not resolved_keys:
+                raise HTTPException(status_code=404, detail="r2_result_not_found")
+
+            def _build_archive():
+                archive = io.BytesIO()
+                with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+                    for index, key in enumerate(resolved_keys, 1):
+                        extension = pathlib.PurePosixPath(key).suffix.lower()
+                        if not extension or len(extension) > 8: extension = ".png"
+                        bundle.writestr(f"sylvex-image-{index}{extension}", storage_read_bytes(key))
+                return archive.getvalue()
+
+            archive_bytes = await asyncio.to_thread(_build_archive)
+            safe_id = re.sub(r"[^A-Za-z0-9_-]", "", str(job_id or ""))[:36] or "results"
+            return Response(content=archive_bytes, media_type="application/zip", headers={
+                "Content-Disposition": f'attachment; filename="sylvex-image-{safe_id}-all.zip"',
+                "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+            })
+        if result_index < 0:
             raise HTTPException(status_code=404, detail="generation_result_not_found")
-        media_url = media_urls[result_index]
+        choices = []
+        if result_index < len(project_media_urls): choices.append(project_media_urls[result_index])
+        if result_index < len(job_media_urls): choices.append(job_media_urls[result_index])
+        if not choices:
+            raise HTTPException(status_code=404, detail="generation_result_not_found")
+        media_url = next((value for value in choices if storage_key_from_url(value) and storage_exists(storage_key_from_url(value))), choices[0])
     parsed_path = urllib.parse.unquote(urllib.parse.urlparse(media_url).path)
     if parsed_path.startswith("/webapp/generated/") or parsed_path.startswith("/generated/"):
         raise HTTPException(status_code=409, detail="job_result_is_not_in_r2")

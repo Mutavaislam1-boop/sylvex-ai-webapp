@@ -45,5 +45,7 @@ test('real Telegram Mini App keeps signed Telegram authentication inside its bou
 test('browser workspace uses account_id while the web session exposes no storage key', () => {
   assert.match(cabinet, /S\.user && \(S\.user\.account_id \|\| S\.user\.sylvex_user_id\)/);
   assert.match(user, /account_id: json\.account_id \|\| json\.sylvex_user_id/);
+  assert.match(user, /identity\.balance = json\.balance/);
+  assert.match(user, /state\.balance !== undefined && state\.balance !== null && Number\.isFinite\(Number\(state\.balance\)\)/);
   assert.doesNotMatch(user.slice(user.indexOf('async function syncWebSession')), /json\.storage_id/);
 });

@@ -1,4 +1,6 @@
 import json
+import io
+import zipfile
 
 import pytest
 from fastapi import HTTPException, Request
@@ -133,3 +135,58 @@ async def test_download_can_select_the_opened_image_from_a_multi_result_job(monk
 
     assert response.status_code == 200
     assert await _response_bytes(response) == b"generated/images/second.png"
+
+
+@pytest.mark.asyncio
+async def test_grid_download_falls_back_to_private_project_media_after_reopen(monkeypatch):
+    owner_id = 9_000_000_000_779
+    result = json.dumps({"ok": True, "type": "video", "video_url": "https://provider.example/expired.mp4"})
+    row = (owner_id, "completed", "video", result)
+    monkeypatch.setattr(main, "DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr(main, "db_connect", lambda _url: _Connection(row))
+    monkeypatch.setattr(main.grid_projects_service, "get", lambda _connect, owner, project: {
+        "projectId": project,
+        "nodes": [{"id": "grid_video_1", "output": {
+            "type": "video", "url": "/api/public/storage/generated/videos/restored.mp4",
+        }}],
+    })
+    monkeypatch.setattr(main, "storage_exists", lambda key: key == "generated/videos/restored.mp4")
+    monkeypatch.setattr(main, "storage_get_object", lambda key: (b"video-result", "video/mp4", len(b"video-result")))
+    monkeypatch.setattr(main, "storage_iter_object", lambda body, max_bytes=None: iter((body,)))
+
+    response = await main.public_prostudio_download(
+        _request(owner_id, "web"), "job-1",
+        grid_project_id="grid_project_saved", grid_node_id="grid_video_1",
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "video/mp4"
+    assert await _response_bytes(response) == b"video-result"
+
+
+@pytest.mark.asyncio
+async def test_grid_download_all_returns_one_zip_with_every_image(monkeypatch):
+    owner_id = 9_000_000_000_780
+    result = json.dumps({
+        "ok": True, "type": "image", "images": [
+            "/api/public/storage/generated/images/first.png",
+            "/api/public/storage/generated/images/second.webp",
+        ],
+    })
+    row = (owner_id, "completed", "image", result)
+    monkeypatch.setattr(main, "DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr(main, "db_connect", lambda _url: _Connection(row))
+    monkeypatch.setattr(main, "storage_exists", lambda key: key in {
+        "generated/images/first.png", "generated/images/second.webp",
+    })
+    monkeypatch.setattr(main, "storage_read_bytes", lambda key: key.encode())
+
+    response = await main.public_prostudio_download(
+        _request(owner_id, "web"), "job-1", download_all=True,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
+        assert archive.namelist() == ["sylvex-image-1.png", "sylvex-image-2.webp"]
+        assert archive.read("sylvex-image-1.png") == b"generated/images/first.png"

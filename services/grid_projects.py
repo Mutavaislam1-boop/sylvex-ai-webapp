@@ -18,6 +18,8 @@ MEDIA_FIELDS = {
     "source_url", "thumbnail_url", "thumb_url", "media_url", "result_url",
     "reference_url", "referenceImageUrls", "reference_image_urls",
     "referenceImages", "reference_images", "images", "videos", "files",
+    "full_url", "file_url", "music_url", "song_url", "audio_urls", "audios",
+    "thumbnails",
 }
 
 
@@ -107,6 +109,11 @@ def _refresh_media(value, field=""):
     if isinstance(value, str) and field in MEDIA_FIELDS:
         return sign_media_url(value)
     return value
+
+
+def refresh_media(value):
+    """Refresh private storage capabilities in an arbitrary API payload."""
+    return _refresh_media(value)
 
 
 def _canonicalize_media(value, field=""):

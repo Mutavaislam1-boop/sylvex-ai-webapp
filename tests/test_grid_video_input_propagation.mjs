@@ -393,18 +393,22 @@ test('adding text to a video keeps its completed image reference connected', () 
   const state={nodes:[
     {id:'text-1',type:'text',title:'Video prompt',prompt:'write a video prompt',status:'COMPLETED',output:{type:'text',value:'Animate this product'}},
     {id:'image-1',type:'image',title:'Generated reference',prompt:'product photo',status:'COMPLETED',settings:{},output:{type:'image',items:[{url:imageUrl}],selected_index:0}},
-    {id:'video-1',type:'video',title:'Video',prompt:'',status:'IDLE',model:'unknown',settings:{}},
+    {id:'video-1',type:'video',title:'Video',prompt:'',status:'IDLE',model:'selected-video-model',settings:{ratio:'9:16',resolution:'1080p',duration:10,sound:true,custom_strength:.75}},
   ],edges:[{id:'text-image',from:'text-1',fromPort:'text',to:'image-1',toPort:'text'}]};
   const context=buildConnectionContext(state);
 
   assert.equal(vm.runInContext("connectStudioGridNodes('image-1','image','video-1','image')",context),true);
   assert.equal(state.nodes[1].status,'COMPLETED');
   assert.equal(state.nodes[2].inputs.image.value.url,imageUrl);
+  const selectedModel=state.nodes[2].model;
+  const selectedSettings=JSON.parse(JSON.stringify(state.nodes[2].settings));
 
   assert.equal(vm.runInContext("connectStudioGridNodes('text-1','text','video-1','text')",context),true);
   assert.equal(state.nodes[1].status,'COMPLETED');
   assert.equal(state.nodes[2].inputs.image.value.url,imageUrl);
   assert.equal(state.nodes[2].inputs.effective_prompt.value,'Animate this product');
+  assert.equal(state.nodes[2].model,selectedModel);
+  assert.equal(JSON.stringify(state.nodes[2].settings),JSON.stringify(selectedSettings));
 });
 
 test('disconnecting an image edge removes only that reference from the video input', () => {
