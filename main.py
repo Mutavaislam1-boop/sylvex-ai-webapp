@@ -41,6 +41,7 @@ from services.character_prompts import build_character_prompt, infer_character_o
 from services import edit_sessions as edit_sessions_service
 from services import grid_projects as grid_projects_service
 from services import grid_montage as grid_montage_service
+from services import generation_stages
 from services import grid_references as grid_references_service
 from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
@@ -4595,6 +4596,7 @@ def ensure_prostudio_table():
                 response_json JSONB DEFAULT '{}'::jsonb,
                 error_json JSONB DEFAULT '{}'::jsonb,
                 result_json JSONB DEFAULT '{}'::jsonb,
+                stage_json JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW(),
                 completed_at TIMESTAMP
@@ -4614,6 +4616,7 @@ def ensure_prostudio_table():
                 ("locked_at", "TIMESTAMP"),
                 ("heartbeat_at", "TIMESTAMP"),
                 ("provider_wait_until", "TIMESTAMP"),
+                ("stage_json", "JSONB DEFAULT '{}'::jsonb"),
             ):
                 if column not in job_columns:
                     cursor.execute(
@@ -5400,6 +5403,49 @@ def release_direct_text_generation(generation_id: str) -> None:
     finally:
         cursor.close()
         conn.close()
+
+# =====================================================
+# ЭТАПЫ ГЕНЕРАЦИИ: record_prostudio_job_stage / prostudio_job_progress
+# Подтверждённые этапы job для ThoughtLine: время отправки провайдеру,
+# принятия задачи и начала обработки (services/generation_stages.py).
+# Записывается один раз и только пока job активен; на статус, биллинг и
+# результат не влияет.
+# =====================================================
+def record_prostudio_job_stage(job_id: str, stage: str) -> None:
+    if not DATABASE_URL or not job_id or stage not in generation_stages.STAGES:
+        return
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE prostudio_generation_jobs
+                SET stage_json = COALESCE(stage_json, '{}'::jsonb) || jsonb_build_object(%s::text, EXTRACT(EPOCH FROM NOW()))
+                WHERE id = %s
+                  AND status IN ('queued', 'processing', 'provider_processing')
+                  AND NOT (COALESCE(stage_json, '{}'::jsonb) ? %s)
+            """, (stage, job_id, stage))
+            conn.commit()
+            cursor.close()
+    except Exception as exc:
+        prostudio_error("JOB_STAGE_RECORD_FAILED", exc, job_id=job_id, stage=stage)
+
+
+def prostudio_job_progress(status: str, stage_json, created_at, completed_at, server_time) -> dict:
+    """Confirmed stages as epoch seconds, in order, for the job endpoint."""
+    recorded = stage_json if isinstance(stage_json, dict) else {}
+    stages = {}
+    if created_at is not None:
+        stages["received"] = created_at
+    for stage in generation_stages.STAGES:
+        value = recorded.get(stage)
+        if isinstance(value, (int, float)):
+            stages[stage] = float(value)
+    if status == "completed" and completed_at is not None:
+        stages["ready"] = completed_at
+    elif status in {"failed", "cancelled", "canceled"} and completed_at is not None:
+        stages["failed"] = completed_at
+    return {"stages": stages, "server_time": server_time}
+
 
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: update_prostudio_generation_job
@@ -10382,7 +10428,11 @@ async def public_prostudio_job(job_id: str):
                     result_json,
                     error_json,
                     conversation_id,
-                    mode
+                    mode,
+                    stage_json,
+                    EXTRACT(EPOCH FROM created_at),
+                    EXTRACT(EPOCH FROM completed_at),
+                    EXTRACT(EPOCH FROM NOW())
                 FROM prostudio_generation_jobs
                 WHERE id = %s AND telegram_id = %s
                 LIMIT 1
@@ -10435,6 +10485,7 @@ async def public_prostudio_job(job_id: str):
             "metadata_thumbnail_url": _sql_text(((result_json.get("metadata") or {}).get("thumbnail_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "", 180),
         })
 
+        epoch = lambda value: float(value) if value is not None else None
         return {
             "ok": True,
             "generation_id": job_id,
@@ -10444,6 +10495,7 @@ async def public_prostudio_job(job_id: str):
             "result": result_json,
             "error": error_json,
             "conversation_id": row[3],
+            "progress": prostudio_job_progress(effective_status, _json_obj(row[5]), epoch(row[6]), epoch(row[7]), epoch(row[8])),
         }
 
     except Exception as exc:
@@ -25875,6 +25927,7 @@ async def public_prostudio_generate(request: Request):
     )
     if mode in text_modes:
         text_timing_start = time.monotonic()
+        text_received_at = time.time()
         prostudio_debug("TEXT_REQUEST_RECEIVED", telegram_id=telegram_id, model=selected_model, timestamp=round(text_timing_start, 6))
         request_key = str(payload.get("client_request_id") or "").strip()
         cache_key = f"{int(payload.get('telegram_id') or 0)}:{request_key}" if request_key else ""
@@ -25932,6 +25985,7 @@ async def public_prostudio_generate(request: Request):
             fail_text_request(exc)
             raise
         provider_call_started_at = time.monotonic()
+        text_sent_at = time.time()
         prostudio_debug("TEXT_PROVIDER_REQUEST_SENT", telegram_id=telegram_id, model=selected_model)
         try:
             with billing_scope(generation_id, required_credits):
@@ -26013,6 +26067,13 @@ async def public_prostudio_generate(request: Request):
             "TEXT_CLIENT_VISIBLE_COMPLETION", telegram_id=telegram_id,
             total_elapsed_ms=round((time.monotonic() - text_timing_start) * 1000),
         )
+        # The direct text request has no job row: its confirmed stages travel
+        # with the answer (see prostudio_job_progress for job-backed modes).
+        text_ready_at = time.time()
+        result["progress"] = {
+            "stages": {"received": text_received_at, "sent": text_sent_at, "ready": text_ready_at},
+            "server_time": text_ready_at,
+        }
         return complete_text_request(result, cache_success=True)
 
     # Worker owns Telegram delivery. Persist this flag in request_json before
@@ -26297,7 +26358,9 @@ async def run_prostudio_provider_request(
             if credits <= 0:
                 raise SecurityError("pricing_not_configured", 402)
             await asyncio.to_thread(verify_job_reservation, job_id, credits)
-        with billing_scope(job_id, credits, free=free):
+        with billing_scope(job_id, credits, free=free), generation_stages.reporting(
+            lambda stage: record_prostudio_job_stage(job_id, stage)
+        ):
             result, status = await _run_prostudio_provider_request_billed(
                 job_id, payload, mode, selected_model, selected_provider, text_modes, provider,
             )
@@ -26334,6 +26397,7 @@ async def _run_prostudio_provider_request_billed(
         async with provider_slot(
             DATABASE_URL, provider, job_id, prostudio_debug, wait_for_slot=False,
         ):
+            generation_stages.report("sent")
             return await dispatch_prostudio_provider_request(
                 job_id, payload, mode, selected_model, selected_provider, text_modes
             )
@@ -26353,6 +26417,7 @@ async def _run_prostudio_provider_request_billed(
     prostudio_debug("JOB_STATUS_NORMALIZED", job_id=job_id, mode=mode, final_status=final_status)
 
     if final_status == "provider_processing":
+        generation_stages.report("accepted")
         update_prostudio_generation_job(job_id, "provider_processing", result=result)
         log_user_event(
             int(payload.get("telegram_id") or 0), "worker", "generation",

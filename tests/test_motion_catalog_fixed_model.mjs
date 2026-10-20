@@ -177,7 +177,7 @@ function buildDispatchContext() {
     capturedPrompt: null,
     closeVideoTemplateModal() {},
     closeVideoTemplatesCatalog() {},
-    createGenerationProgress() { return {}; },
+    generationLoadingThought() { return {}; },
     renderChat() {},
     rememberCurrentChatSpace() {},
     toast() {},
