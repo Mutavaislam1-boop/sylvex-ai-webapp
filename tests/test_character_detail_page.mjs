@@ -264,7 +264,8 @@ test('"Use Character" commits exactly the selected references - a partial select
   assert.equal(vm.runInContext('activeCharacterDetailId', context), '');
   assert.equal(dom.visualCharacterDetail.hidden, true);
   assert.ok(!dom.imageStylePanel.classList.contains('show'));
-  assert.ok(toasts.some((msg) => /выбран/.test(msg)));
+  // Only photos added, errors and generation results notify.
+  assert.ok(!toasts.some((msg) => /выбран/.test(msg)));
 });
 
 test('"Use Character" with nothing selected commits zero references - never falls back to all', () => {

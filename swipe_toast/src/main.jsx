@@ -33,11 +33,13 @@ let serial = 0;
 function Toaster() {
   const [toasts, setToasts] = useState([]);
   useEffect(() => {
-    // The same notice again replaces the shown one, so a repeated error
-    // restarts instead of piling up.
+    // The same notice while it is still shown is ignored, so extra taps
+    // never repeat it.
     push = toast =>
       setToasts(list =>
-        [...list.filter(item => item.title !== toast.title || item.description !== toast.description), toast].slice(-MAX_TOASTS)
+        list.some(item => item.title === toast.title && item.description === toast.description)
+          ? list
+          : [...list, toast].slice(-MAX_TOASTS)
       );
     pending.splice(0).forEach(push);
     return () => {

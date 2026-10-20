@@ -78,7 +78,6 @@
       return;
     }
 
-    toast("Создаём заказ PayPal…");
     const response = await fetch("/api/public/payments/paypal/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -171,14 +170,6 @@
     }
 
     const grid = document.getElementById("paymentGrid");
-    const params = new URLSearchParams(window.location.search || "");
-    if ((params.get("provider") || "").toLowerCase() === "paypal") {
-      if ((params.get("payment") || "").toLowerCase() === "success") {
-        toast("Оплата принята. Баланс обновится после подтверждения PayPal.");
-      } else if ((params.get("payment") || "").toLowerCase() === "cancel") {
-        toast("Оплата PayPal отменена");
-      }
-    }
 
     try {
       const response = await fetch("/api/payment-links", {

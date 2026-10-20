@@ -56,9 +56,9 @@ test('createPhotoToolReference: object opens the real creation modal (previously
   assert.equal(calls.toasted, null);
 });
 
-test('createPhotoToolReference: tools with no real creation flow (e.g. makeup) still show the placeholder toast, not an error', () => {
+test('createPhotoToolReference: tools with no real creation flow (e.g. makeup) open nothing and show no notice', () => {
   const {context, calls} = buildContext();
   vm.runInContext(`createPhotoToolReference(null, 'makeup')`, context);
   assert.equal(calls.opened, null);
-  assert.equal(calls.toasted, 'Слот для нового референса подготовлен');
+  assert.equal(calls.toasted, null);
 });

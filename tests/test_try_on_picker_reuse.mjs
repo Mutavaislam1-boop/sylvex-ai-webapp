@@ -150,7 +150,8 @@ test('"Use Character" from that picker commits into Try-On\'s own state, never i
   // The redirect is one-shot and the tool's own UI is refreshed.
   assert.equal(sandbox.visualPickerRedirectTarget, null);
   assert.equal(calls.renderPhotoToolModal, 1);
-  assert.deepEqual(calls.toast, ['Персонаж выбран']);
+  // Picking a Character is silent (only photos added, errors and generation results notify).
+  assert.deepEqual(calls.toast, []);
 });
 
 test('characterReferenceUrls is capped at 3, matching Replace Character\'s own cap', () => {

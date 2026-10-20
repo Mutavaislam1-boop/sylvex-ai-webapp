@@ -616,7 +616,6 @@ export function mountVideoEditorUI(host, editor, { onClose, actions, services, e
     if (run(() => editor.removeRange(range.start, range.end)) !== null) {
       state.range = null;
       seek(range.start);
-      toast('Фрагмент удалён');
     }
     render();
   }
@@ -1240,7 +1239,7 @@ export function mountVideoEditorUI(host, editor, { onClose, actions, services, e
     const pause = target.closest('[data-remove-pause]');
     if (pause) {
       const [start, end] = pause.dataset.removePause.split(':').map(Number);
-      if (run(() => editor.removeRange(start, end)) !== null) toast('Пауза удалена');
+      run(() => editor.removeRange(start, end));
       return;
     }
     const place = target.closest('[data-place]');
@@ -1299,7 +1298,7 @@ export function mountVideoEditorUI(host, editor, { onClose, actions, services, e
       if (range && run(() => editor.removeAudioRange(state.selection.id, range.start, range.end)) !== null) { state.range = null; select(null); }
       return;
     }
-    if (name === 'detach-audio') { const id = run(() => editor.detachAudio(state.selection.id)); if (id) { select({ type: 'audio', id }); toast('Звук видео на отдельной дорожке'); } return; }
+    if (name === 'detach-audio') { const id = run(() => editor.detachAudio(state.selection.id)); if (id) select({ type: 'audio', id }); return; }
     if (name === 'revert-version') { run(() => editor.revertClipMedia(state.selection.id)); renderInspector(true); return; }
     if (name === 'zoom-in') { setZoom(state.pps * 1.5); return; }
     if (name === 'zoom-out') { setZoom(state.pps / 1.5); return; }

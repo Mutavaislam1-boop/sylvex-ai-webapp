@@ -157,7 +157,8 @@ test('deleteVisualReference: a custom Character is removed from serverVisualItem
   assert.deepEqual(serverVisualItems.characters, []);
   const remaining = vm.runInContext(`loadCustomVisualItems('characters')`, context);
   assert.equal(remaining.length, 0);
-  assert.ok(toasts.some((msg) => /удал/i.test(msg)));
+  // A successful delete is silent (only photos added, errors and generation results notify).
+  assert.ok(!toasts.some((msg) => /удал/i.test(msg)));
 });
 
 test('deleteVisualReference: persists after "reload" - loadCustomVisualItems never returns the deleted Character again', async () => {
