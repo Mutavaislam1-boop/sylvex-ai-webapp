@@ -399,6 +399,12 @@ test('zoom anchors the object under the pointer and Fit returns it to center',()
  assert.equal(h.state.viewport.x,-40);assert.equal(h.state.viewport.y,-40);
  h.context.fitEditWorkspace();assert.equal(h.state.zoom,100);assert.equal(h.state.viewport.x,0);assert.equal(h.state.camera.zoom,5);
 });
+test('the fixed upload card is centred on the tool dock, also when the shared sidebar collapses',()=>{
+  assert.ok(source.includes("const dock=editWorkspaceUploadFixed()&&root.querySelector('.edit-workspace-dock')?.getBoundingClientRect();"));
+  assert.ok(source.includes("const scale=s.zoom/100,x=centerX()+s.viewport.x,y=stage.clientHeight/2+s.viewport.y;"));
+  assert.ok(source.includes("const sidebar=root.dataset.sharedSidebar&&document.getElementById('sxSidebar');if(sidebar)root._editObserver.observe(sidebar);"));
+});
+
 test('an empty canvas keeps the upload card fixed in the middle at 70% until a photo is added',()=>{
  const h=harness();h.state.chain=[];h.state.viewport={x:30,y:20};
  h.context.editWorkspaceSetViewZoom(200,{x:100,y:80});
