@@ -88,10 +88,38 @@ test('Grid image and video results open in in-app viewers', () => {
   assert.match(cabinet, /data-grid-copy-text/);
   assert.match(cabinet, /openImageViewer\(event,item\.url\|\|item\.preview_url,urls,\{jobId:/);
   assert.match(cabinet, /data-image-viewer-download/);
-  assert.match(cabinet, /function openStudioGridVideoViewer\(url,jobId\)/);
-  assert.match(cabinet, /openStudioGridVideoViewer\(node\.output\.url,node\.generation_id/);
+  assert.match(cabinet, /function openStudioGridVideoViewer\(url,jobId,nodeId\)/);
+  assert.match(cabinet, /openStudioGridVideoViewer\(node\.output\.url,node\.generation_id[^\n]+node\.id\)/);
   assert.match(cabinet, /data-grid-video-download/);
+  assert.match(cabinet, /autoplay muted loop playsinline preload="auto"/);
+  assert.doesNotMatch(cabinet, /data-grid-preview><video[^`]+<span>▶<\/span>/);
   assert.doesNotMatch(cabinet, /if\(event\.target\.closest\('\[data-grid-preview\]'\)\).*window\.open/);
+});
+
+test('Grid media blocks expose durable direct downloads and a multi-image chooser', () => {
+  assert.match(cabinet, /function completedGridDownloadUrl\(jobId,projectId,nodeId,resultIndex,downloadAll=false\)/);
+  assert.match(cabinet, /grid_project_id/);
+  assert.match(cabinet, /grid_node_id/);
+  assert.match(cabinet, /parsed\.origin===window\.location\.origin\?parsed\.pathname\+parsed\.search:parsed\.toString\(\)/);
+  assert.match(cabinet, /data-grid-download-result/);
+  assert.match(cabinet, /data-grid-download-index/);
+  assert.match(cabinet, /data-grid-download-all/);
+  assert.match(main, /grid_project_id: str = ""/);
+  assert.match(main, /download_all: bool = False/);
+  assert.match(main, /application\/zip/);
+});
+
+test('Grid image quantity is sent as a numeric option value', () => {
+  assert.match(cabinet, /data-grid-setting="count">\$\{\[1,2,3,4\]\.map\(v=>`<option value="\$\{v\}"/);
+  assert.match(cabinet, /imageOptions=Object\.assign\(\{\},settings/);
+});
+
+test('Grid edges dynamically choose the nearest opposing node sides', () => {
+  assert.match(cabinet, /function studioGridEdgeSides\(from,to,fromSize=/);
+  assert.match(cabinet, /dx>=0\?\{fromSide:'right',toSide:'left'\}:\{fromSide:'left',toSide:'right'\}/);
+  assert.match(cabinet, /dy>=0\?\{fromSide:'bottom',toSide:'top'\}:\{fromSide:'top',toSide:'bottom'\}/);
+  assert.match(cabinet, /\{fromSide,toSide\}=studioGridEdgeSides\(from,to,fromSize,toSize\)/);
+  assert.match(cabinet, /element\?\.offsetHeight\|\|272/);
 });
 
 test('Grid connection lines expose a wide hit target and disconnect through one state path', () => {
@@ -119,11 +147,14 @@ test('Grid starts with the intelligent brief instead of the legacy fixed image c
 
 test('Grid history keeps a temporary draft out of persistence and names it from the first generated brief', () => {
   assert.match(cabinet, /function studioGridHasMeaningfulActivity\(state\)/);
-  assert.match(cabinet, /if\(studioGridIsBlank\(previous\)\).*This new project is already empty/);
+  assert.match(cabinet, /if\(studioGridIsBlank\(previous\)&&!studioGridHasDraftContent\(previous\)\)/);
+  assert.match(cabinet, /This new project is already empty/);
   assert.match(cabinet, /state\.title=brief\.replace\(\/\\s\+\/g,' '\)\.trim\(\)\.slice\(0,120\)/);
   assert.match(cabinet, /item\.temporary\?'':`<details class="history-item-menu"/);
   assert.match(cabinet, /data-grid-project-action="rename"/);
   assert.match(cabinet, /data-grid-project-action="pin"/);
+  assert.match(cabinet, /function ensureStudioGridProjectTitle\(state,node,inputs\)/);
+  assert.match(cabinet, /ensureStudioGridProjectTitle\(state,node,inputs\)/);
 });
 
 test('Grid and Edit sidebar histories are mutually exclusive', () => {

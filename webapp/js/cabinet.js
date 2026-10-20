@@ -19728,6 +19728,8 @@ function removeComposerImageDraft(e, index) {
 let imageViewerUrls = [];
 let imageViewerIndex = 0;
 let imageViewerDownloadJobId = '';
+let imageViewerDownloadProjectId = '';
+let imageViewerDownloadNodeId = '';
 let imageViewerPointerStart = null;
 let imageViewerWheelDelta = 0;
 let imageViewerWheelTimer = null;
@@ -19762,7 +19764,7 @@ function renderImageViewerImage() {
   const download = viewer.querySelector('[data-image-viewer-download]');
   if (download) {
     download.hidden = !imageViewerDownloadJobId;
-    download.dataset.downloadUrl = imageViewerDownloadJobId ? completedGenerationDownloadUrl(imageViewerDownloadJobId, imageViewerIndex) : '';
+    download.dataset.downloadUrl = imageViewerDownloadJobId ? (imageViewerDownloadProjectId&&imageViewerDownloadNodeId?completedGridDownloadUrl(imageViewerDownloadJobId,imageViewerDownloadProjectId,imageViewerDownloadNodeId,imageViewerIndex):completedGenerationDownloadUrl(imageViewerDownloadJobId, imageViewerIndex)) : '';
     download.dataset.fileName = generationDownloadFilename('image', imageViewerDownloadJobId || 'grid-image');
   }
 }
@@ -19870,6 +19872,8 @@ function openImageViewer(e, url, urls, options) {
 
   const viewer = ensureImageViewer();
   imageViewerDownloadJobId = String(options && options.jobId || (btn && btn.dataset ? btn.dataset.generationJobId : '') || '');
+  imageViewerDownloadProjectId = String(options && options.gridProjectId || '');
+  imageViewerDownloadNodeId = String(options && options.gridNodeId || '');
   imageViewerUrls = imageViewerUrlsFrom(
     urls || (btn && btn.dataset ? btn.dataset.imageUrls : ''),
     imageUrl,
@@ -19916,6 +19920,8 @@ function closeImageViewer(e) {
   imageViewerUrls = [];
   imageViewerIndex = 0;
   imageViewerDownloadJobId = '';
+  imageViewerDownloadProjectId = '';
+  imageViewerDownloadNodeId = '';
   imageViewerPointerStart = null;
   imageViewerWheelDelta = 0;
   if (imageViewerWheelTimer) clearTimeout(imageViewerWheelTimer);
@@ -29309,6 +29315,22 @@ async function waitGeneration(jobId, options) {
 
   const STUDIO_GRID_TEMPORARY_TITLES=new Set(['New project','New intelligent project','Untitled project']);
   function studioGridTitleIsTemporary(title){const value=String(title||'').trim();return !value||STUDIO_GRID_TEMPORARY_TITLES.has(value)}
+  function studioGridCompactTitle(value){
+    const clean=String(value||'').replace(/\s+/g,' ').replace(/^[#*\-\d.\s]+/,'').trim();
+    if(!clean)return'';
+    const sentence=clean.split(/[.!?]\s+/)[0]||clean;
+    return sentence.slice(0,96).replace(/[,:;\-\s]+$/,'').trim();
+  }
+  function ensureStudioGridProjectTitle(state,node,inputs){
+    if(!state||!studioGridTitleIsTemporary(state.title))return state?.title||'';
+    const userPrompt=(state.nodes||[]).find(item=>!item.planner_generated&&String(item.prompt||'').trim())?.prompt;
+    const generatedText=(state.nodes||[]).find(item=>item.output?.type==='text'&&String(item.output.value||'').trim())?.output?.value;
+    const attachment=(node?.attachments||[]).find(item=>String(item.name||'').trim())?.name||(state.nodes||[]).flatMap(item=>item.attachments||[]).find(item=>String(item.name||'').trim())?.name;
+    const modelLabel=gridModelsForType(node?.type).find(item=>item.id===node?.model)?.label||node?.title||GRID_TYPES[node?.type]?.title||'Grid project';
+    const chosen=studioGridCompactTitle(userPrompt||inputs?.effective_prompt?.value||generatedText||attachment||modelLabel);
+    if(chosen)state.title=chosen;
+    return state.title;
+  }
 
   function loadStudioGridProjects() {
     try{const items=JSON.parse(localStorage.getItem(studioGridProjectsStorageKey())||'[]');return Array.isArray(items)?items.filter(item=>{if(!item?.id)return false;try{const state=JSON.parse(localStorage.getItem(studioGridProjectStorageKey(item.id))||'null');if(state)return studioGridHasMeaningfulActivity(state)}catch(_){}return !!(item.preview_url||Number(item.node_count)>1||!studioGridTitleIsTemporary(item.title))}):[]}catch(_){return[]}
@@ -29321,7 +29343,7 @@ async function waitGeneration(jobId, options) {
   function studioGridHasMeaningfulActivity(state){
     if(!state)return false;
     const customTitle=!studioGridTitleIsTemporary(state.title);
-    const nodeActivity=(state.nodes||[]).some(node=>String(node.prompt||'').trim()||(node.attachments||[]).length||node.output||(node.results||[]).length||node.generation_id||node.request_id||['RUNNING','COMPLETED','FAILED','CANCELLED','WAITING'].includes(String(node.status||'').toUpperCase()));
+    const nodeActivity=(state.nodes||[]).some(node=>node.output||(node.results||[]).length||node.generation_id||node.request_id||['RUNNING','COMPLETED','FAILED','CANCELLED','WAITING'].includes(String(node.status||'').toUpperCase()));
     return !!(customTitle||nodeActivity||state.workflow?.started_at);
   }
   function sortStudioGridProjects(items){return items.sort((a,b)=>Number(!!b.pinned)-Number(!!a.pinned)||String(b.updated_at||'').localeCompare(String(a.updated_at||'')))}
@@ -29397,6 +29419,7 @@ async function waitGeneration(jobId, options) {
     studioGridCloudSaveTimer=setTimeout(()=>void queueStudioGridCloudSave(studioGridState),650);
   }
   function studioGridIsBlank(state){return !!state&&!studioGridHasMeaningfulActivity(state)}
+  function studioGridHasDraftContent(state){return !!state&&((state.nodes||[]).length>1||(state.edges||[]).length>0||(state.nodes||[]).some(node=>String(node.prompt||'').trim()||(node.attachments||[]).length))}
   async function loadStudioGridCloudProjects(){
     const owner=studioGridAccountOwner();if(!owner||studioGridCloudLoaded)return;
     const loadRevision=studioGridProjectSwitchRevision;
@@ -29415,7 +29438,7 @@ async function waitGeneration(jobId, options) {
       let current=loadStudioGridState(),remoteId=remote.some(item=>item.id===current.projectId)?current.projectId:'';
       if(remoteId&&loadRevision===studioGridProjectSwitchRevision){
         const projectResponse=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(remoteId),{cache:'no-store'});
-        if(projectResponse.ok&&owner===studioGridAccountOwner()&&loadRevision===studioGridProjectSwitchRevision){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(studioGridActiveStorageKey(),JSON.stringify(studioGridState));renderStudioGrid();restoreStudioGridJobs()}}
+        if(projectResponse.ok&&owner===studioGridAccountOwner()&&loadRevision===studioGridProjectSwitchRevision){const project=await projectResponse.json();if(project.state?.nodes){studioGridState=normalizeStudioGridState(project.state);studioGridJobsRestored=false;archiveStudioGridProject(studioGridState);localStorage.setItem(studioGridActiveStorageKey(),JSON.stringify(studioGridState));renderStudioGrid();restoreStudioGridJobs();void refreshStudioGridCompletedMedia(studioGridState,loadRevision)}}
         current=loadStudioGridState();
       }else if(!studioGridIsBlank(current)){void queueStudioGridCloudSave(current,owner)}
       studioGridCloudSync='Saved';renderStudioGridProjects();renderStudioGridCloudStatus();
@@ -29463,7 +29486,8 @@ async function waitGeneration(jobId, options) {
   function createStudioGridProject() {
     if(studioGridHasActiveRun()){toast('Wait for the current generation to finish');return}
     const previous=studioGridSnapshot(loadStudioGridState());
-    if(studioGridIsBlank(previous)){closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('This new project is already empty');return}
+    if(studioGridIsBlank(previous)&&!studioGridHasDraftContent(previous)){closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('This new project is already empty');return}
+    if(studioGridIsBlank(previous)){clearTimeout(studioGridCloudSaveTimer);studioGridProjectSwitchRevision+=1;studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('New Grid project created');return}
     archiveStudioGridProject(previous);
     clearTimeout(studioGridCloudSaveTimer);
     if(studioGridAccountOwner())void queueStudioGridCloudSave(previous);
@@ -29493,7 +29517,7 @@ async function waitGeneration(jobId, options) {
     if(studioGridAccountOwner())try{const response=await fetch('/api/public/prostudio/grid-projects/'+encodeURIComponent(projectId),{cache:'no-store'});if(response.ok)stored=(await response.json()).state}catch(_){}
     if(!stored||!Array.isArray(stored.nodes))try{stored=JSON.parse(localStorage.getItem(studioGridProjectStorageKey(projectId))||'null')}catch(_){}
     if(switchRevision!==studioGridProjectSwitchRevision)return;
-    if(!stored||!Array.isArray(stored.nodes)){toast('Could not open this Grid project');return}studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();restoreStudioGridJobs();
+    if(!stored||!Array.isArray(stored.nodes)){toast('Could not open this Grid project');return}studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();restoreStudioGridJobs();void refreshStudioGridCompletedMedia(studioGridState,switchRevision);
   }
 
   function normalizeStudioGridState(state) {
@@ -29546,6 +29570,40 @@ async function waitGeneration(jobId, options) {
     return raw;
   }
 
+  function completedGridDownloadUrl(jobId,projectId,nodeId,resultIndex,downloadAll=false) {
+    if(!jobId)return'';
+    const parsed=new URL(completedGenerationDownloadUrl(jobId,resultIndex),window.location.origin);
+    if(projectId)parsed.searchParams.set('grid_project_id',String(projectId));
+    if(nodeId)parsed.searchParams.set('grid_node_id',String(nodeId));
+    if(downloadAll)parsed.searchParams.set('download_all','1');
+    return parsed.origin===window.location.origin?parsed.pathname+parsed.search:parsed.toString();
+  }
+
+  function gridNodeDownloadKind(node){return node?.output?.type==='audio'?(node.type==='voice'?'voice':'music'):String(node?.output?.type||node?.type||'file')}
+  function gridNodeDownloadButton(node,status){
+    if(status!=='COMPLETED'||!node?.generation_id||!['image','video','audio'].includes(String(node.output?.type||'')))return'';
+    return `<button type="button" data-grid-download-result aria-label="Download result" title="Download result">${generationActionIcon('download')}</button>`;
+  }
+  function triggerStudioGridDownload(node,index=0,downloadAll=false){
+    if(!node?.generation_id)return toast('File is not available for download');
+    const kind=gridNodeDownloadKind(node),url=completedGridDownloadUrl(node.generation_id,loadStudioGridState().projectId,node.id,index,downloadAll),filename=downloadAll?`sylvex-${kind}-${String(node.generation_id).slice(0,12)}-all.zip`:generationDownloadFilename(kind,node.generation_id);
+    downloadGeneratedFile({preventDefault(){},stopPropagation(){},currentTarget:{dataset:{downloadUrl:url,fileName:filename}}});
+  }
+  function closeStudioGridDownloadMenu(){const menu=document.getElementById('studioGridDownloadMenu');if(menu)menu.hidden=true}
+  function ensureStudioGridDownloadMenu(){
+    let menu=document.getElementById('studioGridDownloadMenu');if(menu)return menu;
+    menu=document.createElement('div');menu.id='studioGridDownloadMenu';menu.className='studio-grid-download-menu';menu.hidden=true;
+    menu.addEventListener('click',event=>{const button=event.target.closest('[data-grid-download-index],[data-grid-download-all]');if(!button)return;event.preventDefault();event.stopPropagation();const node=loadStudioGridState().nodes.find(item=>item.id===menu.dataset.nodeId);if(!node)return;triggerStudioGridDownload(node,Number(button.dataset.gridDownloadIndex||0),button.hasAttribute('data-grid-download-all'));closeStudioGridDownloadMenu()});
+    document.addEventListener('pointerdown',event=>{if(!menu.hidden&&!event.target.closest('#studioGridDownloadMenu,[data-grid-download-result]'))closeStudioGridDownloadMenu()});
+    (document.querySelector('.studio')||document.body).appendChild(menu);return menu;
+  }
+  function downloadStudioGridNode(nodeId,anchor){
+    const node=loadStudioGridState().nodes.find(item=>item.id===nodeId),items=node?.output?.type==='image'&&Array.isArray(node.output.items)?node.output.items:[];
+    if(!node?.generation_id)return toast('File is not available for download');
+    if(items.length<=1){triggerStudioGridDownload(node,Number(node.output?.selected_index||0));return}
+    const menu=ensureStudioGridDownloadMenu(),rect=anchor?.getBoundingClientRect?.()||{left:20,bottom:20};menu.dataset.nodeId=node.id;menu.innerHTML=`<strong>Download images</strong><div>${items.map((item,index)=>{const url=gridRenderableMediaUrl(item.preview_url||item.url);return `<button type="button" data-grid-download-index="${index}" aria-label="Download image ${index+1}">${url?`<img src="${gridEscape(url)}" alt="">`:`<span>${index+1}</span>`}</button>`}).join('')}</div><button type="button" class="studio-grid-download-all" data-grid-download-all>${generationActionIcon('download')}<span>Download all</span></button>`;menu.hidden=false;const width=220;menu.style.left=`${Math.max(8,Math.min(window.innerWidth-width-8,rect.left-width+rect.width))}px`;menu.style.top=`${Math.max(8,Math.min(window.innerHeight-menu.offsetHeight-8,rect.bottom+7))}px`;
+  }
+
   function loadStudioGridState() {
     ensureStudioGridStorageOwner();
     if (studioGridState) return studioGridState;
@@ -29579,17 +29637,25 @@ async function waitGeneration(jobId, options) {
     if (zoom) zoom.textContent = `${Math.round((state.zoom || 1) * 100)}%`;
   }
 
+  function studioGridEdgeSides(from,to,fromSize={width:276,height:272},toSize={width:276,height:272}) {
+    const dx=(Number(to.x)+toSize.width/2)-(Number(from.x)+fromSize.width/2);
+    const dy=(Number(to.y)+toSize.height/2)-(Number(from.y)+fromSize.height/2);
+    if(Math.abs(dx)>=Math.abs(dy))return dx>=0?{fromSide:'right',toSide:'left'}:{fromSide:'left',toSide:'right'};
+    return dy>=0?{fromSide:'bottom',toSide:'top'}:{fromSide:'top',toSide:'bottom'};
+  }
+
   function renderStudioGridEdges() {
     const state = loadStudioGridState();
     const svg = document.getElementById('studioGridEdges');
     if (!svg) return;
     const byId = Object.fromEntries(state.nodes.map((node) => [node.id, node]));
+    const sizeById=Object.fromEntries(state.nodes.map(node=>{const element=document.querySelector(`[data-grid-id="${CSS.escape(node.id)}"]`);return[node.id,{width:element?.offsetWidth||276,height:element?.offsetHeight||272}]}));
     svg.innerHTML = state.edges.map((edge) => {
       const from = byId[edge.from], to = byId[edge.to];
       if (!from || !to) return '';
-      const width=276,height=272,vertical=Math.abs((Number(to.y)-Number(from.y)))>Math.abs((Number(to.x)-Number(from.x))),fromSide=edge.fromSide||(vertical&&Number(to.y)>=Number(from.y)?'bottom':'right'),toSide=edge.toSide||(fromSide==='bottom'?'top':'left');
-      const point=(node,side)=>side==='bottom'?{x:Number(node.x)+width/2,y:Number(node.y)+height}:side==='top'?{x:Number(node.x)+width/2,y:Number(node.y)}:side==='left'?{x:Number(node.x),y:Number(node.y)+height/2}:{x:Number(node.x)+width,y:Number(node.y)+height/2};
-      const a=point(from,fromSide),b=point(to,toSide),distance=Math.max(55,Math.hypot(b.x-a.x,b.y-a.y)*.35),control=(p,side,d)=>side==='bottom'?{x:p.x,y:p.y+d}:side==='top'?{x:p.x,y:p.y-d}:side==='left'?{x:p.x-d,y:p.y}:{x:p.x+d,y:p.y},c1=control(a,fromSide,distance),c2=control(b,toSide,distance);
+      const fromSize=sizeById[from.id],toSize=sizeById[to.id],{fromSide,toSide}=studioGridEdgeSides(from,to,fromSize,toSize);
+      const point=(node,side,size)=>side==='bottom'?{x:Number(node.x)+size.width/2,y:Number(node.y)+size.height}:side==='top'?{x:Number(node.x)+size.width/2,y:Number(node.y)}:side==='left'?{x:Number(node.x),y:Number(node.y)+size.height/2}:{x:Number(node.x)+size.width,y:Number(node.y)+size.height/2};
+      const a=point(from,fromSide,fromSize),b=point(to,toSide,toSize),distance=Math.max(55,Math.hypot(b.x-a.x,b.y-a.y)*.35),control=(p,side,d)=>side==='bottom'?{x:p.x,y:p.y+d}:side==='top'?{x:p.x,y:p.y-d}:side==='left'?{x:p.x-d,y:p.y}:{x:p.x+d,y:p.y},c1=control(a,fromSide,distance),c2=control(b,toSide,distance);
       const path=`M${a.x} ${a.y} C${c1.x} ${c1.y},${c2.x} ${c2.y},${b.x} ${b.y}`;
       return `<g data-grid-edge="${gridEscape(edge.id)}"><path class="studio-grid-edge-hit" d="${path}"/><path class="studio-grid-edge-line" d="${path}"/><circle cx="${a.x}" cy="${a.y}" r="4"/><circle cx="${b.x}" cy="${b.y}" r="4"/></g>`;
     }).join('');
@@ -29633,18 +29699,18 @@ async function waitGeneration(jobId, options) {
   function ensureStudioGridVideoViewer(){
     let viewer=document.getElementById('studioGridVideoViewer');
     if(viewer)return viewer;
-    viewer=document.createElement('div');viewer.id='studioGridVideoViewer';viewer.className='studio-grid-video-viewer';viewer.hidden=true;viewer.innerHTML=`<div class="studio-grid-video-viewer-backdrop" data-grid-video-close></div><section role="dialog" aria-modal="true" aria-label="Video preview"><button type="button" class="studio-grid-video-download" data-grid-video-download hidden aria-label="Download video" title="Download">${generationActionIcon('download')}</button><button type="button" class="studio-grid-video-close" data-grid-video-close aria-label="Close video">×</button><video controls playsinline preload="auto"></video><p class="studio-grid-video-error" hidden>This video cannot be played in the browser. Download the original file.</p></section>`;
+    viewer=document.createElement('div');viewer.id='studioGridVideoViewer';viewer.className='studio-grid-video-viewer';viewer.hidden=true;viewer.innerHTML=`<div class="studio-grid-video-viewer-backdrop" data-grid-video-close></div><section role="dialog" aria-modal="true" aria-label="Video preview"><button type="button" class="studio-grid-video-download" data-grid-video-download hidden aria-label="Download video" title="Download">${generationActionIcon('download')}</button><button type="button" class="studio-grid-video-close" data-grid-video-close aria-label="Close video">×</button><video controls autoplay playsinline preload="auto"></video><p class="studio-grid-video-error" hidden>This video cannot be played in the browser. Download the original file.</p></section>`;
     viewer.addEventListener('click',event=>{if(event.target.closest('[data-grid-video-close]'))closeStudioGridVideoViewer()});
     viewer.querySelector('[data-grid-video-download]')?.addEventListener('click',downloadGeneratedFile);
     document.body.appendChild(viewer);
     if(!studioGridVideoViewerKeyBound){studioGridVideoViewerKeyBound=true;document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!document.getElementById('studioGridVideoViewer')?.hidden)closeStudioGridVideoViewer()})}
     return viewer;
   }
-  function openStudioGridVideoViewer(url,jobId){
-    const playableUrl=gridRenderableMediaUrl(url);if(!playableUrl){toast('Video is not available');return}const viewer=ensureStudioGridVideoViewer(),video=viewer.querySelector('video'),error=viewer.querySelector('.studio-grid-video-error'),download=viewer.querySelector('[data-grid-video-download]');if(error)error.hidden=true;if(download){download.hidden=!jobId;download.dataset.downloadUrl=jobId?completedGenerationDownloadUrl(jobId):'';download.dataset.fileName=generationDownloadFilename('video',jobId||'grid-video')}video.onerror=()=>{if(error)error.hidden=false};video.src=playableUrl;video.load();viewer.hidden=false;document.body.classList.add('studio-grid-media-viewer-open');requestAnimationFrame(()=>video.play().catch(()=>{}));
+  function openStudioGridVideoViewer(url,jobId,nodeId){
+    const playableUrl=gridRenderableMediaUrl(url);if(!playableUrl){toast('Video is not available');return}const viewer=ensureStudioGridVideoViewer(),video=viewer.querySelector('video'),error=viewer.querySelector('.studio-grid-video-error'),download=viewer.querySelector('[data-grid-video-download]'),projectId=loadStudioGridState().projectId;if(error)error.hidden=true;if(download){download.hidden=!jobId;download.dataset.downloadUrl=jobId?completedGridDownloadUrl(jobId,projectId,nodeId):'';download.dataset.fileName=generationDownloadFilename('video',jobId||'grid-video')}video.onerror=()=>{if(error)error.hidden=false};video.oncanplay=()=>video.play().catch(()=>{});video.muted=false;video.src=playableUrl;video.load();viewer.hidden=false;document.body.classList.add('studio-grid-media-viewer-open');requestAnimationFrame(()=>video.play().catch(()=>{}));
   }
   function closeStudioGridVideoViewer(){
-    const viewer=document.getElementById('studioGridVideoViewer'),video=viewer?.querySelector('video'),error=viewer?.querySelector('.studio-grid-video-error');if(video){video.onerror=null;video.pause();video.removeAttribute('src');video.load()}if(error)error.hidden=true;if(viewer)viewer.hidden=true;document.body.classList.remove('studio-grid-media-viewer-open');
+    const viewer=document.getElementById('studioGridVideoViewer'),video=viewer?.querySelector('video'),error=viewer?.querySelector('.studio-grid-video-error');if(video){video.onerror=null;video.oncanplay=null;video.pause();video.removeAttribute('src');video.load()}if(error)error.hidden=true;if(viewer)viewer.hidden=true;document.body.classList.remove('studio-grid-media-viewer-open');
   }
 
   function gridNodePreview(node,status) {
@@ -29661,7 +29727,7 @@ async function waitGeneration(jobId, options) {
     if(node.type==='task'&&output?.type==='references')return gridReferenceRequestsHtml(node);
     if (node.type==='text'&&output?.value) return `${status==='FAILED'?`<small class="studio-grid-latest-error">${gridEscape(node.error||'Latest attempt failed')}</small>`:''}<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>${gridResultVersionsHtml(node)}`;
     if(output?.type==='image'&&Array.isArray(output.items)){const items=output.items.map((item,index)=>{const url=gridRenderableMediaUrl(item.preview_url||item.url);return`<button type="button" data-grid-pick-result="${index}" data-grid-open-result class="${index===Number(output.selected_index||0)?'active':''}" aria-label="Open generated image"${url?'':' disabled'}>${url?`<img src="${gridEscape(url)}" alt="Generated image" loading="lazy">`:'<span>Refreshing image…</span>'}</button>`}).join('');return`<div class="studio-grid-result-list">${items}</div>${gridResultVersionsHtml(node)}`}
-    if(output?.type==='video'&&output.url){const url=gridRenderableMediaUrl(output.url);return url?`<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(url)}" muted playsinline preload="metadata"></video><span>▶</span></button>${gridResultVersionsHtml(node)}`:'<span>Refreshing video…</span>'}
+    if(output?.type==='video'&&output.url){const url=gridRenderableMediaUrl(output.url);return url?`<button type="button" class="studio-grid-media-preview" data-grid-preview aria-label="Open video"><video src="${gridEscape(url)}" autoplay muted loop playsinline preload="auto"></video></button>${gridResultVersionsHtml(node)}`:'<span>Refreshing video…</span>'}
     if(output?.type==='audio'&&output.url){const url=gridRenderableMediaUrl(output.url);return url?`<audio class="studio-grid-audio" src="${gridEscape(url)}" controls preload="metadata"></audio>${gridResultVersionsHtml(node)}`:'<span>Refreshing audio…</span>'}
     const messages={RUNNING:'Генерация…',FAILED:node.error||'Ошибка генерации',CANCELLED:node.error||'Остановлено',WAITING:node.error||'Ожидает входы',READY:'Готов к запуску',COMPLETED:'Результат готов'};
     return `<i>${(GRID_TYPES[node.type]||GRID_TYPES.text).icon}</i><span>${gridEscape(messages[status]||'Результат появится здесь')}</span>`;
@@ -29670,7 +29736,7 @@ async function waitGeneration(jobId, options) {
   function gridNodeSettingsHtml(node) {
     const settings=node.settings||{},models=gridModelsForType(node.type),model=`<select data-grid-setting="model" aria-label="Модель">${gridSelectOptions(models,node.model)}</select>`;
     if (node.type==='task') return `<div class="studio-grid-node-settings"><span class="studio-grid-director-label">AI production director</span></div>`;
-    if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${['1024','2048','4096'].map(v=>`<option${String(settings.resolution)===v?' selected':''}>${v}px</option>`).join('')}</select><select data-grid-setting="quality">${['standard','high'].map(v=>`<option${settings.quality===v?' selected':''}>${v==='high'?'High':'Standard'}</option>`).join('')}</select><select data-grid-setting="style">${['auto','photorealistic','cinematic','editorial','illustration'].map(v=>`<option${settings.style===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option${Number(settings.count)===v?' selected':''}>${v} image${v>1?'s':''}</option>`).join('')}</select></div>`;
+    if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option value="${v}"${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${['1024','2048','4096'].map(v=>`<option value="${v}"${String(settings.resolution)===v?' selected':''}>${v}px</option>`).join('')}</select><select data-grid-setting="quality">${['standard','high'].map(v=>`<option value="${v}"${settings.quality===v?' selected':''}>${v==='high'?'High':'Standard'}</option>`).join('')}</select><select data-grid-setting="style">${['auto','photorealistic','cinematic','editorial','illustration'].map(v=>`<option value="${v}"${settings.style===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option value="${v}"${Number(settings.count)===v?' selected':''}>${v} image${v>1?'s':''}</option>`).join('')}</select></div>`;
     if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[node.model]||VIDEO_MODEL_CONFIG.seedance_2_fast,timeline=settings.timeline||node.timeline||{};return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="generation_mode">${(config.modes||['text_to_video']).map(v=>`<option value="${v}"${settings.generation_mode===v?' selected':''}>${v==='image_to_video'?'Image → Video':v==='video_edit'?'Video edit':v==='motion_control'?'Motion control':'Text → Video'}</option>`).join('')}</select><select data-grid-setting="ratio">${(config.ratios||['16:9']).map(v=>`<option${settings.ratio===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${(config.resolutions||['720p']).map(v=>`<option${settings.resolution===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${(config.durations||[5]).map(v=>`<option value="${v}"${Number(settings.duration)===Number(v)?' selected':''}>${v}s</option>`).join('')}</select><input type="number" min="1" data-grid-setting="timeline_order" value="${Number(timeline.order)||1}" aria-label="Timeline order" title="Timeline order">${config.sound?`<label class="studio-grid-toggle"><input type="checkbox" data-grid-setting="sound"${settings.sound?' checked':''}><span>Sound</span></label>`:''}</div>`}
     if(node.type==='music')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="genre">${['auto','pop','rock','rap','jazz','ambient','cinematic','electronic'].map(v=>`<option${settings.genre===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${['auto',30,60,120,180].map(v=>`<option value="${v}"${String(settings.duration)===String(v)?' selected':''}>${v==='auto'?'Auto':v+'s'}</option>`).join('')}</select><select data-grid-setting="mood">${['auto','energetic','calm','dramatic','romantic','uplifting','dark'].map(v=>`<option${settings.mood===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="tempo">${['auto','slow','medium','fast'].map(v=>`<option${settings.tempo===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="vocal">${['auto','instrumental','female','male','duet'].map(v=>`<option${settings.vocal===v?' selected':''}>${v}</option>`).join('')}</select><input data-grid-setting="theme" value="${gridEscape(settings.theme||'auto')}" aria-label="Music theme"><input type="number" min="0" data-grid-setting="timeline_offset" value="${Number(settings.timeline?.offset||0)}" aria-label="Timeline offset" title="Audio offset, seconds"></div>`;
     if(node.type==='voice')return `<div class="studio-grid-node-settings">${model}${/^runway_/.test(node.model)?`<select data-grid-setting="runway_tool">${['text_to_speech','sound_effect'].map(v=>`<option${settings.runway_tool===v?' selected':''}>${v==='sound_effect'?'Sound effect':'Text to speech'}</option>`).join('')}</select>`:''}<input data-grid-setting="voice" value="${gridEscape(settings.voice||'Kore')}" aria-label="Voice"><select data-grid-setting="target_language">${['auto','en','ru','kk','es','de','fr','it','tr','ar'].map(v=>`<option${settings.target_language===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="speaker_mode">${['single','dialogue'].map(v=>`<option${settings.speaker_mode===v?' selected':''}>${v}</option>`).join('')}</select><input data-grid-setting="emotion" value="${gridEscape(settings.emotion||'natural')}" aria-label="Emotion"><input type="number" min="0.5" max="2" step="0.1" data-grid-setting="speed" value="${Number(settings.speed||1)}" aria-label="Speech speed"><input type="number" min="0" data-grid-setting="timeline_offset" value="${Number(settings.timeline?.offset||0)}" aria-label="Timeline offset" title="Audio offset, seconds"></div>`;
@@ -29704,7 +29770,7 @@ async function waitGeneration(jobId, options) {
       const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),preview=gridNodePreview(node,status),inputPorts=(type.inputs||[]).map((input,index)=>`<button class="studio-grid-port in side-left" style="top:${62+index*25}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="left" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} слева"></button><button class="studio-grid-port in side-top" style="left:${44+index*38}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="top" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} сверху"></button>`).join(''),outputPort=gridEscape((type.outputs||['text'])[0]);
       return `<article class="studio-grid-node${selected ? ' selected' : ''}${node.position_locked?' locked':''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" data-status="${gridEscape(status)}" style="--grid-x:${Number(node.x)||0}px;--grid-y:${Number(node.y)||0}px">
         ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
-        <div class="studio-grid-node-card"><div class="studio-grid-node-tile"><header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b>${node.type==='text'&&status==='COMPLETED'&&String(node.output?.value||'').trim()?`<button type="button" data-grid-copy-text aria-label="Copy generated text" title="Copy generated text">${generationActionIcon('copy')}</button>`:''}<button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
+        <div class="studio-grid-node-card"><div class="studio-grid-node-tile"><header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b>${node.type==='text'&&status==='COMPLETED'&&String(node.output?.value||'').trim()?`<button type="button" data-grid-copy-text aria-label="Copy generated text" title="Copy generated text">${generationActionIcon('copy')}</button>`:''}${gridNodeDownloadButton(node,status)}<button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
         <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div></div>
         <footer class="studio-grid-node-footer"><div class="studio-grid-node-meta"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}</div>${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Building…':'Build intelligent chain'}</button>`:node.type==='text'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>Build chain</button><button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer><span class="studio-grid-node-rim" aria-hidden="true"></span></div>
       </article>`;
@@ -30289,6 +30355,7 @@ async function waitGeneration(jobId, options) {
       const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task')return null;
       const inputs=resolveGridNodeInputs(nodeId),validation=validateGridNodeInputs(node,inputs);
       if(!validation.ok){node.status=options.workflow?'WAITING':'FAILED';node.error=`Не хватает: ${validation.missing.join(', ')}`;saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      ensureStudioGridProjectTitle(state,node,inputs);
       const estimatedCost=await estimateGridNodeCost(nodeId),knownBalance=S.user&&S.user.balance!==undefined&&S.user.balance!==null?Number(S.user.balance):null;
       if(estimatedCost>0&&knownBalance!==null&&knownBalance<estimatedCost){node.status='FAILED';node.error='Недостаточно токенов';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
       // estimatedCost===null means the pre-check itself could not run (see
@@ -30304,7 +30371,7 @@ async function waitGeneration(jobId, options) {
       // gridNodePreview, both gated on status==='COMPLETED').
       node.request_id=node.request_id||`grid_${loadStudioGridState().projectId}_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
       node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
-      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
+      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';ensureStudioGridProjectTitle(state,node,{effective_prompt:{value:output.type==='text'?output.value:inputs.effective_prompt?.value||''}});markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
       catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if(error?.terminalStatus||error?.insufficientBalance)node.request_id='';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
     })().finally(()=>studioGridNodeRuns.delete(nodeId));
     studioGridNodeRuns.set(nodeId,promise);return promise;
@@ -30312,6 +30379,25 @@ async function waitGeneration(jobId, options) {
 
   function gridTopologicalOrder() {
     const state=loadStudioGridState(),incoming=new Map(state.nodes.map(node=>[node.id,0]));state.edges.forEach(edge=>incoming.set(edge.to,(incoming.get(edge.to)||0)+1));const queue=state.nodes.filter(node=>!incoming.get(node.id)).map(node=>node.id),order=[];while(queue.length){const id=queue.shift();order.push(id);state.edges.filter(edge=>edge.from===id).forEach(edge=>{incoming.set(edge.to,incoming.get(edge.to)-1);if(incoming.get(edge.to)===0)queue.push(edge.to)})}return order.length===state.nodes.length?order:null;
+  }
+
+  function studioGridOutputNeedsRefresh(output){
+    if(!output||!['image','video','audio'].includes(String(output.type||'')))return false;
+    const urls=output.type==='image'?(output.items||[]).flatMap(item=>[item?.url,item?.preview_url]):[output.url,output.preview_url];
+    return urls.filter(Boolean).some(value=>{if(!gridRenderableMediaUrl(value))return true;try{return !new URL(String(value),window.location.origin).pathname.includes('/api/public/storage/')}catch(_){return true}});
+  }
+  async function refreshStudioGridCompletedMedia(state=loadStudioGridState(),revision=studioGridProjectSwitchRevision){
+    const projectId=state?.projectId,candidates=(state?.nodes||[]).filter(node=>node.status==='COMPLETED'&&node.generation_id&&studioGridOutputNeedsRefresh(node.output));
+    if(!projectId||!candidates.length)return;
+    let changed=false;
+    await Promise.allSettled(candidates.map(async node=>{
+      const response=await fetch('/api/public/prostudio/job/'+encodeURIComponent(node.generation_id),{cache:'no-store'});if(!response.ok)return;
+      const job=await response.json(),raw=job.result||{};if(String(job.status||'').toLowerCase()!=='completed'||raw.storage_status!=='completed')return;
+      if(revision!==studioGridProjectSwitchRevision||loadStudioGridState().projectId!==projectId)return;
+      const selected=Number(node.output?.selected_index||0),output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});if(output.type==='image')output.selected_index=Math.max(0,Math.min(output.items.length-1,selected));
+      node.output=output;node.results=output.type==='image'?output.items.slice():[output];const versionIndex=Number(node.selectedResultVersion);if(Array.isArray(node.result_versions)&&node.result_versions[versionIndex])node.result_versions[versionIndex]=JSON.parse(JSON.stringify(output));changed=true;
+    }));
+    if(changed&&revision===studioGridProjectSwitchRevision&&loadStudioGridState().projectId===projectId){saveStudioGridState();renderStudioGrid()}
   }
 
   function restoreStudioGridJobs() {
@@ -30393,6 +30479,7 @@ async function waitGeneration(jobId, options) {
         if(event.target.closest('[data-grid-input]')){const input=event.target.closest('[data-grid-input]');if(studioGridPendingConnection){const connected=connectStudioGridNodes(studioGridPendingConnection.from,studioGridPendingConnection.fromPort,id,input.dataset.gridInput,studioGridPendingConnection.fromSide,input.dataset.gridSide||'left');if(connected)clearStudioGridConnectionMode()}return}
         if (event.target.closest('[data-grid-delete]')) { deleteStudioGridNode(id); return; }
         if (event.target.closest('[data-grid-copy-text]')) { void copyStudioGridTextResult(id); return; }
+        if (event.target.closest('[data-grid-download-result]')) { downloadStudioGridNode(id,event.target.closest('[data-grid-download-result]')); return; }
         if (event.target.closest('[data-grid-expand-text]')) { openStudioGridTextEditor(id); return; }
         if (event.target.closest('[data-grid-upload-media]')) { openStudioGridMediaPicker(id); return; }
         if (event.target.closest('[data-grid-upload-reference]')) { openStudioGridMediaPicker(id,event.target.closest('[data-grid-upload-reference]').dataset.gridUploadReference); return; }
@@ -30403,8 +30490,8 @@ async function waitGeneration(jobId, options) {
         if (event.target.closest('[data-grid-build]')) { buildStudioGridWorkflow(id); return; }
         if (event.target.closest('[data-grid-run]')) { runGridNode(id); return; }
         if(event.target.closest('[data-grid-pick-version]')){selectStudioGridResultVersion(id,event.target.closest('[data-grid-pick-version]').dataset.gridPickVersion);return}
-        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){const item=node.output.items[index],urls=node.output.items.map(result=>result.url||result.preview_url).filter(Boolean);node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();openImageViewer(event,item.url||item.preview_url,urls,{jobId:node.generation_id||item.generation_id||''});renderStudioGrid()}return}
-        if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)openStudioGridVideoViewer(node.output.url,node.generation_id||node.output.generation_id||'');return}
+        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){const item=node.output.items[index],urls=node.output.items.map(result=>result.url||result.preview_url).filter(Boolean);node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();openImageViewer(event,item.url||item.preview_url,urls,{jobId:node.generation_id||item.generation_id||'',gridProjectId:loadStudioGridState().projectId,gridNodeId:node.id});renderStudioGrid()}return}
+        if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)openStudioGridVideoViewer(node.output.url,node.generation_id||node.output.generation_id||'',node.id);return}
         if (event.target.closest('[data-grid-more]')) { const rect=event.target.getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.position_locked?'Разблокировать позицию':'Закрепить позицию'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;return}
         if(event.shiftKey){if(studioGridSelectedIds.has(id))studioGridSelectedIds.delete(id);else studioGridSelectedIds.add(id)}else if(!studioGridSelectedIds.has(id))studioGridSelectedIds=new Set([id]);
         host.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.toggle('selected',studioGridSelectedIds.has(item.dataset.gridId)));
@@ -30456,6 +30543,7 @@ async function waitGeneration(jobId, options) {
     const savedLayout = String(localStorage.getItem('sylvex-prostudio-layout') || '').toLowerCase();
     setStudioLayout(requestedLayout === 'grid' || savedLayout === 'grid' ? 'grid' : 'classic');
     restoreStudioGridJobs();
+    void refreshStudioGridCompletedMedia(loadStudioGridState(),studioGridProjectSwitchRevision);
     void loadStudioGridCloudProjects();
     window.addEventListener('pagehide',()=>{clearTimeout(studioGridCloudSaveTimer);if(studioGridState&&studioGridAccountOwner())void queueStudioGridCloudSave(studioGridState)});
   }
