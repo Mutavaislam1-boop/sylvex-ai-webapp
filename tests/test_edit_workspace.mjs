@@ -395,9 +395,15 @@ test('camera request, prompt and state agree; canvas pan and scale never affect 
  assert.equal(options.imageOptions.viewport,undefined);assert.equal(options.imageOptions.zoom,undefined);assert.equal(options.isolateRequest,true);
 });
 test('zoom anchors the object under the pointer and Fit returns it to center',()=>{
- const h=harness();h.state.viewport={x:30,y:20};h.context.editWorkspaceSetViewZoom(200,{x:100,y:80});
+ const h=harness();h.state.chain=[{id:'photo'}];h.state.viewport={x:30,y:20};h.context.editWorkspaceSetViewZoom(200,{x:100,y:80});
  assert.equal(h.state.viewport.x,-40);assert.equal(h.state.viewport.y,-40);
  h.context.fitEditWorkspace();assert.equal(h.state.zoom,100);assert.equal(h.state.viewport.x,0);assert.equal(h.state.camera.zoom,5);
+});
+test('an empty canvas keeps the upload card fixed in the middle at 70% until a photo is added',()=>{
+ const h=harness();h.state.chain=[];h.state.viewport={x:30,y:20};
+ h.context.editWorkspaceSetViewZoom(200,{x:100,y:80});
+ assert.equal(h.state.zoom,70);assert.deepEqual({...h.state.viewport},{x:0,y:0});
+ h.state.chain=[{id:'photo'}];h.context.editWorkspaceSetViewZoom(200);assert.equal(h.state.zoom,200);
 });
 test('Fit uses the unobscured area without moving an asymmetric expanded source off center',()=>{
  const h=harness(),area={width:800,height:500,x:-200,y:-20};
@@ -507,14 +513,15 @@ test('connection endpoints follow facing edges when a result is moved around its
   assert.deepEqual(numbers.slice(0,2),[startX,startY]);assert.deepEqual(numbers.slice(-2),[endX,endY]);
  }
 });
+// Navigation tests put a photo on the canvas: an empty canvas keeps the upload card fixed.
 test('drag pans the world without bounds and releases pointer capture',()=>{
- const h=navigationHarness();h.stage.onpointerdown(h.event());h.stage.onpointermove(h.event({clientX:5300,clientY:-2800}));
+ const h=navigationHarness();h.state.chain=[{id:'photo'}];h.stage.onpointerdown(h.event());h.stage.onpointermove(h.event({clientX:5300,clientY:-2800}));
  assert.equal(h.state.viewport.x,5000);assert.equal(h.state.viewport.y,-3000);assert.ok(h.paints()>0);
  h.stage.onpointerup(h.event());assert.equal(h.captured.size,0);assert.ok(!h.classes.has('is-panning'));
  h.stage.onpointermove(h.event({clientX:0}));assert.equal(h.state.viewport.x,5000);
 });
 test('trackpad scroll pans, modifier scroll zooms at cursor, and tool switches preserve view',()=>{
- const h=navigationHarness();h.listeners.wheel(h.event({deltaX:70,deltaY:110}));
+ const h=navigationHarness();h.state.chain=[{id:'photo'}];h.listeners.wheel(h.event({deltaX:70,deltaY:110}));
  assert.equal(h.state.viewport.x,-70);assert.equal(h.state.viewport.y,-110);assert.equal(h.state.zoom,100);
  const anchor={x:-400,y:-250},world={x:anchor.x+70,y:anchor.y+110};
  h.listeners.wheel(h.event({ctrlKey:true,deltaY:-100}));
@@ -591,7 +598,7 @@ test('removing a light preserves remaining settings, and adding after an off sou
 });
 
 test('touch pinch zooms from blank canvas around the midpoint and releases capture',()=>{
- const h=navigationHarness(),e=changes=>h.event({pointerType:'touch',...changes});
+ const h=navigationHarness();h.state.chain=[{id:'photo'}];const e=changes=>h.event({pointerType:'touch',...changes});
  h.listeners.pointerdown(e({pointerId:1,clientX:600,clientY:450}));
  h.stage.onpointerdown(e({pointerId:1,clientX:600,clientY:450}));
  h.listeners.pointerdown(e({pointerId:2,clientX:800,clientY:450}));
@@ -601,7 +608,7 @@ test('touch pinch zooms from blank canvas around the midpoint and releases captu
  h.cleanup();assert.equal(Object.keys(h.listeners).length,0);
 });
 test('Safari trackpad gestures zoom, prevent page gestures and leave camera coordinates unchanged',()=>{
- const h=navigationHarness();let prevented=0;const event={clientX:700,clientY:450,preventDefault(){prevented++;}};
+ const h=navigationHarness();h.state.chain=[{id:'photo'}];let prevented=0;const event={clientX:700,clientY:450,preventDefault(){prevented++;}};
  h.listeners.gesturestart(event);h.listeners.gesturechange({...event,scale:1.8});h.listeners.gestureend(event);
  assert.equal(h.state.zoom,180);assert.equal(h.state.camera.zoom,5);assert.equal(prevented,3);h.cleanup();
 });

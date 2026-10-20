@@ -45,9 +45,12 @@ function fakeElement(overrides) {
   }, overrides || {});
 }
 
-test('cabinet.html: Text mode composer has a visible "+" that opens plusSheet', () => {
-  const textToolsBlock = html.slice(html.indexOf('studio-text-tools'), html.indexOf('studio-text-tools') + 800);
-  assert.ok(textToolsBlock.includes('SYLVEX.togglePlusPop(event)'), 'Text mode composer button must open plusSheet');
+test('cabinet.html: Text mode upload tile picks any file and adds each kind directly', () => {
+  const textToolsBlock = html.slice(html.indexOf('studio-text-tools'), html.indexOf('studio-text-tools') + 5000);
+  assert.ok(textToolsBlock.includes(`SYLVEX.openNativeFilePicker('text_media')`), 'the big button picks any supported file');
+  for (const call of [`SYLVEX.attach('image')`, `SYLVEX.attach('video')`, `SYLVEX.attach('audio')`, `SYLVEX.addMediaLink('image')`, `SYLVEX.addMediaLink('video')`, `SYLVEX.attach('file')`])
+    assert.ok(textToolsBlock.includes(call), call);
+  assert.ok(!textToolsBlock.includes('SYLVEX.togglePlusPop(event)'), 'no attach sheet from the text tile');
 });
 
 test('cabinet.html: plusSheet has dedicated Video and Audio file-attach buttons', () => {

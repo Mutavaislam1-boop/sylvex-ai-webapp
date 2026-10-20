@@ -2688,23 +2688,8 @@ CSS-БЛОК: .studio-frame-card span:last-child,.studio-image-tool span:last-ch
   pointer-events:none;
 }
 
-.studio-text-tools .studio-image-tool[data-text-upload-kind="video"] .studio-frame-ico::after{
-  content:"▶";
-  font-size:13px;
-  font-weight:900;
-}
 
-.studio-text-tools .studio-image-tool[data-text-upload-kind="audio"] .studio-frame-ico::after{
-  content:"♪";
-  font-size:18px;
-  font-weight:900;
-}
 
-.studio-text-tools .studio-image-tool[data-text-upload-kind="file"] .studio-frame-ico::after{
-  content:"TXT";
-  font-size:10px;
-  font-weight:900;
-}
 /* =====================================================
 CSS-БЛОК: .studio-frame-card.has-frame-preview
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -10496,3 +10481,28 @@ html.browser-app .ep-danger{display:block;margin-top:22px}
 .studio-video-composer .studio-music-player{justify-content:space-between}
 .studio-video-composer.is-compact .studio-music-player{gap:3px;padding:8px 12px}
 .studio-video-composer.is-compact .studio-music-player .smp-cover{width:46px;height:46px}
+
+/* The mode switch and the Grid side panel are the React Bits RubberSegment
+   and Dock. Their original markup stays only as hidden click targets, so it
+   never flashes before them on load; it shows again only if a bundle
+   cannot load (data-segment-failed / data-dock-failed). */
+.studio-mini-tabs:not([data-segment-failed])>.studio-mini-tab{visibility:hidden}
+.studio-mini-tabs:not([data-segment-failed]){background:transparent!important;border-color:transparent!important;box-shadow:none!important}
+.studio-grid-node-tools:not([data-dock-failed]){visibility:hidden}
+
+/* Text mode: one upload tile - a big "upload a file" button and, under it,
+   the kinds to add directly (photo, video, audio, photo link, video link,
+   document) instead of the attach sheet. */
+.studio-text-tools .text-upload-tile{display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:12px;padding:12px;cursor:default}
+.text-upload-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:0;border:0;border-radius:12px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.text-upload-main-ico{width:56px;height:56px;display:grid;place-items:center;border-radius:50%;background:var(--st-bg-4,rgba(255,255,255,.08));color:var(--st-text,#f4f4f4)}
+.studio-text-tools .text-upload-main #textUploadVal{align-self:center;font-size:13px;font-weight:600}
+.text-upload-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.text-upload-actions button{width:38px;height:38px;display:grid;place-items:center;padding:0;border:0;border-radius:50%;background:var(--st-bg-4,rgba(255,255,255,.08));color:var(--st-dim,#d7d7d7);cursor:pointer}
+.text-upload-actions button:hover{color:var(--st-text,#fff)}
+.studio-video-composer.is-compact .text-upload-tile{gap:8px;padding:8px}
+.studio-video-composer.is-compact .text-upload-main{gap:4px}
+.studio-video-composer.is-compact .text-upload-main-ico{width:40px;height:40px}
+.studio-video-composer.is-compact .text-upload-main-ico svg{width:22px;height:22px}
+.studio-video-composer.is-compact .text-upload-actions button{width:32px;height:32px}
+.studio-video-composer.is-compact .text-upload-actions svg{width:16px;height:16px}

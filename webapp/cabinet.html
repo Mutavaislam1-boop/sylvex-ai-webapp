@@ -679,17 +679,25 @@ HTML-страница Mini App. Комментарии подписывают э
               <div class="smp-list" id="smpList" hidden></div>
             </section>
             <div class="studio-media-column studio-text-tools text-only" aria-hidden="true">
-              <!-- Attach a photo/video/audio/file and ask the model to
-              describe it or build a prompt from it (M-060): opens the same
-              plusSheet the Photo/Video/Audio/File flows already use, with
-              attach()/addMediaLink() routing Text mode into
-              textState.attachment - see cabinet.js. -->
-              <button class="studio-image-tool" type="button" onclick="SYLVEX.togglePlusPop(event)" aria-label="Прикрепить файл">
-                <span class="studio-frame-ico">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                </span>
-                <span id="textUploadVal">Прикрепить</span>
-              </button>
+              <!-- Attach a file and ask the model to describe it or build a
+              prompt from it (M-060). The big button picks any supported file;
+              the row under it adds a photo, video, audio, photo link, video
+              link or document directly - attach()/addMediaLink() route Text
+              mode into textState.attachment (see cabinet.js). -->
+              <div class="studio-image-tool text-upload-tile">
+                <button class="text-upload-main" type="button" onclick="SYLVEX.openNativeFilePicker('text_media')" aria-label="Загрузить файл">
+                  <span class="text-upload-main-ico"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
+                  <span id="textUploadVal">Файл</span>
+                </button>
+                <div class="text-upload-actions" role="group" aria-label="Добавить">
+                  <button type="button" onclick="SYLVEX.attach('image')" aria-label="Фото" title="Фото"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
+                  <button type="button" onclick="SYLVEX.attach('video')" aria-label="Видео" title="Видео"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="3"/><path d="M16 10l5-3v10l-5-3z"/></svg></button>
+                  <button type="button" onclick="SYLVEX.attach('audio')" aria-label="Аудио" title="Аудио"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h2m3-6v12m3-9v6m3-10v14m3-7h2"/></svg></button>
+                  <button type="button" onclick="SYLVEX.addMediaLink('image')" aria-label="Ссылка на фото" title="Ссылка на фото"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/><rect x="15" y="15" width="7" height="7" rx="1.5"/></svg></button>
+                  <button type="button" onclick="SYLVEX.addMediaLink('video')" aria-label="Ссылка на видео" title="Ссылка на видео"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/><path d="M16 15.5v6l5-3z"/></svg></button>
+                  <button type="button" onclick="SYLVEX.attach('file')" aria-label="Документ" title="Документ"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h7"/></svg></button>
+                </div>
+              </div>
             </div>
             <div class="studio-media-column image-only">
               <div class="image-visual-grid">

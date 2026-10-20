@@ -2988,7 +2988,7 @@ function renderTextControls() {
   const uploadVal = document.getElementById('textUploadVal');
   if (uploadVal) {
     const att = textState.attachment || pendingAttachment || null;
-    const btn = uploadVal.closest ? uploadVal.closest('button') : null;
+    const btn = uploadVal.closest ? uploadVal.closest('.studio-image-tool') : null;
     if (btn) {
       btn.querySelectorAll('.text-upload-video-preview').forEach((node) => node.remove());
       btn.classList.remove('text-upload-has-preview', 'text-upload-has-video-preview', 'text-upload-file-selected');
@@ -7386,7 +7386,7 @@ function mountStudioGridDock() {
     panel._gridDock=api.mount(mount,gridDockItems(panel),{theme:studioSurfaceTheme(panel.parentNode,'--st-bg-2')});
     panel.dataset.docked='';
     new MutationObserver(()=>panel._gridDock.update(gridDockItems(panel))).observe(panel,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});
-  }).catch(()=>{panel._gridDockPending=false;});
+  }).catch(()=>{panel._gridDockPending=false;panel.dataset.dockFailed='';});
 }
 // Pro Studio's mode switch (image, video, music, voice, text) as the React
 // Bits RubberSegment (mode_segment/, built into js/vendor/mode-segment/ next
@@ -7408,12 +7408,19 @@ function loadModeSegmentBundle() {
   }).catch(error=>{modeSegmentBundle=null;throw error;});
   return modeSegmentBundle;
 }
+// The task's dark segment on dark Pro Studio themes; on the white theme the
+// same segment inverted (light track, dark thumb).
+const MODE_SEGMENT_LIGHT={trackColor:'#e4e4e7',thumbColor:'#18181b',textColor:'#18181b',activeTextColor:'#ffffff'};
+const MODE_SEGMENT_DARK={trackColor:'#27272a',thumbColor:'#ffffff',textColor:'#ffffff',activeTextColor:'#18181b'};
+function modeSegmentColors(host) {
+  return studioSurfaceTheme(host,'--st-bg-2')==='light'?MODE_SEGMENT_LIGHT:MODE_SEGMENT_DARK;
+}
 function mountModeSegment() {
   const host=document.querySelector('#studioComposer .studio-mini-tabs');
   if(!host)return;
   const tabs=Array.from(host.querySelectorAll(':scope > .studio-mini-tab'));
   const value=String(Math.max(0,tabs.findIndex(tab=>tab.classList.contains('active'))));
-  if(host._modeSegment){host._modeSegment.update({value});return;}
+  if(host._modeSegment){host._modeSegment.update({value,...modeSegmentColors(host)});return;}
   if(host._modeSegmentPending||!tabs.length)return;
   host._modeSegmentPending=true;
   loadModeSegmentBundle().then(api=>{
@@ -7422,9 +7429,9 @@ function mountModeSegment() {
     const mount=document.createElement('div');mount.className='mode-segment-root';host.appendChild(mount);
     const items=tabs.map((tab,index)=>({value:String(index),label:tab.getAttribute('aria-label')||'',html:tab.querySelector('svg')?.outerHTML||''}));
     const active=String(Math.max(0,tabs.findIndex(tab=>tab.classList.contains('active'))));
-    host._modeSegment=api.mount(mount,items,{value:active,onChange:next=>tabs[Number(next)]?.click()});
+    host._modeSegment=api.mount(mount,items,{value:active,...modeSegmentColors(host),onChange:next=>tabs[Number(next)]?.click()});
     host.dataset.segment='';
-  }).catch(()=>{host._modeSegmentPending=false;});
+  }).catch(()=>{host._modeSegmentPending=false;host.dataset.segmentFailed='';});
 }
 function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
@@ -7433,6 +7440,7 @@ function syncEditWorkspaceChain(root) {
     // The drawing workbench already supplies its own clean white paper. Do
     // not place the generic photo-upload card underneath that paper.
     if(s.mode==='sketch'){world.innerHTML='';return;}
+    editWorkspaceSetViewZoom(EDIT_UPLOAD_ZOOM);
     if(!world.querySelector('.edit-workspace-upload'))world.innerHTML='<div class="edit-workspace-upload-host"><button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Upload a photo or drop it here</b><small>JPEG, PNG, WebP · up to 50 MB</small></button></div>';
     mountEditUploadPixel(world);
     return;
@@ -7804,10 +7812,17 @@ function editLightingPanel(generate) {
     <div class="edit-light-color-row"><label>Цвет <input data-light-color type="color" aria-label="Цвет света" value="${light.color}" oninput="SYLVEX.updateEditLightColor(event)"></label><input data-light-hex aria-label="HEX цвета света" maxlength="7" pattern="#[0-9a-fA-F]{6}" value="${light.color.toUpperCase()}" onchange="SYLVEX.updateEditLightHex(event)"></div>
     ${generate}`;
 }
+// Until a photo is on the canvas the upload card stays put in the middle at
+// 70%: zoom and pan only start working once there is something to edit.
+const EDIT_UPLOAD_ZOOM=70;
+function editWorkspaceUploadFixed() {
+  return !editWorkspaceState.chain.length&&editWorkspaceState.mode!=='sketch';
+}
 function editWorkspaceSetViewZoom(value,point) {
   if(!Number.isFinite(value))return;
-  const state=editWorkspaceState,old=state.zoom,next=Math.max(1,Math.min(800,value));
-  if(point){const ratio=next/old;state.viewport.x=point.x-(point.x-state.viewport.x)*ratio;state.viewport.y=point.y-(point.y-state.viewport.y)*ratio;}
+  const state=editWorkspaceState,fixed=editWorkspaceUploadFixed(),old=state.zoom,next=fixed?EDIT_UPLOAD_ZOOM:Math.max(1,Math.min(800,value));
+  if(fixed)state.viewport={x:0,y:0};
+  else if(point){const ratio=next/old;state.viewport.x=point.x-(point.x-state.viewport.x)*ratio;state.viewport.y=point.y-(point.y-state.viewport.y)*ratio;}
   state.zoom=next;
   const root=document.getElementById('editWorkspace');root?._editView?.();
   const output=root?.querySelector('[data-view-zoom]');if(output)output.textContent=Math.round(next)+'%';
@@ -7941,7 +7956,7 @@ function initEditWorkspaceNavigation(stage) {
       const dx=(e.clientX-drag.x)/drag.scale,dy=(e.clientY-drag.y)/drag.scale;drag.moved=drag.moved||Math.hypot(dx,dy)>3;drag.guideRegion.guideX=drag.guidePosition.x+dx;drag.guideRegion.guideY=drag.guidePosition.y+dy;root?._editChainLayout?.();
     }else if(drag.node){
       const dx=(e.clientX-drag.x)/drag.scale,dy=(e.clientY-drag.y)/drag.scale;drag.moved=drag.moved||Math.hypot(dx,dy)>3;drag.node.x=drag.position.x+dx;drag.node.y=drag.position.y+dy;root?._editChainLayout?.();
-    }else{state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};root?._editView?.();}
+    }else if(!editWorkspaceUploadFixed()){state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};root?._editView?.();}
   };
   const end=e=>{if(drag?.id===e.pointerId){const finished=drag;finished.card?.classList.remove('is-moving');finished.guideEl?.classList.remove('is-moving');if(finished.guideEl&&finished.moved){finished.guideEl.dataset.dragged='true';setTimeout(()=>{if(finished.guideEl)delete finished.guideEl.dataset.dragged;},0);}drag=null;stage.classList.remove('is-panning');stage.classList.remove('is-moving-node');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);if(finished.node&&!finished.moved)selectEditWorkspaceNode(null,finished.node.id);else scheduleEditWorkspaceSave();}};
   stage.onpointerup=stage.onpointercancel=stage.onlostpointercapture=end;
@@ -7983,7 +7998,7 @@ function initEditWorkspaceNavigation(stage) {
     const unit=e.deltaMode===1?16:e.deltaMode===2?rect.height:1;
     if(e.ctrlKey||e.metaKey){
       editWorkspaceSetViewZoom(state.zoom*Math.exp(-Math.max(-150,Math.min(150,e.deltaY*unit))*.003),{x:e.clientX-rect.left-rect.width/2,y:e.clientY-rect.top-rect.height/2});
-    }else{
+    }else if(!editWorkspaceUploadFixed()){
       state.viewport.x-=(e.shiftKey&&!e.deltaX?e.deltaY:e.deltaX)*unit;
       if(!e.shiftKey||e.deltaX)state.viewport.y-=e.deltaY*unit;
       document.getElementById('editWorkspace')?._editView?.();
@@ -29824,6 +29839,8 @@ async function waitGeneration(jobId, options) {
     if (editWorld && typeof mountEditUploadPixel === 'function') mountEditUploadPixel(editWorld);
     // So does Grid Mode's side panel once it is the Dock.
     if (document.querySelector('#studioGridWorkspace .studio-grid-node-tools')?._gridDock) mountStudioGridDock();
+    // And the mode switch.
+    if (document.querySelector('#studioComposer .studio-mini-tabs')?._modeSegment) mountModeSegment();
     if (window.SYLVEX && window.SYLVEX.syncTelegramHeader) window.SYLVEX.syncTelegramHeader(true);
     return safe;
   }
@@ -29908,7 +29925,7 @@ async function waitGeneration(jobId, options) {
     if(mode==='grid'){
       document.getElementById('histDrawer')?.classList.remove('show');document.getElementById('histBackdrop')?.classList.remove('show');
       mountStudioGridSidebarHistory();
-    }else{toggleStudioGridDrawer(false);unmountStudioGridSidebarHistory()}
+    }else{toggleStudioGridDrawer(false);unmountStudioGridSidebarHistory();mountModeSegment()}
     if(publishNavigation)publishStudioWorkspaceMode(workspaceMode,revision);
     localStorage.setItem('sylvex-prostudio-layout', mode);
     if (mode === 'grid') requestAnimationFrame(()=>{
