@@ -5,6 +5,7 @@ from services.safe_io import safe_get, safe_client_get, safe_local_path, read_up
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
 from services.billing_safety import require_billing_scope
+from services import generation_stages
 import os
 import math
 import json
@@ -2207,6 +2208,7 @@ def _seedance_poll_task(task_id: str, headers: dict):
     if status >= 400 or data.get("ok") is False:
         return _provider_parse_error("bytedance", task_id, data)
     state = _seedance_status(data)
+    generation_stages.report_provider_state(state)
     video_url = _seedance_extract_video_url(data)
     if state in {"succeeded", "completed", "success", "done"} and video_url:
         return _seedance_provider_success(task_id, [video_url], data, status="completed", task_id=task_id)
@@ -2679,7 +2681,9 @@ def _kling_status(data: dict):
     task = tasks[0] if tasks else (data.get("data") if isinstance(data.get("data"), dict) else data)
     if not isinstance(task, dict):
         return ""
-    return str(task.get("status") or task.get("state") or task.get("task_status") or "").lower()
+    state = str(task.get("status") or task.get("state") or task.get("task_status") or "").lower()
+    generation_stages.report_provider_state(state)
+    return state
 
 
 # =====================================================
@@ -2860,6 +2864,7 @@ def _luma_poll_until_ready(task_id: str, headers: dict):
         if status_code >= 400 or data.get("ok") is False:
             return _provider_parse_error("luma", task_id, data)
         state = str(data.get("state") or data.get("status") or "").lower()
+        generation_stages.report_provider_state(state)
         urls = _normalize_video_urls(data)
         video_url = (data.get("assets") or {}).get("video") or (urls[0] if urls else "")
         print("LUMA VIDEO POLL:", {
@@ -3151,6 +3156,7 @@ async def poll_video_generation(result: dict) -> dict:
                 return _provider_parse_error("runway", model_id, data)
             urls = _normalize_video_urls(data)
             status = str(data.get("status") or data.get("state") or "").lower()
+            generation_stages.report_provider_state(status)
             if status in {"succeeded", "success", "completed", "done"} and urls:
                 completed = _provider_success("runway", model_id, urls, status="completed", task_id=str(task_id))
                 completed["provider_response"] = data
@@ -3173,6 +3179,8 @@ async def poll_video_generation(result: dict) -> dict:
             if status_code >= 400 or data.get("ok") is False or _pixverse_response_failed(data):
                 return _pixverse_error(model_id, data)
             pix_status = _pixverse_status(data)
+            if pix_status == 5:
+                generation_stages.report("processing")
             urls = _normalize_video_urls(data) or _normalize_video_urls(result)
             if pix_status == 1:
                 if not urls:
@@ -3199,6 +3207,7 @@ async def poll_video_generation(result: dict) -> dict:
                 return _provider_parse_error("wan", model_id, data)
             output = data.get("output") if isinstance(data.get("output"), dict) else data
             task_status = str(output.get("task_status") or output.get("status") or "").upper() if isinstance(output, dict) else ""
+            generation_stages.report_provider_state(task_status)
             urls = _normalize_video_urls(data)
             if task_status == "SUCCEEDED" and urls:
                 result = _provider_success("wan", model_id, urls, status="completed", task_id=str(task_id))
@@ -3224,6 +3233,7 @@ async def poll_video_generation(result: dict) -> dict:
             if videos:
                 return _provider_success("gemini", model_id, videos, status="completed", task_id=str(task_id))
             state = str(data.get("status") or "").lower()
+            generation_stages.report_provider_state(state)
             if state in {"failed", "cancelled", "canceled"}:
                 return _provider_parse_error("gemini", model_id, data)
             return _provider_success("gemini", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
@@ -3242,6 +3252,7 @@ async def poll_video_generation(result: dict) -> dict:
             if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
                 return _provider_parse_error("minimax", model_id, data)
             status = str(data.get("status") or "").strip().lower()
+            generation_stages.report_provider_state(status)
             if status in {"fail", "failed"}:
                 return _provider_parse_error("minimax", model_id, data)
             if status not in {"success", "succeed", "succeeded"}:
@@ -3275,6 +3286,7 @@ async def poll_video_generation(result: dict) -> dict:
             if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
                 return _provider_parse_error("sora", model_id, data)
             status = str(data.get("status") or "").strip().lower()
+            generation_stages.report_provider_state(status)
             if status in {"failed", "error", "cancelled", "canceled"}:
                 return _provider_parse_error("sora", model_id, data)
             if status != "completed":
@@ -3343,6 +3355,7 @@ async def poll_video_generation(result: dict) -> dict:
             if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
                 return _provider_parse_error("grok", model_id, data)
             status = str(data.get("status") or data.get("state") or "").strip().lower()
+            generation_stages.report_provider_state(status)
             if status in {"failed", "failure", "error", "cancelled", "canceled"}:
                 return _provider_parse_error("grok", model_id, data)
             urls = _normalize_video_urls(data)
@@ -3472,7 +3485,9 @@ def _heygen_video_status(data: dict):
     if not isinstance(data, dict):
         return ""
     item = data.get("data") if isinstance(data.get("data"), dict) else data
-    return str(item.get("status") or item.get("state") or "").lower()
+    state = str(item.get("status") or item.get("state") or "").lower()
+    generation_stages.report_provider_state(state)
+    return state
 
 
 # =====================================================

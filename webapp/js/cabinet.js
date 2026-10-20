@@ -224,7 +224,6 @@
     requestId: '',
     loadingToken: '',
     placeholderMessage: null,
-    progressTimer: null,
     restoringMode: false,
     historyPreview: false,
   };
@@ -5337,38 +5336,9 @@ function localizedGreeting() {
     if (!activeGeneration.loadingToken) activeGeneration.loadingToken = 'active_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     message.activeGenerationToken = activeGeneration.loadingToken;
     message.generationStatus = activeGeneration.status;
-    if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+    if (!message.thoughtKey) Object.assign(message, generationLoadingThought(activeGeneration.mode));
     activeGeneration.placeholderMessage = message;
     return index;
-  }
-
-  function patchActiveGenerationDom() {
-    const token = activeGeneration.loadingToken;
-    if (!token) return;
-    const node = document.querySelector('.generation-loading-msg[data-generation-token="' + token + '"]');
-    if (!node) return;
-    const title = node.querySelector('.generation-loading-title');
-    if (title) title.textContent = activeGenerationButtonLabel(activeGeneration.status);
-    const progress = activeGeneration.placeholderMessage && activeGeneration.placeholderMessage.progress;
-    if (progress) {
-      const updated = nextGenerationProgress(progress, false);
-      activeGeneration.placeholderMessage.progress = updated;
-      const percent = Math.max(0, Math.min(92, Number(updated.percent || 0)));
-      const bar = node.querySelector('.generation-loading-progress span');
-      const percentNode = node.querySelector('.generation-loading-percent');
-      if (bar) bar.style.width = percent + '%';
-      if (percentNode) percentNode.textContent = percent + '%';
-    }
-  }
-
-  function syncActiveGenerationProgressTimer() {
-    if (!activeGeneration.locked) {
-      if (activeGeneration.progressTimer) clearInterval(activeGeneration.progressTimer);
-      activeGeneration.progressTimer = null;
-      return;
-    }
-    if (activeGeneration.progressTimer) return;
-    activeGeneration.progressTimer = setInterval(patchActiveGenerationDom, 2200);
   }
 
   function ensureActiveGenerationPlaceholder(renderNow) {
@@ -5381,12 +5351,12 @@ function localizedGreeting() {
         generationLoading: true,
         activeGenerationToken: activeGeneration.loadingToken,
         generationStatus: activeGeneration.status,
-        progress: createGenerationProgress(generationKindForCurrentMode()),
+        ...generationLoadingThought(generationKindForCurrentMode()),
       };
       message.activeGenerationToken = activeGeneration.loadingToken;
       message.generationLoading = true;
       message.generationStatus = activeGeneration.status;
-      if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+      if (!message.thoughtKey) Object.assign(message, generationLoadingThought(activeGeneration.mode));
       activeGeneration.placeholderMessage = message;
       index = chatMessages.push(message) - 1;
     }
@@ -5399,7 +5369,7 @@ function localizedGreeting() {
       role: 'ai',
       generationLoading: true,
       generationStatus: 'submitting',
-      progress: createGenerationProgress(generationKindForCurrentMode()),
+      ...generationLoadingThought(generationKindForCurrentMode()),
     }) - 1;
   }
 
@@ -5428,10 +5398,9 @@ function localizedGreeting() {
       if (!activeGeneration.startedAt) activeGeneration.startedAt = Number(payload.startedAt || Date.now());
       if (!activeGeneration.requestId) activeGeneration.requestId = incomingJobId || ('restore_' + Date.now().toString(36));
     } else if (action === 'reset') {
-      if (activeGeneration.progressTimer) clearInterval(activeGeneration.progressTimer);
       Object.assign(activeGeneration, {
         locked:false, status:'', mode:'', jobId:'', model:'', startedAt:0,
-        requestId:'', loadingToken:'', placeholderMessage:null, progressTimer:null,
+        requestId:'', loadingToken:'', placeholderMessage:null,
         restoringMode:false, historyPreview:false,
       });
     }
@@ -5448,15 +5417,10 @@ function localizedGreeting() {
       element.setAttribute('aria-disabled', activeGeneration.locked ? 'true' : 'false');
     });
     persistActiveGeneration();
-    syncActiveGenerationProgressTimer();
     if (activeGeneration.placeholderMessage) {
       activeGeneration.placeholderMessage.generationStatus = activeGeneration.status;
-      if (activeGeneration.placeholderMessage.progress) {
-        activeGeneration.placeholderMessage.progress.message = activeGenerationButtonLabel(activeGeneration.status);
-      }
     }
     updateSendButton();
-    patchActiveGenerationDom();
     return true;
   }
 
@@ -7433,6 +7397,177 @@ function mountModeSegment() {
     host.dataset.segment='';
   }).catch(()=>{host._modeSegmentPending=false;host.dataset.segmentFailed='';});
 }
+// =====================================================
+// ХОД ГЕНЕРАЦИИ: ThoughtLine
+// One progress line per generation in Pro Studio, Grid and Edit. It lists
+// only the stages the backend confirmed (job.progress.stages: received,
+// sent, accepted, processing, then ready or failed); the next stage waits
+// with a pulse until it is confirmed, and a stage the provider never
+// reports is never shown as done. The timer runs from the job's real start
+// to its real end. The line reflects the job, it never drives it.
+// =====================================================
+const THOUGHT_LINE_VERSION='thought-line-20261020';
+let thoughtLineBundle=null;
+function loadThoughtLineBundle() {
+  if(window.SylvexThoughtLine)return Promise.resolve(window.SylvexThoughtLine);
+  if(thoughtLineBundle)return thoughtLineBundle;
+  thoughtLineBundle=new Promise((resolve,reject)=>{
+    const link=document.createElement('link');link.rel='stylesheet';link.href=EDIT_PIXEL_BASE+'js/vendor/thought-line/thought-line.css?v='+THOUGHT_LINE_VERSION;document.head.appendChild(link);
+    const script=document.createElement('script');script.src=EDIT_PIXEL_BASE+'js/vendor/thought-line/thought-line.js?v='+THOUGHT_LINE_VERSION;script.async=true;
+    script.onload=()=>window.SylvexThoughtLine?resolve(window.SylvexThoughtLine):reject(new Error('thought_line_empty'));
+    script.onerror=()=>reject(new Error('thought_line_failed'));
+    document.head.appendChild(script);
+  }).catch(error=>{thoughtLineBundle=null;throw error;});
+  return thoughtLineBundle;
+}
+// Stage names adapted to the generation type. Pro Studio speaks Russian
+// unless the user chose another interface language (then English).
+const GENERATION_THOUGHT_LANG='ru';
+const GENERATION_THOUGHT_TEXT={
+  ru:{received:'Задание получено SYLVEX',sent:'Запрос отправлен ИИ',accepted:'Запрос принят на генерацию',failedStep:'Генерация не выполнена',failed:'Ошибка генерации',
+    image:{label:'Генерация изображения…',processing:'ИИ обрабатывает изображение',ready:'Готово к скачиванию'},
+    video:{label:'Генерация видео…',processing:'ИИ создаёт видео',ready:'Готово к скачиванию'},
+    music:{label:'Генерация музыки…',processing:'ИИ создаёт музыку',ready:'Готово к скачиванию'},
+    voice:{label:'Генерация озвучки…',processing:'ИИ озвучивает текст',ready:'Готово к скачиванию'},
+    text:{label:'Генерация текста…',processing:'ИИ формирует ответ',ready:'Ответ готов'}},
+  en:{received:'Task received by SYLVEX',sent:'Request sent to the AI',accepted:'Request accepted for generation',failedStep:'Generation did not complete',failed:'Generation failed',
+    image:{label:'Generating image…',processing:'AI is processing the image',ready:'Ready to download'},
+    video:{label:'Generating video…',processing:'AI is creating the video',ready:'Ready to download'},
+    music:{label:'Generating music…',processing:'AI is creating the music',ready:'Ready to download'},
+    voice:{label:'Generating voice-over…',processing:'AI is voicing the text',ready:'Ready to download'},
+    text:{label:'Generating text…',processing:'AI is writing the answer',ready:'Answer ready'}},
+};
+const GENERATION_THOUGHT_ORDER=['received','sent','accepted','processing','ready'];
+function generationThoughtText() {
+  let chosen='';
+  try{chosen=localStorage.getItem('sylvex-lang')||'';}catch(_){}
+  return GENERATION_THOUGHT_TEXT[(chosen||GENERATION_THOUGHT_LANG)==='ru'?'ru':'en'];
+}
+function generationThoughtKind(kind) {
+  const value=String(kind||'').toLowerCase();
+  if(['image','video','music','voice','text'].includes(value))return value;
+  if(value==='audio')return 'music';
+  if(['chat','pro','lite','task'].includes(value))return 'text';
+  if(value==='montage')return 'video';
+  return 'image';
+}
+function createGenerationThought(kind) {
+  return {kind:generationThoughtKind(kind),stages:{},outcome:'working',startedAt:Date.now(),finishedAt:0};
+}
+// Server epoch seconds become this device's clock through the response's
+// own server_time, so the timer is right even when the clocks differ.
+function applyGenerationThoughtProgress(thought,progress) {
+  const stages=progress&&progress.stages;
+  if(!thought||!stages||typeof stages!=='object')return thought;
+  const serverTime=Number(progress.server_time),offset=Number.isFinite(serverTime)?Date.now()-serverTime*1000:0;
+  Object.keys(stages).forEach(stage=>{
+    const at=Number(stages[stage]);if(!Number.isFinite(at))return;
+    if(stage==='failed'){thought.outcome='failed';thought.finishedAt=at*1000+offset;}
+    else if(GENERATION_THOUGHT_ORDER.includes(stage))thought.stages[stage]=at*1000+offset;
+  });
+  if(thought.stages.ready&&thought.outcome!=='failed'){thought.outcome='ready';thought.finishedAt=thought.stages.ready;}
+  return thought;
+}
+// A delivered result is the confirmation that it is ready; an error ends the
+// line as failed.
+function finishGenerationThought(thought,failed) {
+  if(!thought||thought.outcome!=='working')return thought;
+  thought.outcome=failed?'failed':'ready';
+  if(!failed&&!thought.stages.ready)thought.stages.ready=Date.now();
+  thought.finishedAt=failed?Date.now():thought.stages.ready;
+  return thought;
+}
+function generationThoughtProps(thought) {
+  const words=generationThoughtText(),names=words[thought.kind]||words.image;
+  const text={received:words.received,sent:words.sent,accepted:words.accepted,processing:names.processing,ready:names.ready};
+  const confirmed=GENERATION_THOUGHT_ORDER.filter(stage=>stage!=='ready'&&thought.stages[stage]);
+  const steps=confirmed.map(stage=>text[stage]);
+  if(thought.outcome==='working')steps.push(text[GENERATION_THOUGHT_ORDER[GENERATION_THOUGHT_ORDER.indexOf(confirmed[confirmed.length-1])+1]]);
+  else steps.push(thought.outcome==='failed'?words.failedStep:names.ready);
+  return {
+    label:names.label,
+    doneLabel:thought.outcome==='failed'?words.failed:names.ready,
+    steps,
+    working:thought.outcome==='working',
+    failed:thought.outcome==='failed',
+    startedAt:thought.stages.received||thought.startedAt,
+    finishedAt:thought.finishedAt||0,
+  };
+}
+// Each line lives in its own element that survives re-renders: a render only
+// leaves a slot ([data-thought-key]) and the element moves into it, so the
+// timer and the settle animation are never restarted by a re-render.
+const generationThoughtLines=new Map();
+function generationThoughtKey(value) {
+  return String(value||'').replace(/[^\w:-]/g,'');
+}
+function generationThoughtSlot(key,className) {
+  const safe=generationThoughtKey(key);
+  return safe?'<div class="sx-thought-slot'+(className?' '+className:'')+'" data-thought-key="'+safe+'"></div>':'';
+}
+function attachGenerationThoughts(root) {
+  (root||document).querySelectorAll('[data-thought-key]').forEach(slot=>{
+    const entry=generationThoughtLines.get(slot.dataset.thoughtKey);
+    if(entry&&entry.el.parentNode!==slot)slot.appendChild(entry.el);
+  });
+}
+function paintGenerationThoughtFallback(entry) {
+  entry.el.textContent=entry.props.working?entry.props.label:entry.props.doneLabel;
+}
+function showGenerationThought(key,thought) {
+  key=generationThoughtKey(key);
+  if(!key||!thought)return;
+  const props=generationThoughtProps(thought);
+  let entry=generationThoughtLines.get(key);
+  if(entry){
+    entry.props=props;
+    if(entry.handle)entry.handle.update(props);else if(entry.fallback)paintGenerationThoughtFallback(entry);
+  }else{
+    const el=document.createElement('div');el.className='sx-thought-host';
+    entry={el,props,handle:null,fallback:false};generationThoughtLines.set(key,entry);
+    loadThoughtLineBundle().then(api=>{entry.handle=api.mount(el,entry.props);}).catch(()=>{entry.fallback=true;paintGenerationThoughtFallback(entry);});
+    pruneGenerationThoughtLines();
+  }
+  attachGenerationThoughts();
+}
+function pruneGenerationThoughtLines() {
+  if(generationThoughtLines.size<=80)return;
+  for(const [key,entry] of generationThoughtLines){
+    if(generationThoughtLines.size<=60)break;
+    if(entry.el.isConnected||entry.props.working)continue;
+    entry.handle?.unmount();generationThoughtLines.delete(key);
+  }
+}
+// Job → the lines that show it (a Pro Studio chat card and an Edit or Grid
+// card can follow the same job).
+const generationThoughtJobs=new Map();
+function bindGenerationThought(jobId,key,thought) {
+  if(!jobId||!key||!thought)return;
+  let bound=generationThoughtJobs.get(String(jobId));
+  if(!bound)generationThoughtJobs.set(String(jobId),bound=new Map());
+  bound.set(generationThoughtKey(key),thought);
+}
+function noteGenerationJob(jobId,job) {
+  const bound=generationThoughtJobs.get(String(jobId||''));
+  if(!bound||!job)return;
+  const status=String(job.status||'').toLowerCase(),failed=['failed','cancelled','canceled','timeout','timed_out'].includes(status);
+  bound.forEach((thought,key)=>{
+    applyGenerationThoughtProgress(thought,job.progress);
+    if(failed)finishGenerationThought(thought,true);
+    showGenerationThought(key,thought);
+  });
+  if(failed||status==='completed')generationThoughtJobs.delete(String(jobId));
+}
+// The loading-message fields of a new chat generation.
+function generationLoadingThought(kind) {
+  return {thoughtKey:'thought_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),thought:createGenerationThought(kind)};
+}
+function editThoughtKey(node) {
+  return 'edit_'+(editWorkspaceState.sessionId||'')+'_'+(node&&node.id||'');
+}
+function gridThoughtKey(node) {
+  return 'grid_'+(node&&node.id||'');
+}
 function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
   ensureEditWorkspaceChain();
@@ -7459,7 +7594,7 @@ function syncEditWorkspaceChain(root) {
     let card=world.querySelector('[data-chain-node="'+node.id+'"]');
     if(!card){
       card=document.createElement('article');card.className='edit-chain-node';card.dataset.chainNode=node.id;
-      card.innerHTML='<div class="edit-workspace-frame"><div class="edit-chain-wait" aria-hidden="true"><i></i><i></i><i></i></div></div><div class="edit-chain-caption"></div>';
+      card.innerHTML='<div class="edit-workspace-frame"><div class="edit-chain-wait" aria-hidden="true"><i></i><i></i><i></i></div></div><div class="edit-chain-caption"></div>'+generationThoughtSlot(editThoughtKey(node),'edit-chain-thought');
       if(node.status==='pending'){
         card.classList.add('is-entering');
         card.addEventListener('animationend',event=>{if(event.animationName==='edit-chain-enter')card.classList.remove('is-entering');});
@@ -7470,6 +7605,7 @@ function syncEditWorkspaceChain(root) {
     card.style.width=node.slotWidth+'px';card.style.height=node.slotHeight+'px';
     card.tabIndex=0;card.setAttribute('aria-description','Drag the image or use arrow keys to move it. Hold Space and drag to pan the canvas.');
     const label=editWorkspaceChainLabel(node,index);card.setAttribute('aria-label',label+(node.status==='pending'?' — generating':node.status==='failed'?' — generation failed':''));card.querySelector('.edit-chain-caption').textContent=label;
+    if(node.thought)showGenerationThought(editThoughtKey(node),node.thought);
     const frame=card.querySelector('.edit-workspace-frame');
     let img=frame.querySelector('.edit-workspace-image');
     const mediaUrl=node.preview||node.url;
@@ -8686,13 +8822,16 @@ async function recoverEditSessionJob(){
   const s=editWorkspaceState,node=s.chain.find(item=>item.status==='pending');if(!node||s.busy)return;
   if(!node.jobId){node.status='failed';renderEditWorkspace();return;}
   const before=editWorkspaceSnapshot(),sessionId=s.sessionId,owner=editSessionOwner();s.busy=true;renderEditWorkspace();
+  if(!node.thought||node.thought.outcome!=='working')node.thought=createGenerationThought('image');
+  bindGenerationThought(node.jobId,editThoughtKey(node),node.thought);
   try{
     const result=await waitGeneration(node.jobId,{isolateRequest:true});
     if(s.sessionId!==sessionId||owner!==editSessionOwner())return;
+    finishGenerationThought(node.thought);
     completeEditChainResult(node,{result,job_id:node.jobId},before);
   }catch(error){
     if(s.sessionId!==sessionId||owner!==editSessionOwner())return;
-    if(['failed','cancelled','timeout'].includes(error.terminalStatus))node.status='failed';
+    if(['failed','cancelled','timeout'].includes(error.terminalStatus)){node.status='failed';finishGenerationThought(node.thought,true);}
     // A network interruption is not evidence that the provider job failed.
     // Keep its ID so reopening the canvas polls that same job again.
     editWorkspaceToast(translateGenerationError(error,'Could not check the result. Reopen this workspace from history.'));
@@ -8712,7 +8851,7 @@ async function generateEditWorkspace(e){
   if(isSylvex)await animateEditSylvexGuidesIntoSource();
   if(mode!=='sketch')ensureEditWorkspaceChain();
   const before=editWorkspaceSnapshot();state.showBefore=false;const maskCanvas=document.getElementById('editWorkspaceMask'),maskUrl=state.mode==='retouch'&&maskCanvas?maskCanvas.toDataURL('image/png'):'';
-  state.busy=true;const chainResult=mode==='sketch'?beginEditSketchResult():beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
+  state.busy=true;const chainResult=mode==='sketch'?beginEditSketchResult():beginEditWorkspaceChainResult();chainResult.thought=createGenerationThought('image');renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
   const refs=[sketchReferenceUrl||state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
   const selectedEditModel=editWorkspaceImageModel(state.editModel),imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspaceModel:selectedEditModel.id,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:refs[0],editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
@@ -8723,9 +8862,10 @@ async function generateEditWorkspace(e){
     prompt=editWorkspaceInstruction(state);
     const requestModel=isSylvex?'sylvex_sr':mode==='upscale'?'topaz_enhance_photo':mode==='edit'?selectedEditModel.id:'gpt_image_2_5_sunburst';
     const requestProvider=isSylvex?'openai':mode==='upscale'?'topaz':mode==='edit'?providerHintForModel(selectedEditModel.id):'openai';
-    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:requestProvider,model:requestModel,imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
+    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:requestProvider,model:requestModel,imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;bindGenerationThought(jobId,editThoughtKey(chainResult),chainResult.thought);void saveEditWorkspaceSession();}});
     historyIndex=activeGenerationPlaceholderIndex();
     const response=await pending,providerResult=response.result||response;
+    finishGenerationThought(chainResult.thought);
     completeEditChainResult(chainResult,response,before);
     if(isSylvex){const settings={...restore.finalEnhance};state.upscale.sylvex={...createEditSylvexRestoreState(),sourceUrl:state.sourceUrl,resultUrl:state.resultUrl,finalEnhance:settings};}
     const thumbs=generatedThumbsFromResponse(providerResult);
@@ -8738,6 +8878,7 @@ async function generateEditWorkspace(e){
   }catch(error){
     if(isSylvex)restore.guidesHidden=false;
     if(chainResult.status==='pending'&&(!chainResult.jobId||['failed','cancelled','timeout'].includes(error.terminalStatus)))chainResult.status='failed';
+    if(chainResult.status==='failed')finishGenerationThought(chainResult.thought,true);
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
     if(historyIndex>=0)chatMessages[historyIndex]=resolveFailureMessage(error,{mode:'image',prompt});
     editWorkspaceToast(translateGenerationError(error,'Could not edit the image.'));
@@ -10179,12 +10320,11 @@ async function generateTryOnTool(e) {
   const loadingIndex = chatMessages.push({
     role: 'ai',
     generationLoading: true,
-    progress: createGenerationProgress('image'),
+    ...generationLoadingThought('image'),
   }) - 1;
   renderChat();
   try {
     const start = await callGenerate(displayPrompt, null, [], null, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
       model: 'fashn_try_on',
@@ -10527,12 +10667,11 @@ async function generateTattooReference(e) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')})-1;
+  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;
   renderChat();
   try {
     const start = await callGenerate(prompt,null,refs,null,{
       isolateRequest:true, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', loadingIndex,
-      onProgress:(completed)=>updateGenerationLoadingProgress(loadingIndex,completed),
       imageOptions:{modelId:HAIR_BEARD_IMAGE_MODEL,size:'1024x1024',quality:'high',count:1,referenceImageUrls:refs.slice(),referenceImages:refs.slice(),tool:'tattoo_reference',photo_tool:'tattoo_reference',catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false},
     });
     const result = start.result || start;
@@ -10576,7 +10715,7 @@ async function generateHairBeardReference(e) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({ role:'ai', generationLoading:true, progress:createGenerationProgress('image') }) - 1;
+  const loadingIndex = chatMessages.push({ role:'ai', generationLoading:true, ...generationLoadingThought('image') }) - 1;
   renderChat();
   try {
     const start = await callGenerate(prompt, null, refs, null, {
@@ -10584,7 +10723,6 @@ async function generateHairBeardReference(e) {
       model:HAIR_BEARD_IMAGE_MODEL,
       provider:'openai',
       loadingIndex,
-      onProgress:(completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       imageOptions:{ modelId:HAIR_BEARD_IMAGE_MODEL, size:'1024x1024', quality:'high', count:1, referenceImageUrls:refs.slice(), referenceImages:refs.slice(), tool:'hair_beard_reference', catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false },
     });
     const result = start.result || start;
@@ -10668,7 +10806,7 @@ async function generatePhotoTool(e) {
   const loadingIndex = chatMessages.push({
     role: 'ai',
     generationLoading: true,
-    progress: createGenerationProgress('image'),
+    ...generationLoadingThought('image'),
   }) - 1;
   renderChat();
   try {
@@ -10686,7 +10824,6 @@ async function generatePhotoTool(e) {
       imageOptions:{ modelId:HAIR_BEARD_IMAGE_MODEL, size:outputSize, quality:'high', count:1, referenceImageUrls:refs.slice(), referenceImages:refs.slice(), tool:kind, photo_tool:kind, catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false },
     } : {};
     const start = await callGenerate(prompt, null, refs, null, Object.assign({}, modelOptions, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
     }));
     const result = start.result || start;
@@ -10753,7 +10890,7 @@ async function generateLogoTool(e, toolState, userBrief) {
   logoState.prompt=brief;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')})-1;
+  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;
   renderChat();
   try{
     const imageOptions={
@@ -10765,7 +10902,7 @@ async function generateLogoTool(e, toolState, userBrief) {
     };
     const start=await callGenerate(prompt,null,refs,null,{
       isolateRequest:true,model:'recraft_v4_1_pro_vector',provider:'recraft',imageOptions,
-      onProgress:(completed)=>updateGenerationLoadingProgress(loadingIndex,completed),loadingIndex,
+      loadingIndex,
     });
     const result=start.result||start;
     const images=generatedUrlsFromResponse(result,'image');
@@ -10813,13 +10950,13 @@ async function generateReplaceObjectTool(state, instruction) {
   const references=[source,replacement],model='gpt_image_2_5_sunburst';
   const options={modelId:model,model,provider:'openai',quality:'high',size:'auto',count:1,tool:'replace_object',photo_tool:'replace_object',referenceImageUrls:references.slice(),referenceImages:references.slice()};
   state.generating=true;renderPhotoToolModal();document.body.classList.add('ai-generating');
-  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')})-1;renderChat();
+  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;renderChat();
   try{
     const start=await callGenerate(displayPrompt,null,references,null,{
       isolateRequest:true,model,provider:'openai',imageOptions:Object.assign({},options,{
         replaceObjectSourceUrl:source,replaceObjectMarkedSourceUrl:state.markedPhotoUrl,replaceObjectReferenceUrl:replacement,replaceObjectMaskStrokes:state.markedPhotoStrokes,replaceObjectInstruction:instruction,
       }),
-      onProgress:(completed)=>updateGenerationLoadingProgress(loadingIndex,completed),loadingIndex,
+      loadingIndex,
     });
     const result=start.result||start,images=generatedUrlsFromResponse(result,'image'),thumbs=generatedThumbsFromResponse(result);
     if(!images.length)throw new Error('Модель не вернула изображение');
@@ -10859,12 +10996,11 @@ async function generateRemoveObjectTool(state) {
   const loadingIndex = chatMessages.push({
     role: 'ai',
     generationLoading: true,
-    progress: createGenerationProgress('image'),
+    ...generationLoadingThought('image'),
   }) - 1;
   renderChat();
   try {
     const start = await callGenerate(displayPrompt, null, [], null, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
       model: 'gpt_image_1',
@@ -10918,11 +11054,10 @@ async function generateWatermarkRemovalTool(state) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')}) - 1;
+  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')}) - 1;
   renderChat();
   try {
     const start = await callGenerate(displayPrompt, null, [], null, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
       model: 'gpt_image_2_5_sunburst',
@@ -10986,12 +11121,11 @@ async function generateRemoveBgTool(state) {
   const loadingIndex = chatMessages.push({
     role: 'ai',
     generationLoading: true,
-    progress: createGenerationProgress('image'),
+    ...generationLoadingThought('image'),
   }) - 1;
   renderChat();
   try {
     const start = await callGenerate(displayPrompt, null, [], null, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
       model: 'ideogram_remove_bg',
@@ -11067,12 +11201,11 @@ async function generateEnhancePhotoTool(state) {
   const loadingIndex = chatMessages.push({
     role: 'ai',
     generationLoading: true,
-    progress: createGenerationProgress('image'),
+    ...generationLoadingThought('image'),
   }) - 1;
   renderChat();
   try {
     const start = await callGenerate(displayPrompt, null, [], null, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
       model: 'topaz_enhance_photo',
@@ -11157,7 +11290,7 @@ async function generateAnimatePhotoTool(state) {
   const loadingIndex = chatMessages.push({
     role: 'ai',
     generationLoading: true,
-    progress: createGenerationProgress('video'),
+    ...generationLoadingThought('video'),
   }) - 1;
   renderChat();
   // Animate Photo produces a video, but the Photo Tool modal it lives in
@@ -11174,7 +11307,6 @@ async function generateAnimatePhotoTool(state) {
       animatePhotoSourceUrl: sourceUrl,
       animatePhotoPrompt: userPrompt,
     }, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
       model: 'runway_gen4_5_animate_photo',
@@ -11535,12 +11667,11 @@ async function generateCharacterReplaceTool(e) {
   const loadingIndex = chatMessages.push({
     role: 'ai',
     generationLoading: true,
-    progress: createGenerationProgress('image'),
+    ...generationLoadingThought('image'),
   }) - 1;
   renderChat();
   try {
     const start = await callGenerate(displayPrompt, null, [], null, {
-      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
       model: 'flux_2_max_character_replace',
@@ -17171,91 +17302,12 @@ function renderGeneratedTelegramButton(url, kind) {
     };
   }
 
-  // =====================================================
-  // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageGenerationLoadingCard
-  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
-  // =====================================================
-  function renderImageGenerationLoadingCard() {
-    return renderGenerationLoadingCard({ progress: createGenerationProgress('image') });
-  }
-
-  const GENERATION_PROGRESS_STEPS = [0,2,5,9,14,20,27,34,41,48,55,62,68,73,78,82,85,87,89,90,91,92];
-  const GENERATION_STAGE_MESSAGES = {
-    image: ['Создаем изображение...', 'Подготавливаем композицию...', 'Прорисовываем детали...', 'Финальная обработка...'],
-    video: ['Создаем сценарий...', 'Строим движение камеры...', 'Генерируем кадры...', 'Просчитываем анимацию...', 'Финальный рендер...'],
-    music: ['Создаем мелодию...', 'Подбираем инструменты...', 'Формируем композицию...', 'Сводим звук...'],
-    voice: ['Подготавливаем голос...', 'Синтезируем речь...', 'Настраиваем интонацию...', 'Финальная обработка...'],
-    text: ['Анализируем запрос...', 'Строим ответ...', 'Формируем результат...'],
-    kling: ['Building motion...', 'Generating frames...', 'Applying native audio...', 'Rendering video...'],
-  };
-
   function generationKindForCurrentMode() {
-    if (isVideoMode()) {
-      const model = String(videoState.modelId || '').toLowerCase();
-      return model.includes('kling') ? 'kling' : 'video';
-    }
+    if (isVideoMode()) return 'video';
     if (isMusicMode()) return 'music';
     if (isVoiceMode()) return voiceState.uploadPurpose === 'dub_video' ? 'video' : 'voice';
     if (isImageMode()) return 'image';
     return 'text';
-  }
-
-  function createGenerationProgress(kind, modelId) {
-    return {
-      kind: kind || generationKindForCurrentMode(),
-      modelId: modelId || pickStudioModel() || '',
-      percent: 0,
-      stepIndex: 0,
-      startedAt: Date.now(),
-      message: '',
-    };
-  }
-
-  function generationProgressMessage(progress) {
-    const p = progress || {};
-    const items = GENERATION_STAGE_MESSAGES[p.kind] || GENERATION_STAGE_MESSAGES.text;
-    if (p.message) return p.message;
-    const pct = Number(p.percent || 0);
-    const index = Math.min(items.length - 1, Math.max(0, Math.floor((pct / 99) * items.length)));
-    return items[index] || items[0] || 'Генерация...';
-  }
-
-  function nextGenerationProgress(progress, completed) {
-    const p = Object.assign(createGenerationProgress('text'), progress || {});
-    if (completed) {
-      p.percent = 100;
-      p.message = 'Готово';
-      return p;
-    }
-    const elapsed = Math.max(0, Date.now() - Number(p.startedAt || Date.now()));
-    const timeStep = Math.min(GENERATION_PROGRESS_STEPS.length - 1, Math.floor(elapsed / 2200));
-    p.stepIndex = Math.max(Number(p.stepIndex || 0), timeStep);
-    p.percent = GENERATION_PROGRESS_STEPS[Math.min(p.stepIndex, GENERATION_PROGRESS_STEPS.length - 1)] || 0;
-    if (p.percent > 92) p.percent = 92;
-    return p;
-  }
-
-  // =====================================================
-  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGenerationLoadingCard
-  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
-  // =====================================================
-  function renderGenerationLoadingCard(message) {
-    const progress = nextGenerationProgress(message && message.progress, false);
-    const pct = Math.max(0, Math.min(92, Number(progress.percent || 0)));
-    return '<div class="generation-loading-card">'
-      + '<div class="generation-loading-border"></div>'
-      + '<div class="generation-loading-title">' + S.escapeHtml(generationProgressMessage(progress)) + '</div>'
-      + '<div class="generation-loading-progress" aria-label="Generation progress">'
-      + '<span style="width:' + pct + '%"></span>'
-      + '</div>'
-      + '<div class="generation-loading-percent">' + pct + '%</div>'
-      + '</div>';
-  }
-
-  function renderTextLoadingDots() {
-    return '<div class="text-loading-dots" aria-label="Ожидаем ответ">'
-      + '<span></span><span></span><span></span>'
-      + '</div>';
   }
 
   // =====================================================
@@ -17651,10 +17703,49 @@ function renderGeneratedTelegramButton(url, kind) {
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderChat
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
+  // A finished generation replaces its loading message at the same index
+  // (with the result or the error card). The replacement inherits that
+  // loading message's line, so the same line settles above the result.
+  const chatThoughtTracks = new Map();
+  let chatThoughtSeen = new WeakSet();
+  function isLoadingChatMessage(m) {
+    return !!(m && (m.generationLoading || m.textLoading || m.imageLoading));
+  }
+  function adoptReplacedGenerationThoughts() {
+    chatThoughtTracks.forEach((track, key) => {
+      const current = chatMessages[track.index];
+      if (track.list === chatMessages && current === track.message) return;
+      chatThoughtTracks.delete(key);
+      if (track.list !== chatMessages || !current || current.role !== 'ai' || current.thoughtKey || chatThoughtSeen.has(current) || isLoadingChatMessage(current)) return;
+      const failed = !!(current.isError || current.insufficientBalance || current.subscriptionRequired || current.textGenerationFailed);
+      current.thoughtKey = key;
+      current.thought = finishGenerationThought(track.message.thought, failed);
+    });
+  }
+  // The settled line sits under the result's avatar, where the loading line was.
+  function withChatThought(m, html) {
+    if (!m || !m.thoughtKey || !m.thought || isLoadingChatMessage(m)) return html;
+    const slot = generationThoughtSlot(m.thoughtKey, 'generation-thought');
+    const avatar = '<div class="ai-avatar">S</div>';
+    const at = html.indexOf(avatar);
+    return at >= 0
+      ? html.slice(0, at + avatar.length) + slot + html.slice(at + avatar.length)
+      : '<div class="msg ai generation-thought-msg">' + slot + '</div>' + html;
+  }
+  function syncChatGenerationThoughts() {
+    chatThoughtSeen = new WeakSet(chatMessages.filter((m) => m && typeof m === 'object'));
+    chatMessages.forEach((m, i) => {
+      if (!m || !m.thoughtKey || !m.thought) return;
+      if (isLoadingChatMessage(m)) chatThoughtTracks.set(m.thoughtKey, { list: chatMessages, index: i, message: m });
+      showGenerationThought(m.thoughtKey, m.thought);
+    });
+  }
+
   function renderChat() {
     // A finished music generation shows up in the Music Player right away.
     if (musicDockRef && studioMode === 'music') musicDockRef.sync();
     const el = document.getElementById('chatArea'); if (!el) return;
+    adoptReplacedGenerationThoughts();
     // Each retried generation that still lacks an active subscription
     // independently produces its own subscriptionRequired message (see
     // resolveFailureMessage) - collapse to the one card already in this
@@ -17669,10 +17760,10 @@ function renderGeneratedTelegramButton(url, kind) {
       chatMessages.splice(i, 1);
       i--;
     }
-    el.innerHTML = chatMessages.map((m, i) => {
+    const messageHtml = (m, i) => {
       if (m.textLoading) {
         return '<div class="msg ai text-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
-          + renderTextLoadingDots()
+          + generationThoughtSlot(m.thoughtKey, 'generation-thought')
           + '</div>';
       }
       if (m.imageLoading || m.generationLoading) {
@@ -17681,7 +17772,7 @@ function renderGeneratedTelegramButton(url, kind) {
           ? '<div class="msg user msg-reference-request"><div class="bubble">' + renderReferenceRequest(pendingRefs, '', 'r' + i) + '</div></div>'
           : '')
           + '<div class="msg ai generation-loading-msg" data-i="' + i + '" data-generation-token="' + S.escapeHtml(m.activeGenerationToken || '') + '"><div class="ai-avatar">S</div>'
-          + renderGenerationLoadingCard(m)
+          + generationThoughtSlot(m.thoughtKey, 'generation-thought')
           + '</div>';
       }
       if (m.insufficientBalance) {
@@ -17784,7 +17875,9 @@ function renderGeneratedTelegramButton(url, kind) {
       return '<div class="msg ' + m.role + '" data-i="' + i + '">'
         + (m.role === 'ai' ? '<div class="ai-avatar">S</div>' : '')
         + '<div class="bubble">' + inner + '</div>' + actions + '</div>';
-    }).join('');
+    };
+    el.innerHTML = chatMessages.map((m, i) => withChatThought(m, messageHtml(m, i))).join('');
+    syncChatGenerationThoughts();
     mountReferenceStacks(el);
     el.scrollTop = el.scrollHeight;
   }
@@ -22347,7 +22440,7 @@ function maybeShowVideoTemplateIntro(force) {
     const loadingIndex = chatMessages.push({
       generationLoading: true,
       role: 'ai',
-      progress: createGenerationProgress('video'),
+      ...generationLoadingThought('video'),
     }) - 1;
     renderChat();
     rememberCurrentChatSpace();
@@ -22356,7 +22449,6 @@ function maybeShowVideoTemplateIntro(force) {
     const videoOptions = videoOptionsPayload([]);
     try {
       const start = await callGenerate(promptText, null, [], videoOptions, {
-        onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
         loadingIndex,
       });
       const result = start.result || start;
@@ -23303,19 +23395,7 @@ function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
   return { balance, required: 0, known };
 }
 
-function updateGenerationLoadingProgress(index, completed) {
-  if (index === undefined || index === null || index < 0) return;
-  const message = chatMessages[index];
-  if (!message || (!message.generationLoading && !message.imageLoading)) return;
-  message.generationLoading = true;
-  message.imageLoading = false;
-  message.progress = nextGenerationProgress(message.progress, !!completed);
-  renderChat();
-  rememberCurrentChatSpace();
-}
-
 async function waitGeneration(jobId, options) {
-  const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   const signal = options && options.signal ? options.signal : null;
   const wait = (milliseconds) => new Promise((resolve, reject) => {
     if (!signal) {
@@ -23341,7 +23421,6 @@ async function waitGeneration(jobId, options) {
   const startedAt = Date.now();
   const networkGraceMs = 15 * 60 * 1000;
   const clientWatchdogMs = 45 * 60 * 1000;
-  let lastStatus = '';
   while (true) {
     if (Date.now() - startedAt > clientWatchdogMs) {
       const unconfirmed = new Error('Генерация выполняется дольше ожидаемого. Обновите статус, чтобы восстановить задачу.');
@@ -23385,6 +23464,9 @@ async function waitGeneration(jobId, options) {
       continue;
     }
     transientErrors = 0;
+    const placeholder = activeGeneration.jobId === jobId ? activeGeneration.placeholderMessage : null;
+    if (placeholder && placeholder.thoughtKey) bindGenerationThought(jobId, placeholder.thoughtKey, placeholder.thought);
+    noteGenerationJob(jobId, job);
 
     const status = String(job.status || '').toLowerCase();
     if (isActiveGenerationStatus(status)) {
@@ -23394,10 +23476,6 @@ async function waitGeneration(jobId, options) {
         mode: job.mode || '',
         conversation_id: job.conversation_id || '',
       });
-      if (status !== lastStatus) {
-        lastStatus = status;
-        patchActiveGenerationDom();
-      }
     }
 
     if (status === 'completed') {
@@ -23475,14 +23553,13 @@ async function waitGeneration(jobId, options) {
     chatMessages[index] = {
       role: 'ai',
       generationLoading: true,
-      progress: createGenerationProgress(generationKindForCurrentMode()),
+      ...generationLoadingThought(generationKindForCurrentMode()),
     };
     renderChat();
     rememberCurrentChatSpace();
     document.body.classList.add('ai-generating');
     try {
       const start = await callGenerate(prompt, attachment, referenceImages, videoOptions, {
-        onProgress: (completed) => updateGenerationLoadingProgress(index, completed),
         loadingIndex: index,
       });
       const j = start.result || start;
@@ -23529,9 +23606,13 @@ async function waitGeneration(jobId, options) {
     const requestId = String(request && request.requestId || newTextRequestId());
     const index = Number.isInteger(placeholderIndex) && placeholderIndex >= 0
       ? placeholderIndex
-      : chatMessages.push({ role: 'ai', textLoading: true, textRequestId: requestId }) - 1;
+      : chatMessages.push(Object.assign({ role: 'ai', textLoading: true, textRequestId: requestId }, generationLoadingThought('text'))) - 1;
     stopTextListen(false);
-    chatMessages[index] = { role: 'ai', textLoading: true, textRequestId: requestId };
+    const pending = chatMessages[index];
+    const thoughtFields = pending && pending.textLoading && pending.thoughtKey
+      ? { thoughtKey: pending.thoughtKey, thought: pending.thought }
+      : generationLoadingThought('text');
+    chatMessages[index] = Object.assign({ role: 'ai', textLoading: true, textRequestId: requestId }, thoughtFields);
     textRequestInFlight = true;
     renderChat();
     rememberCurrentChatSpace();
@@ -23545,6 +23626,8 @@ async function waitGeneration(jobId, options) {
         role: 'ai',
         text: result.text,
         files: Array.isArray(result.files) ? result.files : (result.file_url ? [result.file_url] : []),
+        thoughtKey: thoughtFields.thoughtKey,
+        thought: finishGenerationThought(applyGenerationThoughtProgress(thoughtFields.thought, result.progress)),
       };
       if (result.conversation_id) currentConvId = result.conversation_id;
       loadConversations();
@@ -23590,7 +23673,7 @@ async function waitGeneration(jobId, options) {
       attachment: attachment ? Object.assign({}, attachment) : null,
       attachmentName: null,
     });
-    const loadingIndex = chatMessages.push({ role: 'ai', textLoading: true }) - 1;
+    const loadingIndex = chatMessages.push(Object.assign({ role: 'ai', textLoading: true }, generationLoadingThought('text'))) - 1;
     ta.value = '';
     autoGrow(ta);
     clearAttachment();
@@ -23789,7 +23872,6 @@ async function waitGeneration(jobId, options) {
         referenceImages,
         videoOptionsSnapshot,
         {
-          onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
           loadingIndex,
           audioUploads,
           voiceOptions: voiceOptionsSnapshot,
@@ -24133,12 +24215,11 @@ async function waitGeneration(jobId, options) {
   chatMessages[i] = {
     generationLoading: true,
     role: 'ai',
-    progress: createGenerationProgress(generationKindForCurrentMode()),
+    ...generationLoadingThought(generationKindForCurrentMode()),
   };
   renderChat();
 
   callGenerate(prev.text, null, referenceImagesOverride, null, {
-    onProgress: (completed) => updateGenerationLoadingProgress(i, completed),
     loadingIndex: i,
   })
     .then(async (start) => {
@@ -29724,6 +29805,11 @@ async function waitGeneration(jobId, options) {
   }
 
   function gridNodePreview(node,status) {
+    const thought=node.thought&&['RUNNING','COMPLETED','FAILED','CANCELLED'].includes(status)?generationThoughtSlot(gridThoughtKey(node),'studio-grid-thought'):'';
+    if(thought&&status==='RUNNING')return thought;
+    return thought+gridNodeOutputPreview(node,status);
+  }
+  function gridNodeOutputPreview(node,status) {
     // Never render a stale/superseded result while the node is currently
     // regenerating (RUNNING), has failed/been cancelled on its latest run,
     // or was edited since its last run (READY, via markStudioGridDownstreamStale)
@@ -29793,6 +29879,7 @@ async function waitGeneration(jobId, options) {
     renderStudioGridEdges();
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
     paintStudioGridCards(state);
+    state.nodes.forEach(node=>{if(node.thought)showGenerationThought(gridThoughtKey(node),node.thought)});
   }
 
   // Grid nodes tilt like the React Bits ProfileCard (tiltStrength 3, intro
@@ -30323,7 +30410,7 @@ async function waitGeneration(jobId, options) {
       try{response=await fetch(`/api/public/prostudio/job/${encodeURIComponent(jobId)}`,{cache:'no-store'})}catch(error){if(++transientErrors>80)throw error;await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
       const job=await response.json().catch(()=>({}));
       if(!response.ok||!job.ok){if(++transientErrors>80)throw new Error(translateGenerationError(job,'Не удалось проверить статус генерации'));await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
-      transientErrors=0;if(onStatus)onStatus(job.status||'running');
+      transientErrors=0;noteGenerationJob(jobId,job);if(onStatus)onStatus(job.status||'running');
       if(job.status==='completed'){const result=job.result||{};result.job_id=result.job_id||job.job_id||jobId;result.generation_id=result.generation_id||job.generation_id||jobId;return result}
       if(job.status==='failed'||job.status==='cancelled'){const error=new Error(translateGenerationError(job.error||job,'Генерация не прошла'));error.terminalStatus=job.status;throw error}
       await new Promise(resolve=>setTimeout(resolve,1500));
@@ -30380,9 +30467,9 @@ async function waitGeneration(jobId, options) {
       // this run is in flight or if it fails (see getGridNodeOutputValue/
       // gridNodePreview, both gated on status==='COMPLETED').
       node.request_id=node.request_id||`grid_${loadStudioGridState().projectId}_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
-      node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
-      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';ensureStudioGridProjectTitle(state,node,{effective_prompt:{value:output.type==='text'?output.value:inputs.effective_prompt?.value||''}});markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
-      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if(error?.terminalStatus||error?.insufficientBalance)node.request_id='';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';node.thought=createGenerationThought(node.type);saveStudioGridState();renderStudioGrid();
+      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;bindGenerationThought(jobId,gridThoughtKey(node),node.thought);saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';finishGenerationThought(applyGenerationThoughtProgress(node.thought,execution.raw&&execution.raw.progress));node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';ensureStudioGridProjectTitle(state,node,{effective_prompt:{value:output.type==='text'?output.value:inputs.effective_prompt?.value||''}});markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
+      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';finishGenerationThought(node.thought,true);node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if(error?.terminalStatus||error?.insufficientBalance)node.request_id='';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
     })().finally(()=>studioGridNodeRuns.delete(nodeId));
     studioGridNodeRuns.set(nodeId,promise);return promise;
   }
@@ -30413,7 +30500,7 @@ async function waitGeneration(jobId, options) {
   function restoreStudioGridJobs() {
     if(studioGridJobsRestored)return;studioGridJobsRestored=true;const state=loadStudioGridState();
     if(['RUNNING','STOPPING'].includes(state.workflow?.status))state.workflow.status='IDLE';
-    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=translateGenerationError(error,'Не удалось восстановить генерацию');if(error?.terminalStatus)node.request_id='';saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
+    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}if(!node.thought||node.thought.outcome!=='working')node.thought=createGenerationThought(node.type);bindGenerationThought(node.generation_id,gridThoughtKey(node),node.thought);const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';finishGenerationThought(node.thought);node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';finishGenerationThought(node.thought,true);node.error=translateGenerationError(error,'Не удалось восстановить генерацию');if(error?.terminalStatus)node.request_id='';saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
   }
 
   function selectStudioGridResultVersion(nodeId,index){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId),version=node?.result_versions?.[Number(index)];if(!node||!version)return;node.output=JSON.parse(JSON.stringify(version));node.selectedResultVersion=Number(index);node.status='COMPLETED';node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid()}

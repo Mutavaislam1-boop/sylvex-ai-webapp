@@ -26,3 +26,6 @@ edit_pixel/node_modules/
 grid_dock/node_modules/
 swipe_toast/node_modules/
 mode_segment/node_modules/
+
+# Generation progress line (thought_line/): the built bundle in webapp/js/vendor/thought-line is committed, deps never ship.
+thought_line/node_modules/

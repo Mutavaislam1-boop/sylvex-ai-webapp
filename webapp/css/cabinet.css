@@ -6614,130 +6614,6 @@ body.ai-generating .view[data-view="tools"].active .studio:not(.grid-mode),
   max-width:78% !important;
 }
 
-.text-loading-dots{
-  display:inline-flex;
-  align-items:center;
-  gap:5px;
-  min-height:34px;
-  padding:10px 13px;
-  border-radius:14px;
-  background:#141518;
-  border:1px solid rgba(255,255,255,.10);
-}
-
-.text-loading-dots span{
-  width:7px;
-  height:7px;
-  border-radius:50%;
-  background:rgba(255,255,255,.82);
-  animation:textDotsBlink 1.05s ease-in-out infinite;
-}
-
-.text-loading-dots span:nth-child(2){animation-delay:.14s}
-.text-loading-dots span:nth-child(3){animation-delay:.28s}
-
-@keyframes textDotsBlink{
-  0%,80%,100%{opacity:.28;transform:translateY(0)}
-  40%{opacity:1;transform:translateY(-3px)}
-}
-
-/* =====================================================
-CSS-БЛОК: .generation-loading-card
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-.generation-loading-card{
-  position:relative;
-  overflow:hidden;
-  min-width:190px;
-  padding:14px 16px;
-  border-radius:16px;
-  background:#141518;
-  border:1px solid rgba(255,255,255,.10);
-  color:#f3f3f3;
-}
-.view[data-view="tools"].active .generation-loading-card{
-  background:var(--st-bg-2);border:1px solid var(--st-border);color:var(--st-text);
-}
-
-/* =====================================================
-CSS-БЛОК: .generation-loading-border
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-.generation-loading-border{
-  position:absolute;
-  inset:0;
-  border-radius:inherit;
-  padding:1px;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),rgba(255,255,255,.72),rgba(255,255,255,.18),transparent);
-  background-size:220% 100%;
-  animation:generationBorderSweep 1.6s linear infinite;
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-  -webkit-mask-composite:xor;
-  mask-composite:exclude;
-  pointer-events:none;
-}
-
-/* =====================================================
-CSS-БЛОК: .generation-loading-title
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-.generation-loading-title{
-  position:relative;
-  z-index:1;
-  font-size:14px;
-  font-weight:650;
-  letter-spacing:.01em;
-}
-
-/* =====================================================
-CSS-БЛОК: .generation-loading-progress
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-.generation-loading-progress{
-  position:relative;
-  z-index:1;
-  height:6px;
-  margin-top:12px;
-  border-radius:999px;
-  overflow:hidden;
-  background:rgba(255,255,255,.10);
-}
-.view[data-view="tools"].active .generation-loading-progress{background:var(--st-bg-3)}
-
-/* =====================================================
-CSS-БЛОК: .generation-loading-progress span
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-.generation-loading-progress span{
-  display:block;
-  height:100%;
-  width:0;
-  border-radius:inherit;
-  background:linear-gradient(90deg,#fff,rgba(255,255,255,.66));
-  transition:width .55s ease;
-}
-.view[data-view="tools"].active .generation-loading-progress span{
-  background:linear-gradient(90deg,var(--st-accent),var(--st-accent-2));
-}
-
-/* =====================================================
-CSS-БЛОК: .generation-loading-percent
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-.generation-loading-percent{
-  position:relative;
-  z-index:1;
-  margin-top:7px;
-  font-size:12px;
-  font-weight:700;
-  color:rgba(255,255,255,.68);
-}
-.view[data-view="tools"].active .generation-loading-percent{color:var(--st-mute)}
-.view[data-view="tools"].active .generation-loading-border{
-  background:linear-gradient(90deg,transparent,var(--st-accent-bg),var(--st-accent),var(--st-accent-bg),transparent);
-  background-size:220% 100%;
-}
-
 .generation-balance-msg{max-width:78% !important}
 /* =====================================================
 CSS-БЛОК: .generation-balance-card
@@ -6779,11 +6655,6 @@ CSS-БЛОК: .generation-balance-actions button
 }
 .view[data-view="tools"].active .generation-balance-actions button:first-child{
   background:var(--st-accent);border-color:var(--st-accent);color:var(--st-accent-text);
-}
-
-@keyframes generationBorderSweep{
-  from{background-position:220% 0}
-  to{background-position:-220% 0}
 }
 
 /* =====================================================
@@ -10508,3 +10379,19 @@ html.browser-app .ep-danger{display:block;margin-top:22px}
 .studio-video-composer.is-compact .text-upload-main-ico svg{width:22px;height:22px}
 .studio-video-composer.is-compact .text-upload-actions button{width:32px;height:32px}
 .studio-video-composer.is-compact .text-upload-actions svg{width:16px;height:16px}
+
+/* =====================================================
+CSS-БЛОК: ThoughtLine — ход генерации
+Pro Studio chat, Grid nodes and Edit cards show the same line
+(js/vendor/thought-line); it takes the studio theme's text colour.
+===================================================== */
+.sx-thought-slot{--sx-thought-danger:var(--st-danger,#e96771)}
+.generation-thought{display:flex;align-items:center;min-height:32px;max-width:100%;padding:4px 2px;--sx-thought-color:var(--st-text,#f3f3f3)}
+.generation-thought-msg{max-width:78% !important}
+.sx-thought-host{max-width:100%}
+.studio-grid-node-result:has(.studio-grid-thought){height:auto;flex-direction:column;align-items:stretch;justify-content:center;padding:6px 11px 8px}
+.studio-grid-node .studio-grid-thought{display:flex;flex:none;width:100%;padding:2px 0;--sx-thought-color:var(--pc-ink,var(--st-text,#f3f3f3))}
+.studio-grid-node .studio-grid-thought .thought-line{--tl-font:12px !important}
+.edit-chain-thought{position:absolute;z-index:2;left:50%;top:50%;--sx-thought-color:var(--edit-text,var(--st-text,#f3f3f3));transform:translate(-50%,-50%) scale(var(--edit-expand-ui-scale,1));white-space:nowrap}
+.edit-chain-node:not([data-status="pending"])>.edit-chain-thought{top:calc(100% + 34px);transform:translate(-50%,0) scale(var(--edit-expand-ui-scale,1));transform-origin:top center}
+.edit-chain-thought .thought-line{--tl-font:14px !important}

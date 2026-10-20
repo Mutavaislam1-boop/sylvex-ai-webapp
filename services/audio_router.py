@@ -5,6 +5,7 @@ from services.safe_io import safe_get, safe_client_get, safe_local_path, read_up
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
 from services.billing_safety import require_billing_scope
+from services import generation_stages
 import asyncio
 import base64
 import json
@@ -1736,6 +1737,8 @@ async def audio_generation(payload: dict) -> dict:
 
         if not work_id:
             return _audio_error(provider, frontend_model, provider_model, "Audio API did not return workId", endpoint=generate_endpoint, status_code=submit_response.status_code, response=submit_data)
+        generation_stages.report("accepted")
+        generation_stages.report_provider_state(submit_status)
 
         attempts = int(os.getenv("AUDIO_API_POLL_ATTEMPTS", "60"))
         interval = float(os.getenv("AUDIO_API_POLL_INTERVAL", "5"))
@@ -1764,6 +1767,7 @@ async def audio_generation(payload: dict) -> dict:
                 return _audio_error(provider, frontend_model, provider_model, poll_data, workId=work_id, task_id=work_id, endpoint=feed_url, status_code=poll_status_code, body_preview=json.dumps(poll_data, ensure_ascii=False)[:1000], response=poll_data)
 
             status = _status_from_response(poll_data)
+            generation_stages.report_provider_state(status)
             result = _extract_audio_result(poll_data)
             print("AUDIO API POLL:", {
                 "attempt": attempt,
@@ -1940,6 +1944,7 @@ async def _poll_elevenlabs_dubbing(
     status_url = f"{ELEVENLABS_BASE_URL}/v1/dubbing/{dubbing_id}"
     audio_url = f"{ELEVENLABS_BASE_URL}/v1/dubbing/{dubbing_id}/audio/{target_lang}"
     last_data = initial_response
+    generation_stages.report("accepted")
 
     for attempt in range(1, attempts + 1):
         try:
@@ -1950,6 +1955,7 @@ async def _poll_elevenlabs_dubbing(
 
         last_data = data
         status = str((data or {}).get("status") or "").lower() if isinstance(data, dict) else ""
+        generation_stages.report_provider_state(status)
         print("ELEVENLABS DUBBING POLL:", {
             "attempt": attempt,
             "dubbing_id": dubbing_id,
@@ -2703,6 +2709,7 @@ async def _poll_runway_voice_task(
     attempts = int(os.getenv("RUNWAY_AUDIO_POLL_ATTEMPTS", "90"))
     interval = float(os.getenv("RUNWAY_AUDIO_POLL_INTERVAL", "2"))
     last_data = initial_response
+    generation_stages.report("accepted")
 
     for attempt in range(1, attempts + 1):
         try:
@@ -2713,6 +2720,7 @@ async def _poll_runway_voice_task(
 
         last_data = data
         status = _runway_status(data)
+        generation_stages.report_provider_state(status)
         audio_urls = _runway_audio_urls(data)
         print("RUNWAY TTS POLL:", {
             "attempt": attempt,
