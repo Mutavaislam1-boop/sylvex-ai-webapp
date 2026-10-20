@@ -8126,9 +8126,15 @@ function initEditWorkspaceStage() {
   const s=editWorkspaceState,stage=root.querySelector('.edit-workspace-stage'),world=root.querySelector('.edit-workspace-world'),grid=root.querySelector('.edit-workspace-grid');
   const active=s.chain.find(node=>node.id===s.activeNodeId);
   const focused=s.showBefore?s.chain.find(node=>node.id===active?.parentId)||active:active;
+  // The fixed upload card sits over the middle of the tool dock, which is
+  // centred on the free area beside the sidebar rather than on the stage.
+  const centerX=()=>{
+    const dock=editWorkspaceUploadFixed()&&root.querySelector('.edit-workspace-dock')?.getBoundingClientRect();
+    return dock?.width?dock.left+dock.width/2-stage.getBoundingClientRect().left:stage.clientWidth/2;
+  };
   // Preserve the existing infinite-world pan/zoom transform.
   const view=()=>{
-    const scale=s.zoom/100,x=stage.clientWidth/2+s.viewport.x,y=stage.clientHeight/2+s.viewport.y;
+    const scale=s.zoom/100,x=centerX()+s.viewport.x,y=stage.clientHeight/2+s.viewport.y;
     world.style.setProperty('--edit-expand-ui-scale',1/scale);
     world.style.transform=`translate(${x}px,${y}px) scale(${scale})`;
     const spacing=30*scale*Math.pow(2,Math.ceil(Math.log2(16/(30*scale))));
@@ -8233,7 +8239,11 @@ function initEditWorkspaceStage() {
     else if(img.complete&&!img.naturalWidth)img.onerror();
   });
   layout();
-  if(typeof ResizeObserver!=='undefined'){root._editObserver=new ResizeObserver(layout);root._editObserver.observe(stage);}
+  if(typeof ResizeObserver!=='undefined'){
+    root._editObserver=new ResizeObserver(layout);root._editObserver.observe(stage);
+    // Collapsing the shared sidebar moves the tool dock without resizing the stage.
+    const sidebar=root.dataset.sharedSidebar&&document.getElementById('sxSidebar');if(sidebar)root._editObserver.observe(sidebar);
+  }
   const canvas=root.querySelector('#editWorkspaceMask');if(!canvas)return;
   let stroke=null;
   const point=e=>{const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))};};
