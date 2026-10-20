@@ -118,8 +118,7 @@
     const subscription = state.subscription || state.subscription_plan || null;
     const until = state.subscription_until || state.subscription_expires_at || null;
     const status = state.status || (subscription ? 'pro' : 'free');
-    return {
-      balance: Number(state.balance || 0),
+    const normalized = {
       status,
       subscription_status: state.subscription_status || (subscription || status === 'pro' || status === 'active' ? 'active' : 'free'),
       subscription_plan: subscription,
@@ -143,6 +142,12 @@
       community_posts_count: state.community_posts_count || 0,
       community_likes_count: state.community_likes_count || 0,
     };
+    // A partial identity response must never replace an already-known account
+    // balance with zero. Only an explicit finite server value is authoritative.
+    if (state.balance !== undefined && state.balance !== null && Number.isFinite(Number(state.balance))) {
+      normalized.balance = Number(state.balance);
+    }
+    return normalized;
   }
 
   // =====================================================
@@ -204,16 +209,21 @@
     const normalized = normalizeState(state);
     const u = mergeUserPatch(normalized);
     const badge = u.subscription_status === 'active' ? 'PRO' : statusLabel(u.status);
-    const balNum = Number(u.balance || 0);
-    const bal = fmtNum(balNum) + ' ⚡️';
-    const usd = '≈ $' + (balNum / 100).toFixed(2);
+    const balanceKnown = u.balance !== undefined && u.balance !== null && Number.isFinite(Number(u.balance));
+    const balNum = balanceKnown ? Number(u.balance) : null;
+    const bal = balanceKnown ? fmtNum(balNum) + ' ⚡️' : '';
+    const usd = balanceKnown ? '≈ $' + (balNum / 100).toFixed(2) : '';
 
-    setText('homeBalance', bal);
-    setText('homeBalanceUsd', usd);
+    if (balanceKnown) {
+      setText('homeBalance', bal);
+      setText('homeBalanceUsd', usd);
+    }
     const hb = document.getElementById('homeUserBadge'); if (hb) { hb.textContent = badge; hb.removeAttribute('data-i18n'); }
 
-    setText('profileBalance', bal);
-    setText('profileBalanceUsd', usd);
+    if (balanceKnown) {
+      setText('profileBalance', bal);
+      setText('profileBalanceUsd', usd);
+    }
     setText('profilePlan', u.subscription_status === 'active'
       ? (u.subscription_plan === 'year' ? 'Pro · 1 год' : 'Pro · 1 месяц')
       : 'Free');
@@ -232,8 +242,10 @@
     }
     const pb = document.getElementById('profileUserBadge'); if (pb) { pb.textContent = badge; pb.removeAttribute('data-i18n'); }
 
-    setText('shopBalance', balNum.toLocaleString());
-    setText('shopBalanceUsd', usd);
+    if (balanceKnown) {
+      setText('shopBalance', balNum.toLocaleString());
+      setText('shopBalanceUsd', usd);
+    }
 
     if (S.renderSubscription) S.renderSubscription();
     if (normalized.subscription_expired && S.showExpiredSubscriptionModal) {
@@ -422,6 +434,11 @@
         username: json.username || undefined,
         custom_avatar_url: json.avatar_url || undefined,
       };
+      // /api/web/session/me resolves the same billing account used by
+      // generation. Carry its authoritative credits into Browser Mini App UI.
+      if (json.balance !== undefined && json.balance !== null) identity.balance = json.balance;
+      if (json.subscription_plan !== undefined) identity.subscription_plan = json.subscription_plan;
+      if (json.generations_count !== undefined) identity.generations_count = json.generations_count;
       renderUserState(identity);
       renderIdentity(identity);
       return S.user;

@@ -7,19 +7,20 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../webapp/js/cabinet.js', import.meta.url), 'utf8');
+const userSource = readFileSync(new URL('../webapp/js/user.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../webapp/cabinet.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../webapp/css/cabinet.css', import.meta.url), 'utf8');
 const index = readFileSync(new URL('../webapp/index.html', import.meta.url), 'utf8');
 
-function extract(name) {
-  const start = source.search(new RegExp('^[ \\t]*(?:async )?function ' + name + '\\(', 'm'));
+function extract(name, input = source) {
+  const start = input.search(new RegExp('^[ \\t]*(?:async )?function ' + name + '\\(', 'm'));
   assert.ok(start >= 0, name);
   // The body starts at ") {", not at a default parameter like options={}.
-  const open = start + source.slice(start).search(/\)\s*\{/);
+  const open = start + input.slice(start).search(/\)\s*\{/);
   let depth = 0;
-  for (let i = source.indexOf('{', open); i < source.length; i++) {
-    if (source[i] === '{') depth++;
-    else if (source[i] === '}' && --depth === 0) return source.slice(start, i + 1);
+  for (let i = input.indexOf('{', open); i < input.length; i++) {
+    if (input[i] === '{') depth++;
+    else if (input[i] === '}' && --depth === 0) return input.slice(start, i + 1);
   }
   throw new Error('unbalanced ' + name);
 }
@@ -179,6 +180,42 @@ test('a failed browser profile save shows one message and never retries', async 
   assert.match(els.epError.textContent, /Couldn’t save your profile/);
   assert.equal(calls.timers + calls.queued, 0, 'no background retry');
   assert.equal(els.epSaveBtn.disabled, false);
+});
+
+function browserBalanceHarness(sessionResponses) {
+  const elements = new Map();
+  const element = (id) => {
+    if (!elements.has(id)) elements.set(id, { textContent: '', removeAttribute() {} });
+    return elements.get(id);
+  };
+  const context = vm.createContext({
+    S: {}, Number, Date, Intl,
+    document: { getElementById: element, dispatchEvent() {} },
+    CustomEvent: class CustomEvent { constructor(type, options) { this.type = type; this.detail = options?.detail; } },
+    userFetchWithTimeout: async () => ({ ok: true, json: async () => sessionResponses.shift() }),
+    renderIdentity() {},
+  });
+  vm.runInContext([
+    extract('fmtNum', userSource), extract('setText', userSource), extract('statusLabel', userSource), extract('normalizeState', userSource),
+    extract('mergeUserPatch', userSource), extract('renderUserState', userSource), extract('syncWebSession', userSource),
+    ';globalThis.sync = syncWebSession;',
+  ].join('\n'), context);
+  return { context, elements };
+}
+
+test('Browser Mini App renders the web account balance and a partial refresh cannot reset it to zero', async () => {
+  const { context, elements } = browserBalanceHarness([
+    { authenticated: true, account_id: 101, sylvex_user_id: 101, balance: 875 },
+    { authenticated: true, account_id: 101, sylvex_user_id: 101 },
+  ]);
+  await context.sync();
+  assert.equal(context.S.user.balance, 875);
+  assert.equal(elements.get('homeBalance').textContent, '875 ⚡️');
+  assert.equal(elements.get('shopBalance').textContent, '875');
+
+  await context.sync();
+  assert.equal(context.S.user.balance, 875);
+  assert.equal(elements.get('profileBalance').textContent, '875 ⚡️');
 });
 
 test('the default avatar is sent as "" so the server does not keep the previous one', () => {
