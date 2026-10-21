@@ -103,6 +103,27 @@ def probe_video_bytes(content: bytes, suffix: str) -> Optional[dict]:
     return meta
 
 
+def probe_video_file(path, suffix: str, size_bytes: int = 0) -> Optional[dict]:
+    """Probe an existing file without copying a potentially large video to RAM."""
+    ffmpeg = _ffmpeg_binary()
+    if not ffmpeg or not path:
+        return None
+    try:
+        completed = subprocess.run(
+            [ffmpeg, "-hide_banner", "-protocol_whitelist", "file", "-i", str(path)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30, check=False,
+        )
+        meta = parse_ffmpeg_info((completed.stderr or b"").decode("utf-8", "ignore"))
+    except Exception as exc:
+        print("VIDEO PROBE FAILED:", type(exc).__name__)
+        return None
+    if not meta:
+        return None
+    meta["bytes"] = int(size_bytes or pathlib.Path(path).stat().st_size)
+    meta["extension"] = (suffix or "").lower()
+    return meta
+
+
 def url_extension(url: str) -> str:
     path = urllib.parse.urlparse(str(url or "")).path
     return pathlib.PurePosixPath(path).suffix.lower()

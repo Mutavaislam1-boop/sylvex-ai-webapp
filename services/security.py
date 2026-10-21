@@ -423,7 +423,7 @@ _WEB_UID_CACHE_TTL=30.0
 _web_uid_cache={}
 
 def _database_url():
- return os.getenv('DATABASE_PUBLIC_URL','').strip() or os.getenv('DATABASE_URL','').strip()
+ return os.getenv('DATABASE_URL','').strip() or os.getenv('DATABASE_PUBLIC_URL','').strip()
 
 def web_session_account_id_from_cookie_header(cookie_header):
  """Returns (account_id, generation), or (0, 0) if absent/invalid. Token

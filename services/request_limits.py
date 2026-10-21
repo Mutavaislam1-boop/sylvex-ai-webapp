@@ -30,7 +30,7 @@ def ensure_limit_table(dsn):
 
 def check_quota(user_id,path):
  if path not in COSTLY and not path.endswith('/generate'):return
- dsn=os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL')
+ dsn=os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')
  if not dsn:raise SecurityError('database_not_configured',503)
  try:
   ensure_limit_table(dsn)
@@ -98,7 +98,7 @@ def _resolve_canonical_identity(cur, telegram_id):
 
 
 def check_object_creation_quota(user_id):
- dsn=os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL')
+ dsn=os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')
  if not dsn:raise SecurityError('generation_queue_unavailable',503)
  try:
   ensure_limit_table(dsn)

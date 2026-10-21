@@ -2,8 +2,9 @@
 import json
 import math
 import re
+from urllib.parse import quote
 
-from services.media_access import sign_media_url
+from services.media_access import media_key, sign_media_url
 from services.edit_sketch import validate_sketch
 
 
@@ -65,11 +66,25 @@ def refresh_media(value, field=""):
     return value
 
 
+def canonicalize_media(value, field=""):
+    """Persist stable object paths instead of repeating expiring signatures."""
+    if isinstance(value, dict):
+        return {key: canonicalize_media(child, key) for key, child in value.items()}
+    if isinstance(value, list):
+        return [canonicalize_media(child, field) for child in value]
+    if isinstance(value, str) and field in {"url", "preview", "sourceUrl", "sourcePreview", "resultUrl", "beforeUrl"}:
+        key = media_key(value)
+        if key:
+            return "/api/public/storage/" + quote(key, safe="/")
+    return value
+
+
 def save(connect, owner, session_id, state):
-    encoded = validate_session(session_id, state)
-    title = str(state.get("historyTitle") or state.get("sourceName") or ("Sketch drawing" if state.get('sketch') else "Edit workspace"))[:160]
-    preview = next((node.get("url", "") for node in reversed(state["chain"]) if node.get("status") == "ready"), "")
-    count = sum(node.get("status") == "ready" and bool(node.get("parentId")) for node in state["chain"])
+    stable_state = canonicalize_media(state)
+    encoded = validate_session(session_id, stable_state)
+    title = str(stable_state.get("historyTitle") or stable_state.get("sourceName") or ("Sketch drawing" if stable_state.get('sketch') else "Edit workspace"))[:160]
+    preview = next((node.get("url", "") for node in reversed(stable_state["chain"]) if node.get("status") == "ready"), "")
+    count = sum(node.get("status") == "ready" and bool(node.get("parentId")) for node in stable_state["chain"])
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO prostudio_edit_sessions (telegram_id, id, title, preview_url, result_count, state_json)

@@ -43,6 +43,25 @@ _last_status_log = 0.0
 _last_wait_log = 0.0
 _invariant_since: Optional[float] = None
 _last_invariant_log = 0.0
+_last_checkout_timing_log = 0.0
+_last_held_timing_log = 0.0
+
+
+def _timing_log_due(kind: str, elapsed_ms: int) -> bool:
+    """Keep slow DB diagnostics while avoiding one log line per idle poll."""
+    global _last_checkout_timing_log, _last_held_timing_log
+    threshold = 100 if kind == "checkout" else 1000
+    interval = _positive_float("DB_TIMING_LOG_SAMPLE_SECONDS", 30.0, 1.0)
+    now = time.monotonic()
+    with _lock:
+        previous = _last_checkout_timing_log if kind == "checkout" else _last_held_timing_log
+        if elapsed_ms < threshold and now - previous < interval:
+            return False
+        if kind == "checkout":
+            _last_checkout_timing_log = now
+        else:
+            _last_held_timing_log = now
+    return True
 
 
 def _pool_size_locked() -> int:
@@ -209,11 +228,12 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
     # so a slow checkout is visible even when the pool itself never blocked
     # (e.g. the driver-level connect() call stalling, not pool contention).
     checkout_total_ms = round((time.monotonic() - checkout_call_started) * 1000)
-    print("DB_CHECKOUT_MS:", {
-        "checkout_ms": checkout_total_ms,
-        "connection_id": id(connection),
-        "thread_id": threading.get_ident(),
-    })
+    if _timing_log_due("checkout", checkout_total_ms):
+        print("DB_CHECKOUT_MS:", {
+            "checkout_ms": checkout_total_ms,
+            "connection_id": id(connection),
+            "thread_id": threading.get_ident(),
+        })
     _log_status_if_due()
     return connection
 
@@ -256,13 +276,14 @@ def _return_connection(connection) -> None:
         finally:
             _check_invariant_locked()
             _condition.notify_all()
-    print("DB_CONNECTION_HELD_MS:", {
-        "held_ms": held_ms,
-        "connection_id": id(connection),
-        "checkout_thread_id": checkout_thread_id,
-        "release_thread_id": threading.get_ident(),
-        "broken": broken,
-    })
+    if _timing_log_due("held", held_ms or 0):
+        print("DB_CONNECTION_HELD_MS:", {
+            "held_ms": held_ms,
+            "connection_id": id(connection),
+            "checkout_thread_id": checkout_thread_id,
+            "release_thread_id": threading.get_ident(),
+            "broken": broken,
+        })
     _log_status_if_due()
 
 

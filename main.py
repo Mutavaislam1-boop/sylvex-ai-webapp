@@ -1,4 +1,5 @@
-from services.safe_io import safe_get, safe_client_get, safe_local_path, read_upload, validated_upload_type
+from services.safe_io import safe_get, safe_download_to_file, safe_client_get, safe_local_path, read_upload, validated_upload_type, validated_upload_path
+_DEFAULT_SAFE_GET = safe_get
 # =====================================================
 # АВТОДОКУМЕНТАЦИЯ SYLVEX: main.py
 # Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
@@ -26,6 +27,7 @@ import html
 import concurrent.futures
 import tempfile
 import mimetypes
+import select
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -54,7 +56,7 @@ from services import video_probe
 from services import video_editor as video_editor_service
 from services.media_access import sign_media_url as media_sign_url
 from services import payment_inbox, shop_catalog, shop_orders, stripe_billing, telegram_catalog
-from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
+from services.storage import delete as storage_delete, direct_delivery_enabled as storage_direct_delivery_enabled, direct_upload_enabled as storage_direct_upload_enabled, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, head_object as storage_head_object, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, presigned_get_url as storage_presigned_get_url, presigned_put_url as storage_presigned_put_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, register_existing_object as storage_register_existing_object, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
 from provider_resilience import (
@@ -78,7 +80,7 @@ from services.security import (
     WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
     verify_web_session_token, verify_telegram_login_widget,
     web_session_account_id_from_cookie_header, resolve_web_session_uid,
-    current_web_session_generation, revoke_web_sessions, website_origins,
+    current_web_session_generation, revoke_web_sessions, website_origins, signing_key,
 )
 from services import account_identity as account_identity_service
 from services import account_usage as account_usage_service
@@ -194,26 +196,77 @@ _BOT_TOKEN_VALUES = [
 TELEGRAM_AUTH_TOKENS = tuple(dict.fromkeys(token for token in _BOT_TOKEN_VALUES if token))
 BOT_TOKEN = TELEGRAM_AUTH_TOKENS[0] if TELEGRAM_AUTH_TOKENS else ""
 TELEGRAM_PAYMENT_WEBHOOK_SECRET = (os.getenv("TELEGRAM_PAYMENT_WEBHOOK_SECRET") or "").strip()
-DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
+# Railway services in the same project must stay on the private network.  The
+# public URL remains a deliberate fallback for local maintenance scripts and
+# development environments where the private hostname is not reachable.
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
 print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
 PROSTUDIO_SCHEMA_LOCK = threading.Lock()
 GENERATIONS_INDEX_LOCK = threading.Lock()
 _GENERATIONS_INDEX_READY = False
 PROSTUDIO_WORKER_ENABLED = os.getenv("PROSTUDIO_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 PROSTUDIO_WORKER_INTERVAL = float(os.getenv("PROSTUDIO_WORKER_INTERVAL", "2"))
+PROSTUDIO_QUEUE_CHANNEL = "sylvex_prostudio_generation_jobs"
+PROSTUDIO_WORKER_FALLBACK_INTERVAL = max(
+    PROSTUDIO_WORKER_INTERVAL,
+    float(os.getenv("PROSTUDIO_WORKER_FALLBACK_INTERVAL", "30")),
+)
+
+
+class ProstudioQueueSignal:
+    """Process-local hand-off for cross-process PostgreSQL notifications.
+
+    A monotonically increasing generation avoids lost wakeups, while waking a
+    single slot per notification avoids a 100-query thundering herd. A burst
+    of notifications naturally distributes work across all available slots.
+    """
+
+    def __init__(self):
+        self._condition = asyncio.Condition()
+        self.generation = 0
+        self.listener_healthy = False
+
+    async def notify(self, *, listener_healthy: Optional[bool] = None, all_waiters: bool = False) -> int:
+        async with self._condition:
+            if listener_healthy is not None:
+                self.listener_healthy = bool(listener_healthy)
+            self.generation += 1
+            if all_waiters:
+                self._condition.notify_all()
+            else:
+                self._condition.notify(1)
+            return self.generation
+
+    async def wait(self, seen_generation: int, timeout: float) -> int:
+        async with self._condition:
+            if self.generation != seen_generation:
+                return self.generation
+            try:
+                await asyncio.wait_for(
+                    self._condition.wait(),
+                    timeout=max(0.05, float(timeout)),
+                )
+            except asyncio.TimeoutError:
+                pass
+            return self.generation
+
+
+_PROSTUDIO_QUEUE_RUNTIME_LOCK = threading.Lock()
+_PROSTUDIO_QUEUE_RUNTIME_LOOP = None
+_PROSTUDIO_QUEUE_RUNTIME_SIGNAL = None
 
 
 def _bounded_prostudio_worker_concurrency(value) -> int:
     try:
-        raw = str("3" if value is None else value).strip() or "3"
+        raw = str("20" if value is None else value).strip() or "20"
         parsed = int(raw)
     except (TypeError, ValueError):
-        parsed = 3
+        parsed = 20
     return max(1, min(20, parsed))
 
 
 PROSTUDIO_WORKER_CONCURRENCY = _bounded_prostudio_worker_concurrency(
-    os.getenv("PROSTUDIO_WORKER_CONCURRENCY", "3")
+    os.getenv("PROSTUDIO_WORKER_CONCURRENCY", "20")
 )
 PROSTUDIO_MOCK_GENERATION = os.getenv("PROSTUDIO_MOCK_GENERATION", "0").strip().lower() in {
     "1", "true", "yes", "on",
@@ -4816,6 +4869,32 @@ class ActiveProstudioJobError(RuntimeError):
         self.status = str(status or "queued")
 
 
+def publish_prostudio_queue_notification(conn, job_id: str) -> bool:
+    """Wake worker services after the queued row has been committed.
+
+    A notification failure never loses the durable job: workers immediately
+    fall back to the original polling interval whenever LISTEN is unhealthy.
+    """
+    if not conn or not job_id:
+        return False
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_notify(%s, %s)", (PROSTUDIO_QUEUE_CHANNEL, str(job_id)[:240]))
+        conn.commit()
+        return True
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        prostudio_error("WORKER_QUEUE_NOTIFY_FAILED", exc, job_id=job_id)
+        return False
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+
 def get_active_prostudio_job(telegram_id: int) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
@@ -4996,6 +5075,7 @@ def create_prostudio_generation_job(payload: dict) -> str:
             _safe_json_dumps(payload),
         ))
         conn.commit()
+        publish_prostudio_queue_notification(conn, job_id)
         prostudio_debug("JOB_CREATE_DONE", job_id=job_id, status="queued")
     except ActiveProstudioJobError:
         raise
@@ -5800,6 +5880,7 @@ def defer_prostudio_job_for_provider(job_id: str, delay_seconds: float = 2.0):
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
+        delay = max(0.2, float(delay_seconds))
         cursor.execute("""
             UPDATE prostudio_generation_jobs
             SET status = 'queued',
@@ -5809,8 +5890,13 @@ def defer_prostudio_job_for_provider(job_id: str, delay_seconds: float = 2.0):
                 provider_wait_until = NOW() + (%s * INTERVAL '1 second'),
                 updated_at = NOW()
             WHERE id = %s AND status = 'processing'
-        """, (max(0.2, float(delay_seconds)), job_id))
+        """, (delay, job_id))
         conn.commit()
+        publish_prostudio_queue_notification(conn, job_id)
+        # The row is intentionally not claimable until provider_wait_until.
+        # Wake this worker again at that exact point instead of forcing every
+        # slot in every service to poll while the provider semaphore is busy.
+        _schedule_local_prostudio_queue_signal(delay=delay)
     finally:
         cursor.close()
         conn.close()
@@ -6302,10 +6388,9 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "rendering_speed": result.get("rendering_speed") or options.get("rendering_speed") or "",
         "provider_model": result.get("provider_model") or "",
         "recraft_tools": _json_list(result.get("recraft_tools")),
-        "image_options": options if mode == "image" else {},
-        "video_options": options if mode == "video" else {},
-        "music_options": options if mode == "music" else {},
-        "voice_options": options if mode == "voice" else {},
+        # ``settings`` is the canonical options snapshot. Older records may
+        # still contain the mode-specific aliases; readers keep supporting
+        # them, while new records no longer store the same large JSON twice.
         "reference_images": reference_images,
         "result_images": images,
         "result_thumbnails": thumbs,
@@ -6535,6 +6620,8 @@ def _persist_remote_media_url(url: str, category: str, provider: str = "") -> st
         return raw
     object_key = ""
     content_type = ""
+    temp_path = None
+    compatibility_content = None
     try:
         if raw.startswith("data:image"):
             return materialize_data_image_url(raw)
@@ -6547,10 +6634,20 @@ def _persist_remote_media_url(url: str, category: str, provider: str = "") -> st
             return raw
         if not raw.startswith(("http://", "https://")):
             return raw
-        response = safe_get(raw, timeout=240)
-        response.raise_for_status()
-        content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
-        suffix = pathlib.Path(urllib.parse.urlparse(raw).path).suffix.lower()
+        with tempfile.NamedTemporaryFile(prefix="sylvex-media-", suffix=".download", delete=False) as temp_file:
+            temp_path = pathlib.Path(temp_file.name)
+        if safe_get is not _DEFAULT_SAFE_GET:
+            # Existing provider adapter tests inject a bounded in-memory fake
+            # through safe_get. Production always takes the streaming branch.
+            response = safe_get(raw, timeout=240)
+            response.raise_for_status()
+            compatibility_content = response.content
+            temp_path.write_bytes(compatibility_content)
+            download = {"headers": response.headers, "url": getattr(response, "url", raw) or raw}
+        else:
+            download = safe_download_to_file(raw, temp_path, timeout=240)
+        content_type = (download.get("headers", {}).get("content-type") or "").split(";", 1)[0].strip().lower()
+        suffix = pathlib.Path(urllib.parse.urlparse(download.get("url") or raw).path).suffix.lower()
         if not suffix or len(suffix) > 8:
             suffix = mimetypes.guess_extension(content_type) or {"images": ".png", "videos": ".mp4", "audio": ".mp3", "documents": ".bin", "thumbs": ".jpg"}.get(category, ".bin")
         filename = f"{uuid4().hex}{suffix}"
@@ -6564,7 +6661,11 @@ def _persist_remote_media_url(url: str, category: str, provider: str = "") -> st
             "R2_UPLOAD_START", provider=provider, asset_type=category,
             object_key=object_key, content_type=content_type,
         )
-        uploaded_url = storage_put_bytes(response.content, object_key, content_type)
+        uploaded_url = (
+            storage_put_bytes(compatibility_content, object_key, content_type)
+            if compatibility_content is not None
+            else storage_put_file(temp_path, object_key, content_type, remove_local=r2_enabled())
+        )
         prostudio_debug(
             "R2_UPLOAD_DONE", provider=provider, asset_type=category, object_key=object_key,
         )
@@ -6576,6 +6677,9 @@ def _persist_remote_media_url(url: str, category: str, provider: str = "") -> st
         )
         prostudio_error("R2_MEDIA_PERSIST_FAILED", exc, source=_sql_text(raw, 180), category=category)
         return raw
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def persist_generation_media(result: dict, mode: str) -> dict:
@@ -10070,6 +10174,119 @@ TELEGRAM_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", "
 TELEGRAM_MEDIA_MAX_BYTES = 25 * 1024 * 1024  # Bot API downloads stop at 20 MB
 
 
+def _prostudio_upload_spec(filename: str, content_type: str, kind: str) -> dict:
+    media_kind = (kind or "").strip().lower()
+    clean_name = pathlib.Path(filename or "").name
+    suffix = pathlib.Path(clean_name).suffix.lower()
+    mime = (content_type or "").lower().split(";", 1)[0].strip()
+    is_video = media_kind == "video" or mime.startswith("video/")
+    is_audio = media_kind == "audio" or mime.startswith("audio/")
+    is_file = media_kind in {"file", "document"} or mime.startswith(("text/", "application/pdf", "application/json", "application/msword", "application/vnd.openxmlformats-officedocument"))
+    if is_video:
+        allowed_exts = {".mp4", ".mov", ".m4v", ".webm", ".mpeg", ".mpg", ".avi", ".flv", ".wmv", ".3gp"}
+    elif is_audio:
+        allowed_exts = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".webm", ".flac", ".aiff", ".aif"}
+    elif is_file:
+        allowed_exts = {".txt", ".md", ".json", ".csv", ".pdf", ".doc", ".docx"}
+    else:
+        allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
+        if HEIC_UPLOAD_SUPPORTED:
+            allowed_exts |= {".heic", ".heif"}
+    return {
+        "media_kind": media_kind, "filename": clean_name, "suffix": suffix,
+        "content_type": mime, "is_video": is_video, "is_audio": is_audio,
+        "is_file": is_file, "allowed_exts": allowed_exts,
+        "max_bytes": 200 * 1024 * 1024 if is_video else 50 * 1024 * 1024,
+        "uploaded_kind": "video" if is_video else ("audio" if is_audio else ("file" if is_file else "image")),
+        "folder": "documents" if is_file else "video-inputs",
+    }
+
+
+def _direct_upload_capability(owner: int, key: str, size: int, content_type: str, expires: int) -> str:
+    message = f"{int(owner)}:{key}:{int(size)}:{content_type}:{int(expires)}"
+    return hmac.new(signing_key(), message.encode(), hashlib.sha256).hexdigest()
+
+
+def _copy_storage_object_to_path(key: str, destination: pathlib.Path, max_bytes: int) -> int:
+    body, _, _ = storage_get_object(key)
+    copied = 0
+    with destination.open("wb") as output:
+        for chunk in storage_iter_object(body, max_bytes=max_bytes + 1):
+            copied += len(chunk)
+            output.write(chunk)
+    return copied
+
+
+@app.post("/api/public/prostudio/upload-media/init")
+async def public_prostudio_upload_media_init(request: Request):
+    owner = _core_account_owner(request)
+    data = await request.json()
+    spec = _prostudio_upload_spec(data.get("filename"), data.get("content_type"), data.get("kind"))
+    size = int(data.get("size") or 0)
+    if spec["suffix"] not in spec["allowed_exts"] or size <= 0 or size > spec["max_bytes"]:
+        return JSONResponse({"ok": False, "error": "invalid_upload"}, status_code=400)
+    # HEIC requires server conversion and therefore stays on the compatible
+    # multipart route. Everything already provider-compatible goes directly.
+    if not storage_direct_upload_enabled() or spec["suffix"] in {".heic", ".heif"}:
+        return {"ok": True, "direct": False}
+    key = generated_key(spec["folder"], f"{uuid4().hex}{spec['suffix']}")
+    upload_url = await asyncio.to_thread(storage_presigned_put_url, key, spec["content_type"] or "application/octet-stream")
+    if not upload_url:
+        return {"ok": True, "direct": False}
+    expires = int(time.time()) + 900
+    token = _direct_upload_capability(owner, key, size, spec["content_type"], expires)
+    return {
+        "ok": True, "direct": True, "upload_url": upload_url, "object_key": key,
+        "expires": expires, "upload_token": token,
+    }
+
+
+@app.post("/api/public/prostudio/upload-media/complete")
+async def public_prostudio_upload_media_complete(request: Request):
+    owner = _core_account_owner(request)
+    data = await request.json()
+    key = str(data.get("object_key") or "")
+    size = int(data.get("size") or 0)
+    expires = int(data.get("expires") or 0)
+    token = str(data.get("upload_token") or "")
+    spec = _prostudio_upload_spec(data.get("filename"), data.get("content_type"), data.get("kind"))
+    expected = _direct_upload_capability(owner, key, size, spec["content_type"], expires)
+    if expires < time.time() or not token or not hmac.compare_digest(token, expected):
+        raise SecurityError("invalid_upload_capability", 403)
+    expected_prefix = generated_key(spec["folder"], "placeholder").rsplit("/", 1)[0] + "/"
+    if not key.startswith(expected_prefix) or spec["suffix"] not in spec["allowed_exts"] or size <= 0 or size > spec["max_bytes"]:
+        raise SecurityError("invalid_upload", 400)
+    temp_path = None
+    try:
+        head = await asyncio.to_thread(storage_head_object, key)
+        if int(head.get("size") or 0) != size:
+            raise SecurityError("upload_size_mismatch", 400)
+        with tempfile.NamedTemporaryFile(prefix="sylvex-upload-verify-", suffix=spec["suffix"], delete=False) as temp_file:
+            temp_path = pathlib.Path(temp_file.name)
+        copied = await asyncio.to_thread(_copy_storage_object_to_path, key, temp_path, spec["max_bytes"])
+        if copied != size:
+            raise SecurityError("upload_size_mismatch", 400)
+        validated_type = await asyncio.to_thread(validated_upload_path, temp_path, spec["suffix"])
+        video_meta = await asyncio.to_thread(video_probe.probe_video_file, temp_path, spec["suffix"], size) if spec["uploaded_kind"] == "video" else None
+        if video_meta:
+            await asyncio.to_thread(
+                storage_put_bytes, video_probe.encode_sidecar(video_meta),
+                video_probe.sidecar_key(key), "application/json",
+            )
+        public_url = await asyncio.to_thread(storage_register_existing_object, key, validated_type, size)
+        return {
+            "ok": True, "kind": spec["uploaded_kind"], "url": public_url,
+            "path": key, "content_type": validated_type, "bytes": size,
+            "video_meta": video_meta,
+        }
+    except Exception:
+        await asyncio.to_thread(storage_delete, key)
+        raise
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
 @app.post("/api/internal/telegram-media")
 async def internal_telegram_media(request: Request):
     presented = str(request.headers.get("x-sylvex-media-token") or "").strip()
@@ -10099,26 +10316,13 @@ async def internal_telegram_media(request: Request):
 # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
 # =====================================================
 @app.post("/api/public/prostudio/upload-media")
-async def public_prostudio_upload_media(request: Request, file: UploadFile = File(...), kind: str = "image"):
-    _core_account_owner(request)
-    media_kind = (kind or "").strip().lower()
-    filename = pathlib.Path(file.filename or "").name
-    suffix = pathlib.Path(filename).suffix.lower()
-    content_type = (file.content_type or "").lower()
-    is_video = media_kind == "video" or content_type.startswith("video/")
-    is_audio = media_kind == "audio" or content_type.startswith("audio/")
-    is_file = media_kind in {"file", "document"} or content_type.startswith(("text/", "application/pdf", "application/json", "application/msword", "application/vnd.openxmlformats-officedocument"))
-    if is_video:
-        allowed_exts = {".mp4", ".mov", ".m4v", ".webm", ".mpeg", ".mpg", ".avi", ".flv", ".wmv", ".3gp"}
-    elif is_audio:
-        allowed_exts = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".webm", ".flac", ".aiff", ".aif"}
-    elif is_file:
-        allowed_exts = {".txt", ".md", ".json", ".csv", ".pdf", ".doc", ".docx"}
-    else:
-        allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
-        if HEIC_UPLOAD_SUPPORTED:
-            allowed_exts = allowed_exts | {".heic", ".heif"}
-    max_bytes = 200 * 1024 * 1024 if is_video else 50 * 1024 * 1024
+async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str = "image", request: Request = None):
+    if request is not None:
+        _core_account_owner(request)
+    spec = _prostudio_upload_spec(file.filename, file.content_type, kind)
+    media_kind, filename, suffix, content_type = spec["media_kind"], spec["filename"], spec["suffix"], spec["content_type"]
+    is_video, is_audio, is_file = spec["is_video"], spec["is_audio"], spec["is_file"]
+    allowed_exts, max_bytes = spec["allowed_exts"], spec["max_bytes"]
 
     if suffix not in allowed_exts:
         _log_upload_media_rejected("unsupported_extension", media_kind, suffix, content_type, 0, 400)
@@ -10150,10 +10354,10 @@ async def public_prostudio_upload_media(request: Request, file: UploadFile = Fil
         return JSONResponse({"ok": False, "error": "File is too large"}, status_code=400)
 
     stored_name = f"{uuid4().hex}{suffix}"
-    public_folder = "documents" if is_file else "video-inputs"
+    public_folder = spec["folder"]
     public_path = generated_key(public_folder, stored_name)
     public_url = storage_put_bytes(content, public_path, content_type)
-    uploaded_kind = "video" if is_video else ("audio" if is_audio else ("file" if is_file else "image"))
+    uploaded_kind = spec["uploaded_kind"]
     video_meta = None
     if uploaded_kind == "video":
         # Duration/dimensions for the per-model reference-video check at
@@ -13137,6 +13341,17 @@ async def public_prostudio_download(request: Request, job_id: str, telegram_id: 
     if not object_key or not storage_exists(object_key):
         raise HTTPException(status_code=404, detail="r2_result_not_found")
 
+    if storage_direct_delivery_enabled():
+        guessed_type = mimetypes.guess_type(object_key)[0] or "application/octet-stream"
+        filename = _prostudio_download_filename(mode, job_id, guessed_type, object_key)
+        direct_url = storage_presigned_get_url(object_key, download_filename=filename)
+        if direct_url:
+            return RedirectResponse(
+                direct_url,
+                status_code=307,
+                headers={"Cache-Control": "private, no-store"},
+            )
+
     try:
         body, content_type, content_length = await asyncio.to_thread(storage_get_object, object_key)
     except Exception as exc:
@@ -13278,6 +13493,17 @@ async def public_prostudio_share_download(share_id: str):
     object_key = storage_key_from_url(share.get("media_url") or "")
     if not r2_enabled() or not object_key or not storage_exists(object_key):
         raise HTTPException(status_code=404, detail="r2_result_not_found")
+    if storage_direct_delivery_enabled():
+        guessed_type = mimetypes.guess_type(object_key)[0] or "application/octet-stream"
+        filename = _prostudio_download_filename(share.get("mode") or "file", share_id, guessed_type, object_key)
+        direct_url = storage_presigned_get_url(object_key, download_filename=filename)
+        if direct_url:
+            increment_downloads(lambda: db_connect(DATABASE_URL), share_id)
+            return RedirectResponse(
+                direct_url,
+                status_code=307,
+                headers={"Cache-Control": "private, no-store"},
+            )
     try:
         body, content_type, content_length = await asyncio.to_thread(storage_get_object, object_key)
     except Exception as exc:
@@ -13305,6 +13531,14 @@ async def public_prostudio_share_media(share_id: str, request: Request):
     object_key = storage_key_from_url(share.get("media_url") or "")
     if not r2_enabled() or not object_key or not storage_exists(object_key):
         raise HTTPException(status_code=404, detail="r2_result_not_found")
+    if storage_direct_delivery_enabled():
+        direct_url = storage_presigned_get_url(object_key)
+        if direct_url:
+            return RedirectResponse(
+                direct_url,
+                status_code=307,
+                headers={"Cache-Control": "public, max-age=300"},
+            )
     try:
         range_header = str(request.headers.get("range") or "")
         body, content_type, content_length, total, start, end = await asyncio.to_thread(
@@ -26915,6 +27149,82 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 )
             log_prostudio_error(payload, error_result, job_id=job_id)
 
+def _schedule_local_prostudio_queue_signal(*, delay: float = 0.0, listener_healthy: Optional[bool] = None, all_waiters: bool = False) -> bool:
+    """Thread-safe bridge from PostgreSQL LISTEN (or a defer timer) to asyncio."""
+    with _PROSTUDIO_QUEUE_RUNTIME_LOCK:
+        loop = _PROSTUDIO_QUEUE_RUNTIME_LOOP
+        signal = _PROSTUDIO_QUEUE_RUNTIME_SIGNAL
+    if loop is None or signal is None or loop.is_closed():
+        return False
+
+    def dispatch():
+        def create_notification_task():
+            asyncio.create_task(
+                signal.notify(listener_healthy=listener_healthy, all_waiters=all_waiters),
+                name="prostudio-queue-notification",
+            )
+
+        if delay > 0:
+            loop.call_later(float(delay), create_notification_task)
+        else:
+            create_notification_task()
+
+    try:
+        loop.call_soon_threadsafe(dispatch)
+        return True
+    except RuntimeError:
+        return False
+
+
+def _listen_for_prostudio_queue_notifications(stop_event: threading.Event):
+    """One dedicated LISTEN connection per worker service, never per slot."""
+    reconnect_delay = 0.5
+    while not stop_event.is_set():
+        conn = None
+        cursor = None
+        try:
+            conn = psycopg2.connect(
+                DATABASE_URL,
+                connect_timeout=10,
+                application_name="sylvex-prostudio-queue-listener",
+            )
+            conn.set_session(autocommit=True)
+            cursor = conn.cursor()
+            cursor.execute(f"LISTEN {PROSTUDIO_QUEUE_CHANNEL}")
+            reconnect_delay = 0.5
+            _schedule_local_prostudio_queue_signal(listener_healthy=True)
+            prostudio_debug("WORKER_QUEUE_LISTENER_READY")
+            while not stop_event.is_set():
+                ready, _, _ = select.select([conn], [], [], 1.0)
+                if not ready:
+                    continue
+                conn.poll()
+                notification_count = 0
+                while conn.notifies:
+                    conn.notifies.pop(0)
+                    notification_count += 1
+                for _ in range(notification_count):
+                    _schedule_local_prostudio_queue_signal(listener_healthy=True)
+        except Exception as exc:
+            _schedule_local_prostudio_queue_signal(listener_healthy=False, all_waiters=True)
+            prostudio_error("WORKER_QUEUE_LISTENER_RECONNECT", exc)
+            if stop_event.wait(reconnect_delay):
+                break
+            reconnect_delay = min(10.0, reconnect_delay * 2.0)
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+    _schedule_local_prostudio_queue_signal(listener_healthy=False, all_waiters=True)
+
+
 async def _wait_for_prostudio_worker_stop(stop_event: asyncio.Event, timeout: float) -> bool:
     if stop_event.is_set():
         return True
@@ -26972,6 +27282,20 @@ async def _run_prostudio_generation_pool(
     )
     active_job_ids = set()
     active_lock = asyncio.Lock()
+    queue_signal = ProstudioQueueSignal()
+    queue_listener_stop = threading.Event()
+    queue_listener = threading.Thread(
+        target=_listen_for_prostudio_queue_notifications,
+        args=(queue_listener_stop,),
+        name="prostudio-queue-listener",
+        daemon=True,
+    )
+    loop = asyncio.get_running_loop()
+    global _PROSTUDIO_QUEUE_RUNTIME_LOOP, _PROSTUDIO_QUEUE_RUNTIME_SIGNAL
+    with _PROSTUDIO_QUEUE_RUNTIME_LOCK:
+        _PROSTUDIO_QUEUE_RUNTIME_LOOP = loop
+        _PROSTUDIO_QUEUE_RUNTIME_SIGNAL = queue_signal
+    queue_listener.start()
 
     async def pool_counts():
         async with active_lock:
@@ -26989,6 +27313,7 @@ async def _run_prostudio_generation_pool(
         )
 
     async def worker_slot(slot_id: int):
+        seen_queue_generation = queue_signal.generation
         while not stop_event.is_set():
             claimed = None
             try:
@@ -27002,7 +27327,16 @@ async def _run_prostudio_generation_pool(
                 if not claimed:
                     return
             if not claimed or not claimed.get("id") or not claimed.get("payload"):
-                if await _wait_for_prostudio_worker_stop(stop_event, PROSTUDIO_WORKER_INTERVAL):
+                wait_seconds = (
+                    PROSTUDIO_WORKER_FALLBACK_INTERVAL
+                    if queue_signal.listener_healthy
+                    else PROSTUDIO_WORKER_INTERVAL
+                )
+                seen_queue_generation = await queue_signal.wait(
+                    seen_queue_generation,
+                    wait_seconds,
+                )
+                if stop_event.is_set():
                     return
                 continue
 
@@ -27092,7 +27426,14 @@ async def _run_prostudio_generation_pool(
         # Slots are never cancelled here: they stop claiming immediately and
         # finish any job they already own before the pool returns.
         stop_event.set()
+        await queue_signal.notify(all_waiters=True)
         await asyncio.gather(*slots, return_exceptions=True)
+        queue_listener_stop.set()
+        await asyncio.to_thread(queue_listener.join, 3.0)
+        with _PROSTUDIO_QUEUE_RUNTIME_LOCK:
+            if _PROSTUDIO_QUEUE_RUNTIME_SIGNAL is queue_signal:
+                _PROSTUDIO_QUEUE_RUNTIME_SIGNAL = None
+                _PROSTUDIO_QUEUE_RUNTIME_LOOP = None
         await log_pool_status()
 
 

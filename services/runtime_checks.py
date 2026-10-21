@@ -62,7 +62,7 @@ def validate_runtime():
  if not is_production():return
  required=['R2_BUCKET','R2_ENDPOINT','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY']
  missing=[name for name in required if not os.getenv(name,'').strip()]
- if not (os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL')):missing.append('DATABASE_URL')
+ if not (os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')):missing.append('DATABASE_URL')
  if not (os.getenv('BOT_TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN')):missing.append('BOT_TOKEN')
  if missing:raise RuntimeError('Missing required production configuration: '+', '.join(missing))
  if os.getenv('ENABLE_DEV_PAYMENTS','0')=='1' or os.getenv('PROSTUDIO_MOCK_GENERATION','0').lower() in {'1','true','yes','on'}:

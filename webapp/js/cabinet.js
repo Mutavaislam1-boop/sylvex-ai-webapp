@@ -17193,6 +17193,9 @@ function renderGeneratedTelegramButton(url, kind) {
     if (hideReferences) {
       ['referenceImageUrls', 'reference_image_urls', 'referenceImages', 'reference_images'].forEach((key) => { metadataOptions[key] = []; });
     }
+    metadataOptions.seed = seed === '' ? null : seed;
+    metadataOptions.referenceImageUrls = refs.slice();
+    metadataOptions.referenceImages = refs.slice();
     return {
       type: 'image',
       result_url: imageUrl,
@@ -17231,11 +17234,6 @@ function renderGeneratedTelegramButton(url, kind) {
         ? backendMeta.recraft_tools.slice()
         : (result && Array.isArray(result.recraft_tools) ? result.recraft_tools.slice() : []),
       settings: Object.assign({}, metadataOptions),
-      image_options: Object.assign({}, metadataOptions, {
-        seed: seed === '' ? null : seed,
-        referenceImageUrls: refs.slice(),
-        referenceImages: refs.slice(),
-      }),
       characterId: backendMeta.characterId || options.characterId || null,
       characterName: backendMeta.characterName || options.characterName || '',
       characterReferences: Array.isArray(backendMeta.characterReferences) ? backendMeta.characterReferences.slice() : (Array.isArray(options.characterReferences) ? options.characterReferences.slice() : []),
@@ -18578,12 +18576,10 @@ function renderGeneratedTelegramButton(url, kind) {
       if (file || (attachment && attachment.dataBase64 && !attachment.url)) {
         const blob = file || await (await fetch('data:' + (attachment.mime || 'image/png') + ';base64,' + attachment.dataBase64)).blob();
         const name = String((file && file.name) || (attachment && attachment.name) || 'image.png');
-        const form = new FormData();
-        form.append('file', blob, name);
-        const upload = await fetch('/api/public/prostudio/upload-media?kind=image', { method: 'POST', body: form });
-        const uploaded = await upload.json().catch(() => ({}));
-        if (!upload.ok || !uploaded.ok || !uploaded.url) throw new Error('Не удалось загрузить фото. Попробуйте ещё раз.');
-        attachment = { kind: 'image', mime: blob.type || (attachment && attachment.mime) || 'image/png', name, url: String(uploaded.url) };
+        const namedFile = blob instanceof File ? blob : new File([blob], name, {type: blob.type || 'image/png'});
+        const uploadedUrl = await uploadProStudioMediaFile(namedFile, 'image');
+        if (!uploadedUrl) throw new Error('Не удалось загрузить фото. Попробуйте ещё раз.');
+        attachment = { kind: 'image', mime: blob.type || (attachment && attachment.mime) || 'image/png', name, url: String(uploadedUrl) };
         userMessage.images = [attachment.url];
       }
       reply = await quickTextRequest(prompt, attachment, history, model);
@@ -18744,12 +18740,9 @@ function renderGeneratedTelegramButton(url, kind) {
   // Reference audio is uploaded first; a reference that cannot be uploaded
   // stops the generation instead of being dropped.
   async function quickMusicUploadReference(file, durationMs) {
-    const form = new FormData();
-    form.append('file', file, String(file.name || 'reference.mp3'));
-    const response = await fetch('/api/public/prostudio/upload-media?kind=audio', { method: 'POST', body: form });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok || !data.url) throw new Error('Не удалось загрузить аудио-референс');
-    return { url: String(data.url), duration_ms: Math.max(0, Math.round(Number(durationMs) || 0)), name: String(file.name || 'reference').slice(0, 120) };
+    const url = await uploadProStudioMediaFile(file, 'audio');
+    if (!url) throw new Error('Не удалось загрузить аудио-референс');
+    return { url: String(url), duration_ms: Math.max(0, Math.round(Number(durationMs) || 0)), name: String(file.name || 'reference').slice(0, 120) };
   }
 
   function quickMusicModels() {
@@ -21141,15 +21134,48 @@ function closeUploadPanel(e) {
   // ЗАГРУЗКА В MINI APP: uploadProStudioMediaFile
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
+  async function directProStudioMediaUpload(file, kind) {
+    const contentType = String(file.type || 'application/octet-stream');
+    const descriptor = {
+      filename: String(file.name || ('media.' + (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4'))),
+      content_type: contentType,
+      size: Number(file.size || 0),
+      kind: String(kind || 'image'),
+    };
+    const initResponse = await fetch('/api/public/prostudio/upload-media/init', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(descriptor),
+    });
+    const init = await initResponse.json().catch(() => ({}));
+    if (!initResponse.ok || !init.ok) throw new Error(init.error || 'Не удалось подготовить загрузку');
+    if (!init.direct) return null;
+    const upload = await fetch(init.upload_url, {method: 'PUT', headers: {'Content-Type': contentType, 'Cache-Control': 'public, max-age=31536000, immutable'}, body: file});
+    if (!upload.ok) throw new Error('Не удалось загрузить файл');
+    const completeResponse = await fetch('/api/public/prostudio/upload-media/complete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.assign({}, descriptor, {
+        object_key: init.object_key, expires: init.expires, upload_token: init.upload_token,
+      })),
+    });
+    const completed = await completeResponse.json().catch(() => ({}));
+    if (!completeResponse.ok || !completed.ok || !completed.url) throw new Error(completed.error || 'Не удалось подтвердить загрузку');
+    return completed;
+  }
+
   async function uploadProStudioMediaFile(file, kind, preferInternalPath) {
     if (guestNeedsAccount('create')) return null;
-    const form = new FormData();
-    form.append('file', file);
-    const endpoint = '/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image');
-    const res = await fetch(endpoint, { method: 'POST', body: form });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok || !data.url) {
-      throw new Error(data.error || 'Не удалось загрузить файл');
+    let data = null;
+    try {
+      data = await directProStudioMediaUpload(file, kind || 'image');
+    } catch (directError) {
+      console.warn('Direct media upload unavailable; using compatible upload route.', directError);
+    }
+    if (!data) {
+      const form = new FormData();
+      form.append('file', file);
+      const endpoint = '/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image');
+      const res = await fetch(endpoint, { method: 'POST', body: form });
+      data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.url) throw new Error(data.error || 'Не удалось загрузить файл');
     }
     // Image inputs must stay as server references. inline_url is intentionally
     // not used here because it serializes the complete image into /generate.
@@ -21697,12 +21723,9 @@ function closeUploadPanel(e) {
       voiceCloneDraft.avatarUrl = temporaryUrl;
       renderVoiceToolPanel();
       try {
-        const form = new FormData();
-        form.append('file', file);
-        const res = await fetch('/api/public/prostudio/upload-media?kind=image', { method: 'POST', body: form });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.ok || !data.url) throw new Error(data.error || 'Не удалось загрузить аватарку');
-        voiceCloneDraft.avatarUrl = String(data.url);
+        const url = await uploadProStudioMediaFile(file, 'image');
+        if (!url) throw new Error('Не удалось загрузить аватарку');
+        voiceCloneDraft.avatarUrl = String(url);
         toast('Аватарка добавлена');
       } catch (err) {
         voiceCloneDraft.avatarUrl = '';

@@ -61,10 +61,45 @@ export function createServices({ fetchImpl } = {}) {
   // ------------------------------------------------------------- uploads
 
   // Durable upload of a file to SYLVEX storage with progress (0..1).
-  function upload(file, kind, onProgress) {
+  async function upload(file, kind, onProgress) {
+    const filename = file.name || ('media.' + (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4'));
+    const contentType = file.type || 'application/octet-stream';
+    const descriptor = {filename, content_type: contentType, size: Number(file.size || 0), kind};
+    const authHeaders = {'Content-Type': 'application/json'};
+    try {
+      const tg = telegram();
+      if (tg && tg.initData) authHeaders['X-Telegram-Init-Data'] = tg.initData;
+    } catch (_) {}
+    try {
+      const init = await json('/api/public/prostudio/upload-media/init', {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify(descriptor),
+      }, 'upload_failed');
+      if (init.direct) {
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', init.upload_url);
+          xhr.setRequestHeader('Content-Type', contentType);
+          xhr.setRequestHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          xhr.upload.onprogress = (event) => { if (onProgress && event.lengthComputable) onProgress(event.loaded / event.total); };
+          xhr.onerror = () => reject(new ServiceError('upload_failed'));
+          xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new ServiceError('upload_failed'));
+          xhr.send(file);
+        });
+        const completed = await json('/api/public/prostudio/upload-media/complete', {
+          method: 'POST', headers: authHeaders,
+          body: JSON.stringify(Object.assign({}, descriptor, {
+            object_key: init.object_key, expires: init.expires, upload_token: init.upload_token,
+          })),
+        }, 'upload_failed');
+        return {url: localMediaUrl(completed.url), kind: completed.kind, meta: completed.video_meta || null};
+      }
+    } catch (directError) {
+      console.warn('Direct media upload unavailable; using compatible upload route.', directError);
+    }
     return new Promise((resolve, reject) => {
       const form = new FormData();
-      form.append('file', file, file.name || ('media.' + (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4')));
+      form.append('file', file, filename);
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind));
       xhr.withCredentials = true;

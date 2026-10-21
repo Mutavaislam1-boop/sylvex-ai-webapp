@@ -36,9 +36,11 @@ R2_ACCESS_KEY_ID = _env("R2_ACCESS_KEY_ID")
 R2_SECRET_ACCESS_KEY = _env("R2_SECRET_ACCESS_KEY")
 R2_PUBLIC_BASE_URL = _env("R2_PUBLIC_BASE_URL").rstrip("/")
 WEBAPP_URL = _env("WEBAPP_URL").rstrip("/")
-DATABASE_URL = _env("DATABASE_PUBLIC_URL") or _env("DATABASE_URL")
+DATABASE_URL = _env("DATABASE_URL") or _env("DATABASE_PUBLIC_URL")
 _registry_lock = threading.Lock()
 _registry_ready = False
+_direct_upload_cors_lock = threading.Lock()
+_direct_upload_cors_ready = False
 
 
 def _record_object(key: str, url: str, content_type: str, size: int) -> None:
@@ -84,6 +86,15 @@ def r2_enabled() -> bool:
     return bool(R2_BUCKET and R2_ENDPOINT and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY)
 
 
+def direct_delivery_enabled() -> bool:
+    """Feature flag for rollback-safe, browser-to-R2 media delivery."""
+    return r2_enabled() and _env("R2_DIRECT_DELIVERY_ENABLED").lower() not in {"0", "false", "no", "off"}
+
+
+def direct_upload_enabled() -> bool:
+    return direct_delivery_enabled() and _env("R2_DIRECT_UPLOAD_ENABLED").lower() not in {"0", "false", "no", "off"}
+
+
 @lru_cache(maxsize=1)
 def r2_client():
     if not r2_enabled():
@@ -122,16 +133,127 @@ def object_url(key: str) -> str:
     return sign_media_url("/webapp/" + encoded if clean.startswith("generated/") else "/webapp/generated/" + encoded)
 
 
+def presigned_get_url(key: str, expires_in: int = 3600, download_filename: str = "") -> str:
+    """Short-lived direct R2 capability used after SYLVEX authorizes access."""
+    clean = normalize_key(key)
+    if not direct_delivery_enabled() or not clean:
+        return ""
+    params = {"Bucket": R2_BUCKET, "Key": clean}
+    if download_filename:
+        safe_name = pathlib.Path(str(download_filename)).name.replace('"', "")[:180] or "sylvex-download"
+        params["ResponseContentDisposition"] = f'attachment; filename="{safe_name}"'
+    lifetime = max(60, min(604800, int(expires_in or 3600)))
+    return r2_client().generate_presigned_url(
+        "get_object",
+        Params=params,
+        ExpiresIn=lifetime,
+    )
+
+
+def _direct_upload_origins() -> list[str]:
+    values = [WEBAPP_URL, *(_env("WEBSITE_ORIGINS").split(",")), *(_env("R2_UPLOAD_CORS_ORIGINS").split(","))]
+    origins = []
+    for value in values:
+        parsed = urllib.parse.urlparse(str(value or "").strip())
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            if origin not in origins:
+                origins.append(origin)
+    return origins
+
+
+def ensure_direct_upload_cors() -> bool:
+    """Install the narrow browser PUT policy once; fail closed to proxy upload."""
+    global _direct_upload_cors_ready
+    if not direct_upload_enabled():
+        return False
+    with _direct_upload_cors_lock:
+        if _direct_upload_cors_ready:
+            return True
+        origins = _direct_upload_origins()
+        if not origins:
+            return False
+        try:
+            try:
+                existing = r2_client().get_bucket_cors(Bucket=R2_BUCKET).get("CORSRules") or []
+            except Exception:
+                existing = []
+            rules = [rule for rule in existing if rule.get("ID") != "sylvex-direct-media"]
+            rules.append({
+                "ID": "sylvex-direct-media",
+                "AllowedOrigins": origins,
+                "AllowedMethods": ["GET", "HEAD", "PUT"],
+                "AllowedHeaders": ["content-type", "cache-control", "range"],
+                "ExposeHeaders": ["ETag", "Accept-Ranges", "Content-Length", "Content-Range", "Content-Type", "Content-Disposition"],
+                "MaxAgeSeconds": 3600,
+            })
+            r2_client().put_bucket_cors(
+                Bucket=R2_BUCKET,
+                CORSConfiguration={"CORSRules": rules},
+            )
+            _direct_upload_cors_ready = True
+        except Exception as exc:
+            print("R2 DIRECT UPLOAD CORS FAILED:", type(exc).__name__)
+            return False
+    return True
+
+
+def presigned_put_url(key: str, content_type: str, expires_in: int = 900) -> str:
+    clean = normalize_key(key)
+    if not clean or not ensure_direct_upload_cors():
+        return ""
+    return r2_client().generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket": R2_BUCKET,
+            "Key": clean,
+            "ContentType": str(content_type or "application/octet-stream"),
+            "CacheControl": "public, max-age=31536000, immutable",
+        },
+        ExpiresIn=max(60, min(3600, int(expires_in or 900))),
+    )
+
+
+def head_object(key: str) -> dict:
+    clean = normalize_key(key)
+    if r2_enabled():
+        result = r2_client().head_object(Bucket=R2_BUCKET, Key=clean)
+        return {
+            "content_type": result.get("ContentType") or "application/octet-stream",
+            "size": int(result.get("ContentLength") or 0),
+            "etag": str(result.get("ETag") or "").strip('"'),
+        }
+    path = safe_local_path(LOCAL_GENERATED_DIR.parent, clean)
+    return {"content_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream", "size": path.stat().st_size, "etag": ""}
+
+
+def register_existing_object(key: str, content_type: str, size: int) -> str:
+    """Register a browser-uploaded object after server-side validation."""
+    clean = normalize_key(key)
+    url = object_url(clean)
+    _record_object(clean, url, content_type or "application/octet-stream", int(size or 0))
+    return url
+
+
 def key_from_url(url: str) -> str:
     raw = str(url or "").strip()
     if not raw:
         return ""
     parsed = urllib.parse.urlparse(raw)
     if parsed.netloc:
-        allowed = {urllib.parse.urlparse(base).netloc for base in (R2_PUBLIC_BASE_URL, WEBAPP_URL, _env("LEGACY_R2_PUBLIC_BASE_URL")) if base}
+        allowed = {urllib.parse.urlparse(base).netloc for base in (R2_PUBLIC_BASE_URL, R2_ENDPOINT, WEBAPP_URL, _env("LEGACY_R2_PUBLIC_BASE_URL")) if base}
         if parsed.netloc not in allowed:
             return ""
     path = urllib.parse.unquote(parsed.path)
+    endpoint = urllib.parse.urlparse(R2_ENDPOINT) if R2_ENDPOINT else None
+    if endpoint and parsed.netloc == endpoint.netloc:
+        endpoint_path = endpoint.path.rstrip("/")
+        if endpoint_path and path.startswith(endpoint_path + "/"):
+            path = path[len(endpoint_path):]
+        direct_path = path.lstrip("/")
+        if direct_path.startswith(R2_BUCKET + "/"):
+            direct_path = direct_path[len(R2_BUCKET) + 1:]
+        return normalize_key(direct_path)
     marker = "/api/public/storage/"
     if marker in path:
         return normalize_key(path.split(marker, 1)[1])

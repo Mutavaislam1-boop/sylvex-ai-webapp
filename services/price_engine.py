@@ -183,6 +183,34 @@ def finalise_price(base_credits: Any, payload: dict) -> dict:
 def create_price_snapshot(payload: dict, estimate: dict) -> dict:
     """Freeze price inputs and final total before the provider receives a task."""
     snapshot = finalise_price(estimate.get("credits"), payload)
+
+    def compact(value: Any, key: str = "", depth: int = 0) -> Any:
+        """Retain auditable pricing inputs without copying media or huge prompts."""
+        lower = key.lower()
+        media_key = any(token in lower for token in (
+            "reference", "attachment", "upload", "image_url", "video_url",
+            "audio_url", "file_url", "base64", "mask", "source_url",
+        ))
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            if media_key:
+                return {"present": bool(value), "count": 1 if value else 0}
+            if len(value) <= 256:
+                return value
+            return {"present": True, "length": len(value)}
+        if isinstance(value, list):
+            if media_key:
+                return {"count": len([item for item in value if item])}
+            if depth >= 3:
+                return {"count": len(value)}
+            return [compact(item, key, depth + 1) for item in value[:20]]
+        if isinstance(value, dict):
+            if depth >= 3:
+                return {"field_count": len(value)}
+            return {str(child_key): compact(child, str(child_key), depth + 1) for child_key, child in value.items()}
+        return str(value)[:256]
+
     options = {
         key: value for key, value in {
             "mode": payload.get("mode") or payload.get("category"),
@@ -195,7 +223,7 @@ def create_price_snapshot(payload: dict, estimate: dict) -> dict:
             "text_options": payload.get("text_options"),
         }.items() if value is not None
     }
-    snapshot["parameters"] = options
+    snapshot["parameters"] = compact(options)
     snapshot["created_at"] = datetime.now(timezone.utc).isoformat()
     return snapshot
 

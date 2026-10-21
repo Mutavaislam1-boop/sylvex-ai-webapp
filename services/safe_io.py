@@ -82,6 +82,56 @@ def safe_get(url, *, timeout=60, headers=None, params=None, max_bytes=MAX_REMOTE
    pool.close()
  raise SecurityError('too_many_remote_redirects',400)
 
+def safe_download_to_file(url, destination, *, timeout=60, headers=None, params=None, max_bytes=MAX_REMOTE_BYTES):
+ """Stream a validated public URL to disk without retaining the file in RAM."""
+ if params:
+  query=urlencode(params,doseq=True);url=str(url)+('&' if urlsplit(str(url)).query else '?')+query
+ url=str(url);request_headers=dict(headers or {});destination=Path(destination)
+ destination.parent.mkdir(parents=True,exist_ok=True)
+ try:
+  for redirect in range(6):
+   parsed,hostname,port,ips=public_addresses(url)
+   request_headers['Host']=hostname if port in {80,443} else f'{hostname}:{port}'
+   request_headers['Accept-Encoding']='identity'
+   seconds=float(timeout if isinstance(timeout,(int,float)) else 60)
+   pool_args=dict(host=ips[0],port=port,timeout=urllib3.Timeout(connect=min(seconds,15),read=seconds),retries=False)
+   if parsed.scheme=='https':
+    pool=urllib3.HTTPSConnectionPool(**pool_args,server_hostname=hostname,assert_hostname=hostname,cert_reqs=ssl.CERT_REQUIRED,ca_certs=certifi.where())
+   else:pool=urllib3.HTTPConnectionPool(**pool_args)
+   response=None
+   deadline=time.monotonic()+seconds
+   try:
+    target=parsed.path or '/'
+    if parsed.query:target+='?'+parsed.query
+    response=pool.urlopen('GET',target,headers=request_headers,redirect=False,preload_content=False)
+    if response.status in {301,302,303,307,308}:
+     location=response.headers.get('location')
+     if not location:raise SecurityError('invalid_remote_redirect',400)
+     next_url=urljoin(url,location)
+     if urlsplit(next_url).netloc!=parsed.netloc or urlsplit(next_url).scheme!=parsed.scheme:
+      request_headers={k:v for k,v in request_headers.items() if k.lower() in {'accept','range','user-agent'}}
+     url=next_url;continue
+    if response.status>=400:
+     failed=requests.Response();failed.status_code=response.status;failed.url=url;failed.headers.update(response.headers)
+     failed.raise_for_status()
+    length=response.headers.get('content-length')
+    if length and int(length)>max_bytes:raise SecurityError('remote_file_too_large',413)
+    size=0
+    with destination.open('wb') as output:
+     for chunk in response.stream(65536,decode_content=True):
+      if time.monotonic()>deadline:raise SecurityError('remote_download_timeout',504)
+      size+=len(chunk)
+      if size>max_bytes:raise SecurityError('remote_file_too_large',413)
+      output.write(chunk)
+    return {'url':url,'status_code':response.status,'headers':dict(response.headers),'size':size}
+   finally:
+    if response is not None:response.close()
+    pool.close()
+  raise SecurityError('too_many_remote_redirects',400)
+ except Exception:
+  destination.unlink(missing_ok=True)
+  raise
+
 async def safe_client_get(client,url,**kwargs):
  # Retain provider client headers/params while enforcing the same network boundary.
  headers=dict(client.headers);headers.update(kwargs.pop('headers',{}) or {})
@@ -118,4 +168,27 @@ def validated_upload_type(content,suffix):
     if '[Content_Types].xml' not in archive.namelist() or sum(i.file_size for i in archive.infolist())>100*1024*1024:raise ValueError()
   except Exception:raise SecurityError('invalid_document',400)
  # Media is served with a fixed MIME and nosniff. Document routes force download.
+ return mimetypes.guess_type('upload'+suffix)[0] or 'application/octet-stream'
+
+def validated_upload_path(path, suffix):
+ """File-backed counterpart used by direct R2 uploads to keep RAM bounded."""
+ import zipfile
+ path=Path(path);suffix=suffix.lower()
+ if suffix in {'.jpg','.jpeg','.png','.webp'}:
+  from PIL import Image
+  try:
+   with Image.open(path) as img:
+    if img.width*img.height>40_000_000:raise ValueError()
+    fmt=img.format;img.verify()
+   if fmt not in {'JPEG','PNG','WEBP'}:raise ValueError()
+  except Exception:raise SecurityError('invalid_image',400)
+  return {'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp'}[fmt]
+ if suffix=='.pdf':
+  with path.open('rb') as source:
+   if source.read(5)!=b'%PDF-':raise SecurityError('invalid_pdf',400)
+ if suffix=='.docx':
+  try:
+   with zipfile.ZipFile(path) as archive:
+    if '[Content_Types].xml' not in archive.namelist() or sum(i.file_size for i in archive.infolist())>100*1024*1024:raise ValueError()
+  except Exception:raise SecurityError('invalid_document',400)
  return mimetypes.guess_type('upload'+suffix)[0] or 'application/octet-stream'
