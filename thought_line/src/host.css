@@ -1,8 +1,15 @@
-/* SYLVEX host rules around the unmodified ThoughtLine styles. A failed
-   generation keeps the component's settle animation; only its final step
-   and closing label read as an error (a cross instead of the tick). */
+/* SYLVEX host rules around the unmodified ThoughtLine styles. The stage in
+   progress shows a small spinning ring until it turns into a green tick (or,
+   on a failed generation, the red cross). A failed generation keeps the
+   component's settle animation; only its final step and closing label read
+   as an error. */
 .sx-thought {
   max-width: 100%;
+}
+
+.sx-thought .thought-line__step[data-done] .thought-line__mark {
+  color: var(--sx-thought-success, #22c55e);
+  opacity: 1;
 }
 
 .sx-thought--failed .thought-line__text--done,
@@ -15,6 +22,7 @@
 }
 
 .sx-thought--failed .thought-line__step:last-child .thought-line__mark {
+  color: inherit;
   opacity: 1;
 }
 
@@ -26,4 +34,28 @@
   content: "\2715";
   font-size: 0.8em;
   line-height: 1;
+}
+
+.sx-thought .thought-line__pulse {
+  box-sizing: border-box;
+  width: 0.8em;
+  height: 0.8em;
+  border: 0.13em solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  background: none;
+  opacity: 0.8;
+  animation: sx-thought-spin 0.8s linear infinite;
+}
+
+@keyframes sx-thought-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sx-thought .thought-line__pulse {
+    animation-duration: 1.6s;
+  }
 }
