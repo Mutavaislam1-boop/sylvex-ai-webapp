@@ -1,8 +1,8 @@
 // Browser entry for ThoughtLine (src/ThoughtLine.jsx and .css, kept exactly
 // as provided). Pro Studio is plain JS, so this only exposes a mount API on
-// window. js/cabinet.js passes the confirmed stages of the generation; the
-// timer runs from the job's real start (startedAt) to its real end
-// (finishedAt) through the component's own `elapsed` prop.
+// window. js/cabinet.js passes the stages of the generation; the timer runs
+// from Generate (startedAt) to the job's real end (finishedAt) through the
+// component's own `elapsed` prop, and stays there while the last ticks play.
 import { createElement, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -29,11 +29,11 @@ function Live({ startedAt, finishedAt, failed, className, ...props }) {
   const [now, setNow] = useState(Date.now);
   const working = props.working !== false;
   useEffect(() => {
-    if (!working || !startedAt) return undefined;
+    if (!working || !startedAt || finishedAt) return undefined;
     const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
-  }, [working, startedAt]);
-  const end = working ? now : finishedAt || now;
+  }, [working, startedAt, finishedAt]);
+  const end = finishedAt || now;
   const elapsed = startedAt ? Math.max(0, (end - startedAt) / 1000) : undefined;
   const classes = ['sx-thought', failed ? 'sx-thought--failed' : '', className || ''].filter(Boolean).join(' ');
   return createElement(ThoughtLine, { ...LINE_PROPS, ...props, working, elapsed, className: classes });

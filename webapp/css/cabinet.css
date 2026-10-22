@@ -10382,16 +10382,10 @@ html.browser-app .ep-danger{display:block;margin-top:22px}
 
 /* =====================================================
 CSS-БЛОК: ThoughtLine — ход генерации
-Pro Studio chat, Grid nodes and Edit cards show the same line
-(js/vendor/thought-line); it takes the studio theme's text colour.
+Pro Studio shows the line (js/vendor/thought-line) in the chat; it takes
+the studio theme's text colour.
 ===================================================== */
 .sx-thought-slot{--sx-thought-danger:var(--st-danger,#e96771)}
 .generation-thought{display:flex;align-items:center;min-height:32px;max-width:100%;padding:4px 2px;--sx-thought-color:var(--st-text,#f3f3f3)}
 .generation-thought-msg{max-width:78% !important}
 .sx-thought-host{max-width:100%}
-.studio-grid-node-result:has(.studio-grid-thought){height:auto;flex-direction:column;align-items:stretch;justify-content:center;padding:6px 11px 8px}
-.studio-grid-node .studio-grid-thought{display:flex;flex:none;width:100%;padding:2px 0;--sx-thought-color:var(--pc-ink,var(--st-text,#f3f3f3))}
-.studio-grid-node .studio-grid-thought .thought-line{--tl-font:12px !important}
-.edit-chain-thought{position:absolute;z-index:2;left:50%;top:50%;--sx-thought-color:var(--edit-text,var(--st-text,#f3f3f3));transform:translate(-50%,-50%) scale(var(--edit-expand-ui-scale,1));white-space:nowrap}
-.edit-chain-node:not([data-status="pending"])>.edit-chain-thought{top:calc(100% + 34px);transform:translate(-50%,0) scale(var(--edit-expand-ui-scale,1));transform-origin:top center}
-.edit-chain-thought .thought-line{--tl-font:14px !important}

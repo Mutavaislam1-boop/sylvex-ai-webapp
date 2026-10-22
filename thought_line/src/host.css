@@ -1,8 +1,14 @@
-/* SYLVEX host rules around the unmodified ThoughtLine styles. A failed
-   generation keeps the component's settle animation; only its final step
-   and closing label read as an error (a cross instead of the tick). */
+/* SYLVEX host rules around the unmodified ThoughtLine styles. Done ticks
+   are green. A failed generation keeps the component's settle animation;
+   only its final step and closing label read as an error (a cross instead
+   of the tick). */
 .sx-thought {
   max-width: 100%;
+}
+
+.sx-thought .thought-line__step[data-done] .thought-line__mark {
+  color: var(--sx-thought-success, #22c55e);
+  opacity: 1;
 }
 
 .sx-thought--failed .thought-line__text--done,
@@ -15,6 +21,7 @@
 }
 
 .sx-thought--failed .thought-line__step:last-child .thought-line__mark {
+  color: inherit;
   opacity: 1;
 }
 

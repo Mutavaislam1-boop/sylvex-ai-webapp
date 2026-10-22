@@ -7399,14 +7399,14 @@ function mountModeSegment() {
 }
 // =====================================================
 // ХОД ГЕНЕРАЦИИ: ThoughtLine
-// One progress line per generation in Pro Studio, Grid and Edit. It lists
-// only the stages the backend confirmed (job.progress.stages: received,
-// sent, accepted, processing, then ready or failed); the next stage waits
-// with a pulse until it is confirmed, and a stage the provider never
-// reports is never shown as done. The timer runs from the job's real start
-// to its real end. The line reflects the job, it never drives it.
+// One progress line per Pro Studio generation. It ticks the stages the
+// backend confirmed (job.progress.stages: received, sent, accepted,
+// processing, then ready or failed); the next stage waits with a pulse. A
+// finished job ticks every remaining stage in order, and the result shows
+// once the line has settled. The timer runs from Generate to the job's real
+// end. The line reflects the job, it never drives or delays it.
 // =====================================================
-const THOUGHT_LINE_VERSION='thought-line-20261020';
+const THOUGHT_LINE_VERSION='thought-line-20261022';
 let thoughtLineBundle=null;
 function loadThoughtLineBundle() {
   if(window.SylvexThoughtLine)return Promise.resolve(window.SylvexThoughtLine);
@@ -7419,6 +7419,12 @@ function loadThoughtLineBundle() {
     document.head.appendChild(script);
   }).catch(error=>{thoughtLineBundle=null;throw error;});
   return thoughtLineBundle;
+}
+// Loaded ahead of the first generation, so the line shows the moment
+// Generate is pressed.
+if(typeof window!=='undefined'&&typeof setTimeout==='function'){
+  const warm=()=>loadThoughtLineBundle().catch(()=>{});
+  if(typeof window.requestIdleCallback==='function')window.requestIdleCallback(warm,{timeout:3000});else setTimeout(warm,1200);
 }
 // Stage names adapted to the generation type. Pro Studio speaks Russian
 // unless the user chose another interface language (then English).
@@ -7452,7 +7458,7 @@ function generationThoughtKind(kind) {
   return 'image';
 }
 function createGenerationThought(kind) {
-  return {kind:generationThoughtKind(kind),stages:{},outcome:'working',startedAt:Date.now(),finishedAt:0};
+  return {kind:generationThoughtKind(kind),stages:{},outcome:'working',startedAt:Date.now(),finishedAt:0,shown:0};
 }
 // Server epoch seconds become this device's clock through the response's
 // own server_time, so the timer is right even when the clocks differ.
@@ -7465,7 +7471,7 @@ function applyGenerationThoughtProgress(thought,progress) {
     if(stage==='failed'){thought.outcome='failed';thought.finishedAt=at*1000+offset;}
     else if(GENERATION_THOUGHT_ORDER.includes(stage))thought.stages[stage]=at*1000+offset;
   });
-  if(thought.stages.ready&&thought.outcome!=='failed'){thought.outcome='ready';thought.finishedAt=thought.stages.ready;}
+  if(Number.isFinite(thought.stages.ready)&&thought.outcome!=='failed'){thought.outcome='ready';thought.finishedAt=thought.stages.ready;}
   return thought;
 }
 // A delivered result is the confirmation that it is ready; an error ends the
@@ -7473,24 +7479,44 @@ function applyGenerationThoughtProgress(thought,progress) {
 function finishGenerationThought(thought,failed) {
   if(!thought||thought.outcome!=='working')return thought;
   thought.outcome=failed?'failed':'ready';
-  if(!failed&&!thought.stages.ready)thought.stages.ready=Date.now();
+  if(!failed&&!Number.isFinite(thought.stages.ready))thought.stages.ready=Date.now();
   thought.finishedAt=failed?Date.now():thought.stages.ready;
   return thought;
 }
+// Ticks appear one after another, at least GENERATION_THOUGHT_STEP_MS apart:
+// a stage confirmed on its own is ticked at once, stages already done but
+// reported together are ticked in order. A finished job ends with all five
+// stages ticked; a failed one with the stages it reached, then the error.
+const GENERATION_THOUGHT_STEP_MS=500;
+const GENERATION_THOUGHT_SETTLE_MS=350;
+function generationThoughtTarget(thought) {
+  if(thought.outcome==='ready')return GENERATION_THOUGHT_ORDER.length;
+  let reached=0;
+  GENERATION_THOUGHT_ORDER.forEach((stage,index)=>{if(stage!=='ready'&&Number.isFinite(thought.stages[stage]))reached=index+1;});
+  return reached;
+}
+// A line saved before the paced ticks (no `shown`) is complete.
+function generationThoughtShown(thought) {
+  const target=generationThoughtTarget(thought);
+  return Number.isFinite(thought.shown)?Math.min(thought.shown,target):target;
+}
+function generationThoughtSettled(thought) {
+  return !!thought&&thought.outcome!=='working'&&generationThoughtShown(thought)>=generationThoughtTarget(thought);
+}
 function generationThoughtProps(thought) {
   const words=generationThoughtText(),names=words[thought.kind]||words.image;
-  const text={received:words.received,sent:words.sent,accepted:words.accepted,processing:names.processing,ready:names.ready};
-  const confirmed=GENERATION_THOUGHT_ORDER.filter(stage=>stage!=='ready'&&thought.stages[stage]);
-  const steps=confirmed.map(stage=>text[stage]);
-  if(thought.outcome==='working')steps.push(text[GENERATION_THOUGHT_ORDER[GENERATION_THOUGHT_ORDER.indexOf(confirmed[confirmed.length-1])+1]]);
-  else steps.push(thought.outcome==='failed'?words.failedStep:names.ready);
+  const text=[words.received,words.sent,words.accepted,names.processing,names.ready];
+  const shown=generationThoughtShown(thought),settled=generationThoughtSettled(thought),failed=thought.outcome==='failed';
+  const steps=text.slice(0,shown);
+  if(!settled)steps.push(text[shown]);
+  else if(failed)steps.push(words.failedStep);
   return {
     label:names.label,
-    doneLabel:thought.outcome==='failed'?words.failed:names.ready,
+    doneLabel:failed?words.failed:names.ready,
     steps,
-    working:thought.outcome==='working',
-    failed:thought.outcome==='failed',
-    startedAt:thought.stages.received||thought.startedAt,
+    working:!settled,
+    failed:failed&&settled,
+    startedAt:Math.min(thought.startedAt||Infinity,Number.isFinite(thought.stages.received)?thought.stages.received:Infinity),
     finishedAt:thought.finishedAt||0,
   };
 }
@@ -7514,21 +7540,58 @@ function attachGenerationThoughts(root) {
 function paintGenerationThoughtFallback(entry) {
   entry.el.textContent=entry.props.working?entry.props.label:entry.props.doneLabel;
 }
+function renderGenerationThought(entry) {
+  entry.props=generationThoughtProps(entry.thought);
+  if(entry.handle)entry.handle.update(entry.props);else if(entry.fallback)paintGenerationThoughtFallback(entry);
+}
+// Listeners run once a line has ticked everything and played its settle
+// animation: Pro Studio shows the held result then.
+const generationThoughtSettleListeners=new Set();
+function noteGenerationThoughtSettled(key,entry) {
+  if(entry.settled||!generationThoughtSettled(entry.thought))return;
+  entry.settled=true;
+  setTimeout(()=>generationThoughtSettleListeners.forEach(listener=>listener(key)),GENERATION_THOUGHT_SETTLE_MS);
+}
+function paceGenerationThought(key,entry) {
+  const thought=entry.thought;
+  if(entry.paceTimer||generationThoughtShown(thought)>=generationThoughtTarget(thought))return;
+  const wait=Math.max(0,entry.lastTick+GENERATION_THOUGHT_STEP_MS-Date.now());
+  entry.paceTimer=setTimeout(()=>{
+    entry.paceTimer=0;entry.lastTick=Date.now();
+    thought.shown=generationThoughtShown(thought)+1;
+    renderGenerationThought(entry);
+    noteGenerationThoughtSettled(key,entry);
+    paceGenerationThought(key,entry);
+  },wait);
+}
+// The chat follows a growing line (a new stage, an opened list) while the
+// user is at the bottom, so no stage ends up under the composer.
+function keepGenerationThoughtInView(entry) {
+  if(typeof ResizeObserver==='undefined')return;
+  let height=0;
+  new ResizeObserver(()=>{
+    const next=entry.el.offsetHeight,grew=next-height;height=next;
+    const area=entry.el.closest('#chatArea');
+    if(area&&grew>0&&area.scrollHeight-area.scrollTop-area.clientHeight-grew<96)area.scrollTop=area.scrollHeight;
+  }).observe(entry.el);
+}
 function showGenerationThought(key,thought) {
   key=generationThoughtKey(key);
   if(!key||!thought)return;
-  const props=generationThoughtProps(thought);
   let entry=generationThoughtLines.get(key);
   if(entry){
-    entry.props=props;
-    if(entry.handle)entry.handle.update(props);else if(entry.fallback)paintGenerationThoughtFallback(entry);
+    entry.thought=thought;renderGenerationThought(entry);
   }else{
     const el=document.createElement('div');el.className='sx-thought-host';
-    entry={el,props,handle:null,fallback:false};generationThoughtLines.set(key,entry);
+    entry={el,thought,props:generationThoughtProps(thought),handle:null,fallback:false,paceTimer:0,lastTick:-Infinity,settled:generationThoughtSettled(thought)};
+    generationThoughtLines.set(key,entry);
     loadThoughtLineBundle().then(api=>{entry.handle=api.mount(el,entry.props);}).catch(()=>{entry.fallback=true;paintGenerationThoughtFallback(entry);});
+    keepGenerationThoughtInView(entry);
     pruneGenerationThoughtLines();
   }
   attachGenerationThoughts();
+  noteGenerationThoughtSettled(key,entry);
+  paceGenerationThought(key,entry);
 }
 function pruneGenerationThoughtLines() {
   if(generationThoughtLines.size<=80)return;
@@ -7538,8 +7601,7 @@ function pruneGenerationThoughtLines() {
     entry.handle?.unmount();generationThoughtLines.delete(key);
   }
 }
-// Job → the lines that show it (a Pro Studio chat card and an Edit or Grid
-// card can follow the same job).
+// Job → the Pro Studio lines that show it.
 const generationThoughtJobs=new Map();
 function bindGenerationThought(jobId,key,thought) {
   if(!jobId||!key||!thought)return;
@@ -7561,12 +7623,6 @@ function noteGenerationJob(jobId,job) {
 // The loading-message fields of a new chat generation.
 function generationLoadingThought(kind) {
   return {thoughtKey:'thought_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),thought:createGenerationThought(kind)};
-}
-function editThoughtKey(node) {
-  return 'edit_'+(editWorkspaceState.sessionId||'')+'_'+(node&&node.id||'');
-}
-function gridThoughtKey(node) {
-  return 'grid_'+(node&&node.id||'');
 }
 function syncEditWorkspaceChain(root) {
   const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
@@ -7594,7 +7650,7 @@ function syncEditWorkspaceChain(root) {
     let card=world.querySelector('[data-chain-node="'+node.id+'"]');
     if(!card){
       card=document.createElement('article');card.className='edit-chain-node';card.dataset.chainNode=node.id;
-      card.innerHTML='<div class="edit-workspace-frame"><div class="edit-chain-wait" aria-hidden="true"><i></i><i></i><i></i></div></div><div class="edit-chain-caption"></div>'+generationThoughtSlot(editThoughtKey(node),'edit-chain-thought');
+      card.innerHTML='<div class="edit-workspace-frame"><div class="edit-chain-wait" aria-hidden="true"><i></i><i></i><i></i></div></div><div class="edit-chain-caption"></div>';
       if(node.status==='pending'){
         card.classList.add('is-entering');
         card.addEventListener('animationend',event=>{if(event.animationName==='edit-chain-enter')card.classList.remove('is-entering');});
@@ -7605,7 +7661,6 @@ function syncEditWorkspaceChain(root) {
     card.style.width=node.slotWidth+'px';card.style.height=node.slotHeight+'px';
     card.tabIndex=0;card.setAttribute('aria-description','Drag the image or use arrow keys to move it. Hold Space and drag to pan the canvas.');
     const label=editWorkspaceChainLabel(node,index);card.setAttribute('aria-label',label+(node.status==='pending'?' — generating':node.status==='failed'?' — generation failed':''));card.querySelector('.edit-chain-caption').textContent=label;
-    if(node.thought)showGenerationThought(editThoughtKey(node),node.thought);
     const frame=card.querySelector('.edit-workspace-frame');
     let img=frame.querySelector('.edit-workspace-image');
     const mediaUrl=node.preview||node.url;
@@ -8822,16 +8877,13 @@ async function recoverEditSessionJob(){
   const s=editWorkspaceState,node=s.chain.find(item=>item.status==='pending');if(!node||s.busy)return;
   if(!node.jobId){node.status='failed';renderEditWorkspace();return;}
   const before=editWorkspaceSnapshot(),sessionId=s.sessionId,owner=editSessionOwner();s.busy=true;renderEditWorkspace();
-  if(!node.thought||node.thought.outcome!=='working')node.thought=createGenerationThought('image');
-  bindGenerationThought(node.jobId,editThoughtKey(node),node.thought);
   try{
     const result=await waitGeneration(node.jobId,{isolateRequest:true});
     if(s.sessionId!==sessionId||owner!==editSessionOwner())return;
-    finishGenerationThought(node.thought);
     completeEditChainResult(node,{result,job_id:node.jobId},before);
   }catch(error){
     if(s.sessionId!==sessionId||owner!==editSessionOwner())return;
-    if(['failed','cancelled','timeout'].includes(error.terminalStatus)){node.status='failed';finishGenerationThought(node.thought,true);}
+    if(['failed','cancelled','timeout'].includes(error.terminalStatus))node.status='failed';
     // A network interruption is not evidence that the provider job failed.
     // Keep its ID so reopening the canvas polls that same job again.
     editWorkspaceToast(translateGenerationError(error,'Could not check the result. Reopen this workspace from history.'));
@@ -8851,7 +8903,7 @@ async function generateEditWorkspace(e){
   if(isSylvex)await animateEditSylvexGuidesIntoSource();
   if(mode!=='sketch')ensureEditWorkspaceChain();
   const before=editWorkspaceSnapshot();state.showBefore=false;const maskCanvas=document.getElementById('editWorkspaceMask'),maskUrl=state.mode==='retouch'&&maskCanvas?maskCanvas.toDataURL('image/png'):'';
-  state.busy=true;const chainResult=mode==='sketch'?beginEditSketchResult():beginEditWorkspaceChainResult();chainResult.thought=createGenerationThought('image');renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
+  state.busy=true;const chainResult=mode==='sketch'?beginEditSketchResult():beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
   const refs=[sketchReferenceUrl||state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
   const selectedEditModel=editWorkspaceImageModel(state.editModel),imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspaceModel:selectedEditModel.id,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:refs[0],editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
@@ -8862,10 +8914,9 @@ async function generateEditWorkspace(e){
     prompt=editWorkspaceInstruction(state);
     const requestModel=isSylvex?'sylvex_sr':mode==='upscale'?'topaz_enhance_photo':mode==='edit'?selectedEditModel.id:'gpt_image_2_5_sunburst';
     const requestProvider=isSylvex?'openai':mode==='upscale'?'topaz':mode==='edit'?providerHintForModel(selectedEditModel.id):'openai';
-    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:requestProvider,model:requestModel,imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;bindGenerationThought(jobId,editThoughtKey(chainResult),chainResult.thought);void saveEditWorkspaceSession();}});
+    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:requestProvider,model:requestModel,imageOptions,onJobCreated:jobId=>{chainResult.jobId=jobId;void saveEditWorkspaceSession();}});
     historyIndex=activeGenerationPlaceholderIndex();
     const response=await pending,providerResult=response.result||response;
-    finishGenerationThought(chainResult.thought);
     completeEditChainResult(chainResult,response,before);
     if(isSylvex){const settings={...restore.finalEnhance};state.upscale.sylvex={...createEditSylvexRestoreState(),sourceUrl:state.sourceUrl,resultUrl:state.resultUrl,finalEnhance:settings};}
     const thumbs=generatedThumbsFromResponse(providerResult);
@@ -8878,7 +8929,6 @@ async function generateEditWorkspace(e){
   }catch(error){
     if(isSylvex)restore.guidesHidden=false;
     if(chainResult.status==='pending'&&(!chainResult.jobId||['failed','cancelled','timeout'].includes(error.terminalStatus)))chainResult.status='failed';
-    if(chainResult.status==='failed')finishGenerationThought(chainResult.thought,true);
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
     if(historyIndex>=0)chatMessages[historyIndex]=resolveFailureMessage(error,{mode:'image',prompt});
     editWorkspaceToast(translateGenerationError(error,'Could not edit the image.'));
@@ -17720,16 +17770,33 @@ function renderGeneratedTelegramButton(url, kind) {
       current.thought = finishGenerationThought(track.message.thought, failed);
     });
   }
-  // The settled line sits under the result's avatar, where the loading line was.
+  // The settled line sits under the result's avatar, where the loading line
+  // was. The result itself is held until its line has ticked every stage.
   function withChatThought(m, html) {
+    if (m && m.dismissed) return '';
     if (!m || !m.thoughtKey || !m.thought || isLoadingChatMessage(m)) return html;
     const slot = generationThoughtSlot(m.thoughtKey, 'generation-thought');
+    if (!generationThoughtSettled(m.thought)) return '<div class="msg ai generation-loading-msg"><div class="ai-avatar">S</div>' + slot + '</div>';
     const avatar = '<div class="ai-avatar">S</div>';
     const at = html.indexOf(avatar);
     return at >= 0
       ? html.slice(0, at + avatar.length) + slot + html.slice(at + avatar.length)
       : '<div class="msg ai generation-thought-msg">' + slot + '</div>' + html;
   }
+  // Only the latest failure stays in the workspace: an error row is dropped
+  // as soon as anything follows it (the next request).
+  function dismissStaleFailedGenerations() {
+    for (let i = 0; i < chatMessages.length - 1; i += 1) {
+      const m = chatMessages[i];
+      if (m && m.isError && !m.dismissed) m.dismissed = true;
+    }
+  }
+  generationThoughtSettleListeners.add(() => {
+    if (chatMessages.some((m) => m && m.thought && !isLoadingChatMessage(m))) {
+      renderChat();
+      rememberCurrentChatSpace();
+    }
+  });
   function syncChatGenerationThoughts() {
     chatThoughtSeen = new WeakSet(chatMessages.filter((m) => m && typeof m === 'object'));
     chatMessages.forEach((m, i) => {
@@ -17744,6 +17811,7 @@ function renderGeneratedTelegramButton(url, kind) {
     if (musicDockRef && studioMode === 'music') musicDockRef.sync();
     const el = document.getElementById('chatArea'); if (!el) return;
     adoptReplacedGenerationThoughts();
+    dismissStaleFailedGenerations();
     // Each retried generation that still lacks an active subscription
     // independently produces its own subscriptionRequired message (see
     // resolveFailureMessage) - collapse to the one card already in this
@@ -29828,11 +29896,6 @@ async function waitGeneration(jobId, options) {
   }
 
   function gridNodePreview(node,status) {
-    const thought=node.thought&&['RUNNING','COMPLETED','FAILED','CANCELLED'].includes(status)?generationThoughtSlot(gridThoughtKey(node),'studio-grid-thought'):'';
-    if(thought&&status==='RUNNING')return thought;
-    return thought+gridNodeOutputPreview(node,status);
-  }
-  function gridNodeOutputPreview(node,status) {
     // Never render a stale/superseded result while the node is currently
     // regenerating (RUNNING), has failed/been cancelled on its latest run,
     // or was edited since its last run (READY, via markStudioGridDownstreamStale)
@@ -29902,7 +29965,6 @@ async function waitGeneration(jobId, options) {
     renderStudioGridEdges();
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
     paintStudioGridCards(state);
-    state.nodes.forEach(node=>{if(node.thought)showGenerationThought(gridThoughtKey(node),node.thought)});
   }
 
   // Grid nodes tilt like the React Bits ProfileCard (tiltStrength 3, intro
@@ -30433,7 +30495,7 @@ async function waitGeneration(jobId, options) {
       try{response=await fetch(`/api/public/prostudio/job/${encodeURIComponent(jobId)}`,{cache:'no-store'})}catch(error){if(++transientErrors>80)throw error;await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
       const job=await response.json().catch(()=>({}));
       if(!response.ok||!job.ok){if(++transientErrors>80)throw new Error(translateGenerationError(job,'Не удалось проверить статус генерации'));await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
-      transientErrors=0;noteGenerationJob(jobId,job);if(onStatus)onStatus(job.status||'running');
+      transientErrors=0;if(onStatus)onStatus(job.status||'running');
       if(job.status==='completed'){const result=job.result||{};result.job_id=result.job_id||job.job_id||jobId;result.generation_id=result.generation_id||job.generation_id||jobId;return result}
       if(job.status==='failed'||job.status==='cancelled'){const error=new Error(translateGenerationError(job.error||job,'Генерация не прошла'));error.terminalStatus=job.status;throw error}
       await new Promise(resolve=>setTimeout(resolve,1500));
@@ -30490,9 +30552,9 @@ async function waitGeneration(jobId, options) {
       // this run is in flight or if it fails (see getGridNodeOutputValue/
       // gridNodePreview, both gated on status==='COMPLETED').
       node.request_id=node.request_id||`grid_${loadStudioGridState().projectId}_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
-      node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';node.thought=createGenerationThought(node.type);saveStudioGridState();renderStudioGrid();
-      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;bindGenerationThought(jobId,gridThoughtKey(node),node.thought);saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';finishGenerationThought(applyGenerationThoughtProgress(node.thought,execution.raw&&execution.raw.progress));node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';ensureStudioGridProjectTitle(state,node,{effective_prompt:{value:output.type==='text'?output.value:inputs.effective_prompt?.value||''}});markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
-      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';finishGenerationThought(node.thought,true);node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if(error?.terminalStatus||error?.insufficientBalance)node.request_id='';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
+      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';ensureStudioGridProjectTitle(state,node,{effective_prompt:{value:output.type==='text'?output.value:inputs.effective_prompt?.value||''}});markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
+      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if(error?.terminalStatus||error?.insufficientBalance)node.request_id='';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
     })().finally(()=>studioGridNodeRuns.delete(nodeId));
     studioGridNodeRuns.set(nodeId,promise);return promise;
   }
@@ -30523,7 +30585,7 @@ async function waitGeneration(jobId, options) {
   function restoreStudioGridJobs() {
     if(studioGridJobsRestored)return;studioGridJobsRestored=true;const state=loadStudioGridState();
     if(['RUNNING','STOPPING'].includes(state.workflow?.status))state.workflow.status='IDLE';
-    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}if(!node.thought||node.thought.outcome!=='working')node.thought=createGenerationThought(node.type);bindGenerationThought(node.generation_id,gridThoughtKey(node),node.thought);const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';finishGenerationThought(node.thought);node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';finishGenerationThought(node.thought,true);node.error=translateGenerationError(error,'Не удалось восстановить генерацию');if(error?.terminalStatus)node.request_id='';saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
+    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=translateGenerationError(error,'Не удалось восстановить генерацию');if(error?.terminalStatus)node.request_id='';saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
   }
 
   function selectStudioGridResultVersion(nodeId,index){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId),version=node?.result_versions?.[Number(index)];if(!node||!version)return;node.output=JSON.parse(JSON.stringify(version));node.selectedResultVersion=Number(index);node.status='COMPLETED';node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid()}
