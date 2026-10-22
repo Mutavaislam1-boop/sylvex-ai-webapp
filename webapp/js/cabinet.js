@@ -7406,7 +7406,7 @@ function mountModeSegment() {
 // once the line has settled. The timer runs from Generate to the job's real
 // end. The line reflects the job, it never drives or delays it.
 // =====================================================
-const THOUGHT_LINE_VERSION='thought-line-20261022';
+const THOUGHT_LINE_VERSION='thought-line-spin-20261022';
 let thoughtLineBundle=null;
 function loadThoughtLineBundle() {
   if(window.SylvexThoughtLine)return Promise.resolve(window.SylvexThoughtLine);

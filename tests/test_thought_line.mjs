@@ -59,7 +59,9 @@ test('ThoughtLine.jsx / .css are the provided files, unmodified, built into the 
     assert.ok(main.includes(prop), prop);
   assert.ok(main.includes("color: 'var(--sx-thought-color, #a1a1aa)'"), 'a concrete colour, so the shimmering label stays visible');
   assert.ok(main.includes('const end = finishedAt || now;'), 'the timer stops at the real end while the last ticks play');
-  assert.ok(read('thought_line/src/host.css').includes('.sx-thought .thought-line__step[data-done] .thought-line__mark {\n  color: var(--sx-thought-success, #22c55e);'), 'green ticks');
+  const host = read('thought_line/src/host.css');
+  assert.ok(host.includes('.sx-thought .thought-line__step[data-done] .thought-line__mark {\n  color: var(--sx-thought-success, #22c55e);'), 'green ticks');
+  assert.ok(host.includes('  border-top-color: transparent;\n  border-radius: 50%;\n  background: none;\n  opacity: 0.8;\n  animation: sx-thought-spin 0.8s linear infinite;'), 'a spinning ring until the tick');
 });
 
 test('confirmed stages are ticked; the next stage waits with a pulse', () => {
