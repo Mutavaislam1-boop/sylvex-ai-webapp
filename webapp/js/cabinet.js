@@ -7435,13 +7435,13 @@ const GENERATION_THOUGHT_TEXT={
     video:{label:'Генерация видео…',processing:'ИИ создаёт видео',ready:'Готово к скачиванию'},
     music:{label:'Генерация музыки…',processing:'ИИ создаёт музыку',ready:'Готово к скачиванию'},
     voice:{label:'Генерация озвучки…',processing:'ИИ озвучивает текст',ready:'Готово к скачиванию'},
-    text:{label:'Генерация текста…',processing:'ИИ формирует ответ',ready:'Ответ готов'}},
+    text:{label:'Думает…',received:'Анализирует запрос',sent:'Обдумывает ответ',accepted:'Формирует текст',processing:'Завершает ответ',ready:'Ответ готов'}},
   en:{received:'Task received by SYLVEX',sent:'Request sent to the AI',accepted:'Request accepted for generation',failedStep:'Generation did not complete',failed:'Generation failed',
     image:{label:'Generating image…',processing:'AI is processing the image',ready:'Ready to download'},
     video:{label:'Generating video…',processing:'AI is creating the video',ready:'Ready to download'},
     music:{label:'Generating music…',processing:'AI is creating the music',ready:'Ready to download'},
     voice:{label:'Generating voice-over…',processing:'AI is voicing the text',ready:'Ready to download'},
-    text:{label:'Generating text…',processing:'AI is writing the answer',ready:'Answer ready'}},
+    text:{label:'Thinking…',received:'Analyzing the request',sent:'Thinking through the answer',accepted:'Writing the text',processing:'Finishing the answer',ready:'Answer ready'}},
 };
 const GENERATION_THOUGHT_ORDER=['received','sent','accepted','processing','ready'];
 function generationThoughtText() {
@@ -7458,7 +7458,7 @@ function generationThoughtKind(kind) {
   return 'image';
 }
 function createGenerationThought(kind) {
-  return {kind:generationThoughtKind(kind),stages:{},outcome:'working',startedAt:Date.now(),finishedAt:0,shown:0};
+  return {kind:generationThoughtKind(kind),stages:{},outcome:'working',startedAt:Date.now(),finishedAt:0,shown:0,closed:false};
 }
 // Server epoch seconds become this device's clock through the response's
 // own server_time, so the timer is right even when the clocks differ.
@@ -7487,8 +7487,10 @@ function finishGenerationThought(thought,failed) {
 // a stage confirmed on its own is ticked at once, stages already done but
 // reported together are ticked in order. A finished job ends with all five
 // stages ticked; a failed one with the stages it reached, then the error.
-const GENERATION_THOUGHT_STEP_MS=500;
-const GENERATION_THOUGHT_SETTLE_MS=350;
+// The settled line then stays open (the last tick 1s, an error 2s) before
+// it folds and the result shows. Only the display waits; the job does not.
+const GENERATION_THOUGHT_STEP_MS=1000;
+const GENERATION_THOUGHT_HOLD_MS={ready:1000,failed:2000};
 function generationThoughtTarget(thought) {
   if(thought.outcome==='ready')return GENERATION_THOUGHT_ORDER.length;
   let reached=0;
@@ -7503,9 +7505,14 @@ function generationThoughtShown(thought) {
 function generationThoughtSettled(thought) {
   return !!thought&&thought.outcome!=='working'&&generationThoughtShown(thought)>=generationThoughtTarget(thought);
 }
+// Settled and folded: the result may show. A line saved before the hold (no
+// `closed`) is folded.
+function generationThoughtDone(thought) {
+  return generationThoughtSettled(thought)&&thought.closed!==false;
+}
 function generationThoughtProps(thought) {
   const words=generationThoughtText(),names=words[thought.kind]||words.image;
-  const text=[words.received,words.sent,words.accepted,names.processing,names.ready];
+  const text=[names.received||words.received,names.sent||words.sent,names.accepted||words.accepted,names.processing,names.ready];
   const shown=generationThoughtShown(thought),settled=generationThoughtSettled(thought),failed=thought.outcome==='failed';
   const steps=text.slice(0,shown);
   if(!settled)steps.push(text[shown]);
@@ -7516,6 +7523,7 @@ function generationThoughtProps(thought) {
     steps,
     working:!settled,
     failed:failed&&settled,
+    collapseOnSettle:thought.closed!==false,
     startedAt:Math.min(thought.startedAt||Infinity,Number.isFinite(thought.stages.received)?thought.stages.received:Infinity),
     finishedAt:thought.finishedAt||0,
   };
@@ -7544,13 +7552,18 @@ function renderGenerationThought(entry) {
   entry.props=generationThoughtProps(entry.thought);
   if(entry.handle)entry.handle.update(entry.props);else if(entry.fallback)paintGenerationThoughtFallback(entry);
 }
-// Listeners run once a line has ticked everything and played its settle
-// animation: Pro Studio shows the held result then.
+// Listeners run once a settled line has been held open and folded: Pro
+// Studio shows the held result then.
 const generationThoughtSettleListeners=new Set();
 function noteGenerationThoughtSettled(key,entry) {
-  if(entry.settled||!generationThoughtSettled(entry.thought))return;
+  const thought=entry.thought;
+  if(entry.settled||!generationThoughtSettled(thought))return;
   entry.settled=true;
-  setTimeout(()=>generationThoughtSettleListeners.forEach(listener=>listener(key)),GENERATION_THOUGHT_SETTLE_MS);
+  setTimeout(()=>{
+    thought.closed=true;
+    renderGenerationThought(entry);
+    generationThoughtSettleListeners.forEach(listener=>listener(key));
+  },GENERATION_THOUGHT_HOLD_MS[thought.outcome]||GENERATION_THOUGHT_HOLD_MS.ready);
 }
 function paceGenerationThought(key,entry) {
   const thought=entry.thought;
@@ -7583,7 +7596,7 @@ function showGenerationThought(key,thought) {
     entry.thought=thought;renderGenerationThought(entry);
   }else{
     const el=document.createElement('div');el.className='sx-thought-host';
-    entry={el,thought,props:generationThoughtProps(thought),handle:null,fallback:false,paceTimer:0,lastTick:-Infinity,settled:generationThoughtSettled(thought)};
+    entry={el,thought,props:generationThoughtProps(thought),handle:null,fallback:false,paceTimer:0,lastTick:-Infinity,settled:generationThoughtDone(thought)};
     generationThoughtLines.set(key,entry);
     loadThoughtLineBundle().then(api=>{entry.handle=api.mount(el,entry.props);}).catch(()=>{entry.fallback=true;paintGenerationThoughtFallback(entry);});
     keepGenerationThoughtInView(entry);
@@ -17771,12 +17784,13 @@ function renderGeneratedTelegramButton(url, kind) {
     });
   }
   // The settled line sits under the result's avatar, where the loading line
-  // was. The result itself is held until its line has ticked every stage.
+  // was. The result itself is held until its line has ticked every stage and
+  // folded. A failed generation is told by its line alone (no error card).
   function withChatThought(m, html) {
     if (m && m.dismissed) return '';
     if (!m || !m.thoughtKey || !m.thought || isLoadingChatMessage(m)) return html;
     const slot = generationThoughtSlot(m.thoughtKey, 'generation-thought');
-    if (!generationThoughtSettled(m.thought)) return '<div class="msg ai generation-loading-msg"><div class="ai-avatar">S</div>' + slot + '</div>';
+    if (m.isError || !generationThoughtDone(m.thought)) return '<div class="msg ai generation-loading-msg"><div class="ai-avatar">S</div>' + slot + '</div>';
     const avatar = '<div class="ai-avatar">S</div>';
     const at = html.indexOf(avatar);
     return at >= 0
