@@ -106,12 +106,24 @@
     clearTimeout(toastT);
     toastT = setTimeout(() => el.classList.remove('show'), 4000);
   }
-  function toast(msg) {
+  // The notice's bottom glow: green for a success, red for an error. A success
+  // says what was done (finished, added, ready, created, uploaded); every
+  // other notice left in the app tells why an action did not happen. A caller
+  // may also pass the tone: toast(text, 'success' | 'error').
+  const NOTICE_SUCCESS = /(заверш|готов|добавлен|создан|загружен|сохранен|complete|ready|added|created|uploaded|saved)/i;
+  const NOTICE_FAILURE = /(не удалось|ошибк|не прош|недоступ|недостаточно|(^|[\s(])не\s|только|сначала|дождитесь|failed|error|cannot|could not|unable|not |only|already|first)/i;
+  const NOTICE_GLOW = { success: '#51f524', error: '#ef4444' };
+  function noticeTone(text, tone) {
+    if (tone === 'success' || tone === 'error') return tone;
+    return NOTICE_SUCCESS.test(text) && !NOTICE_FAILURE.test(text) ? 'success' : 'error';
+  }
+  function toast(msg, tone) {
     // Browser app sign-in screen open: it says what is needed itself, so no
     // stray notice from the action that opened it shows on top.
     if (document.documentElement.classList.contains('sxAuth-open')) return;
     const text = String(msg ?? '');
-    loadSwipeToast().then((api) => api.show(text)).catch(() => fallbackToast(text));
+    const fuseColor = NOTICE_GLOW[noticeTone(text, tone)];
+    loadSwipeToast().then((api) => api.show(text, { fuseColor })).catch(() => fallbackToast(text));
     if (window.SYLVEX && window.SYLVEX.haptic) window.SYLVEX.haptic.impact('light');
   }
 

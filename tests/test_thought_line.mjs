@@ -74,7 +74,7 @@ test('confirmed stages are ticked; the next stage waits with a pulse', () => {
   assert.equal(s.generationThoughtProps(thought).working, true);
 });
 
-test('ticks come one by one, 0.5s apart, and a finished job ends with all five', () => {
+test('ticks come one by one, 1s apart; the finished line stays open 1s, then the result shows', () => {
   const s = core();
   const settled = [];
   s.generationThoughtSettleListeners.add((key) => settled.push(key));
@@ -84,11 +84,18 @@ test('ticks come one by one, 0.5s apart, and a finished job ends with all five',
   s.noteGenerationJob('job1', {status: 'completed', progress: {stages: {received: 1, sent: 1.2, ready: 4}, server_time: 4}});
   s.run(0);
   const seen = [];
-  for (let t = 0; t <= 2500; t += 250) {
-    seen.push([t, thought.shown, s.generationThoughtProps(thought).working]);
-    s.run(250);
+  for (let t = 0; t <= 6000; t += 500) {
+    const props = s.generationThoughtProps(thought);
+    seen.push([t, thought.shown, props.working, props.collapseOnSettle, s.generationThoughtDone(thought), settled.length]);
+    s.run(500);
   }
-  assert.deepEqual(plain(seen.filter(([t]) => t % 500 === 0)), [[0, 1, true], [500, 2, true], [1000, 3, true], [1500, 4, true], [2000, 5, false], [2500, 5, false]]);
+  assert.deepEqual(plain(seen.filter(([t]) => t % 1000 === 0)), [
+    [0, 1, true, false, false, 0], [1000, 2, true, false, false, 0], [2000, 3, true, false, false, 0], [3000, 4, true, false, false, 0],
+    // «Готово к скачиванию» ticked at 4s: the line settles open…
+    [4000, 5, false, false, false, 0],
+    // …and folds 1s later, when the result is released.
+    [5000, 5, false, true, true, 1], [6000, 5, false, true, true, 1],
+  ]);
   const done = s.generationThoughtProps(thought);
   assert.deepEqual(plain(done.steps), ['Задание получено SYLVEX', 'Запрос отправлен ИИ', 'Запрос принят на генерацию', 'ИИ обрабатывает изображение', 'Готово к скачиванию']);
   assert.equal(done.doneLabel, 'Готово к скачиванию');
@@ -96,7 +103,7 @@ test('ticks come one by one, 0.5s apart, and a finished job ends with all five',
   assert.deepEqual(plain(settled), ['thought_a'], 'the held result is released once, after the settle');
 });
 
-test('the timer runs from Generate to the real end and does not include the catch-up ticks', () => {
+test('the timer runs from Generate to the real end and does not include the catch-up ticks or the hold', () => {
   const s = core();
   s.run(1000);
   const thought = s.createGenerationThought('video');
@@ -107,19 +114,25 @@ test('the timer runs from Generate to the real end and does not include the catc
   assert.equal(props.finishedAt, 1500);
 });
 
-test('a failed job ticks the stages it reached, then ends as an error', () => {
+test('a failed job ticks the stages it reached, then shows the error 2s before the line folds', () => {
   const s = core();
   const thought = s.createGenerationThought('music');
   s.bindGenerationThought('job2', 'thought_b', thought);
   s.noteGenerationJob('job2', {status: 'failed', progress: {stages: {received: 10, sent: 11, failed: 14}, server_time: 14}});
-  s.run(400);
+  s.run(500);
   assert.equal(s.generationThoughtProps(thought).working, true, 'still ticking the reached stages');
   s.run(1000);
   const props = s.generationThoughtProps(thought);
   assert.equal(props.failed, true);
   assert.equal(props.working, false);
+  assert.equal(props.collapseOnSettle, false, 'the error stays open');
   assert.equal(props.doneLabel, 'Ошибка генерации');
   assert.deepEqual(plain(props.steps), ['Задание получено SYLVEX', 'Запрос отправлен ИИ', 'Генерация не выполнена']);
+  // Settled with the error at 1s: open until 3s.
+  s.run(1400);
+  assert.equal(s.generationThoughtProps(thought).collapseOnSettle, false, 'still open just before 2s');
+  s.run(200);
+  assert.equal(s.generationThoughtProps(thought).collapseOnSettle, true, 'folded after 2s');
   s.finishGenerationThought(thought, false);
   assert.equal(s.generationThoughtProps(thought).failed, true, 'a later result never turns the error into success');
 });
@@ -128,6 +141,7 @@ test('a line saved before the paced ticks is complete when restored', () => {
   const s = core();
   const saved = {kind: 'image', stages: {received: 1, sent: 2, ready: 5}, outcome: 'ready', startedAt: 1, finishedAt: 5};
   assert.ok(s.generationThoughtSettled(saved));
+  assert.ok(s.generationThoughtDone(saved));
   assert.equal(s.generationThoughtProps(saved).working, false);
 });
 
@@ -142,7 +156,9 @@ test('stage names follow the generation type and the interface language', () => 
   assert.deepEqual(names('video'), ['Генерация видео…', 'ИИ создаёт видео', 'Готово к скачиванию']);
   assert.deepEqual(names('music'), ['Генерация музыки…', 'ИИ создаёт музыку', 'Готово к скачиванию']);
   assert.deepEqual(names('voice'), ['Генерация озвучки…', 'ИИ озвучивает текст', 'Готово к скачиванию']);
-  assert.deepEqual(names('text'), ['Генерация текста…', 'ИИ формирует ответ', 'Ответ готов']);
+  assert.deepEqual(names('text'), ['Думает…', 'Завершает ответ', 'Ответ готов']);
+  const text = caughtUp(s, s.applyGenerationThoughtProgress(s.createGenerationThought('text'), {stages: {received: 1, sent: 2, accepted: 3, processing: 4}, server_time: 4}));
+  assert.deepEqual(plain(s.generationThoughtProps(text).steps), ['Анализирует запрос', 'Обдумывает ответ', 'Формирует текст', 'Завершает ответ', 'Ответ готов']);
   s.localStorage = {getItem: () => 'en'};
   assert.deepEqual(names('image'), ['Generating image…', 'AI is processing the image', 'Ready to download']);
 });
@@ -164,7 +180,7 @@ test('Pro Studio only: Grid and Edit carry no line', () => {
 
 test('Pro Studio starts the line at once, holds the result until it settles and keeps it in view', () => {
   assert.ok(cabinet.includes("if(typeof window.requestIdleCallback==='function')window.requestIdleCallback(warm,{timeout:3000});else setTimeout(warm,1200);"), 'bundle loaded before the first Generate');
-  assert.ok(cabinet.includes("    if (!generationThoughtSettled(m.thought)) return '<div class=\"msg ai generation-loading-msg\"><div class=\"ai-avatar\">S</div>' + slot + '</div>';"));
+  assert.ok(cabinet.includes("    if (m.isError || !generationThoughtDone(m.thought)) return '<div class=\"msg ai generation-loading-msg\"><div class=\"ai-avatar\">S</div>' + slot + '</div>';"), 'held result; a failure is the line alone');
   assert.ok(cabinet.includes('if(area&&grew>0&&area.scrollHeight-area.scrollTop-area.clientHeight-grew<96)area.scrollTop=area.scrollHeight;'));
   assert.ok(cabinet.includes('    if (placeholder && placeholder.thoughtKey) bindGenerationThought(jobId, placeholder.thoughtKey, placeholder.thought);\n    noteGenerationJob(jobId, job);'));
   assert.ok(cabinet.includes("el.innerHTML = chatMessages.map((m, i) => withChatThought(m, messageHtml(m, i))).join('');"));
@@ -187,4 +203,19 @@ test('the timed percentages, rotating captions and their styles are gone', () =>
     assert.ok(!cabinet.includes(name), name);
   for (const name of ['generation-loading-card', 'generation-loading-percent', 'generation-loading-progress', 'text-loading-dots', 'generationBorderSweep'])
     assert.ok(!css.includes(name), name);
+});
+
+test('notices: green bottom glow for a success, red for an error; nothing else changes', () => {
+  const ui = read('webapp/js/ui.js');
+  const success = eval(ui.match(/const NOTICE_SUCCESS = (\/.*\/i);/)[1]), failure = eval(ui.match(/const NOTICE_FAILURE = (\/.*\/i);/)[1]);
+  const tone = (text) => (success.test(text) && !failure.test(text) ? 'success' : 'error');
+  for (const text of ['Генерация завершена', 'Фото добавлено', 'Трек готов в проигрывателе', 'Видео загружено', 'Голос создан и выбран'])
+    assert.equal(tone(text), 'success', text);
+  for (const text of ['Ошибка генерации', 'Не удалось подготовить фото на этом устройстве.', 'Недостаточно токенов', 'Сначала дождитесь завершения текущей генерации',
+    'Поделиться можно только завершённой генерацией', 'Генерация не завершена', 'This new project is already empty', 'Provider unavailable'])
+    assert.equal(tone(text), 'error', text);
+  assert.ok(ui.includes("const NOTICE_GLOW = { success: '#51f524', error: '#ef4444' };"));
+  assert.ok(ui.includes('loadSwipeToast().then((api) => api.show(text, { fuseColor })).catch(() => fallbackToast(text));'));
+  // The SwipeToast settings themselves are untouched; only the fuse colour varies.
+  assert.ok(read('swipe_toast/src/main.jsx').includes("  fuseColor: '#51f524',"));
 });

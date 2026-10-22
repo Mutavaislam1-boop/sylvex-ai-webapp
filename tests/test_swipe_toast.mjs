@@ -43,7 +43,7 @@ test('notices stack in the bottom right corner above every block', () => {
 
 test('toast() shows the SwipeToast, the #toast element only as the fallback', () => {
   const ui = read('webapp/js/ui.js');
-  assert.ok(ui.includes("loadSwipeToast().then((api) => api.show(text)).catch(() => fallbackToast(text));"));
+  assert.ok(ui.includes("loadSwipeToast().then((api) => api.show(text, { fuseColor })).catch(() => fallbackToast(text));"));
   assert.ok(ui.includes("if (document.documentElement.classList.contains('sxAuth-open')) return;"));
   assert.ok(ui.includes("SWIPE_TOAST_BASE + 'js/vendor/swipe-toast/swipe-toast.js?v=' + SWIPE_TOAST_VERSION"));
 });
