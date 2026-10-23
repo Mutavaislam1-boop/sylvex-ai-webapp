@@ -25766,6 +25766,25 @@ def _home_route_choices(value, limit: int = 80) -> list:
     return clean
 
 
+HOME_ROUTE_SECTIONS = ("image", "video", "music", "voice", "text")
+HOME_ROUTE_ATTACHMENT_KINDS = ("image", "video", "audio", "file")
+
+
+def home_route_attachment_note(attachment, attachments) -> str:
+    """One line per attached file (kind, name, type) for the classifier."""
+    items = [attachment] if isinstance(attachment, dict) else []
+    if isinstance(attachments, list):
+        items = [item for item in attachments[:8] if isinstance(item, dict)] or items
+    lines = []
+    for item in items:
+        kind = str(item.get("kind") or "").strip().lower()
+        kind = kind if kind in HOME_ROUTE_ATTACHMENT_KINDS else "file"
+        name = re.sub(r"[\r\n]+", " ", str(item.get("name") or "file"))[:120]
+        mime = re.sub(r"[\r\n]+", " ", str(item.get("mime") or item.get("content_type") or ""))[:60]
+        lines.append(f"Вложение ({kind}): {name} ({mime})")
+    return "\n".join(lines)
+
+
 def clean_home_route(route, message: str, models: dict, tools: list) -> dict:
     """Validate a router decision. Anything unclear falls back to Text and the
     user's original prompt is always passed through unchanged."""
@@ -25794,14 +25813,21 @@ async def public_home_idea_route(request: Request):
         body = await request.json()
         message = str((body or {}).get("message") or "").strip()
         attachment = (body or {}).get("attachment") or None
-        if not message and not attachment:
+        attachments = (body or {}).get("attachments") if isinstance((body or {}).get("attachments"), list) else []
+        if not message and not attachment and not attachments:
             return JSONResponse({"ok": False, "error": "message_required"}, status_code=400)
+        # The section the request was sent from (the home page's tab): a hint
+        # for what the user means, never a destination by itself.
+        section = str((body or {}).get("section") or "").strip().lower()
+        section = section if section in HOME_ROUTE_SECTIONS else ""
         raw_models = (body or {}).get("models") if isinstance((body or {}).get("models"), dict) else {}
         models = {mode: _home_route_choices(raw_models.get(mode)) for mode in ("image", "video", "music", "voice", "text")}
         tools = _home_route_choices((body or {}).get("tools"))
-        attachment_note = ""
-        if isinstance(attachment, dict):
-            attachment_note = "Вложение: " + str(attachment.get("name") or "file")[:120] + " (" + str(attachment.get("mime") or attachment.get("content_type") or "")[:60] + ")"
+        attachment_note = home_route_attachment_note(attachment, attachments)
+        section_note = (
+            f"Запрос отправлен из раздела «{section}». Если запрос не противоречит этому разделу, выбери его; "
+            "text выбирай только для вопросов, обсуждений и написания текста."
+        ) if section and section != "text" else ""
         catalog = "\n".join(f"{mode}: {', '.join(ids) or '-'}" for mode, ids in models.items())
         instruction = f"""
 Ты — маршрутизатор SYLVEX. Определи, куда направить запрос пользователя. Ответь ТОЛЬКО JSON без markdown:
@@ -25815,7 +25841,9 @@ async def public_home_idea_route(request: Request):
 - grid: только если пользователь прямо просит сетку/цепочку из нескольких генераций.
 - text: вопрос, обсуждение, объяснение, план, перевод, написание текста или всё, что явно не просит медиа-генерацию.
 - Если пользователь явно называет модель из списка моделей, укажи её id в "model" и соответствующий mode; иначе "model" оставь пустым.
-- Если сомневаешься — text.
+- Вложения — это референсы пользователя (фото, видео, аудио): учитывай их тип вместе с текстом запроса.
+- Если сомневаешься — {section if section and section != "text" else "text"}.
+{section_note}
 Модели:
 {catalog}
 Инструменты: {', '.join(tools) or '-'}

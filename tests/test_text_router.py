@@ -122,3 +122,31 @@ def test_text_generation_sends_identity_and_policy(monkeypatch):
     linked = main.text_generation_reservation(payload)[1]
     plain = main.text_generation_reservation({"prompt": payload["prompt"], "model": "gpt-5.6", "text_options": {"tool": "text"}})[1]
     assert linked > plain + len(main.SYLVEX_TEXT_LINK_GUIDANCE)
+
+
+def test_router_takes_the_home_section_and_attached_references(monkeypatch):
+    seen = {}
+
+    async def fake_billed(telegram_id, credits, label, call, **kwargs):
+        return {"ok": True, "text": json.dumps({"mode": "video", "model": "", "tool": ""})}
+
+    price_input = main.text_generation_price_input
+
+    def capture_price_input(payload):
+        seen["prompt"] = payload["prompt"]
+        return price_input(payload)
+
+    monkeypatch.setattr(main, "run_billed_helper", fake_billed)
+    monkeypatch.setattr(main, "text_generation_price_input", capture_price_input)
+    body = {"message": "a cat surfing at sunset", "telegram_id": 7, "models": MODELS, "tools": TOOLS, "section": "video",
+            "attachments": [{"kind": "image", "name": "cat.png", "mime": "image/png"}, {"kind": "audio", "name": "wave\nsong.mp3", "mime": "audio/mpeg"}, "junk"]}
+    result = _run(main.public_home_idea_route(FakeRequest(body)))
+    assert result["mode"] == "video" and result["prompt"] == "a cat surfing at sunset"
+    prompt = seen["prompt"]
+    assert "Запрос отправлен из раздела «video»" in prompt and "Если сомневаешься — video." in prompt
+    assert "Вложение (image): cat.png (image/png)" in prompt and "Вложение (audio): wave song.mp3 (audio/mpeg)" in prompt
+    # Files alone are enough to route; an unknown section is ignored.
+    seen.clear()
+    result = _run(main.public_home_idea_route(FakeRequest({"telegram_id": 7, "section": "rockets", "attachments": [{"kind": "video", "name": "a.mp4"}]})))
+    assert result["ok"] and "Запрос отправлен из раздела" not in seen["prompt"] and "Если сомневаешься — text." in seen["prompt"]
+    assert "Вложение (video): a.mp4 ()" in seen["prompt"]
