@@ -319,10 +319,9 @@ const PHOTO_TOOL_CONFIG = {
   animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
   tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
   logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите изображение, опишите логотип и при желании выберите визуальный референс.', min:0, max:1, labels:['Загрузить своё изображение'], preview:'assets/quick-tools/logo-placement.jpg' },
-  remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
-  watermark_removal: { title:'Удаление водяных знаков', shortTitle:'Удалить водяной знак', description:'Загрузите фото и отметьте водяной знак. GPT аккуратно удалит его и восстановит изображение.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
-  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Загрузите фото и предмет для замены, затем отметьте область на фото.', min:2, max:2, labels:['Основное фото','Предмет для замены'], preview:'assets/quick-tools/replace-object.jpg', mask:true },
-  makeup: { title:'Макияж', shortTitle:'Макияж', description:'Перенесите выбранный стиль макияжа на портрет, сохранив лицо.', min:1, max:2, labels:['Портрет','Референс макияжа'], preview:'assets/quick-tools/enhance-photo.jpg', library:'makeup' },
+  remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото, нажмите на него и отметьте предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg' },
+  watermark_removal: { title:'Удаление водяных знаков', shortTitle:'Удалить водяной знак', description:'Загрузите фото — водяные знаки, логотипы и надписи будут удалены, а изображение восстановлено.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg' },
+  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Загрузите фото и предмет для замены, затем нажмите на фото и отметьте область.', min:2, max:2, labels:['Основное фото','Предмет для замены'], preview:'assets/quick-tools/replace-object.jpg' },
   hair_beard: { title:'Причёска и борода', shortTitle:'Причёска и борода', description:'Загрузите портрет и выберите форму причёски или растительности на лице.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/replace-character.jpg' },
   face_retouch: { title:'Ретушь лица', shortTitle:'Ретушь лица', description:'Естественно улучшите кожу и лицо без изменения личности.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/enhance-photo.jpg' },
   edit_workspace: { title:'Edit', shortTitle:'Edit', description:'Полноэкранный редактор изображения с настройками камеры и света.', min:1, max:1, labels:['Исходное изображение'], preview:'assets/quick-tools/enhance-photo.jpg' },
@@ -335,7 +334,7 @@ const logoState = { selectedReferenceId:null, prompt:'', generating:false, resul
 // Objects row (reuses imageObjects() data - never a second Object system);
 // it only feeds the tool's own "Предмет для замены" upload slot and never
 // writes into imageState.
-const replaceObjectState = { comparison:null, selectedObjectId:null };
+const replaceObjectState = { selectedObjectId:null };
 const EDIT_WORKSPACE_IMAGE_MODELS = [
   {id:'gpt_image_2_5_sunburst',label:'GPT Image 2.5 Sunburst',provider:'OpenAI'},
   {id:'gpt_image_2',label:'GPT Image 2',provider:'OpenAI'},
@@ -356,13 +355,13 @@ const editWorkspaceState = createEditWorkspaceState();
 // generic {files: []} array every other Photo Tool uses - so the person
 // source (Character/Media/Upload, mutually exclusive) can never be
 // confused with the garment slots or with any normal Pro Studio state.
-// See renderTryOnModal()/generateTryOnTool() below.
+// See photoToolZones()/generateTryOnTool() below.
 photoToolState.try_on = { generating: false, personSource: null, personImage: '', personLabel: '', characterId: null, characterReferenceUrls: [], garments: [null, null, null] };
 // Character Replace owns its own dedicated state shape too, same reasoning
 // as Try-On above - the source photo, the replacement identity's source
 // (Character/History/Upload, mutually exclusive) and its resolved image(s)
 // never touch imageState.characterReferences or any other normal Pro
-// Studio composer state. See renderCharacterReplaceModal()/
+// Studio composer state. See photoToolZones()/
 // generateCharacterReplaceTool() below.
 photoToolState.replace_character = {
   generating: false,
@@ -378,15 +377,15 @@ photoToolState.replace_character = {
 // normal Pro Studio Character picker/detail page open on its behalf -
 // confirmCharacterDetailSelection then commits the pick into
 // photoToolState.replace_character above instead of imageState (see
-// chooseCharacterReplaceIdentitySource below). null everywhere else, so
+// choosePhotoToolZoneSource). null everywhere else, so
 // every other caller of that picker keeps writing to imageState exactly
 // as before.
 let visualPickerRedirectTarget = null;
 
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
-const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, sharedColor: null, sharedColorSourcePart: null, comparison: null, smartCrop: true, customPresets: [], referencePrompt: '', generatingReference: false };
+const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, customPresets: [], referencePrompt: '', generatingReference: false };
 const HAIR_BEARD_IMAGE_MODEL = 'gpt_image_2_5_sunburst';
-const tattooState = { selectedReferenceId:null, customReferences:[], prompt:'', comparison:null, generatingReference:false };
+const tattooState = { selectedReferenceId:null, uploadedReference:'', customReferences:[], prompt:'', generatingReference:false };
 const TATTOO_REFERENCES = Array.from({length:24},(_,index)=>({
   id:'tattoo_ref_'+String(index+1).padStart(2,'0'),
   name:['Fine line hand','Mountain wrist','Wolf sleeve','Ornamental sleeve','Blackwork arm','Compass hand','Ocean sleeve','Floral hand','Feather neck','Pendant ear','Eagle portrait','Winged chest','Mountain torso','Lion chest','Landscape back','Wave shoulder','Viking sleeve','Eagle chest','Dragon shoulder','Forest calf','Mountain ankle','Compass foot','Tiger shoulder','Forest ankle'][index],
@@ -413,7 +412,6 @@ let photoToolCameFromList = false;
 // above) so scrolling far down, opening a tool and closing it lands back
 // exactly where the user left off, never at the top.
 let photoToolListScrollTop = 0;
-let photoToolDemosPromise = null;
 
 let videoState = {
   modelId: 'seedance_2_fast',
@@ -459,6 +457,7 @@ const UPLOAD_TARGETS = {
   VIDEO_START: 'video_start',
   VIDEO_END: 'video_end',
   VIDEO_REFERENCES: 'video_references',
+  PHOTO_TOOL: 'photo_tool',
 };
 let currentUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let activeUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
@@ -6283,7 +6282,7 @@ function renderUploadPreviewForTarget(targetOverride) {
     renderVideoEndPreview();
   } else if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
     renderVideoReferencesPreview();
-  } else {
+  } else if (target !== UPLOAD_TARGETS.PHOTO_TOOL) {
     renderImageUploadPreview();
   }
 }
@@ -6306,6 +6305,7 @@ function currentUploadImages(targetOverride) {
   if (target === UPLOAD_TARGETS.VIDEO_END) return videoState.endImage ? [videoState.endImage] : [];
   if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) return [];
   if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return currentVideoReferenceImages();
+  if (target === UPLOAD_TARGETS.PHOTO_TOOL) return photoToolUploadSession ? photoToolUploadSession.urls.slice() : [];
   return (imageState.uploadedImageUrls || []).slice();
 }
 
@@ -6316,6 +6316,7 @@ function currentUploadImages(targetOverride) {
 function uploadLimitForTarget(targetOverride) {
   const target = targetOverride || getUploadTarget();
   if (target === UPLOAD_TARGETS.VIDEO_START || target === UPLOAD_TARGETS.VIDEO_END) return 1;
+  if (target === UPLOAD_TARGETS.PHOTO_TOOL) return photoToolUploadSession ? photoToolUploadSession.max : 1;
   const base = 4;
   // Keep the shared upload controls model-independent. The provider routing
   // and capability matrix remain unchanged; this layer only collects inputs.
@@ -6329,6 +6330,15 @@ function uploadLimitForTarget(targetOverride) {
 function applyUploadToTarget(url, targetOverride, sourceOverride) {
   if (!url) return;
   const target = targetOverride || getUploadTarget();
+  if (target === UPLOAD_TARGETS.PHOTO_TOOL) {
+    // A tool area: one photo goes straight in; several wait for "Выбрать фото".
+    const session = photoToolUploadSession;
+    if (!session) return;
+    session.urls = [url].concat(session.urls.filter((item) => item !== url)).slice(0, session.max);
+    if (session.max === 1) { commitPhotoToolUpload(); return; }
+    renderUploadedPhotoGrid();
+    return;
+  }
   if (target === UPLOAD_TARGETS.VIDEO_START) {
     videoState.startImage = url;
     renderVideoStartPreview();
@@ -6422,6 +6432,8 @@ function setCurrentUploadImages(urls, targetOverride) {
   } else if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
     setCurrentVideoReferenceImages(clean.slice(0, uploadLimitForTarget(target)));
     renderVideoReferencesPreview();
+  } else if (target === UPLOAD_TARGETS.PHOTO_TOOL) {
+    if (photoToolUploadSession) photoToolUploadSession.urls = clean;
   } else if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
     imageState.uploadedImageUrls = clean.slice(0, uploadLimitForTarget(target));
     imageState.referenceSourceByUrl = imageState.referenceSourceByUrl || {};
@@ -9033,76 +9045,11 @@ function applyCatalogImageGenerationOptions(imageOptions, catalogGeneration) {
   return imageOptions;
 }
 
-function photoToolMediaHtml(source, extra) {
-  const value = String(source || '');
-  return /\.mp4(?:$|\?)/i.test(value)
-    ? '<video class="'+extra+'" src="'+S.escapeHtml(value)+'" autoplay muted loop playsinline preload="metadata"></video>'
-    : '<img class="'+extra+'" src="'+S.escapeHtml(value)+'" alt="">';
-}
 
-function photoToolDemoHtml(config) {
-  const fallback=String(config.demo||config.preview||''),before=String(config.demoBefore||fallback),after=String(config.demoAfter||fallback),source=after||before;
-  if(before&&after&&config.compare!==false)return '<div class="photo-tool-demo photo-tool-compare" style="--compare-position:50%">'+photoToolMediaHtml(after,'photo-tool-after')+photoToolMediaHtml(before,'photo-tool-before')+'<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить до и после" oninput="SYLVEX.updatePhotoToolComparison(event)"><b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
-  return '<div class="photo-tool-demo">'+(source?photoToolMediaHtml(source,'photo-tool-demo-media'):'')+'<div class="photo-tool-demo-placeholder"><span></span><b>Демонстрация функции</b><small>Референс будет добавлен позже</small></div></div>';
-}
 
-function hairBeardComparisonHtml(config) {
-  const comparison = hairBeardState.comparison;
-  if (comparison && comparison.before && comparison.after) {
-    return '<div class="photo-tool-demo photo-tool-compare hair-beard-result-compare '+(hairBeardState.smartCrop?'smart-crop-active':'')+'" style="--compare-position:50%;--face-x:50%;--face-y:42%">'
-      + photoToolMediaHtml(comparison.after,'photo-tool-after')
-      + photoToolMediaHtml(comparison.before,'photo-tool-before')
-      + '<span class="hair-beard-face-focus" aria-hidden="true"></span>'
-      + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить исходное фото и результат" oninput="SYLVEX.updatePhotoToolComparison(event)">'
-      + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>'
-      + '<button type="button" class="hair-beard-smart-crop '+(hairBeardState.smartCrop?'active':'')+'" aria-pressed="'+hairBeardState.smartCrop+'" onclick="SYLVEX.toggleHairBeardSmartCrop(event)">Smart Crop · лицо</button>';
-  }
-  // Pre-generation preview: show the selected preset's own reference
-  // photo immediately, instead of the generic demo placeholder, so the
-  // user sees what they picked before Generate runs.
-  const preset = hairBeardState.selectedPresetId ? hairBeardPresetById(hairBeardState.selectedPresetId) : null;
-  if (preset && preset.referenceAsset) {
-    return '<div class="photo-tool-demo hair-beard-reference-preview"><img src="'+S.escapeHtml(preset.referenceAsset)+'" alt="'+S.escapeHtml(preset.label||HAIR_BEARD_PRESET_LABELS[preset.id]||preset.name)+'"></div>';
-  }
-  return photoToolDemoHtml(config);
-}
 
-function tattooComparisonHtml(config) {
-  const comparison = tattooState.comparison;
-  if (comparison && comparison.before && comparison.after) {
-    return '<div class="photo-tool-demo photo-tool-compare tattoo-result-compare" style="--compare-position:50%">'
-      + photoToolMediaHtml(comparison.after,'photo-tool-after')
-      + photoToolMediaHtml(comparison.before,'photo-tool-before')
-      + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить фото до и после татуировки" oninput="SYLVEX.updatePhotoToolComparison(event)">'
-      + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
-  }
-  // Pre-generation preview: show the selected tattoo reference itself
-  // immediately, instead of the generic demo placeholder.
-  const reference = tattooState.selectedReferenceId ? tattooReferenceById(tattooState.selectedReferenceId) : null;
-  if (reference && reference.referenceAsset) {
-    return '<div class="photo-tool-demo tattoo-reference-preview"><img src="'+S.escapeHtml(reference.referenceAsset)+'" alt="'+S.escapeHtml(reference.name)+'"></div>';
-  }
-  return photoToolDemoHtml(config);
-}
 
-function replaceObjectComparisonHtml(config) {
-  const comparison = replaceObjectState.comparison;
-  if (!comparison || !comparison.before || !comparison.after) return photoToolDemoHtml(config);
-  return '<div class="photo-tool-demo photo-tool-compare replace-object-result-compare" style="--compare-position:50%">'
-    + photoToolMediaHtml(comparison.after,'photo-tool-after')
-    + photoToolMediaHtml(comparison.before,'photo-tool-before')
-    + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить фото до и после замены предмета" oninput="SYLVEX.updatePhotoToolComparison(event)">'
-    + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
-}
 
-function syncReplaceObjectComparisonAspectRatio(source) {
-  const image = new Image();
-  image.onload = () => {
-    const host = document.querySelector('.replace-object-result-compare');
-    if (host && image.naturalWidth && image.naturalHeight) host.style.aspectRatio = image.naturalWidth + ' / ' + image.naturalHeight;
-  };
-  image.src = source;
-}
 
 // Horizontal row of the user's existing Pro Studio Objects (imageObjects() -
 // the same data/creation flow the main composer's Object picker uses, never
@@ -9143,92 +9090,17 @@ function selectReplaceObjectObject(e, id) {
     if (preview) file = { name: (item.name || item.label || 'Объект'), mime: 'image/*', url: preview };
   }
   state.files[1] = file;
-  updatePhotoToolUploadSlot(1, file);
+  refreshPhotoToolZones();
   updatePhotoToolGenerateButtonState();
 }
 
-function syncTattooComparisonAspectRatio(source) {
-  const image = new Image();
-  image.onload = () => {
-    const host = document.querySelector('.tattoo-result-compare');
-    if (!host || !image.naturalWidth || !image.naturalHeight) return;
-    host.style.aspectRatio = image.naturalWidth + ' / ' + image.naturalHeight;
-  };
-  image.src = source;
-}
 
-function loadPhotoToolDemos() {
-  if (photoToolDemosPromise) return photoToolDemosPromise;
-  photoToolDemosPromise = fetch('/api/public/prostudio/photo-tool-demos', { credentials:'same-origin' })
-    .then(response => response.ok ? response.json() : Promise.reject(new Error('photo tool demos')))
-    .then(payload => {
-      Object.entries((payload && payload.demos) || {}).forEach(([key, demo]) => {
-        const config = PHOTO_TOOL_CONFIG[key];
-        if (!config || !demo) return;
-        config.demoBefore = String(demo.before || '');
-        config.demoAfter = String(demo.after || '');
-      });
-      return payload;
-    })
-    .catch(() => null);
-  return photoToolDemosPromise;
-}
 
-function updatePhotoToolComparison(e){const input=e&&e.currentTarget,host=input&&input.closest('.photo-tool-compare');if(host)host.style.setProperty('--compare-position',Math.max(0,Math.min(100,Number(input.value)||0))+'%')}
 
-function toggleHairBeardSmartCrop(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  hairBeardState.smartCrop = !hairBeardState.smartCrop;
-  renderPhotoToolModal();
-  if (hairBeardState.smartCrop && hairBeardState.comparison) detectHairBeardFaceFocus(hairBeardState.comparison.before);
-}
 
-function detectHairBeardFaceFocus(source) {
-  const image = new Image();
-  image.onload = async () => {
-    const host = document.querySelector('.hair-beard-result-compare');
-    if (!host || !hairBeardState.smartCrop) return;
-    try {
-      if ('FaceDetector' in window) {
-        const detector = new FaceDetector({ fastMode:true, maxDetectedFaces:1 });
-        const faces = await detector.detect(image);
-        const box = faces && faces[0] && faces[0].boundingBox;
-        if (box) {
-          const centerX = (box.x + box.width / 2) / image.naturalWidth * 100;
-          const centerY = (box.y + box.height * .43) / image.naturalHeight * 100;
-          host.style.setProperty('--face-x', Math.max(0, Math.min(100, centerX)) + '%');
-          host.style.setProperty('--face-y', Math.max(0, Math.min(100, centerY)) + '%');
-          host.classList.add('face-detected');
-        }
-      }
-    } catch (_) {
-      // FaceDetector support is platform-dependent; centered face focus remains the fallback.
-    }
-  };
-  image.src = source;
-}
 function photoToolCatalogPreviewHtml(config){const source=String(config.preview||config.demo||''),isVideo=/\.mp4(?:$|\?)/i.test(source);return '<div class="photo-tool-demo">'+(source?(isVideo?'<video src="'+S.escapeHtml(source)+'" muted playsinline preload="metadata"></video>':'<img src="'+S.escapeHtml(source)+'" alt="">'):'<div class="photo-tool-demo-placeholder"><span></span><b>Обложка</b></div>')+'</div>'}
 function photoToolReferenceUrls(kind){if(kind==='character')return (imageState.characterReferences||[]).map(item=>typeof item==='string'?item:(item.url||item.image_url||'')).filter(Boolean);if(kind==='object')return (imageState.objectReferences||[]).map(item=>typeof item==='string'?item:(item.url||item.image_url||'')).filter(Boolean);return []}
-function photoToolLibraryHtml(config){if(!config.library)return'';const refs=photoToolReferenceUrls(config.library),label={character:'персонажа',object:'предмет',tattoo:'тату',logo:'лого',clothes:'одежду',makeup:'макияж',hair:'стиль'}[config.library]||'референс';return '<div class="photo-tool-library"><small>Выберите '+label+'</small><div><button type="button" class="create" onclick="SYLVEX.createPhotoToolReference(event,\''+config.library+'\')"><i>＋</i><b>Создать</b></button>'+Array.from({length:10},(_,index)=>{const url=refs[index]||'';return '<button type="button" '+(url?'onclick="SYLVEX.selectPhotoToolReference(event,\''+S.escapeHtml(url)+'\')"':'disabled')+'>'+(url?'<img src="'+S.escapeHtml(url)+'" alt="">':'<i>'+(index+1)+'</i>')+'</button>'}).join('')+'</div></div>'}
-function photoToolMaskHtml(config,state){
-  if(!config.mask||!state.files[0])return'';
-  // Masked object tools use dedicated editors so the canvas always aligns
-  // with the displayed source image, including portrait and landscape photos.
-  if(activePhotoTool==='remove_object')return removeObjectMaskPanelHtml(state);
-  if(activePhotoTool==='replace_object')return replaceObjectMaskPanelHtml(state);
-  if(activePhotoTool==='watermark_removal')return '<div class="photo-tool-mask-editor watermark-removal-mask-editor"><header><div><b>'+(state.maskUrl?'Водяной знак отмечен':'Отметьте водяной знак')+'</b><small>'+(state.maskUrl?'При необходимости отметьте ещё':'Проведите кистью по водяному знаку')+'</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>';
-  return '<div class="photo-tool-mask-editor"><header><div><b>Отметьте область</b><small>Проведите по предмету зелёной кистью</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>';
-}
-function initPhotoToolMask(){const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(!canvas||!state)return;const rect=canvas.getBoundingClientRect(),scale=Math.max(1,window.devicePixelRatio||1);canvas.width=Math.max(1,Math.round(rect.width*scale));canvas.height=Math.max(1,Math.round(rect.height*scale));const ctx=canvas.getContext('2d');ctx.scale(scale,scale);if(activePhotoTool==='watermark_removal'&&state.maskUrl){const savedMark=new Image();savedMark.onload=()=>ctx.drawImage(savedMark,0,0,rect.width,rect.height);savedMark.src=state.maskUrl}ctx.strokeStyle='rgba(47,220,119,.88)';ctx.lineWidth=Math.max(13,rect.width*.045);ctx.lineCap='round';ctx.lineJoin='round';let drawing=false,last=null;const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId)};const move=e=>{if(!drawing)return;e.preventDefault();const next=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();last=next};const end=e=>{if(!drawing)return;e.preventDefault();drawing=false;state.maskUrl=canvas.toDataURL('image/png');if(activePhotoTool==='watermark_removal')updateWatermarkRemovalReadiness()};canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end)}
-function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(canvas)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);if(state)state.maskUrl='';if(activePhotoTool==='watermark_removal')updateWatermarkRemovalReadiness()}
-function updateWatermarkRemovalReadiness(){if(activePhotoTool!=='watermark_removal')return;const state=photoToolStateFor('watermark_removal'),button=document.querySelector('#photoToolModalBody .photo-tool-generate');if(button&&state)button.disabled=!(state.files&&state.files[0]&&state.maskUrl)||state.generating}
 
-function replaceObjectMaskPanelHtml(state) {
-  const hasMask=!!(state.markedPhotoStrokes&&state.markedPhotoStrokes.length);
-  return '<div class="photo-tool-mask-editor replace-object-mask-panel"><header><div><b>'+(hasMask?'Область отмечена':'Укажите предмет для замены')+'</b><small>'+(hasMask?'Нажмите на фото, чтобы изменить отметку':'Поставьте отметку внутри предмета — обводить контур не нужно')+'</small></div></header>'
-    +'<button type="button" class="replace-object-mask-preview" onclick="SYLVEX.openReplaceObjectMaskEditor(event)"><img src="'+S.escapeHtml(hasMask&&state.markedPhotoUrl?state.markedPhotoUrl:state.files[0].url)+'" alt="">'
-    +'<span>'+(hasMask?'Изменить область':'Отметить область')+'</span></button></div>';
-}
 
 function ensureReplaceObjectMaskEditor() {
   let modal=document.getElementById('replaceObjectMaskEditorModal');if(modal)return modal;
@@ -9244,8 +9116,11 @@ let replaceObjectEditorRuntime={token:0,image:null,canvas:null,strokes:[],brushS
 
 function openReplaceObjectMaskEditor(e) {
   if(e){e.preventDefault();e.stopPropagation()}
-  const state=photoToolStateFor('replace_object');if(!state||!state.files[0])return;
+  const state=photoToolStateFor(activePhotoTool);if(!state||!state.files[0])return;
   const modal=ensureReplaceObjectMaskEditor(),token=++replaceObjectEditorRuntime.token,sourceUrl=state.files[0].url;
+  const removing=activePhotoTool==='remove_object',title=modal.querySelector('.photo-tool-head h3'),kicker=modal.querySelector('.photo-tool-head small');
+  if(title)title.textContent=removing?'Отметьте предмет для удаления':'Укажите предмет для замены';
+  if(kicker)kicker.textContent=removing?'Удаление предмета':'Замена предмета';
   modal.classList.add('show');modal.setAttribute('aria-busy','true');
   // BUG-1: reopening before the previous instance was ever explicitly
   // closed (closeReplaceObjectMaskEditor is the only other place that
@@ -9350,16 +9225,11 @@ function updateReplaceObjectBrushSizeLabel() {
 
 function saveReplaceObjectMask(e) {
   if(e){e.preventDefault();e.stopPropagation()}
-  const runtime=replaceObjectEditorRuntime,state=photoToolStateFor('replace_object');if(!runtime.canvas||!state)return;
-  if(!runtime.strokes.length){if(state.markedPhotoStrokes&&state.markedPhotoStrokes.length){state.markedPhotoStrokes=[];state.markedPhotoUrl='';finishSaveReplaceObjectPhoto();return}toast('Сначала отметьте кистью область предмета на фото');return}
-  const canvas=runtime.canvas,token=runtime.token,strokes=runtime.strokes.map(stroke=>({width:stroke.width,points:stroke.points.map(point=>({x:point.x,y:point.y}))})),saveButton=document.querySelector('#replaceObjectMaskEditorModal .replace-object-mask-toolbar .save');
-  canvas.style.pointerEvents='none';if(saveButton)saveButton.disabled=true;
-  const resume=()=>{if(token!==replaceObjectEditorRuntime.token)return;canvas.style.pointerEvents='';if(saveButton)saveButton.disabled=false};
-  try{canvas.toBlob(blob=>{
-    if(token!==replaceObjectEditorRuntime.token)return;
-    if(!blob){resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.');return}
-    const reader=new FileReader();reader.onload=()=>{if(token!==replaceObjectEditorRuntime.token)return;state.markedPhotoStrokes=strokes;state.markedPhotoUrl=String(reader.result||'');finishSaveReplaceObjectPhoto()};reader.onerror=()=>{resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.')};reader.readAsDataURL(blob);
-  },'image/jpeg',.9)}catch{resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.')}
+  const runtime=replaceObjectEditorRuntime,state=photoToolStateFor(activePhotoTool);if(!runtime.canvas||!state)return;
+  if(!runtime.strokes.length&&!(state.markedPhotoStrokes&&state.markedPhotoStrokes.length)){toast('Сначала отметьте кистью предмет на фото');return}
+  state.markedPhotoStrokes=runtime.strokes.map(stroke=>({width:stroke.width,points:stroke.points.map(point=>({x:Math.round(point.x*10)/10,y:Math.round(point.y*10)/10}))}));
+  state.markedPhotoSize={width:runtime.canvas.width,height:runtime.canvas.height};
+  finishSaveReplaceObjectPhoto();
 }
 
 function finishSaveReplaceObjectPhoto() {
@@ -9371,267 +9241,6 @@ function closeReplaceObjectMaskEditor(e) {
   const modal=document.getElementById('replaceObjectMaskEditorModal');if(modal)modal.classList.remove('show');if(replaceObjectEditorRuntime.resizeHandler)window.removeEventListener('resize',replaceObjectEditorRuntime.resizeHandler);replaceObjectEditorRuntime.token++;
 }
 
-// =====================================================
-// REMOVE OBJECT: fullscreen mark-up editor
-// A simple brush-only canvas editor for the Remove Object Quick Tool:
-// draw / color / thickness / undo / clear / save. Works with mouse and
-// touch via the Pointer Events API (same technique as initPhotoToolMask
-// above). The source photo and the drawn mask are kept as two separate
-// values (state.files[0].url vs state.maskUrl) - this editor only ever
-// draws onto its own transparent canvas layered over the image, never
-// onto the source image itself.
-// =====================================================
-const REMOVE_OBJECT_BRUSH_COLORS = ['#ffffff', '#000000', '#2fdc77', '#ff5b5b', '#3fa9ff', '#ffd23f'];
-const REMOVE_OBJECT_BRUSH_MIN_SIZE = 4;
-const REMOVE_OBJECT_BRUSH_MAX_SIZE = 60;
-const REMOVE_OBJECT_BRUSH_DEFAULT_SIZE = 18;
-let removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: REMOVE_OBJECT_BRUSH_DEFAULT_SIZE, history: [] };
-
-function removeObjectMaskPanelHtml(state) {
-  const hasMask = !!state.maskUrl;
-  return '<div class="photo-tool-mask-editor remove-object-mask-panel">'
-    + '<header><div><b>' + (hasMask ? 'Предмет указан' : 'Укажите предмет для удаления') + '</b>'
-    + '<small>' + (hasMask ? 'Нажмите, чтобы изменить отметку' : 'Поставьте отметку внутри предмета — обводить контур не нужно') + '</small></div></header>'
-    + '<button type="button" class="remove-object-mask-preview" onclick="SYLVEX.openRemoveObjectMaskEditor(event)">'
-    + '<img src="' + S.escapeHtml(state.files[0].url) + '" alt="" />'
-    + (hasMask ? '<img class="remove-object-mask-overlay" src="' + S.escapeHtml(state.maskUrl) + '" alt="" />' : '')
-    + '<span>' + (hasMask ? 'Изменить отметку' : 'Открыть редактор') + '</span>'
-    + '</button>'
-    + '</div>';
-}
-
-function ensureRemoveObjectEditorModal() {
-  let modal = document.getElementById('removeObjectEditorModal');
-  if (modal) return modal;
-  modal = document.createElement('div');
-  modal.id = 'removeObjectEditorModal';
-  modal.className = 'photo-tool-modal remove-object-editor';
-  modal.innerHTML = '<section class="photo-tool-dialog remove-object-editor-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
-    + '<header class="photo-tool-head"><div><small>Удаление предмета</small><h3>Укажите предмет</h3><p>Поставьте отметку внутри предмета. Генерация определит предмет целиком и восстановит фон.</p></div>'
-    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closeRemoveObjectMaskEditor(event)">×</button></header>'
-    + '<div class="remove-object-editor-canvas-wrap"><img id="removeObjectEditorImage" alt="" /><canvas id="removeObjectEditorCanvas"></canvas></div>'
-    + '<div class="remove-object-editor-controls">'
-    + '<div class="remove-object-editor-toolbar">'
-    + '<div class="remove-object-editor-color">'
-    + '<button type="button" class="remove-object-editor-color-toggle" aria-haspopup="true" aria-expanded="false" aria-label="Цвет кисти" onclick="SYLVEX.toggleRemoveObjectColorPicker(event)"><span class="remove-object-editor-color-swatch"></span><span class="remove-object-editor-color-caret">&#9662;</span></button>'
-    + '<div class="remove-object-editor-color-popover" role="menu">'
-    + REMOVE_OBJECT_BRUSH_COLORS.map((color) => '<button type="button" data-color="' + color + '" style="--swatch:' + color + '" aria-label="Цвет кисти" onclick="SYLVEX.pickRemoveObjectBrushColor(event,\'' + color + '\')"></button>').join('')
-    + '</div>'
-    + '</div>'
-    + '<input type="range" class="remove-object-editor-slider" min="' + REMOVE_OBJECT_BRUSH_MIN_SIZE + '" max="' + REMOVE_OBJECT_BRUSH_MAX_SIZE + '" value="' + REMOVE_OBJECT_BRUSH_DEFAULT_SIZE + '" aria-label="Толщина кисти" oninput="SYLVEX.setRemoveObjectBrushSize(event)" />'
-    + '<button type="button" class="remove-object-editor-btn" onclick="SYLVEX.undoRemoveObjectMaskStroke(event)">Отменить</button>'
-    + '<button type="button" class="remove-object-editor-btn" onclick="SYLVEX.clearRemoveObjectMaskEditor(event)">Очистить</button>'
-    + '<button type="button" class="remove-object-editor-btn remove-object-editor-save" onclick="SYLVEX.saveRemoveObjectMask(event)">Сохранить</button>'
-    + '</div>'
-    + '</div>'
-    + '</section>';
-  document.body.appendChild(modal);
-  return modal;
-}
-
-function updateRemoveObjectEditorControlsUI() {
-  const modal = document.getElementById('removeObjectEditorModal');
-  if (!modal) return;
-  modal.querySelectorAll('.remove-object-editor-color-popover button').forEach((btn) => btn.classList.toggle('active', btn.dataset.color === removeObjectEditorState.color));
-  const swatch = modal.querySelector('.remove-object-editor-color-swatch');
-  if (swatch) swatch.style.setProperty('--swatch', removeObjectEditorState.color);
-  const slider = modal.querySelector('.remove-object-editor-slider');
-  if (slider) slider.value = String(removeObjectEditorState.size);
-}
-
-// Compact color popover: one toggle button in the toolbar opens a small
-// swatch panel instead of permanently occupying toolbar space with a full
-// row of color buttons. Closes on selection or on any pointer down outside
-// the popover/toggle.
-function closeRemoveObjectColorPicker() {
-  const modal = document.getElementById('removeObjectEditorModal');
-  const wrap = modal && modal.querySelector('.remove-object-editor-color');
-  if (wrap) wrap.classList.remove('open');
-  const toggle = wrap && wrap.querySelector('.remove-object-editor-color-toggle');
-  if (toggle) toggle.setAttribute('aria-expanded', 'false');
-  document.removeEventListener('pointerdown', handleRemoveObjectColorPickerOutsideClick);
-}
-
-function handleRemoveObjectColorPickerOutsideClick(e) {
-  const modal = document.getElementById('removeObjectEditorModal');
-  const wrap = modal && modal.querySelector('.remove-object-editor-color');
-  if (!wrap || wrap.contains(e.target)) return;
-  closeRemoveObjectColorPicker();
-}
-
-function toggleRemoveObjectColorPicker(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const modal = document.getElementById('removeObjectEditorModal');
-  const wrap = modal && modal.querySelector('.remove-object-editor-color');
-  const toggle = wrap && wrap.querySelector('.remove-object-editor-color-toggle');
-  if (!wrap || !toggle) return;
-  const opening = !wrap.classList.contains('open');
-  if (opening) {
-    wrap.classList.add('open');
-    toggle.setAttribute('aria-expanded', 'true');
-    document.addEventListener('pointerdown', handleRemoveObjectColorPickerOutsideClick);
-  } else {
-    closeRemoveObjectColorPicker();
-  }
-}
-
-function openRemoveObjectMaskEditor(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const state = photoToolStateFor('remove_object');
-  if (!state || !state.files[0]) return;
-  const modal = ensureRemoveObjectEditorModal();
-  const img = document.getElementById('removeObjectEditorImage');
-  removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: REMOVE_OBJECT_BRUSH_DEFAULT_SIZE, history: [] };
-  modal.classList.add('show');
-  closeRemoveObjectColorPicker();
-  updateRemoveObjectEditorControlsUI();
-  const existingMaskUrl = state.maskUrl || '';
-  const draw = () => initRemoveObjectMaskEditor(existingMaskUrl);
-  if (!img) return;
-  const sourceUrl = state.files[0].url;
-  if (img.src === sourceUrl && img.complete && img.naturalWidth) {
-    // Already showing this exact photo (e.g. reopening to edit the mask
-    // again) - onload would not fire a second time for an unchanged src.
-    window.requestAnimationFrame(draw);
-  } else {
-    img.onload = draw;
-    img.src = sourceUrl;
-  }
-}
-
-function initRemoveObjectMaskEditor(existingMaskUrl) {
-  const wrap = document.querySelector('#removeObjectEditorModal .remove-object-editor-canvas-wrap');
-  const canvas = document.getElementById('removeObjectEditorCanvas');
-  const img = document.getElementById('removeObjectEditorImage');
-  if (!wrap || !canvas || !img || !img.naturalWidth || !img.naturalHeight) return;
-
-  // The coordinate/alignment fix: the canvas must occupy the EXACT same
-  // on-screen box as the image, in both CSS pixels and its internal pixel
-  // buffer. Letting the canvas size itself independently (its old bug) is
-  // what let device-pixel-ratio scaling silently blow the canvas up
-  // larger than the visible image, so every stroke landed away from the
-  // cursor/finger. Fix: measure the wrap's available space once, compute
-  // the image's aspect-correct box inside it ourselves, pin the wrap to
-  // exactly that box (in CSS pixels), and let the image and canvas simply
-  // fill it at 100% - both dimensions matching by construction, at any
-  // image scale or screen size.
-  wrap.style.width = '';
-  wrap.style.height = '';
-  const available = wrap.getBoundingClientRect();
-  if (!available.width || !available.height) return;
-  const imageRatio = img.naturalWidth / img.naturalHeight;
-  const availableRatio = available.width / available.height;
-  let boxWidth, boxHeight;
-  if (imageRatio > availableRatio) {
-    boxWidth = available.width;
-    boxHeight = boxWidth / imageRatio;
-  } else {
-    boxHeight = available.height;
-    boxWidth = boxHeight * imageRatio;
-  }
-  wrap.style.width = boxWidth + 'px';
-  wrap.style.height = boxHeight + 'px';
-
-  const scale = Math.max(1, window.devicePixelRatio || 1);
-  canvas.width = Math.max(1, Math.round(boxWidth * scale));
-  canvas.height = Math.max(1, Math.round(boxHeight * scale));
-  canvas.style.width = boxWidth + 'px';
-  canvas.style.height = boxHeight + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  const applyStrokeStyle = () => {
-    ctx.strokeStyle = removeObjectEditorState.color;
-    ctx.lineWidth = Math.max(1, Number(removeObjectEditorState.size) || REMOVE_OBJECT_BRUSH_DEFAULT_SIZE);
-  };
-  applyStrokeStyle();
-  const wireDrawing = () => {
-    let drawing = false, last = null;
-    // canvas.getBoundingClientRect() now always matches the image's own
-    // box exactly (same explicit CSS width/height), so this maps the
-    // pointer to CSS-pixel canvas coordinates with no offset at any scale.
-    const point = (evt) => { const r = canvas.getBoundingClientRect(); return { x: evt.clientX - r.left, y: evt.clientY - r.top }; };
-    const pushUndoSnapshot = () => {
-      try { removeObjectEditorState.history.push(ctx.getImageData(0, 0, canvas.width, canvas.height)); } catch {}
-      if (removeObjectEditorState.history.length > 20) removeObjectEditorState.history.shift();
-    };
-    const start = (evt) => { evt.preventDefault(); drawing = true; pushUndoSnapshot(); applyStrokeStyle(); last = point(evt); ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fillStyle = removeObjectEditorState.color; ctx.fill(); canvas.setPointerCapture && canvas.setPointerCapture(evt.pointerId); };
-    const move = (evt) => { if (!drawing) return; evt.preventDefault(); const next = point(evt); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(next.x, next.y); ctx.stroke(); last = next; };
-    const end = (evt) => { if (!drawing) return; evt.preventDefault(); drawing = false; };
-    canvas.addEventListener('pointerdown', start);
-    canvas.addEventListener('pointermove', move);
-    canvas.addEventListener('pointerup', end);
-    canvas.addEventListener('pointercancel', end);
-  };
-  if (existingMaskUrl) {
-    const maskImg = new Image();
-    const restore = () => { try { ctx.drawImage(maskImg, 0, 0, boxWidth, boxHeight); } catch {} wireDrawing(); };
-    maskImg.onload = restore;
-    maskImg.onerror = wireDrawing;
-    maskImg.src = existingMaskUrl;
-  } else {
-    wireDrawing();
-  }
-}
-
-function pickRemoveObjectBrushColor(e, color) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  removeObjectEditorState.color = color;
-  updateRemoveObjectEditorControlsUI();
-  closeRemoveObjectColorPicker();
-}
-
-function setRemoveObjectBrushSize(e) {
-  const input = e && e.target;
-  const value = Number(input && input.value);
-  if (!value) return;
-  removeObjectEditorState.size = Math.max(REMOVE_OBJECT_BRUSH_MIN_SIZE, Math.min(REMOVE_OBJECT_BRUSH_MAX_SIZE, value));
-}
-
-function undoRemoveObjectMaskStroke(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const canvas = document.getElementById('removeObjectEditorCanvas');
-  if (!canvas || !removeObjectEditorState.history.length) return;
-  const ctx = canvas.getContext('2d');
-  const snapshot = removeObjectEditorState.history.pop();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.putImageData(snapshot, 0, 0);
-  const scale = Math.max(1, window.devicePixelRatio || 1);
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-}
-
-function clearRemoveObjectMaskEditor(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const canvas = document.getElementById('removeObjectEditorCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.max(1, window.devicePixelRatio || 1);
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  removeObjectEditorState.history = [];
-}
-
-function saveRemoveObjectMask(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const canvas = document.getElementById('removeObjectEditorCanvas');
-  const state = photoToolStateFor('remove_object');
-  if (!canvas || !state) return;
-  // Only persist a mask if at least one stroke actually survived (history
-  // records one snapshot per committed stroke) - an empty canvas is the
-  // same as never having drawn anything, not a "blank mark".
-  state.maskUrl = removeObjectEditorState.history.length ? canvas.toDataURL('image/png') : '';
-  const extraEl = document.getElementById('photoToolExtraPrompt');
-  const preservedText = extraEl ? extraEl.value : '';
-  closeRemoveObjectMaskEditor();
-  renderPhotoToolModal();
-  // renderPhotoToolModal() recreates the textarea empty - restore whatever
-  // the user had already typed there before opening the editor.
-  const newExtraEl = document.getElementById('photoToolExtraPrompt');
-  if (newExtraEl && preservedText) newExtraEl.value = preservedText;
-}
 
 function updateRemoveObjectReadiness() {
   if (activePhotoTool !== 'remove_object') return;
@@ -9640,7 +9249,7 @@ function updateRemoveObjectReadiness() {
   const textEl = document.getElementById('photoToolExtraPrompt');
   if (!state || !btn) return;
   const hasSource = state.files.filter(Boolean).length >= 1;
-  const hasMask = !!state.maskUrl;
+  const hasMask = !!(state.markedPhotoStrokes && state.markedPhotoStrokes.length);
   const hasText = !!(textEl && textEl.value.trim());
   btn.disabled = !hasSource || (!hasMask && !hasText) || !!state.generating;
 }
@@ -9653,12 +9262,6 @@ function updateAnimatePhotoPromptCounter() {
   counterEl.textContent = String(textEl.value.length) + '/250';
 }
 
-function closeRemoveObjectMaskEditor(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  closeRemoveObjectColorPicker();
-  const modal = document.getElementById('removeObjectEditorModal');
-  if (modal) modal.classList.remove('show');
-}
 // openVisualCreateModal already supports 'object' just as well as
 // 'character' (see its use from the main composer's Object picker at
 // cabinet.js:11184) - Photo Tools' own "Create" button only checked for
@@ -9714,34 +9317,13 @@ function logoCatalogHtml() {
     + LOGO_REFERENCES.map((item)=>'<button type="button" class="logo-reference-card '+(logoState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(logoState.selectedReferenceId===item.id)+'" data-ref-id="'+S.escapeHtml(item.id)+'" onclick="SYLVEX.selectLogoReference(event,\''+item.id+'\')"><img src="'+item.asset+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy"><span>'+S.escapeHtml(item.name)+'</span></button>').join('')
     + '</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div></section>';
 }
-function logoResultPreviewHtml(config) {
-  const result=logoState.result;
-  if (result && result.pngUrl) {
-    const reference=logoReferenceById(result.referenceId);
-    return '<div class="photo-tool-demo-column-result">'
-      + '<div class="logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"></div>'
-      + '<div class="logo-result-links"><button type="button" class="generation-info-svg-download" data-download-url="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>'
-      + (reference?'<small>Референс: '+S.escapeHtml(reference.name)+'</small>':'<small>Создано по текстовому описанию</small>')+'</div></div>';
-  }
-  // Pre-generation preview: show the selected reference itself so the
-  // user sees what they picked immediately, instead of an empty
-  // placeholder until Generate finishes.
-  const reference = logoState.selectedReferenceId ? logoReferenceById(logoState.selectedReferenceId) : null;
-  if (reference) {
-    return '<div class="photo-tool-demo-column-result">'
-      + '<div class="logo-result-preview"><img src="'+S.escapeHtml(reference.asset)+'" alt="'+S.escapeHtml(reference.name)+'"></div>'
-      + '</div>';
-  }
-  return '<div class="photo-tool-demo-column-result">'
-    + '<div class="logo-result-preview"><span class="logo-result-placeholder">Тут появится ваш результат</span></div>'
-    + '</div>';
-}
 function selectLogoReference(e,id) {
   if(e){e.preventDefault();e.stopPropagation()}
   if(!logoReferenceById(id)||logoState.generating)return;
   logoState.selectedReferenceId = logoState.selectedReferenceId === id ? null : id;
+  if (logoState.selectedReferenceId && photoToolState.logo) photoToolState.logo.files[0] = null;
   updatePresetCardSelection('.logo-reference-card', 'data-ref-id', logoState.selectedReferenceId);
-  refreshPhotoToolDemoColumn();
+  refreshPhotoToolZones();
   updatePhotoToolGenerateButtonState();
 }
 function updateLogoPrompt(e) {
@@ -9751,7 +9333,7 @@ function updateLogoPrompt(e) {
   if(button)button.disabled=!logoState.prompt.trim()||logoState.generating;
 }
 
-const HAIR_BEARD_CATEGORY_LABELS = { men:'Men', beard_mustache:'Beard & Mustache', women:'Women' };
+const HAIR_BEARD_CATEGORY_LABELS = { men:'Мужчины', beard_mustache:'Борода и усы', women:'Девушки' };
 const HAIR_BEARD_PRESET_LABELS = {
   bald:'Bald',buzz_cut:'Buzz cut',very_short:'Very short',crew_cut:'Crew cut',short_crop:'Short crop',textured_crop:'Textured crop',side_part:'Side part',slick_back:'Slick back',quiff:'Quiff',medium_hair:'Medium hair',long_hair:'Long hair',long_wavy_hair:'Long wavy hair',curly_hair:'Curly hair',afro:'Afro',middle_part:'Middle part',man_bun:'Man bun',
   clean_shaven:'Clean shaven',light_stubble:'Light stubble',heavy_stubble:'Heavy stubble',short_beard:'Short beard',medium_beard:'Medium beard',long_beard:'Long beard',full_beard:'Full beard',beard_without_mustache:'Beard without mustache',goatee:'Goatee',mustache:'Mustache',thick_mustache:'Thick mustache',beard_and_mustache:'Beard and mustache',long_beard_long_hair:'Long beard · long hair',long_beard_short_hair:'Long beard · short hair',beard_bald:'Beard · bald',beard_buzz_cut:'Beard · buzz cut',beard_medium_hair:'Beard · medium hair',mustache_short_hair:'Mustache · short hair',stubble_short_hair:'Stubble · short hair',
@@ -9774,9 +9356,8 @@ function selectHairBeardPreset(e, id) {
   const preset = hairBeardPresetById(id);
   if (hairBeardState.generatingReference || !preset || preset.category !== hairBeardState.category) return;
   hairBeardState.selectedPresetId = hairBeardState.selectedPresetId === preset.id ? null : preset.id;
-  hairBeardState.comparison = null;
   updatePresetCardSelection('.hair-beard-card', 'data-preset-id', hairBeardState.selectedPresetId);
-  refreshPhotoToolDemoColumn();
+  refreshPhotoToolZones();
   updatePhotoToolGenerateButtonState();
 }
 
@@ -9799,107 +9380,63 @@ const HAIR_BEARD_COLOR_FIELDS = {
 
 const HAIR_BEARD_COLOR_PARTS = ['hair','beard','mustache','eyebrows'];
 
-function syncHairBeardColorControl(part, color) {
-  const modal = document.getElementById('photoToolModalBody');
-  const control = modal && modal.querySelector('[data-color-part="'+part+'"]');
-  if (!control) return;
-  control.classList.toggle('has-color', Boolean(color));
-  const picker = control.querySelector('input[type="color"]');
-  const hex = control.querySelector('.hair-beard-color-hex');
-  const status = control.querySelector('.hair-beard-color-status');
-  if (picker && color) picker.value = color;
-  else if (picker) picker.value = HAIR_BEARD_COLOR_FIELDS[part].default;
-  if (hex) hex.value = color || '';
-  if (status) status.textContent = color ? color.toUpperCase() : 'Как в исходном фото';
+
+
+
+
+
+
+
+const HAIR_BEARD_COLOR_SWATCHES = [
+  ['#1b1b1b','Чёрный'],['#3b2a20','Тёмно-каштановый'],['#6a4a32','Каштановый'],['#9a7350','Светло-каштановый'],['#c9a86a','Русый'],
+  ['#e3c88f','Блонд'],['#efe3c4','Платиновый'],['#a5452c','Рыжий'],['#7b2f2a','Медный'],['#8e8e8e','Седой'],['#e9e9e9','Белый'],
+];
+
+function hairBeardColorDotsHtml() {
+  return HAIR_BEARD_COLOR_PARTS.filter((part) => hairBeardState.colors[part])
+    .map((part) => '<b style="--swatch:' + hairBeardState.colors[part] + '" title="' + S.escapeHtml(HAIR_BEARD_COLOR_FIELDS[part].label) + '"></b>').join('');
 }
 
-function syncHairBeardColorAllButtons() {
-  const modal = document.getElementById('photoToolModalBody');
-  if (!modal) return;
-  modal.querySelectorAll('.hair-beard-color-all').forEach((button) => {
-    const active = hairBeardState.sharedColorSourcePart === button.dataset.colorSource;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
-}
-
-function updateHairBeardColor(e, part) {
-  const field = HAIR_BEARD_COLOR_FIELDS[part];
-  const input = e && e.currentTarget;
-  if (!field || !input) return;
-  const color = String(input.value || '').toLowerCase();
-  if (!/^#[0-9a-f]{6}$/.test(color)) return;
-  hairBeardState.sharedColor = null;
-  hairBeardState.sharedColorSourcePart = null;
-  hairBeardState.colors[part] = color;
-  syncHairBeardColorControl(part, color);
-  syncHairBeardColorAllButtons();
-}
-
-function updateHairBeardHexColor(e, part) {
-  const field = HAIR_BEARD_COLOR_FIELDS[part];
-  const input = e && e.currentTarget;
-  if (!field || !input) return;
-  const color = String(input.value || '').trim().toLowerCase();
-  if (!field) return;
-  if (!color) { resetHairBeardColor(e, part); return; }
-  if (!/^#[0-9a-f]{6}$/.test(color)) {
-    input.value = hairBeardState.colors[part] || '';
-    return;
-  }
-  hairBeardState.sharedColor = null;
-  hairBeardState.sharedColorSourcePart = null;
-  hairBeardState.colors[part] = color;
-  syncHairBeardColorControl(part, color);
-  syncHairBeardColorAllButtons();
-}
-
-function applyHairBeardColorToAll(e, part) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (!HAIR_BEARD_COLOR_FIELDS[part] || !hairBeardState.colors[part]) {
-    toast('Сначала выберите цвет в этом блоке');
-    return;
-  }
-  const active = hairBeardState.sharedColorSourcePart === part;
-  if (active) {
-    hairBeardState.sharedColor = null;
-    hairBeardState.sharedColorSourcePart = null;
-  } else {
-    const color = hairBeardState.colors[part];
-    hairBeardState.sharedColor = color;
-    hairBeardState.sharedColorSourcePart = part;
-    HAIR_BEARD_COLOR_PARTS.forEach((key) => {
-      hairBeardState.colors[key] = color;
-      syncHairBeardColorControl(key, color);
-    });
-  }
-  syncHairBeardColorAllButtons();
-}
-
-function resetHairBeardColor(e, part) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (!HAIR_BEARD_COLOR_FIELDS[part]) return;
-  hairBeardState.colors[part] = null;
-  hairBeardState.sharedColor = null;
-  hairBeardState.sharedColorSourcePart = null;
-  syncHairBeardColorControl(part, null);
-  syncHairBeardColorAllButtons();
-}
-
+// Colour of hair, beard, mustache and brows - folded into one dropdown.
 function hairBeardColorsHtml() {
-  return '<section class="hair-beard-colors" aria-label="Цвет волос, бороды, усов и бровей"><header><b>Цвет</b><small>Можно настроить зоны отдельно</small></header><div class="hair-beard-color-grid">'
-    + Object.entries(HAIR_BEARD_COLOR_FIELDS).map(([part,field]) => {
-      const color = hairBeardState.colors[part];
-      const allActive = hairBeardState.sharedColorSourcePart === part;
-      return '<div class="hair-beard-color-control '+(color?'has-color':'')+'" data-color-part="'+part+'"><label class="hair-beard-color-label" for="hairBeardColor_'+part+'">'+field.label+'</label><div class="hair-beard-color-actions"><label class="hair-beard-color-swatch" aria-label="'+field.instruction+'"><input id="hairBeardColor_'+part+'" type="color" value="'+(color||field.default)+'" aria-label="'+field.instruction+'" oninput="SYLVEX.updateHairBeardColor(event,\''+part+'\')"></label><input class="hair-beard-color-hex" type="text" inputmode="text" maxlength="7" value="'+(color||'')+'" placeholder="HEX" aria-label="HEX '+field.instruction+'" onchange="SYLVEX.updateHairBeardHexColor(event,\''+part+'\')"><button type="button" class="hair-beard-color-reset" onclick="SYLVEX.resetHairBeardColor(event,\''+part+'\')">Сброс</button></div><small class="hair-beard-color-status">'+(color?color.toUpperCase():'Как в исходном фото')+'</small><button type="button" class="hair-beard-color-all '+(allActive?'active':'')+'" data-color-source="'+part+'" aria-pressed="'+allActive+'" onclick="SYLVEX.applyHairBeardColorToAll(event,\''+part+'\')">Для всех</button></div>';
-    }).join('')+'</div></section>';
+  return '<details class="ptool-dropdown hair-beard-colors"><summary><span>Цвет</span><i class="ptool-dots" id="hairBeardColorDots">' + hairBeardColorDotsHtml() + '</i></summary><div class="ptool-dropdown-panel">'
+    + HAIR_BEARD_COLOR_PARTS.map((part) => {
+      const current = hairBeardState.colors[part];
+      return '<div class="hair-beard-color-row" data-color-part="' + part + '"><b>' + S.escapeHtml(HAIR_BEARD_COLOR_FIELDS[part].label) + '</b><div class="hair-beard-swatches">'
+        + '<button type="button" class="hair-beard-swatch is-original' + (current ? '' : ' active') + '" data-color="" title="Как на фото" aria-label="Как на фото" onclick="SYLVEX.setHairBeardColor(event,\'' + part + '\',\'\')"></button>'
+        + HAIR_BEARD_COLOR_SWATCHES.map(([hex, name]) => '<button type="button" class="hair-beard-swatch' + (current === hex ? ' active' : '') + '" data-color="' + hex + '" style="--swatch:' + hex + '" title="' + name + '" aria-label="' + name + '" onclick="SYLVEX.setHairBeardColor(event,\'' + part + '\',\'' + hex + '\')"></button>').join('')
+        + '<label class="hair-beard-swatch is-custom' + (current && !HAIR_BEARD_COLOR_SWATCHES.some(([hex]) => hex === current) ? ' active' : '') + '" title="Свой цвет"><input type="color" value="' + (current || HAIR_BEARD_COLOR_FIELDS[part].default) + '" aria-label="Свой цвет" onchange="SYLVEX.setHairBeardColor(event,\'' + part + '\',this.value)"></label>'
+        + '</div></div>';
+    }).join('')
+    + '</div></details>';
+}
+
+function setHairBeardColor(e, part, color) {
+  if (e && e.type === 'click') { e.preventDefault(); e.stopPropagation(); }
+  if (!HAIR_BEARD_COLOR_FIELDS[part]) return;
+  const clean = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : null;
+  hairBeardState.colors[part] = clean;
+  const row = document.querySelector('#photoToolModalBody .hair-beard-color-row[data-color-part="' + part + '"]');
+  if (row) row.querySelectorAll('.hair-beard-swatch').forEach((swatch) => {
+    const value = swatch.dataset.color;
+    swatch.classList.toggle('active', value === undefined ? !!clean && !HAIR_BEARD_COLOR_SWATCHES.some(([hex]) => hex === clean) : value === (clean || ''));
+  });
+  const dots = document.getElementById('hairBeardColorDots');
+  if (dots) dots.innerHTML = hairBeardColorDotsHtml();
+}
+
+// Closes an open dropdown (hair colour) when the click lands outside it.
+function closePhotoToolDropdowns(e) {
+  document.querySelectorAll('#photoToolModalBody .ptool-dropdown[open]').forEach((menu) => {
+    if (!e || !menu.contains(e.target)) menu.removeAttribute('open');
+  });
 }
 
 function hairBeardCatalogHtml() {
   const tabs = Object.entries(HAIR_BEARD_CATEGORY_LABELS).map(([id,label]) => '<button type="button" class="hair-beard-tab '+(hairBeardState.category===id?'active':'')+'" aria-pressed="'+(hairBeardState.category===id)+'" onclick="SYLVEX.selectHairBeardCategory(event,\''+id+'\')">'+label+'</button>').join('');
   const presets = HAIR_BEARD_PRESETS.filter(item=>item.category===hairBeardState.category).concat(hairBeardState.customPresets.filter(item=>item.category===hairBeardState.category));
   const cards = presets.map(item=>'<button type="button" class="hair-beard-card '+(hairBeardState.selectedPresetId===item.id?'selected':'')+(item.custom?' custom':'')+'" aria-pressed="'+(hairBeardState.selectedPresetId===item.id)+'" data-preset-id="'+S.escapeHtml(item.id)+'" onclick="SYLVEX.selectHairBeardPreset(event,\''+S.escapeHtml(item.id)+'\')"><span class="hair-beard-card-image"><img src="'+S.escapeHtml(item.referenceAsset)+'" alt="'+S.escapeHtml(item.label||HAIR_BEARD_PRESET_LABELS[item.id]||item.name)+' reference" loading="lazy" decoding="async"></span><span class="hair-beard-card-name">'+S.escapeHtml(item.label||HAIR_BEARD_PRESET_LABELS[item.id]||item.name)+'</span><span class="hair-beard-card-check" aria-hidden="true">✓</span></button>').join('');
-  return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="hair-beard-grid preset-carousel-track">'+cards+'</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div>'+hairBeardColorsHtml()+'</section>';
+  return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="hair-beard-grid preset-carousel-track">'+cards+'</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div>'+'</section>';
 }
 
 function tattooReferenceById(id) {
@@ -9911,9 +9448,9 @@ function selectTattooReference(e, id) {
   const reference = tattooReferenceById(id);
   if (!reference || tattooState.generatingReference || photoToolState.tattoo.generating) return;
   tattooState.selectedReferenceId = tattooState.selectedReferenceId === reference.id ? null : reference.id;
-  tattooState.comparison = null;
+  tattooState.uploadedReference = '';
   updatePresetCardSelection('.tattoo-reference-card', 'data-ref-id', tattooState.selectedReferenceId);
-  refreshPhotoToolDemoColumn();
+  refreshPhotoToolZones();
   updatePhotoToolGenerateButtonState();
 }
 
@@ -9921,11 +9458,7 @@ function updateTattooPrompt(e) {
   const input = e && e.currentTarget;
   if (!input) return;
   tattooState.prompt = String(input.value || '').slice(0, 1000);
-  const state = photoToolState.tattoo;
-  const button = document.querySelector('#photoToolModalBody .photo-tool-generate');
-  if (!button || !state) return;
-  button.disabled = state.generating || tattooState.generatingReference || (!state.files[0] && !tattooState.prompt.trim());
-  if (!button.disabled) button.textContent = !state.files[0] ? 'Создать референс' : 'Сгенерировать';
+  updatePhotoToolGenerateButtonState();
 }
 
 function tattooCatalogHtml() {
@@ -9950,14 +9483,14 @@ function photoToolReadyState(config, state) {
   const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
   const hasLogoText = Boolean(String(logoState.prompt || '').trim());
   return isReplaceObject
-    ? Boolean(state.files[0] && state.files[1] && state.markedPhotoStrokes && state.markedPhotoStrokes.length && state.markedPhotoUrl)
+    ? Boolean(state.files[0] && state.files[1] && state.markedPhotoStrokes && state.markedPhotoStrokes.length)
     : isRemoveObject
     ? (state.files.filter(Boolean).length >= config.min
-        && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
+        && (!!(state.markedPhotoStrokes && state.markedPhotoStrokes.length) || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
     : isWatermarkRemoval
-    ? Boolean(state.files[0] && state.maskUrl)
+    ? Boolean(state.files[0])
     : (activePhotoTool === 'tattoo'
-        ? (hasTattooPhoto ? (hasTattooText || Boolean(tattooState.selectedReferenceId)) : hasTattooText)
+        ? (hasTattooPhoto ? (hasTattooText || Boolean(tattooState.selectedReferenceId) || Boolean(tattooState.uploadedReference)) : hasTattooText)
         : activePhotoTool === 'hair_beard'
         ? (hasHairPhoto ? (hasHairText || Boolean(hairBeardState.selectedPresetId)) : hasHairText)
         : activePhotoTool === 'logo'
@@ -9967,9 +9500,9 @@ function photoToolReadyState(config, state) {
 
 function photoToolGenerateButtonLabel(state) {
   if (state.generating) return '<span class="photo-tool-spinner"></span>Обработка…';
-  const hasHairPhoto = Boolean(state.files[0]);
+  const hasHairPhoto = Boolean(state.files && state.files[0]);
   const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
-  const hasTattooPhoto = Boolean(state.files[0]);
+  const hasTattooPhoto = Boolean(state.files && state.files[0]);
   const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
   if ((activePhotoTool === 'hair_beard' && !hasHairPhoto && hasHairText) || (activePhotoTool === 'tattoo' && !hasTattooPhoto && hasTattooText)) return 'Создать референс';
   if (activePhotoTool === 'logo') return 'Создать логотип';
@@ -9986,31 +9519,11 @@ function updatePhotoToolGenerateButtonState() {
   const state = photoToolStateFor(activePhotoTool);
   const button = document.querySelector('#photoToolModalBody .photo-tool-generate');
   if (!config || !state || !button) return;
-  button.disabled = !photoToolReadyState(config, state) || state.generating;
+  button.disabled = !photoToolIsReady(activePhotoTool) || state.generating;
   button.innerHTML = photoToolGenerateButtonLabel(state);
 }
 
-// The demo/preview column's inner HTML, factored out of renderPhotoToolModal
-// so refreshPhotoToolDemoColumn() can rebuild just that one column (never
-// the reference list beside/above it) after a selection change.
-function photoToolDemoColumnInnerHtml(config) {
-  return (activePhotoTool==='logo' ? logoResultPreviewHtml(config) : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : activePhotoTool==='replace_object' ? replaceObjectComparisonHtml(config) : photoToolDemoHtml(config))
-    + (activePhotoTool==='replace_object' ? replaceObjectObjectsRowHtml() : '')
-    + ((activePhotoTool==='logo') ? '' : '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : activePhotoTool==='replace_object'&&replaceObjectState.comparison ? 'Перетяните полоску, чтобы сравнить фото до и после замены.' : S.escapeHtml(config.description)) + '</p>');
-}
 
-// Rebuilds only the demo/preview column (#photoToolDemoColumn) - used by
-// reference/preset selection handlers so picking a Logo/Tattoo/Hair&Beard
-// reference immediately previews it without touching the reference list's
-// own DOM (no flicker, no scroll reset - see updatePresetCardSelection).
-function refreshPhotoToolDemoColumn() {
-  const host = document.getElementById('photoToolDemoColumn');
-  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
-  if (!host || !config) return;
-  host.innerHTML = photoToolDemoColumnInnerHtml(config);
-  if (activePhotoTool==='tattoo' && tattooState.comparison) syncTattooComparisonAspectRatio(tattooState.comparison.before);
-  if (activePhotoTool==='replace_object' && replaceObjectState.comparison) syncReplaceObjectComparisonAspectRatio(replaceObjectState.comparison.before);
-}
 
 // Toggles the 'selected' card in a reference/preset list purely via DOM
 // (never innerHTML on the list itself) - this is what keeps the carousel's
@@ -10024,101 +9537,308 @@ function updatePresetCardSelection(cardSelector, attr, nextId) {
   });
 }
 
-// Updates one upload slot (by its data-slot-index) in place, mirroring the
-// exact markup renderPhotoToolModal() builds for it - used by Replace
-// Object's Objects row so picking an existing Object fills the
-// "Предмет для замены" slot without a full modal rerender (same
-// no-flicker/no-scroll-jump rule as every other reference/preset list).
-function updatePhotoToolUploadSlot(index, file) {
-  const slot = document.querySelector('.photo-tool-upload-grid [data-slot-index="' + index + '"]');
-  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
-  if (!slot || !config) return;
-  const label = config.labels[index] || '';
-  slot.classList.toggle('has-file', !!file);
-  slot.innerHTML = (file ? '<img src="' + S.escapeHtml(file.url) + '" alt="" />' : '<span class="photo-tool-upload-plus">＋</span>')
-    + '<b>' + S.escapeHtml(label) + '</b>'
-    + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>');
-}
 
-function renderTopazEnhanceBody(state) {
-  const file=state.files[0];
-  return '<div class="photo-tool-layout"><div class="photo-tool-demo-column">'+photoToolDemoHtml(PHOTO_TOOL_CONFIG.enhance)+'<p>Automatic detail enhancement with the existing Topaz flow.</p></div>'
-    +'<div class="photo-tool-work-column"><div class="photo-tool-upload-grid count-1"><button class="photo-tool-upload-slot '+(file?'has-file':'')+'" type="button" data-slot-index="0" onclick="SYLVEX.openPhotoToolFilePicker(event,\'enhance\',0)">'
-    +(file?'<img src="'+S.escapeHtml(file.url)+'" alt=""><b>Source image</b><small>'+S.escapeHtml(file.name||'Image selected')+'</small><i role="button" aria-label="Remove" onclick="SYLVEX.removePhotoToolFile(event,\'enhance\',0)">×</i>':'<span class="photo-tool-upload-plus">＋</span><b>Source image</b><small>Click to upload</small>')
-    +'</button></div><input id="photoToolFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onPhotoToolFiles(event)">'
-    +'<button class="photo-tool-generate" type="button" '+(!file||state.generating?'disabled ':'')+'onclick="SYLVEX.generatePhotoTool(event)">'
-    +(state.generating?'<span class="photo-tool-spinner"></span>Enhancing…':'Enhance')+'</button></div></div>';
-}
 function sylvexRestoreColor(region) {
   return region.source==='user_added'?'purple':region.region_type==='face'?'green':region.region_type==='text'?'blue':region.region_type==='object'?'orange':'purple';
 }
-function renderEnhancePhotoModal(body) {
-  const state=photoToolState.enhance;
-  body.innerHTML='<header class="photo-tool-head"><div><small>Photo tool</small><h3>Enhance Photo</h3></div><button type="button" aria-label="Close" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
-    +renderTopazEnhanceBody(state);
-}
 function validateSylvexRestorePlan(state){if(state.regions.length>12)return 'You can use up to 12 regions.';if(state.regions.filter(region=>region.reference_asset_id).length>4)return 'You can use up to 4 photo references.';return ''}
 function serializeSylvexRestoreRegions(regions){return regions.map(region=>{const instruction=String(region.text_instruction||'').slice(0,500),reference=region.reference_asset_id||null;return{region_id:region.region_id,source:'user_added',region_type:region.region_type||'other',bbox:Object.assign({},region.bbox),confidence:null,importance_score:1,issue_type:'user_defined',issue_summary:'User manually marked this region.',suggested_action:null,user_action:reference?'upload_reference':instruction.trim()?'enter_text':'auto_restore',reference_asset_id:reference,text_instruction:instruction||null,protection_mode:null}})}
+
+// =====================================================
+// TOOL WINDOWS: every photo tool has the same window - a vertical banner on
+// the left (a colour for now, a presentation image later via config.banner)
+// and the tool's upload areas on the right, one under the other, split by a
+// line. Each area has a ＋ while it has room; every reference in it has a ×.
+// An area that takes a person offers "Персонаж" or "Загрузить" first;
+// "Загрузить" opens the standard upload panel ("История").
+// =====================================================
+const PHOTO_TOOL_BANNERS = {
+  try_on:['#7c3aed','#db2777'], remove_bg:['#0ea5e9','#22d3ee'], replace_character:['#f97316','#ef4444'],
+  enhance:['#14b8a6','#3b82f6'], animate_photo:['#8b5cf6','#06b6d4'], tattoo:['#1f2937','#6b7280'],
+  logo:['#f59e0b','#ef4444'], remove_object:['#10b981','#3b82f6'], watermark_removal:['#6366f1','#0ea5e9'],
+  replace_object:['#ec4899','#8b5cf6'], hair_beard:['#92400e','#f59e0b'], face_retouch:['#f472b6','#fb7185'],
+};
+
+function photoToolHeadHtml(config) {
+  return '<header class="ptool-head"><small>Быстрый инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></header>';
+}
+
+function photoToolBannerHtml(tool, config) {
+  const colors = PHOTO_TOOL_BANNERS[tool] || ['#3b82f6', '#8b5cf6'];
+  const image = config && config.banner ? ';background-image:url(' + S.escapeHtml(config.banner) + ')' : '';
+  return '<div class="ptool-banner" aria-hidden="true" style="--ptool-a:' + colors[0] + ';--ptool-b:' + colors[1] + image + '"></div>';
+}
+
+// The upload areas of a tool, read from its own state. Each area:
+// { key, label, max, items: [{ url }], chooser, openable, hint, extra }.
+function photoToolZones(tool) {
+  const config = PHOTO_TOOL_CONFIG[tool];
+  const state = photoToolStateFor(tool);
+  if (!config || !state) return [];
+  const one = (url) => (url ? [{ url }] : []);
+  const file = (index) => one(state.files[index] && state.files[index].url);
+  if (tool === 'try_on') return [
+    { key:'person', label:'Человек', max:1, chooser:true, items:one(state.personImage) },
+    { key:'garments', label:'Одежда', max:3, items:state.garments.filter(Boolean).map((item) => ({ url:item.url })) },
+  ];
+  if (tool === 'replace_character') return [
+    { key:'source', label:'Основное фото', max:1, items:one(state.sourceImage) },
+    { key:'identity', label:'Новый персонаж', max:1, chooser:true, items:one(state.identityImage) },
+  ];
+  if (tool === 'tattoo') {
+    const selected = tattooState.selectedReferenceId ? tattooReferenceById(tattooState.selectedReferenceId) : null;
+    return [
+      { key:'photo', label:'Ваше фото', max:1, items:file(0) },
+      { key:'tattoo', label:'Тату', max:1, items:one(tattooState.uploadedReference || (selected && selected.referenceAsset)), hint:'Загрузите рисунок или выберите тату ниже' },
+    ];
+  }
+  if (tool === 'logo') {
+    const selected = logoState.selectedReferenceId ? logoReferenceById(logoState.selectedReferenceId) : null;
+    return [{ key:'photo', label:'Ваше изображение', max:1, items:one(selected ? selected.asset : (state.files[0] && state.files[0].url)) }];
+  }
+  if (tool === 'replace_object') return [
+    { key:'photo', label:'Основное фото', max:1, openable:true, items:file(0), hint:'Нажмите на фото, чтобы отметить предмет', extra:photoToolMarkBadgeHtml(state) },
+    { key:'object', label:'Предмет для замены', max:1, items:file(1) },
+  ];
+  if (tool === 'remove_object') return [
+    { key:'photo', label:'Исходное фото', max:1, openable:true, items:file(0), hint:'Нажмите на фото, чтобы отметить предмет', extra:photoToolMarkBadgeHtml(state) },
+  ];
+  if (tool === 'hair_beard') return [
+    { key:'photo', label:'Портрет', max:1, items:file(0), extra:hairBeardZoneBadgeHtml() },
+  ];
+  return [{ key:'photo', label:(config.labels && config.labels[0]) || 'Фото', max:1, items:file(0) }];
+}
+
+function photoToolZoneHtml(zone) {
+  const items = zone.items || [];
+  const full = items.length >= zone.max;
+  const refs = items.map((item, index) => '<figure class="ptool-ref' + (zone.openable ? ' is-openable' : '') + '"'
+      + (zone.openable ? ' role="button" tabindex="0" onclick="SYLVEX.openPhotoToolReference(event,\'' + zone.key + '\')"' : '') + '>'
+      + '<img src="' + S.escapeHtml(item.url) + '" alt="" />'
+      + '<button type="button" class="ptool-ref-x" aria-label="Убрать" onclick="SYLVEX.removePhotoToolZoneItem(event,\'' + zone.key + '\',' + index + ')">×</button>'
+      + '</figure>').join('');
+  const add = full ? '' : '<button type="button" class="ptool-add" aria-label="Добавить: ' + S.escapeHtml(zone.label) + '" onclick="SYLVEX.addPhotoToolZoneItem(event,\'' + zone.key + '\')"><span aria-hidden="true">＋</span></button>';
+  const chooser = zone.chooser && !full
+    ? '<div class="ptool-chooser" onclick="this.closest(\'.ptool-zone\').classList.remove(\'is-choosing\')"><button type="button" onclick="SYLVEX.choosePhotoToolZoneSource(event,\'' + zone.key + '\',\'character\')">Персонаж</button>'
+      + '<button type="button" onclick="SYLVEX.choosePhotoToolZoneSource(event,\'' + zone.key + '\',\'upload\')">Загрузить</button></div>'
+    : '';
+  const hint = zone.hint && (zone.openable ? items.length : !items.length) ? '<small class="ptool-zone-hint">' + S.escapeHtml(zone.hint) + '</small>' : '';
+  return '<section class="ptool-zone' + (items.length ? ' has-items' : '') + '" data-zone="' + zone.key + '" data-max="' + zone.max + '">'
+    + '<header class="ptool-zone-head"><b>' + S.escapeHtml(zone.label) + '</b>' + (zone.max > 1 ? '<small>' + items.length + ' / ' + zone.max + '</small>' : '') + '</header>'
+    + '<div class="ptool-zone-body">' + refs + add + chooser + (zone.extra || '') + '</div>'
+    + hint
+    + '</section>';
+}
+
+function photoToolZonesInnerHtml(tool) {
+  return photoToolZones(tool).map(photoToolZoneHtml).join('<hr class="ptool-divider" />');
+}
+
+// Rebuilds only the upload areas - a preset pick shows up in them without
+// touching the preset lists (no flicker, no scroll jump).
+function refreshPhotoToolZones() {
+  const host = document.getElementById('ptoolZones');
+  if (host) host.innerHTML = photoToolZonesInnerHtml(activePhotoTool);
+}
+
+function photoToolZoneByKey(key) {
+  return photoToolZones(activePhotoTool).find((zone) => zone.key === key) || null;
+}
+
+// ＋: an area that takes a person first asks where it comes from.
+function addPhotoToolZoneItem(e, key) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const zone = photoToolZoneByKey(key);
+  const state = photoToolStateFor(activePhotoTool);
+  if (!zone || !state || state.generating) return;
+  if (zone.chooser) {
+    const host = e && e.currentTarget && e.currentTarget.closest('.ptool-zone');
+    if (host) host.classList.toggle('is-choosing');
+    return;
+  }
+  openPhotoToolUploadPanel(key);
+}
+
+function choosePhotoToolZoneSource(e, key, source) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const host = e && e.currentTarget && e.currentTarget.closest('.ptool-zone');
+  if (host) host.classList.remove('is-choosing');
+  if (source === 'upload') { openPhotoToolUploadPanel(key); return; }
+  // Character: the same Pro Studio Character picker Image mode uses; its
+  // "Use Character" lands back in this tool (confirmCharacterDetailSelection).
+  if (activePhotoTool === 'try_on' && key === 'person') visualPickerRedirectTarget = 'try_on';
+  else if (activePhotoTool === 'replace_character' && key === 'identity') visualPickerRedirectTarget = 'replace_character';
+  else return;
+  // Above the tool window while it picks for it (closeImageStylePanel ends it).
+  document.body.classList.add('photo-tool-picking');
+  openVisualPicker(null, 'character');
+}
+
+function removePhotoToolZoneItem(e, key, index) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const tool = activePhotoTool;
+  const state = photoToolStateFor(tool);
+  if (!state || state.generating) return;
+  if (tool === 'try_on' && key === 'person') return clearTryOnPerson(e);
+  if (tool === 'try_on' && key === 'garments') {
+    const garments = state.garments.filter(Boolean);
+    garments.splice(index, 1);
+    state.garments = [0, 1, 2].map((slot) => garments[slot] || null);
+  } else if (tool === 'replace_character') {
+    return key === 'source' ? clearCharacterReplaceSource(e) : clearCharacterReplaceIdentity(e);
+  } else if (tool === 'tattoo' && key === 'tattoo') {
+    tattooState.uploadedReference = '';
+    tattooState.selectedReferenceId = null;
+    updatePresetCardSelection('.tattoo-reference-card', 'data-ref-id', null);
+  } else if (tool === 'logo') {
+    state.files[0] = null;
+    logoState.selectedReferenceId = null;
+    updatePresetCardSelection('.logo-reference-card', 'data-ref-id', null);
+  } else {
+    return removePhotoToolFile(e, tool, key === 'object' ? 1 : 0);
+  }
+  renderPhotoToolModal();
+}
+
+// Puts what was picked in the upload panel into an area of a tool.
+function setPhotoToolZoneItems(tool, key, urls) {
+  const state = photoToolStateFor(tool);
+  const clean = (urls || []).filter(Boolean);
+  if (!state || !clean.length) return;
+  const file = (url) => ({ name:'', mime:'image/*', url });
+  if (tool === 'try_on' && key === 'person') {
+    Object.assign(state, { personSource:'upload', characterId:null, characterReferenceUrls:[], personImage:clean[0], personLabel:'' });
+  } else if (tool === 'try_on' && key === 'garments') {
+    const garments = state.garments.filter(Boolean).concat(clean.map(file)).slice(0, 3);
+    state.garments = [0, 1, 2].map((slot) => garments[slot] || null);
+  } else if (tool === 'replace_character' && key === 'source') {
+    Object.assign(state, { sourceImage:clean[0], sourceLabel:'' });
+  } else if (tool === 'replace_character' && key === 'identity') {
+    Object.assign(state, { identitySource:'upload', identityImage:clean[0], identityLabel:'', characterId:null, characterReferenceUrls:[] });
+  } else if (tool === 'tattoo' && key === 'tattoo') {
+    tattooState.uploadedReference = clean[0];
+    tattooState.selectedReferenceId = null;
+  } else if (tool === 'logo') {
+    state.files[0] = file(clean[0]);
+    logoState.selectedReferenceId = null;
+  } else {
+    const index = key === 'object' ? 1 : 0;
+    state.files[index] = file(clean[0]);
+    if (tool === 'replace_object' && index === 1) replaceObjectState.selectedObjectId = null;
+    if ((tool === 'replace_object' || tool === 'remove_object') && index === 0) { state.markedPhotoStrokes = []; state.markedPhotoSize = null; }
+  }
+  if (activePhotoTool === tool) renderPhotoToolModal();
+}
+
+// "Загрузить" in a tool: the standard upload panel, pointed at this area.
+let photoToolUploadSession = null;
+function openPhotoToolUploadPanel(key) {
+  const zone = photoToolZoneByKey(key);
+  if (!zone) return;
+  const room = zone.max - zone.items.length;
+  if (room <= 0) return;
+  photoToolUploadSession = { tool:activePhotoTool, key, max:room, urls:[] };
+  setUploadTarget(UPLOAD_TARGETS.PHOTO_TOOL);
+  openUploadPanel();
+  const panel = document.getElementById('uploadPanel');
+  if (panel) panel.classList.add('for-photo-tool');
+}
+
+function commitPhotoToolUpload() {
+  const session = photoToolUploadSession;
+  closeUploadPanel();
+  if (session && session.urls.length) setPhotoToolZoneItems(session.tool, session.key, session.urls.slice().reverse());
+}
+
+// A marked area on the photo of Remove/Replace Object.
+function photoToolMarkBadgeHtml(state) {
+  const marked = state && state.markedPhotoStrokes && state.markedPhotoStrokes.length;
+  return marked ? '<span class="ptool-zone-tag">Область отмечена</span>' : '';
+}
+
+// The picked hairstyle sits as a small icon in the portrait area's corner.
+function hairBeardZoneBadgeHtml() {
+  const preset = hairBeardState.selectedPresetId ? hairBeardPresetById(hairBeardState.selectedPresetId) : null;
+  if (!preset) return '';
+  return '<span class="ptool-zone-badge" title="' + S.escapeHtml(HAIR_BEARD_PRESET_LABELS[preset.id] || preset.name || '') + '"><img src="' + S.escapeHtml(preset.referenceAsset) + '" alt="" />'
+    + '<button type="button" aria-label="Убрать причёску" onclick="SYLVEX.clearHairBeardPreset(event)">×</button></span>';
+}
+
+function clearHairBeardPreset(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (hairBeardState.generatingReference) return;
+  hairBeardState.selectedPresetId = null;
+  updatePresetCardSelection('.hair-beard-card', 'data-preset-id', null);
+  refreshPhotoToolZones();
+  updatePhotoToolGenerateButtonState();
+}
+
+// Tapping the photo of Remove/Replace Object opens it full screen to mark
+// the object.
+function openPhotoToolReference(e, key) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (key !== 'photo') return;
+  if (activePhotoTool === 'replace_object' || activePhotoTool === 'remove_object') openReplaceObjectMaskEditor(e);
+}
+
+// Whether a tool has what it needs to generate.
+function photoToolIsReady(tool) {
+  const config = PHOTO_TOOL_CONFIG[tool];
+  const state = photoToolStateFor(tool);
+  if (!config || !state) return false;
+  if (tool === 'try_on') return !!state.personImage && state.garments.some(Boolean);
+  if (tool === 'replace_character') return !!state.sourceImage && !!state.identityImage;
+  return photoToolReadyState(config, state);
+}
+
+function photoToolGenerateAction(tool) {
+  if (tool === 'try_on') return 'SYLVEX.generateTryOnTool(event)';
+  if (tool === 'replace_character') return 'SYLVEX.generateCharacterReplaceTool(event)';
+  return 'SYLVEX.generatePhotoTool(event)';
+}
+
+// Text a tool takes under its upload areas.
+function photoToolPromptHtml(tool) {
+  if (tool === 'hair_beard') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">' + S.escapeHtml(hairBeardState.referencePrompt) + '</textarea>';
+  if (tool === 'tattoo') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Опишите тату (необязательно)" oninput="SYLVEX.updateTattooPrompt(event)">' + S.escapeHtml(tattooState.prompt) + '</textarea>';
+  if (tool === 'logo') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Опишите логотип" oninput="SYLVEX.updateLogoPrompt(event)">' + S.escapeHtml(logoState.prompt) + '</textarea>';
+  if (tool === 'animate_photo') return '<textarea id="photoToolExtraPrompt" rows="2" maxlength="' + ANIMATE_PHOTO_PROMPT_MAX_LENGTH + '" placeholder="Опишите движение (необязательно)" oninput="SYLVEX.updateAnimatePhotoPromptCounter()"></textarea><small class="photo-tool-char-counter" id="photoToolPromptCounter">0/' + ANIMATE_PHOTO_PROMPT_MAX_LENGTH + '</small>';
+  if (tool === 'remove_object') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Что удалить (необязательно)" oninput="SYLVEX.updateRemoveObjectReadiness()"></textarea>';
+  if (tool === 'replace_object' || tool === 'face_retouch') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Пожелания (необязательно)"></textarea>';
+  return '';
+}
+
+// Built-in references of a tool, in a row of small icons above Generate.
+function photoToolPresetsHtml(tool) {
+  if (tool === 'tattoo') return tattooCatalogHtml();
+  if (tool === 'hair_beard') return '<div class="ptool-hair">' + hairBeardCatalogHtml() + hairBeardColorsHtml() + '</div>';
+  if (tool === 'logo') return logoCatalogHtml();
+  if (tool === 'replace_object') return replaceObjectObjectsRowHtml();
+  return '';
+}
+
 function renderPhotoToolModal() {
   const body = document.getElementById('photoToolModalBody');
   if (!body) return;
-  const photoToolModal = document.getElementById('photoToolModal');
-  if (photoToolModal) {
-    photoToolModal.classList.toggle('logo-tool-modal', activePhotoTool === 'logo');
-  }
-  if (activePhotoTool === 'try_on') {
-    renderTryOnModal(body);
-    return;
-  }
-  if (activePhotoTool === 'replace_character') {
-    renderCharacterReplaceModal(body);
-    return;
-  }
-  if (activePhotoTool === 'enhance') {
-    renderEnhancePhotoModal(body);
-    return;
-  }
-  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
-  const state = photoToolStateFor(activePhotoTool);
+  const tool = activePhotoTool;
+  const config = PHOTO_TOOL_CONFIG[tool];
+  const state = photoToolStateFor(tool);
   if (!config || !state) {
     renderPhotoToolCatalog();
     return;
   }
-  const slots = config.labels.map((label, index) => {
-    const file = state.files[index];
-    return '<button class="photo-tool-upload-slot ' + (file ? 'has-file' : '') + '" type="button" data-slot-index="' + index + '" onclick="SYLVEX.openPhotoToolFilePicker(event,\'' + activePhotoTool + '\',' + index + ')">'
-      + (file ? '<img src="' + S.escapeHtml(file.url) + '" alt="" />' : '<span class="photo-tool-upload-plus">＋</span>')
-      + '<b>' + S.escapeHtml(label) + '</b>'
-      + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>')
-      + '</button>';
-  }).join('');
-  const isRemoveObject = activePhotoTool === 'remove_object';
-  const isAnimatePhoto = activePhotoTool === 'animate_photo';
-  const ready = photoToolReadyState(config, state);
-  const promptPlaceholder = isAnimatePhoto ? 'Опишите желаемое движение (необязательно, до 250 символов)' : 'Дополнительные пожелания (необязательно)';
-  const promptMaxLength = isAnimatePhoto ? ' maxlength="250"' : '';
-  const promptOninput = isRemoveObject
-    ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"'
-    : (isAnimatePhoto ? ' oninput="SYLVEX.updateAnimatePhotoPromptCounter()"' : '');
-  body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
-    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
-    + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
-    + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
-    + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+(activePhotoTool==='replace_object'?' replace-object-layout':'')+(activePhotoTool==='logo'?' logo-layout':'')+'">'
-    + '<div class="photo-tool-demo-column" id="photoToolDemoColumn">' + photoToolDemoColumnInnerHtml(config) + '</div>'
-    + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
-    + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
-    + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
-    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : activePhotoTool==='logo' ? '<textarea id="photoToolExtraPrompt" rows="3" placeholder="Опишите логотип" oninput="SYLVEX.updateLogoPrompt(event)">'+S.escapeHtml(logoState.prompt)+'</textarea>' : activePhotoTool==='watermark_removal' ? '' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="' + S.escapeHtml(promptPlaceholder) + '"' + promptMaxLength + promptOninput + '></textarea>')
-    + (activePhotoTool==='logo' ? logoCatalogHtml() : '')
-    + (isAnimatePhoto ? '<small class="photo-tool-char-counter" id="photoToolPromptCounter">0/250</small>' : '')
-    + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
+  body.innerHTML = '<div class="ptool-layout" data-tool="' + tool + '">'
+    + photoToolBannerHtml(tool, config)
+    + '<button type="button" class="ptool-close" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button>'
+    + '<div class="ptool-work" onclick="SYLVEX.closePhotoToolDropdowns(event)">'
+    + photoToolHeadHtml(config)
+    + '<div class="ptool-zones" id="ptoolZones">' + photoToolZonesInnerHtml(tool) + '</div>'
+    + photoToolPromptHtml(tool)
+    + photoToolPresetsHtml(tool)
+    + '<button class="photo-tool-generate" type="button" ' + (!photoToolIsReady(tool) || state.generating ? 'disabled ' : '') + 'onclick="' + photoToolGenerateAction(tool) + '">'
     + photoToolGenerateButtonLabel(state)
     + '</button>'
     + '</div></div>';
-  if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object'&&activePhotoTool!=='replace_object')window.requestAnimationFrame(initPhotoToolMask);
-  if(activePhotoTool==='tattoo'&&tattooState.comparison)syncTattooComparisonAspectRatio(tattooState.comparison.before);
-  if(activePhotoTool==='replace_object'&&replaceObjectState.comparison)syncReplaceObjectComparisonAspectRatio(replaceObjectState.comparison.before);
 }
 
 // =====================================================
@@ -10134,8 +9854,6 @@ function renderPhotoToolModal() {
 // SYLVEX data sources (imageCharacters(), getGeneratedPhotoHistoryItems())
 // - it never creates a second Character or Media system.
 // =====================================================
-const TRY_ON_PERSON_SOURCE_LABELS = { character: 'Персонаж', media: 'Медиа', upload: 'Загрузка' };
-const TRY_ON_GARMENT_LABELS = ['Одежда 1', 'Одежда 2', 'Одежда 3'];
 
 function resetTryOnState() {
   const state = photoToolState.try_on;
@@ -10149,162 +9867,15 @@ function resetTryOnState() {
   state.garments = [null, null, null];
 }
 
-function renderTryOnModal(body) {
-  const config = PHOTO_TOOL_CONFIG.try_on;
-  const state = photoToolState.try_on;
-  if (!config || !state) {
-    renderPhotoToolCatalog();
-    return;
-  }
-  const ready = !!state.personImage && state.garments.some(Boolean);
-  body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
-    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
-    + '<div class="photo-tool-layout">'
-    + '<div class="photo-tool-demo-column">' + photoToolDemoHtml(config) + '<p>' + S.escapeHtml(config.description) + '</p></div>'
-    + '<div class="photo-tool-work-column">'
-    + tryOnPersonSectionHtml(state)
-    + tryOnGarmentSectionHtml(state)
-    + '<input id="tryOnUploadFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onTryOnPersonUploadFile(event)" />'
-    + '<input id="tryOnGarmentFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onTryOnGarmentFile(event)" />'
-    + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generateTryOnTool(event)">'
-    + (state.generating ? '<span class="photo-tool-spinner"></span>Обработка…' : 'Запустить обработку')
-    + '</button>'
-    + '</div></div>';
-}
 
-function tryOnPersonSectionHtml(state) {
-  const sourceLabel = TRY_ON_PERSON_SOURCE_LABELS[state.personSource] || '';
-  return '<div class="try-on-person-section">'
-    + '<small class="try-on-section-label">Человек</small>'
-    + '<div class="try-on-person-preview-box' + (state.personImage ? ' has-image' : '') + '">'
-    + (state.personImage
-        ? '<img src="' + S.escapeHtml(state.personImage) + '" alt="" />'
-          + '<span class="try-on-person-source-tag">' + S.escapeHtml(sourceLabel) + '</span>'
-          + '<i role="button" aria-label="Убрать" onclick="SYLVEX.clearTryOnPerson(event)">×</i>'
-        : '<span class="try-on-person-empty">Не выбрано</span>')
-    + '</div>'
-    + '<div class="try-on-person-sources">'
-    + ['character', 'media', 'upload'].map((key) => '<button type="button" class="try-on-source-btn '
-        + (state.personSource === key ? 'active' : '') + '" onclick="SYLVEX.chooseTryOnPersonSource(event,\'' + key + '\')">'
-        + S.escapeHtml(TRY_ON_PERSON_SOURCE_LABELS[key]) + '</button>').join('')
-    + '</div>'
-    + '</div>';
-}
 
-function tryOnGarmentSectionHtml(state) {
-  const slots = state.garments.map((file, index) => '<button class="photo-tool-upload-slot '
-      + (file ? 'has-file' : '') + '" type="button" onclick="SYLVEX.openTryOnGarmentPicker(event,' + index + ')">'
-      + (file ? '<img src="' + S.escapeHtml(file.url) + '" alt="" />' : '<span class="photo-tool-upload-plus">＋</span>')
-      + '<b>' + S.escapeHtml(TRY_ON_GARMENT_LABELS[index]) + '</b>'
-      + (file
-          ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removeTryOnGarment(event,' + index + ')">×</i>'
-          : '<small>Нажмите для загрузки</small>')
-      + '</button>').join('');
-  return '<small class="try-on-section-label">Одежда</small><div class="photo-tool-upload-grid count-3">' + slots + '</div>';
-}
 
-function chooseTryOnPersonSource(e, source) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (source === 'character') {
-    // Character selection reuses the exact same Pro Studio Character picker
-    // (card grid -> open the Character's own page -> pick references ->
-    // "Use Character") that Image mode and Replace Character both use,
-    // instead of a second, bespoke grid - see confirmCharacterDetailSelection()'s
-    // redirect branch for the commit side. Media/Upload keep their own
-    // simpler pickers, unchanged.
-    visualPickerRedirectTarget = 'try_on';
-    return openVisualPicker(null, 'character');
-  }
-  if (source === 'media') return openTryOnMediaPicker(e);
-  if (source === 'upload') {
-    const input = document.getElementById('tryOnUploadFileInput');
-    if (!input) return;
-    input.value = '';
-    input.click();
-  }
-}
 
-function ensureTryOnPickerModal() {
-  let modal = document.getElementById('tryOnPickerModal');
-  if (modal) return modal;
-  modal = document.createElement('div');
-  modal.id = 'tryOnPickerModal';
-  modal.className = 'photo-tool-modal try-on-picker-modal';
-  modal.innerHTML = '<section class="photo-tool-dialog try-on-picker-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
-    + '<header class="photo-tool-head"><div><small>Виртуальная примерка</small><h3 id="tryOnPickerTitle"></h3></div>'
-    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closeTryOnPicker(event)">×</button></header>'
-    + '<div class="try-on-picker-grid" id="tryOnPickerGrid"></div>'
-    + '</section>';
-  document.body.appendChild(modal);
-  return modal;
-}
 
-function openTryOnMediaPicker(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const modal = ensureTryOnPickerModal();
-  const title = document.getElementById('tryOnPickerTitle');
-  if (title) title.textContent = 'Выберите фото из медиа';
-  renderTryOnPickerGrid();
-  modal.classList.add('show');
-}
 
-function closeTryOnPicker(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const modal = document.getElementById('tryOnPickerModal');
-  if (modal) modal.classList.remove('show');
-}
 
-function renderTryOnPickerGrid() {
-  const grid = document.getElementById('tryOnPickerGrid');
-  const state = photoToolState.try_on;
-  if (!grid || !state) return;
-  // Media is the only kind this bespoke picker still handles - Character
-  // selection now goes through the shared Pro Studio Character picker (see
-  // chooseTryOnPersonSource() above). Same Media/History source the
-  // composer's own upload panel reads (getGeneratedPhotoHistoryItems()) -
-  // read-only here, never routed through the composer's own upload-target
-  // state.
-  const items = getGeneratedPhotoHistoryItems();
-  grid.innerHTML = items.length ? items.map((entry) => {
-    const item = normalizeGeneratedImageItem(entry);
-    if (!item) return '';
-    const active = state.personSource === 'media' && state.personImage === item.url;
-    return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.pickTryOnMedia(event,\'' + S.escapeHtml(item.url) + '\')">'
-      + '<img src="' + S.escapeHtml(item.thumb || item.url) + '" alt="" loading="lazy" decoding="async" />'
-      + '</button>';
-  }).join('') : '<div class="try-on-picker-empty">Пока нет фото</div>';
-}
 
-function pickTryOnMedia(e, url) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const state = photoToolState.try_on;
-  if (!state || !url) return;
-  state.personSource = 'media';
-  state.characterId = null;
-  state.characterReferenceUrls = [];
-  state.personImage = url;
-  state.personLabel = '';
-  closeTryOnPicker(e);
-  renderPhotoToolModal();
-}
 
-async function onTryOnPersonUploadFile(e) {
-  const input = e && e.target;
-  const file = input && input.files && input.files[0];
-  const state = photoToolState.try_on;
-  if (!file || !state) return;
-  try {
-    const loaded = await readPhotoToolFile(file);
-    state.personSource = 'upload';
-    state.characterId = null;
-    state.characterReferenceUrls = [];
-    state.personImage = loaded.url;
-    state.personLabel = loaded.name || '';
-    renderPhotoToolModal();
-  } catch (error) {
-    toast((error && error.message) || 'Не удалось загрузить фото');
-  }
-}
 
 function clearTryOnPerson(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -10318,37 +9889,8 @@ function clearTryOnPerson(e) {
   renderPhotoToolModal();
 }
 
-function openTryOnGarmentPicker(e, index) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const input = document.getElementById('tryOnGarmentFileInput');
-  if (!input) return;
-  input.dataset.slot = String(Math.max(0, Math.min(2, Number(index) || 0)));
-  input.value = '';
-  input.click();
-}
 
-async function onTryOnGarmentFile(e) {
-  const input = e && e.target;
-  const file = input && input.files && input.files[0];
-  const state = photoToolState.try_on;
-  if (!file || !state) return;
-  const index = Math.max(0, Math.min(2, Number(input.dataset.slot || 0)));
-  try {
-    const loaded = await readPhotoToolFile(file);
-    state.garments[index] = loaded;
-    renderPhotoToolModal();
-  } catch (error) {
-    toast((error && error.message) || 'Не удалось загрузить фото');
-  }
-}
 
-function removeTryOnGarment(e, index) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const state = photoToolState.try_on;
-  if (!state || state.generating) return;
-  state.garments[index] = null;
-  renderPhotoToolModal();
-}
 
 // =====================================================
 // JAVASCRIPT-БЛОК: generateTryOnTool
@@ -10474,9 +10016,6 @@ function openPhotoToolModal(e, kind) {
     close: () => closePhotoToolModal(),
     isOpen: () => modal.classList.contains('show') && 'photo:' + (activePhotoTool || 'list') === navKey,
   });
-  loadPhotoToolDemos().then(() => {
-    if (modal.classList.contains('show') && activePhotoTool === kind) renderPhotoToolModal();
-  });
 }
 
 function closePhotoToolModal(e) {
@@ -10504,9 +10043,6 @@ function closePhotoToolModal(e) {
       hairBeardState.category = 'men';
       hairBeardState.selectedPresetId = null;
       hairBeardState.colors = { hair:null, beard:null, mustache:null, eyebrows:null };
-      hairBeardState.sharedColor = null;
-      hairBeardState.sharedColorSourcePart = null;
-      hairBeardState.comparison = null;
       hairBeardState.customPresets = [];
       hairBeardState.referencePrompt = '';
       hairBeardState.generatingReference = false;
@@ -10515,9 +10051,9 @@ function closePhotoToolModal(e) {
       const state = photoToolState.tattoo;
       if (state) state.files = [];
       tattooState.selectedReferenceId = null;
+      tattooState.uploadedReference = '';
       tattooState.customReferences = [];
       tattooState.prompt = '';
-      tattooState.comparison = null;
       tattooState.generatingReference = false;
     }
     if (activePhotoTool === 'logo') {
@@ -10528,20 +10064,19 @@ function closePhotoToolModal(e) {
       logoState.result = null;
       logoState.generating = false;
     }
-    if (activePhotoTool === 'makeup' || activePhotoTool === 'face_retouch') {
+    if (activePhotoTool === 'face_retouch') {
       const state = photoToolState[activePhotoTool];
       if (state) state.files = [];
     }
     if (activePhotoTool === 'replace_object') {
       const state = photoToolState.replace_object;
-    if (state) { state.files = []; state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; state.generating = false; }
-      replaceObjectState.comparison = null;
+    if (state) { state.files = []; state.markedPhotoStrokes=[]; state.markedPhotoSize=null; state.generating = false; }
       replaceObjectState.selectedObjectId = null;
       closeReplaceObjectMaskEditor();
     }
     if (activePhotoTool === 'watermark_removal') {
       const state = photoToolState.watermark_removal;
-      if (state) { state.files = []; state.maskUrl = ''; state.generating = false; }
+      if (state) { state.files = []; state.markedPhotoStrokes = []; state.markedPhotoSize = null; state.generating = false; }
     }
     if (photoToolCameFromList && activePhotoTool) {
       // One level back only: this tool was opened from the Tools List, so
@@ -10574,6 +10109,9 @@ function closePhotoToolModal(e) {
       // confusing toast in that window. Restoring one tick later avoids
       // the race without needing to know every caller's exact order.
       window.setTimeout(() => {
+        // Reopened in the same tick (one tool straight into another): that
+        // session keeps the return point instead of losing image mode under it.
+        if (modal.classList.contains('show')) { photoToolReturnMode = returnMode; return; }
         if (returnMode !== studioMode && !activeGenerationLocked()) updateComposerMode(returnMode);
       }, 0);
     }
@@ -10618,15 +10156,12 @@ async function onPhotoToolFiles(e) {
     loaded.forEach((file, offset) => {
       if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo' || activePhotoTool === 'enhance') && file && files[offset]) file.originalFile = files[offset];
       if (activePhotoTool === 'replace_object') {
-        replaceObjectState.comparison = null;
-        if (start + offset === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
+        if (start + offset === 0) { state.markedPhotoStrokes=[]; state.markedPhotoSize=null; }
         if (start + offset === 1) replaceObjectState.selectedObjectId = null;
       }
       if (start + offset < config.max) state.files[start + offset] = file;
     });
     state.files = state.files.slice(0, config.max);
-    if (activePhotoTool === 'hair_beard') hairBeardState.comparison = null;
-    if (activePhotoTool === 'tattoo') tattooState.comparison = null;
     renderPhotoToolModal();
   } catch (error) {
     toast((error && error.message) || 'Не удалось загрузить фото');
@@ -10642,15 +10177,11 @@ function removePhotoToolFile(e, kind, index) {
   if (!state || state.generating) return;
   if (kind === 'replace_object') state.files[index] = null;
   else state.files.splice(index, 1);
-  if (kind === 'hair_beard') hairBeardState.comparison = null;
-  if (kind === 'tattoo') tattooState.comparison = null;
   if (kind === 'replace_object') {
-    replaceObjectState.comparison = null;
-    if (index === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
+    if (index === 0) { state.markedPhotoStrokes=[]; state.markedPhotoSize=null; }
     if (index === 1) replaceObjectState.selectedObjectId = null;
   }
-  if (kind === 'watermark_removal') state.maskUrl = '';
-  if (kind === 'enhance') resetSylvexRestoreReview(false);
+  if (kind === 'remove_object') { state.markedPhotoStrokes = []; state.markedPhotoSize = null; }
   activePhotoTool = kind;
   renderPhotoToolModal();
 }
@@ -10666,7 +10197,7 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'tattoo') {
     const selected = tattooReferenceById(tattooState.selectedReferenceId);
     const instruction = String(extra || '').trim();
-    return 'Edit the uploaded portrait in place by adding only the requested tattoo. Preserve the person\'s identity, anatomy, skin tone and texture, pose, exact original image canvas dimensions and aspect ratio, crop, camera framing, body scale and position, background, clothing and lighting. Do not crop, zoom, pan, resize the subject, extend the canvas or reframe. Do not change any other detail or add other tattoos. '+(selected?'Use the selected tattoo reference "'+selected.name+'" as the design/style reference. ':'')+(instruction?'Follow the user\'s tattoo placement and design instructions: "'+instruction+'". ':'Apply the selected tattoo reference as a realistic tattoo. ')+(selected&&instruction?'Combine the selected visual reference with the user\'s instructions. ':'')+'Make the tattoo follow the skin perspective, curvature, lighting and texture, with natural ink integration.';
+    return 'Edit the uploaded portrait in place by adding only the requested tattoo. Preserve the person\'s identity, anatomy, skin tone and texture, pose, exact original image canvas dimensions and aspect ratio, crop, camera framing, body scale and position, background, clothing and lighting. Do not crop, zoom, pan, resize the subject, extend the canvas or reframe. Do not change any other detail or add other tattoos. '+(tattooState.uploadedReference?'Use the second image (the user\'s own tattoo design) as the exact design to apply. ':selected?'Use the selected tattoo reference "'+selected.name+'" as the design/style reference. ':'')+(instruction?'Follow the user\'s tattoo placement and design instructions: "'+instruction+'". ':'Apply the selected tattoo reference as a realistic tattoo. ')+(selected&&instruction?'Combine the selected visual reference with the user\'s instructions. ':'')+'Make the tattoo follow the skin perspective, curvature, lighting and texture, with natural ink integration.';
   }
   if (kind === 'logo') {
     const reference=logoReferenceById(logoState.selectedReferenceId);
@@ -10675,14 +10206,11 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'remove_object') return 'Treat the user mark as a locator point or rough hint, not as the target object’s boundary. Identify the complete object at or nearest to the mark, remove every visible part of it, and naturally reconstruct the background behind it. Preserve all other people, objects, composition and lighting.' + suffix;
   if (kind === 'watermark_removal') return 'Remove the complete watermark, logo, or text overlay marked by the user from the uploaded image. Treat the mark as a locator; remove all visible parts of that watermark and seamlessly reconstruct the underlying image using nearby texture, color, lighting, and perspective. Preserve the original image dimensions, composition, subjects, and every unmarked detail.' + suffix;
   if (kind === 'replace_object') return 'Edit the first uploaded image in place. Treat the user mark as a locator point or rough hint, never as the object’s contour. Identify the complete object at that location and fully remove and replace all of its visible parts with the corresponding complete object from the second uploaded image. Keep the original canvas dimensions, aspect ratio, crop, framing, camera position, scene, people, pose, unmarked objects, textures, lighting, and colors unchanged. Match scale, perspective, orientation, lighting, and contact shadows. Do not leave any part of the original target object behind.' + suffix;
-  if (kind === 'makeup') return 'Apply the makeup style from the optional second reference to the portrait. Preserve identity, facial anatomy, skin texture and lighting. The result must remain natural and photorealistic.' + suffix;
   if (kind === 'hair_beard') {
     const preset = hairBeardPresetById(hairBeardState.selectedPresetId);
     const label = preset ? (preset.custom ? preset.name : (preset.label || HAIR_BEARD_PRESET_LABELS[preset.id] || preset.name)) : '';
     const parts = { hair:'hair', beard:'beard', mustache:'mustache', eyebrows:'eyebrows' };
-    const colorInstructions = hairBeardState.sharedColor
-      ? 'use the same exact color ' + hairBeardState.sharedColor + ' for hair, beard, mustache and eyebrows'
-      : Object.entries(parts).map(([part,name]) => name + ': ' + (hairBeardState.colors[part] || 'preserve the original color')).join('; ');
+    const colorInstructions = Object.entries(parts).map(([part,name]) => name + ': ' + (hairBeardState.colors[part] || 'preserve the original color')).join('; ');
     const preservePhoto = 'Edit the uploaded portrait in place. Preserve the exact original image canvas dimensions and aspect ratio, crop, camera framing, head and body scale, position, pose, facial identity, anatomy, background, lighting and all non-hair details. Do not crop, zoom, pan, resize the subject, extend the canvas or reframe. Change only hair, beard, mustache and eyebrows as requested.';
     const selectedStyle = extra
       ? 'Follow only the user\'s direct style instructions: "' + extra + '". Ignore any selected catalog reference image.'
@@ -10853,12 +10381,13 @@ async function generatePhotoTool(e) {
     toast('Загрузите необходимые фотографии');
     return;
   }
-  if (config.mask && state.maskUrl) refs.push(state.maskUrl);
   if (kind === 'hair_beard' && !hairDirectText && hairBeardState.selectedPresetId) {
     const preset = hairBeardPresetById(hairBeardState.selectedPresetId);
     if (preset) refs.push(preset.referenceAsset);
   }
-  if (kind === 'tattoo' && tattooState.selectedReferenceId) {
+  if (kind === 'tattoo' && tattooState.uploadedReference) {
+    refs.push(tattooState.uploadedReference);
+  } else if (kind === 'tattoo' && tattooState.selectedReferenceId) {
     const reference = tattooReferenceById(tattooState.selectedReferenceId);
     if (reference) refs.push(reference.referenceAsset);
   }
@@ -10873,12 +10402,12 @@ async function generatePhotoTool(e) {
   }) - 1;
   renderChat();
   try {
-    // Makeup and Face Retouch are identity-preserving portrait edits, same as
-    // Hair&Beard/Tattoo - they must get the same isolateRequest treatment
+    // Face Retouch is an identity-preserving portrait edit, same as
+    // Hair&Beard/Tattoo - it must get the same isolateRequest treatment
     // (fixed model/quality/count, imageOptions built only from tool-owned
     // refs) or the request silently inherits the main composer's currently
     // selected model/Character/Object/Style instead of this tool's own.
-    const isIsolatedGptEditKind = kind === 'hair_beard' || kind === 'tattoo' || kind === 'makeup' || kind === 'face_retouch';
+    const isIsolatedGptEditKind = kind === 'hair_beard' || kind === 'tattoo' || kind === 'face_retouch';
     const outputSize = isIsolatedGptEditKind ? await hairBeardOutputSize(state.files[0].originalFile || state.files[0].url) : '';
     const modelOptions = isIsolatedGptEditKind ? {
       isolateRequest:true,
@@ -10901,19 +10430,10 @@ async function generatePhotoTool(e) {
       imageResultMini: true,
       metadata: imageGenerationMetadata(prompt, refs, result, options),
     };
-    if (kind === 'hair_beard') {
-      if (images.length && state.files[0]) {
-        hairBeardState.comparison = { before:state.files[0].url, after:images[0] };
-        if (hairBeardState.smartCrop) detectHairBeardFaceFocus(state.files[0].url);
-      }
+    if (kind === 'hair_beard' || kind === 'tattoo') {
       state.generating = false;
       renderPhotoToolModal();
-      toast(hairBeardState.comparison ? 'Результат показан в сравнении до/после' : 'Обработка завершена');
-    } else if (kind === 'tattoo') {
-      if (images.length && state.files[0]) tattooState.comparison = { before:state.files[0].url, after:images[0] };
-      state.generating = false;
-      renderPhotoToolModal();
-      toast(tattooState.comparison ? 'Результат показан в сравнении до/после' : 'Обработка завершена');
+      toast('Обработка завершена');
     } else {
       state.files = [];
       state.generating = false;
@@ -11007,7 +10527,7 @@ async function generateReplaceObjectTool(state, instruction) {
   const source=state.files[0]&&state.files[0].url;
   const replacement=state.files[1]&&state.files[1].url;
   if(!source||!replacement){toast('Загрузите исходное фото и предмет для замены');return}
-  if(!state.markedPhotoStrokes||!state.markedPhotoStrokes.length||!state.markedPhotoUrl){toast('Отметьте область и сохраните фото перед генерацией');return}
+  if(!state.markedPhotoStrokes||!state.markedPhotoStrokes.length){toast('Нажмите на фото и отметьте предмет перед генерацией');return}
   const displayPrompt=instruction||'Замена отмеченного предмета';
   const prompt=photoToolPrompt('replace_object',instruction);
   const references=[source,replacement],model='gpt_image_2_5_sunburst';
@@ -11017,16 +10537,15 @@ async function generateReplaceObjectTool(state, instruction) {
   try{
     const start=await callGenerate(displayPrompt,null,references,null,{
       isolateRequest:true,model,provider:'openai',imageOptions:Object.assign({},options,{
-        replaceObjectSourceUrl:source,replaceObjectMarkedSourceUrl:state.markedPhotoUrl,replaceObjectReferenceUrl:replacement,replaceObjectMaskStrokes:state.markedPhotoStrokes,replaceObjectInstruction:instruction,
+        replaceObjectSourceUrl:source,replaceObjectReferenceUrl:replacement,replaceObjectMaskStrokes:state.markedPhotoStrokes,replaceObjectEditorSize:state.markedPhotoSize,replaceObjectInstruction:instruction,
       }),
       loadingIndex,
     });
     const result=start.result||start,images=generatedUrlsFromResponse(result,'image'),thumbs=generatedThumbsFromResponse(result);
     if(!images.length)throw new Error('Модель не вернула изображение');
     addGeneratedImages(images,thumbs);
-    replaceObjectState.comparison={before:source,after:images[0]};
     chatMessages[loadingIndex]={role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,references,result,Object.assign({},options,{mask_applied:true}))};
-    toast('Предмет заменён. Перетяните шторку, чтобы сравнить до и после');
+    toast('Предмет заменён');
     loadConversations();
   }catch(error){
     chatMessages[loadingIndex]=resolveFailureMessage(error,{fallback:'Не удалось заменить предмет. Попробуйте ещё раз.',mode:'image',prompt:displayPrompt});
@@ -11045,7 +10564,7 @@ async function generateRemoveObjectTool(state) {
   }
   const extraEl = document.getElementById('photoToolExtraPrompt');
   const instruction = extraEl ? String(extraEl.value || '').trim() : '';
-  const hasMask = !!state.maskUrl;
+  const hasMask = !!(state.markedPhotoStrokes && state.markedPhotoStrokes.length);
   if (!hasMask && !instruction) {
     // Core validation rule: image alone is never enough - mask and/or text
     // is required before a provider request is ever sent.
@@ -11071,7 +10590,8 @@ async function generateRemoveObjectTool(state) {
       imageOptions: {
         tool: 'remove_object',
         removeObjectSourceUrl: sourceUrl,
-        removeObjectMaskUrl: state.maskUrl || '',
+        removeObjectMaskStrokes: hasMask ? state.markedPhotoStrokes : [],
+        removeObjectEditorSize: hasMask ? state.markedPhotoSize : null,
         removeObjectInstruction: instruction,
       },
     });
@@ -11085,7 +10605,8 @@ async function generateRemoveObjectTool(state) {
       metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: 'remove_object' }),
     };
     state.files = [];
-    state.maskUrl = '';
+    state.markedPhotoStrokes = [];
+    state.markedPhotoSize = null;
     state.generating = false;
     closePhotoToolModal();
     toast('Обработка завершена');
@@ -11112,7 +10633,6 @@ async function generateRemoveObjectTool(state) {
 async function generateWatermarkRemovalTool(state) {
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) { toast('Загрузите фото'); return; }
-  if (!state.maskUrl) { toast('Отметьте водяной знак на фото'); return; }
   const displayPrompt = 'Удаление водяного знака на фото';
   state.generating = true;
   renderPhotoToolModal();
@@ -11128,7 +10648,6 @@ async function generateWatermarkRemovalTool(state) {
       imageOptions: {
         tool: 'watermark_removal',
         watermarkSourceUrl: sourceUrl,
-        watermarkMarkUrl: state.maskUrl,
       },
     });
     const result = start.result || start;
@@ -11142,7 +10661,6 @@ async function generateWatermarkRemovalTool(state) {
     };
     state.generating = false;
     state.files = [];
-    state.maskUrl = '';
     closePhotoToolModal();
     toast('Водяной знак удалён');
     loadConversations();
@@ -11251,7 +10769,6 @@ async function generateRemoveBgTool(state) {
 const ENHANCE_PHOTO_TOOL_KEY = 'enhance_photo';
 
 async function generateEnhancePhotoTool(state) {
-  if (state.model === 'sylvex_sr') return runSylvexRestore({});
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
     toast('Загрузите фото');
@@ -11429,7 +10946,6 @@ async function generateAnimatePhotoTool(state) {
 // silently falls through to the generic image_generation() dispatch on the
 // backend instead of the isolated generate_character_replace_image() flow.
 const CHARACTER_REPLACE_TOOL_KEY = 'replace_character';
-const CHARACTER_REPLACE_IDENTITY_SOURCE_LABELS = { character: 'Персонаж', history: 'История', upload: 'Загрузка' };
 
 function resetCharacterReplaceState() {
   const state = photoToolState.replace_character;
@@ -11444,236 +10960,19 @@ function resetCharacterReplaceState() {
   state.characterReferenceUrls = [];
 }
 
-function renderCharacterReplaceModal(body) {
-  const config = PHOTO_TOOL_CONFIG.replace_character;
-  const state = photoToolState.replace_character;
-  if (!config || !state) {
-    renderPhotoToolCatalog();
-    return;
-  }
-  const ready = !!state.sourceImage && !!state.identityImage;
-  body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
-    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
-    + '<div class="photo-tool-layout">'
-    + '<div class="photo-tool-demo-column">' + photoToolDemoHtml(config) + '<p>' + S.escapeHtml(config.description) + '</p></div>'
-    + '<div class="photo-tool-work-column">'
-    + characterReplaceSourceSectionHtml(state)
-    + characterReplaceIdentitySectionHtml(state)
-    + '<input id="characterReplaceSourceFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onCharacterReplaceSourceUploadFile(event)" />'
-    + '<input id="characterReplaceIdentityFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onCharacterReplaceIdentityUploadFile(event)" />'
-    + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generateCharacterReplaceTool(event)">'
-    + (state.generating ? '<span class="photo-tool-spinner"></span>Обработка…' : 'Запустить обработку')
-    + '</button>'
-    + '</div></div>';
-}
 
-function characterReplaceSourceSectionHtml(state) {
-  return '<div class="character-replace-section">'
-    + '<small class="try-on-section-label">Основное фото</small>'
-    + '<div class="try-on-person-preview-box' + (state.sourceImage ? ' has-image' : '') + '">'
-    + (state.sourceImage
-        ? '<img src="' + S.escapeHtml(state.sourceImage) + '" alt="" />'
-          + '<i role="button" aria-label="Убрать" onclick="SYLVEX.clearCharacterReplaceSource(event)">×</i>'
-        : '<span class="try-on-person-empty">Не выбрано</span>')
-    + '</div>'
-    + '<div class="try-on-person-sources">'
-    + '<button type="button" class="try-on-source-btn" onclick="SYLVEX.chooseCharacterReplaceSource(event,\'history\')">История</button>'
-    + '<button type="button" class="try-on-source-btn" onclick="SYLVEX.chooseCharacterReplaceSource(event,\'upload\')">Загрузка</button>'
-    + '</div>'
-    + '</div>';
-}
 
-function characterReplaceIdentitySectionHtml(state) {
-  const sourceLabel = CHARACTER_REPLACE_IDENTITY_SOURCE_LABELS[state.identitySource] || '';
-  return '<div class="character-replace-section">'
-    + '<small class="try-on-section-label">Новый персонаж</small>'
-    + '<div class="try-on-person-preview-box' + (state.identityImage ? ' has-image' : '') + '">'
-    + (state.identityImage
-        ? '<img src="' + S.escapeHtml(state.identityImage) + '" alt="" />'
-          + '<span class="try-on-person-source-tag">' + S.escapeHtml(sourceLabel) + '</span>'
-          + '<i role="button" aria-label="Убрать" onclick="SYLVEX.clearCharacterReplaceIdentity(event)">×</i>'
-        : '<span class="try-on-person-empty">Не выбрано</span>')
-    + '</div>'
-    + '<div class="try-on-person-sources">'
-    + ['character', 'history', 'upload'].map((key) => '<button type="button" class="try-on-source-btn '
-        + (state.identitySource === key ? 'active' : '') + '" onclick="SYLVEX.chooseCharacterReplaceIdentitySource(event,\'' + key + '\')">'
-        + S.escapeHtml(CHARACTER_REPLACE_IDENTITY_SOURCE_LABELS[key]) + '</button>').join('')
-    + '</div>'
-    + '</div>';
-}
 
-function chooseCharacterReplaceSource(e, source) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (source === 'history') return openCharacterReplacePicker(e, 'source_history');
-  if (source === 'upload') {
-    const input = document.getElementById('characterReplaceSourceFileInput');
-    if (!input) return;
-    input.value = '';
-    input.click();
-  }
-}
 
-function chooseCharacterReplaceIdentitySource(e, source) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  // Character selection reuses the exact same Pro Studio Character picker
-  // (card grid -> open the Character's own page -> pick references ->
-  // "Use Character") that Image mode uses, instead of a second, bespoke
-  // grid - see confirmCharacterDetailSelection()'s redirect branch for the
-  // commit side. History/Upload keep their own simpler pickers, unchanged.
-  if (source === 'character') {
-    visualPickerRedirectTarget = 'replace_character';
-    return openVisualPicker(null, 'character');
-  }
-  if (source === 'history') return openCharacterReplacePicker(e, 'identity_history');
-  if (source === 'upload') {
-    const input = document.getElementById('characterReplaceIdentityFileInput');
-    if (!input) return;
-    input.value = '';
-    input.click();
-  }
-}
 
-let characterReplacePickerKind = '';
 
-function ensureCharacterReplacePickerModal() {
-  let modal = document.getElementById('characterReplacePickerModal');
-  if (modal) return modal;
-  modal = document.createElement('div');
-  modal.id = 'characterReplacePickerModal';
-  modal.className = 'photo-tool-modal character-replace-picker-modal';
-  modal.innerHTML = '<section class="photo-tool-dialog character-replace-picker-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
-    + '<header class="photo-tool-head"><div><small>Замена персонажа</small><h3 id="characterReplacePickerTitle"></h3></div>'
-    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closeCharacterReplacePicker(event)">×</button></header>'
-    + '<div class="try-on-picker-grid" id="characterReplacePickerGrid"></div>'
-    + '</section>';
-  document.body.appendChild(modal);
-  return modal;
-}
 
-function openCharacterReplacePicker(e, kind) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  characterReplacePickerKind = kind;
-  const modal = ensureCharacterReplacePickerModal();
-  const title = document.getElementById('characterReplacePickerTitle');
-  if (title) title.textContent = kind === 'identity_character' ? 'Выберите персонажа' : 'Выберите фото из истории';
-  renderCharacterReplacePickerGrid();
-  modal.classList.add('show');
-}
 
-function closeCharacterReplacePicker(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const modal = document.getElementById('characterReplacePickerModal');
-  if (modal) modal.classList.remove('show');
-}
 
-function renderCharacterReplacePickerGrid() {
-  const grid = document.getElementById('characterReplacePickerGrid');
-  const state = photoToolState.replace_character;
-  if (!grid || !state) return;
-  if (characterReplacePickerKind === 'identity_character') {
-    // Same Character data source the normal Pro Studio Character picker
-    // reads (imageCharacters()/visualPreviewUrl()) - read-only here, never
-    // written back to imageState.characterId.
-    const chars = imageCharacters();
-    grid.innerHTML = chars.length ? chars.map((item) => {
-      const preview = visualPreviewUrl(item);
-      const active = state.identitySource === 'character' && state.characterId === item.id;
-      return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.pickCharacterReplaceIdentityCharacter(event,\'' + S.escapeHtml(item.id) + '\')">'
-        + (preview ? '<img src="' + S.escapeHtml(preview) + '" alt="" />' : '<span class="try-on-picker-placeholder">' + S.escapeHtml((item.name || '?').slice(0, 1)) + '</span>')
-        + '<b>' + S.escapeHtml(item.name || '') + '</b>'
-        + '</button>';
-    }).join('') : '<div class="try-on-picker-empty">Нет персонажей</div>';
-    return;
-  }
-  // Same Media/History source the composer's own upload panel reads
-  // (getGeneratedPhotoHistoryItems()) - read-only here, used by both the
-  // source photo's History picker and the identity's History picker.
-  const items = getGeneratedPhotoHistoryItems();
-  grid.innerHTML = items.length ? items.map((entry) => {
-    const item = normalizeGeneratedImageItem(entry);
-    if (!item) return '';
-    const isSourcePicker = characterReplacePickerKind === 'source_history';
-    const active = isSourcePicker ? state.sourceImage === item.url : (state.identitySource === 'history' && state.identityImage === item.url);
-    const handler = isSourcePicker ? 'pickCharacterReplaceSourceMedia' : 'pickCharacterReplaceIdentityMedia';
-    return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.' + handler + '(event,\'' + S.escapeHtml(item.url) + '\')">'
-      + '<img src="' + S.escapeHtml(item.thumb || item.url) + '" alt="" loading="lazy" decoding="async" />'
-      + '</button>';
-  }).join('') : '<div class="try-on-picker-empty">Пока нет фото</div>';
-}
 
-function pickCharacterReplaceIdentityCharacter(e, id) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const state = photoToolState.replace_character;
-  const character = imageCharacters().find((item) => item.id === id);
-  if (!state || !character) return;
-  // The Character's own avatar/preview becomes the identity image, and up
-  // to 3 of its own reference images (never its text description) go
-  // along as additional FLUX inputs - never any normal Pro Studio
-  // Character prompt/state.
-  state.identitySource = 'character';
-  state.characterId = id;
-  state.identityImage = visualPreviewUrl(character);
-  state.identityLabel = character.name || '';
-  state.characterReferenceUrls = (character.referenceImages || []).filter(Boolean).slice(0, 3);
-  closeCharacterReplacePicker(e);
-  renderPhotoToolModal();
-}
 
-function pickCharacterReplaceIdentityMedia(e, url) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const state = photoToolState.replace_character;
-  if (!state || !url) return;
-  state.identitySource = 'history';
-  state.characterId = null;
-  state.identityImage = url;
-  state.identityLabel = '';
-  state.characterReferenceUrls = [];
-  closeCharacterReplacePicker(e);
-  renderPhotoToolModal();
-}
 
-function pickCharacterReplaceSourceMedia(e, url) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const state = photoToolState.replace_character;
-  if (!state || !url) return;
-  state.sourceImage = url;
-  state.sourceLabel = '';
-  closeCharacterReplacePicker(e);
-  renderPhotoToolModal();
-}
 
-async function onCharacterReplaceSourceUploadFile(e) {
-  const input = e && e.target;
-  const file = input && input.files && input.files[0];
-  const state = photoToolState.replace_character;
-  if (!file || !state) return;
-  try {
-    const loaded = await readPhotoToolFile(file);
-    state.sourceImage = loaded.url;
-    state.sourceLabel = loaded.name || '';
-    renderPhotoToolModal();
-  } catch (error) {
-    toast((error && error.message) || 'Не удалось загрузить фото');
-  }
-}
-
-async function onCharacterReplaceIdentityUploadFile(e) {
-  const input = e && e.target;
-  const file = input && input.files && input.files[0];
-  const state = photoToolState.replace_character;
-  if (!file || !state) return;
-  try {
-    const loaded = await readPhotoToolFile(file);
-    state.identitySource = 'upload';
-    state.characterId = null;
-    state.identityImage = loaded.url;
-    state.identityLabel = loaded.name || '';
-    state.characterReferenceUrls = [];
-    renderPhotoToolModal();
-  } catch (error) {
-    toast((error && error.message) || 'Не удалось загрузить фото');
-  }
-}
 
 function clearCharacterReplaceSource(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -13964,6 +13263,7 @@ function currentSelectedUploadImage() {
   if (target === UPLOAD_TARGETS.VIDEO_END) return videoState.endImage || '';
   if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) return '';
   if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return (currentVideoReferenceImages()[0]) || '';
+  if (target === UPLOAD_TARGETS.PHOTO_TOOL) return (photoToolUploadSession && photoToolUploadSession.urls[0]) || '';
   if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) return imageState.referenceImageUrl || ((imageState.referenceImageUrls || [])[0]) || '';
 
   const images = currentUploadImages();
@@ -15093,6 +14393,7 @@ function closeImageStylePanel(e) {
     e.preventDefault();
     e.stopPropagation();
   }
+  document.body.classList.remove('photo-tool-picking');
 
   hideImageStyleInfo();
   closeCharacterDetail();
@@ -18038,7 +17339,6 @@ function renderGeneratedTelegramButton(url, kind) {
     {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',image:'assets/quick-tools/remove-object.jpg'},
     {key:'watermark_removal',title:'Удаление водяных знаков',note:'Чистое восстановление фото',image:'assets/quick-tools/remove-object.jpg'},
     {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',image:'assets/quick-tools/replace-object.jpg'},
-    {key:'makeup',title:'Макияж',note:'Новый образ с сохранением лица',image:'assets/quick-tools/enhance-photo.jpg'},
     {key:'hair_beard',title:'Причёска и борода',note:'Стиль, форма и цвет волос',image:'assets/quick-tools/replace-character.jpg'},
     {key:'face_retouch',title:'Ретушь лица',note:'Естественная коррекция кожи',image:'assets/quick-tools/enhance-photo.jpg'},
   ];
@@ -19880,6 +19180,7 @@ function uploadPhotoButtonHtml() {
         e.preventDefault();
         e.stopPropagation();
     }
+    if (getUploadTarget() === UPLOAD_TARGETS.PHOTO_TOOL) { commitPhotoToolUpload(); return; }
 
     renderComposerImageDraft();
     renderUploadPreviewForTarget(getUploadTarget());
@@ -20998,6 +20299,12 @@ function selectGeneratedImage(e, url) {
   }
 
   const target = getUploadTarget();
+  if (target === UPLOAD_TARGETS.PHOTO_TOOL) {
+    applyUploadToTarget(url, target, 'history');
+    renderUploadPanelImages();
+    closeUploadImagePreview(e);
+    return;
+  }
   applyUploadToTarget(url, target, 'history');
   renderUploadedPhotoGrid();
   renderUploadPreviewForTarget(target);
@@ -21043,6 +20350,12 @@ function closeUploadPanel(e) {
 
   const panel = document.getElementById('uploadPanel');
   if (panel) panel.classList.remove('show');
+  // Back to the composer's own target once a tool area is done with it.
+  if (photoToolUploadSession || (panel && panel.classList.contains('for-photo-tool'))) {
+    photoToolUploadSession = null;
+    if (panel) panel.classList.remove('for-photo-tool');
+    setUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD);
+  }
 }
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openNativeFilePicker
@@ -28111,8 +27424,6 @@ async function waitGeneration(jobId, options) {
       // visible in Safari). Keep overlay history only in the Mini App.
       ['edit-workspace', () => !isWebEmbed()&&document.body.classList.contains('edit-workspace-open'), () => closeEditWorkspace()],
       ['music-settings', () => shown('musicSettingsModal'), () => closeMusicSettingsModal()],
-      ['try-on-picker', () => shown('tryOnPickerModal'), () => closeTryOnPicker()],
-      ['character-replace-picker', () => shown('characterReplacePickerModal'), () => closeCharacterReplacePicker()],
       ['image-style-panel', () => { const el = byId('imageStylePanel'); return !!(el && !el.hidden && el.classList.contains('show')); }, () => closeImageStylePanel()],
       ['visual-picker', () => shown('visualPickerModal'), () => closeVisualPicker()],
       ['visual-create', () => shown('visualCreateModal'), () => closeVisualCreateModal()],
@@ -31109,7 +30420,7 @@ async function waitGeneration(jobId, options) {
     pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, togglePromptFold, newChat,
     openQuickTextChat,
     openConv, deleteConv, expandHistorySection, setConversationHistoryFilter, manageConversationHistory, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -31136,7 +30447,6 @@ async function waitGeneration(jobId, options) {
     get activeCat() { return activeCat; }
   });
 
-  S.clearPhotoToolMask = clearPhotoToolMask;
   S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;S.selectEditWorkspaceNode=selectEditWorkspaceNode;
   S.setEditLightPreset=setEditLightPreset;
   S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode; S.setEditWorkspaceModel=setEditWorkspaceModel;
@@ -31153,35 +30463,19 @@ async function waitGeneration(jobId, options) {
   S.clearReplaceObjectMask = clearReplaceObjectMask;
   S.saveReplaceObjectMask = saveReplaceObjectMask;
   S.setReplaceObjectBrushSize = setReplaceObjectBrushSize;
-  S.openRemoveObjectMaskEditor = openRemoveObjectMaskEditor;
-  S.closeRemoveObjectMaskEditor = closeRemoveObjectMaskEditor;
-  S.pickRemoveObjectBrushColor = pickRemoveObjectBrushColor;
-  S.toggleRemoveObjectColorPicker = toggleRemoveObjectColorPicker;
-  S.setRemoveObjectBrushSize = setRemoveObjectBrushSize;
-  S.undoRemoveObjectMaskStroke = undoRemoveObjectMaskStroke;
-  S.clearRemoveObjectMaskEditor = clearRemoveObjectMaskEditor;
-  S.saveRemoveObjectMask = saveRemoveObjectMask;
   S.updateRemoveObjectReadiness = updateRemoveObjectReadiness;
   S.updateAnimatePhotoPromptCounter = updateAnimatePhotoPromptCounter;
+  S.closePhotoToolDropdowns = closePhotoToolDropdowns;
   S.openQuickImageExtraFile = openQuickImageExtraFile;
   S.onQuickImageExtraFile = onQuickImageExtraFile;
-  S.chooseTryOnPersonSource = chooseTryOnPersonSource;
-  S.closeTryOnPicker = closeTryOnPicker;
-  S.pickTryOnMedia = pickTryOnMedia;
-  S.onTryOnPersonUploadFile = onTryOnPersonUploadFile;
   S.clearTryOnPerson = clearTryOnPerson;
-  S.openTryOnGarmentPicker = openTryOnGarmentPicker;
-  S.onTryOnGarmentFile = onTryOnGarmentFile;
-  S.removeTryOnGarment = removeTryOnGarment;
   S.generateTryOnTool = generateTryOnTool;
-  S.chooseCharacterReplaceSource = chooseCharacterReplaceSource;
-  S.chooseCharacterReplaceIdentitySource = chooseCharacterReplaceIdentitySource;
-  S.closeCharacterReplacePicker = closeCharacterReplacePicker;
-  S.pickCharacterReplaceIdentityCharacter = pickCharacterReplaceIdentityCharacter;
-  S.pickCharacterReplaceIdentityMedia = pickCharacterReplaceIdentityMedia;
-  S.pickCharacterReplaceSourceMedia = pickCharacterReplaceSourceMedia;
-  S.onCharacterReplaceSourceUploadFile = onCharacterReplaceSourceUploadFile;
-  S.onCharacterReplaceIdentityUploadFile = onCharacterReplaceIdentityUploadFile;
+  S.addPhotoToolZoneItem = addPhotoToolZoneItem;
+  S.choosePhotoToolZoneSource = choosePhotoToolZoneSource;
+  S.removePhotoToolZoneItem = removePhotoToolZoneItem;
+  S.openPhotoToolReference = openPhotoToolReference;
+  S.clearHairBeardPreset = clearHairBeardPreset;
+  S.setHairBeardColor = setHairBeardColor;
   S.clearCharacterReplaceSource = clearCharacterReplaceSource;
   S.clearCharacterReplaceIdentity = clearCharacterReplaceIdentity;
   S.generateCharacterReplaceTool = generateCharacterReplaceTool;

@@ -49,8 +49,7 @@ function makeContext() {
     { id: 'obj_lamp', name: 'Лампа', previewUrl: 'https://cdn.sylvex.ai/lamp.png' },
     { id: 'obj_chair', name: 'Стул', previewUrl: 'https://cdn.sylvex.ai/chair.png' },
   ];
-  const slot1 = fakeElement({});
-  const slots = { 1: slot1 };
+  const zones = fakeElement({});
   const objectCards = [
     fakeElement({ attrs: { 'data-object-id': 'obj_lamp' } }),
     fakeElement({ attrs: { 'data-object-id': 'obj_chair' } }),
@@ -61,28 +60,25 @@ function makeContext() {
     S: { escapeHtml: (v) => String(v == null ? '' : v) },
     PHOTO_TOOL_CONFIG: { replace_object: { labels: ['Основное фото', 'Предмет для замены'], max: 2 } },
     photoToolState: { replace_object: { files: [], generating: false } },
-    replaceObjectState: { comparison: null, selectedObjectId: null },
+    replaceObjectState: { selectedObjectId: null },
     imageObjects: () => objects,
     normalizeVisualItem: (item) => item,
     visualPreviewUrl: (item) => (item && item.previewUrl) || '',
     createPhotoToolReference: () => {},
     scrollPresetCarousel: () => {},
     document: {
-      querySelector: (sel) => {
-        const slotMatch = /\[data-slot-index="(\d+)"\]/.exec(sel);
-        if (slotMatch) return slots[slotMatch[1]] || null;
-        return null;
-      },
+      getElementById: (id) => (id === 'ptoolZones' ? zones : null),
+      querySelector: () => null,
       querySelectorAll: (sel) => (sel === '.replace-object-object-card' ? objectCards : []),
     },
     renderPhotoToolModal: () => { calls.renderPhotoToolModal += 1; },
     updatePhotoToolGenerateButtonState: () => { calls.updatePhotoToolGenerateButtonState += 1; },
   };
   const context = vm.createContext(sandbox);
-  for (const name of ['photoToolStateFor', 'replaceObjectObjectsRowHtml', 'updatePresetCardSelection', 'updatePhotoToolUploadSlot', 'selectReplaceObjectObject']) {
+  for (const name of ['photoToolStateFor', 'replaceObjectObjectsRowHtml', 'updatePresetCardSelection', 'photoToolZones', 'photoToolZoneHtml', 'photoToolZonesInnerHtml', 'refreshPhotoToolZones', 'photoToolMarkBadgeHtml', 'selectReplaceObjectObject']) {
     vm.runInContext(extractFunction(name), context);
   }
-  return { context, sandbox, calls, objects, slot1, objectCards };
+  return { context, sandbox, calls, objects, objectZone: () => zones.innerHTML.split('<section').find((part) => part.includes('data-zone="object"')) || '', objectCards };
 }
 
 test('replaceObjectObjectsRowHtml renders Create Object first, then every existing Object, inside the shared carousel wrapper', () => {
@@ -98,32 +94,32 @@ test('replaceObjectObjectsRowHtml renders Create Object first, then every existi
   assert.match(html, /SYLVEX\.selectReplaceObjectObject\(event,'obj_lamp'\)/);
 });
 
-test('selecting an existing Object fills the replacement upload slot and never triggers a full modal rerender', () => {
-  const { context, sandbox, calls, slot1 } = makeContext();
+test('selecting an existing Object fills the replacement object area and never triggers a full modal rerender', () => {
+  const { context, sandbox, calls, objectZone } = makeContext();
   vm.runInContext("selectReplaceObjectObject(null, 'obj_lamp')", context);
   assert.equal(sandbox.replaceObjectState.selectedObjectId, 'obj_lamp');
   assert.equal(sandbox.photoToolState.replace_object.files[1].url, 'https://cdn.sylvex.ai/lamp.png');
-  assert.match(slot1.innerHTML, /lamp\.png/);
+  assert.match(objectZone(), /lamp\.png/);
   assert.equal(calls.renderPhotoToolModal, 0);
   assert.equal(calls.updatePhotoToolGenerateButtonState, 1);
 });
 
-test('selecting the same Object again deselects it and clears the upload slot', () => {
-  const { context, sandbox, slot1 } = makeContext();
+test('selecting the same Object again deselects it and empties the object area', () => {
+  const { context, sandbox, objectZone } = makeContext();
   vm.runInContext("selectReplaceObjectObject(null, 'obj_lamp')", context);
   vm.runInContext("selectReplaceObjectObject(null, 'obj_lamp')", context);
   assert.equal(sandbox.replaceObjectState.selectedObjectId, null);
   assert.equal(sandbox.photoToolState.replace_object.files[1], null);
-  assert.doesNotMatch(slot1.innerHTML, /lamp\.png/);
+  assert.doesNotMatch(objectZone(), /lamp\.png/);
 });
 
-test('switching the selection to a different Object replaces the upload slot with the new one', () => {
-  const { context, sandbox, slot1 } = makeContext();
+test('switching the selection to a different Object puts the new one in the object area', () => {
+  const { context, sandbox, objectZone } = makeContext();
   vm.runInContext("selectReplaceObjectObject(null, 'obj_lamp')", context);
   vm.runInContext("selectReplaceObjectObject(null, 'obj_chair')", context);
   assert.equal(sandbox.replaceObjectState.selectedObjectId, 'obj_chair');
   assert.equal(sandbox.photoToolState.replace_object.files[1].url, 'https://cdn.sylvex.ai/chair.png');
-  assert.match(slot1.innerHTML, /chair\.png/);
+  assert.match(objectZone(), /chair\.png/);
 });
 
 test('selection is a no-op while the tool is generating (never changes mid-generation)', () => {

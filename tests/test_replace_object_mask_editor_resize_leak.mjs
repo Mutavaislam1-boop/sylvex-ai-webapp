@@ -166,6 +166,7 @@ function makeContext() {
     document,
     Image: FakeImage,
     toast: () => {},
+    activePhotoTool: 'replace_object',
     photoToolStateFor: () => null, // not exercised by any test here
   });
   vm.runInContext(BLOCK_SRC, context);

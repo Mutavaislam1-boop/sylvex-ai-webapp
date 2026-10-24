@@ -19505,20 +19505,15 @@ def normalize_replace_object_image(source_bytes: bytes) -> tuple:
         return output.getvalue(), rgba.size
 
 
-def build_replace_object_mask(source_size: tuple, strokes: list, editor_size: tuple) -> bytes:
-    """Build an object-sized edit region around the user's object locator marks.
-
-    The brush marks identify the object; they are not intended to trace its
-    silhouette. Expand their combined bounds substantially so the provider and
-    final composite can replace the complete object, including unpainted edges.
-    """
+def draw_annotation_mark(source_size: tuple, strokes: list, editor_size: tuple):
+    """The user's brush marks, given in the editor's pixel coordinates, drawn
+    on a transparent layer the size of the source image."""
     from PIL import Image, ImageDraw
-    import io
 
     source_width, source_height = max(1, int(source_size[0])), max(1, int(source_size[1]))
     editor_width, editor_height = max(1, int(editor_size[0])), max(1, int(editor_size[1]))
     if not isinstance(strokes, list) or not strokes:
-        raise ValueError("replacement annotation has no strokes")
+        raise ValueError("annotation has no strokes")
 
     scale_x = source_width / editor_width
     scale_y = source_height / editor_height
@@ -19556,9 +19551,48 @@ def build_replace_object_mask(source_size: tuple, strokes: list, editor_size: tu
         for x, y in endpoints:
             draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(255, 255, 255, 255))
 
+    if mask.getchannel("A").getbbox() is None:
+        raise ValueError("annotation has no visible area")
+    return mask
+
+
+def annotation_editor_size(value) -> tuple:
+    """The {width, height} of the photo the marks were drawn on, or ()."""
+    try:
+        width, height = int(float(value.get("width"))), int(float(value.get("height")))
+    except (AttributeError, TypeError, ValueError):
+        return ()
+    return (width, height) if width > 0 and height > 0 else ()
+
+
+def annotation_region_text(source_size: tuple, strokes: list, editor_size: tuple) -> str:
+    """Where the user marked the object, as coordinates for the model: the
+    marked area's bounds in percent of the image, from the top-left corner."""
+    mask = draw_annotation_mark(source_size, strokes, editor_size)
+    left, top, right, bottom = mask.getchannel("A").getbbox()
+    width, height = mask.size
+    pct = lambda value, total: round(100 * value / total)
+    return (
+        f"The user marked the target object at x {pct(left, width)}–{pct(right, width)}% and y {pct(top, height)}–{pct(bottom, height)}% "
+        f"of the image (percent of its width and height from the top-left corner; centre at x {pct((left + right) / 2, width)}%, "
+        f"y {pct((top + bottom) / 2, height)}%)."
+    )
+
+
+def build_replace_object_mask(source_size: tuple, strokes: list, editor_size: tuple) -> bytes:
+    """Build an object-sized edit region around the user's object locator marks.
+
+    The brush marks identify the object; they are not intended to trace its
+    silhouette. Expand their combined bounds substantially so the provider and
+    final composite can replace the complete object, including unpainted edges.
+    """
+    from PIL import ImageDraw
+    import io
+
+    mask = draw_annotation_mark(source_size, strokes, editor_size)
+    source_width, source_height = mask.size
+    draw = ImageDraw.Draw(mask)
     marked_bounds = mask.getchannel("A").getbbox()
-    if marked_bounds is None:
-        raise ValueError("replacement annotation has no visible area")
 
     # Treat the user's point/stroke as a semantic locator, not an object
     # contour. Give the model a generous context window around it; this region
@@ -19635,28 +19669,28 @@ async def generate_replace_object_image(payload: dict) -> dict:
 
     opts = payload.get("image_options") or {}
     source_url = str(opts.get("replaceObjectSourceUrl") or "").strip()
-    marked_source_url = str(opts.get("replaceObjectMarkedSourceUrl") or "").strip()
     replacement_url = str(opts.get("replaceObjectReferenceUrl") or "").strip()
     annotation_strokes = opts.get("replaceObjectMaskStrokes")
+    editor_size = annotation_editor_size(opts.get("replaceObjectEditorSize"))
+    # Older clients sent a marked copy of the photo instead of its size.
+    legacy_marked_url = str(opts.get("replaceObjectMarkedSourceUrl") or "").strip()
     instruction = str(opts.get("replaceObjectInstruction") or "").strip()
     model = "gpt-image-2.5-sunburst"
     endpoint = f"{OPENAI_API_BASE}/images/edits"
-    if not source_url or not marked_source_url or not replacement_url or not isinstance(annotation_strokes, list):
-        return {"ok": False, "error": "Загрузите исходное фото и предмет, отметьте область и сохраните фото."}
+    if not source_url or not replacement_url or not isinstance(annotation_strokes, list) or not annotation_strokes or not (editor_size or legacy_marked_url):
+        return {"ok": False, "error": "Загрузите исходное фото и предмет, затем отметьте предмет на фото."}
 
     source_raw = _read_image_bytes_for_generation(source_url)
-    marked_source_raw = _read_image_bytes_for_generation(marked_source_url)
     reference_raw = _read_image_bytes_for_generation(replacement_url)
-    if not source_raw or not marked_source_raw or not reference_raw:
+    if not source_raw or not reference_raw:
         return image_error_response("openai", "replace_object", model, endpoint, "Не удалось загрузить одно из изображений.")
     try:
-        from PIL import Image
-        import io
-
         source_png, source_size = normalize_replace_object_image(source_raw)
-        marked_source_png, marked_size = normalize_replace_object_image(marked_source_raw)
         reference_png, _ = normalize_replace_object_image(reference_raw)
-        mask_raw = build_replace_object_mask(source_size, annotation_strokes, marked_size)
+        if not editor_size:
+            _, editor_size = normalize_replace_object_image(_read_image_bytes_for_generation(legacy_marked_url))
+        mask_raw = build_replace_object_mask(source_size, annotation_strokes, editor_size)
+        region_text = annotation_region_text(source_size, annotation_strokes, editor_size)
         api_mask = build_gpt_image_removal_mask(source_png, mask_raw)
     except Exception as exc:
         prostudio_error("REPLACE_OBJECT_INPUT_PREPARE_FAILED", exc)
@@ -19665,8 +19699,8 @@ async def generate_replace_object_image(payload: dict) -> dict:
     prompt = (
         "Edit the first image in place. The user's brush mark is a locator point or rough hint identifying which complete object to replace; it is NOT the object's boundary and must NOT limit replacement to the painted pixels. "
         "Identify the entire object containing or nearest to that mark, including all of its visible parts and edges, remove it completely, and replace it with the corresponding complete object shown in the second image. "
-        "The transparent edit mask is deliberately expanded around the locator to provide room for the whole object; use the third image's translucent green mark to identify the intended object, not as a silhouette to copy. "
-        "The third image is the exact same source photo saved by the user with the brush annotation. "
+        "The transparent edit mask is deliberately expanded around the locator to provide room for the whole object. "
+        f"{region_text} "
         "Preserve the original canvas dimensions, aspect ratio, crop, framing, camera viewpoint, people, pose, unmarked objects, background, colors, lighting, textures, and every other scene detail. "
         "Match the replacement object to the marked object's scale, perspective, orientation, lighting, and contact shadows. "
         "Do not change, add, remove, or move anything outside the marked region. "
@@ -19677,11 +19711,10 @@ async def generate_replace_object_image(payload: dict) -> dict:
     files = [
         ("image[]", ("source.png", source_png, "image/png")),
         ("image[]", ("replacement.png", reference_png, "image/png")),
-        ("image[]", ("user-marked-source.png", marked_source_png, "image/png")),
         ("mask", ("mask.png", api_mask, "image/png")),
     ]
     request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
-    prostudio_debug("REPLACE_OBJECT_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_marked_source=True, has_replacement=True, has_mask=True, source_size=source_size)
+    prostudio_debug("REPLACE_OBJECT_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_replacement=True, has_mask=True, source_size=source_size, region=region_text)
 
     response = None
     request_exception = None
@@ -19746,12 +19779,14 @@ async def generate_remove_object_image(payload: dict) -> dict:
 
     opts = payload.get("image_options") or {}
     source_url = str(opts.get("removeObjectSourceUrl") or "").strip()
-    mask_url = str(opts.get("removeObjectMaskUrl") or "").strip()
+    mask_strokes = opts.get("removeObjectMaskStrokes")
+    mask_strokes = mask_strokes if isinstance(mask_strokes, list) else []
+    editor_size = annotation_editor_size(opts.get("removeObjectEditorSize"))
     instruction = str(opts.get("removeObjectInstruction") or "").strip()
 
     if not source_url:
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
-    if not mask_url and not instruction:
+    if not (mask_strokes and editor_size) and not instruction:
         # Re-validated independently of the frontend's own gate - never
         # build a paid provider request from the source image alone.
         return {"ok": False, "error": "Отметьте область на фото или опишите, что нужно удалить."}
@@ -19763,25 +19798,30 @@ async def generate_remove_object_image(payload: dict) -> dict:
     if not source_bytes_raw:
         return image_error_response("openai", "remove_object", model, endpoint, "Не удалось загрузить исходное изображение.")
     try:
-        source_png, _source_size = normalize_gpt_image_source(source_bytes_raw)
+        source_png, source_size = normalize_gpt_image_source(source_bytes_raw)
     except Exception as exc:
         print("REMOVE OBJECT SOURCE NORMALIZE FAILED:", type(exc).__name__, str(exc))
         return image_error_response("openai", "remove_object", model, endpoint, "Не удалось обработать исходное изображение.")
 
-    has_mask = bool(mask_url)
     mask_png = b""
-    if has_mask:
-        mask_bytes_raw = _read_image_bytes_for_generation(mask_url)
-        if mask_bytes_raw:
-            try:
-                expanded_mark = expand_remove_object_locator_region(source_png, mask_bytes_raw)
-                mask_png = build_gpt_image_removal_mask(source_png, expanded_mark)
-            except Exception as exc:
-                print("REMOVE OBJECT MASK BUILD FAILED:", type(exc).__name__, str(exc))
-                mask_png = b""
-        has_mask = bool(mask_png)
+    region_text = ""
+    if mask_strokes and editor_size:
+        try:
+            import io
+            mark = io.BytesIO()
+            draw_annotation_mark(source_size, mask_strokes, editor_size).save(mark, format="PNG")
+            expanded_mark = expand_remove_object_locator_region(source_png, mark.getvalue())
+            mask_png = build_gpt_image_removal_mask(source_png, expanded_mark)
+            region_text = annotation_region_text(source_size, mask_strokes, editor_size)
+        except Exception as exc:
+            print("REMOVE OBJECT MASK BUILD FAILED:", type(exc).__name__, str(exc))
+            mask_png = b""
+            region_text = ""
+    has_mask = bool(mask_png)
 
     prompt = build_remove_object_prompt(has_mask, instruction)
+    if region_text:
+        prompt += " " + region_text
     files = [("image", ("source.png", source_png, "image/png"))]
     if mask_png:
         files.append(("mask", ("mask.png", mask_png, "image/png")))
@@ -20145,34 +20185,40 @@ async def generate_watermark_removal_image(payload: dict) -> dict:
     mark_url = str(opts.get("watermarkMarkUrl") or "").strip()
     model = "gpt-image-2.5-sunburst"
     endpoint = f"{OPENAI_API_BASE}/images/edits"
-    if not source_url or not mark_url:
-        return {"ok": False, "error": "Загрузите фото и отметьте водяной знак."}
+    if not source_url:
+        return {"ok": False, "error": "Загрузите фото."}
 
     source_raw = _read_image_bytes_for_generation(source_url)
-    mark_raw = _read_image_bytes_for_generation(mark_url)
-    if not source_raw or not mark_raw:
+    mark_raw = _read_image_bytes_for_generation(mark_url) if mark_url else b""
+    if not source_raw or (mark_url and not mark_raw):
         return image_error_response("openai", "watermark_removal", model, endpoint, "Не удалось загрузить фото или отметку.")
     try:
         source_png, _ = normalize_gpt_image_source(source_raw)
-        expanded_mark = expand_remove_object_locator_region(source_png, mark_raw)
-        api_mask = build_gpt_image_removal_mask(source_png, expanded_mark)
+        api_mask = build_gpt_image_removal_mask(source_png, expand_remove_object_locator_region(source_png, mark_raw)) if mark_raw else b""
     except Exception as exc:
         prostudio_error("WATERMARK_REMOVAL_INPUT_PREPARE_FAILED", exc)
         return image_error_response("openai", "watermark_removal", model, endpoint, "Не удалось подготовить водяной знак и область удаления.")
 
-    prompt = (
-        "Remove the complete watermark, logo, or text overlay identified by the user's mark. "
-        "The brush mark is a locator, not the watermark's exact outline; identify and remove all visible parts of that same watermark, including portions outside the painted stroke. "
-        "Seamlessly reconstruct the image underneath using surrounding texture, colors, lighting, and perspective. "
-        "Preserve the original image dimensions, composition, subjects, and every unrelated or unmarked detail. "
-        "The transparent mask is an expanded editing area around the locator to provide enough room for complete removal and natural reconstruction."
-    )
-    files = [
-        ("image", ("source.png", source_png, "image/png")),
-        ("mask", ("mask.png", api_mask, "image/png")),
-    ]
+    if api_mask:
+        prompt = (
+            "Remove the complete watermark, logo, or text overlay identified by the user's mark. "
+            "The brush mark is a locator, not the watermark's exact outline; identify and remove all visible parts of that same watermark, including portions outside the painted stroke. "
+            "Seamlessly reconstruct the image underneath using surrounding texture, colors, lighting, and perspective. "
+            "Preserve the original image dimensions, composition, subjects, and every unrelated or unmarked detail. "
+            "The transparent mask is an expanded editing area around the locator to provide enough room for complete removal and natural reconstruction."
+        )
+    else:
+        prompt = (
+            "Find and remove every watermark, logo, stamp, signature, and semi-transparent text overlay placed on top of this image. "
+            "Seamlessly reconstruct the image underneath using surrounding texture, colors, lighting, and perspective. "
+            "Do not remove text or logos that are a real part of the scene (signs, labels, clothing prints). "
+            "Preserve the original image dimensions, composition, subjects, and every other detail exactly."
+        )
+    files = [("image", ("source.png", source_png, "image/png"))]
+    if api_mask:
+        files.append(("mask", ("mask.png", api_mask, "image/png")))
     request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
-    prostudio_debug("WATERMARK_REMOVAL_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_mask=True)
+    prostudio_debug("WATERMARK_REMOVAL_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_mask=bool(api_mask))
 
     response = None
     request_exception = None
@@ -20202,7 +20248,7 @@ async def generate_watermark_removal_image(payload: dict) -> dict:
     total_credits = int(price.get("cost_credits") or 0) + WATERMARK_REMOVAL_TOOL_FEE_CREDITS
     extra_fields = {
         "provider": "openai", "model": "gpt_image_2_5_sunburst", "provider_model": model,
-        "tool": "watermark_removal", "photo_tool": "watermark_removal", "mask_applied": True,
+        "tool": "watermark_removal", "photo_tool": "watermark_removal", "mask_applied": bool(api_mask),
         "cost_credits": total_credits, "cost_usd": round(total_credits / 150, 4),
         "generation_cost": f"{total_credits} ⚡",
     }

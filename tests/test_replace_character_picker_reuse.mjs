@@ -58,7 +58,7 @@ function makeContext() {
     imageCharacters: () => [character],
     openImageStylePanel: (e, kind) => { calls.openImageStylePanel.push(kind); },
     openCharacterReplacePicker: () => { throw new Error('the bespoke picker must not be used for the character source'); },
-    document: { getElementById: (id) => dom[id] || null },
+    document: { getElementById: (id) => dom[id] || null, body: fakeElement({}) },
     hideImageStyleInfo: () => {},
     applyCharacterReferenceSelection: () => { calls.applyCharacterReferenceSelection += 1; },
     sendVisualInteraction: () => { calls.sendVisualInteraction += 1; },
@@ -68,7 +68,7 @@ function makeContext() {
     toast: (msg) => { calls.toast.push(msg); },
   };
   const context = vm.createContext(sandbox);
-  for (const name of ['visualPreviewUrl', 'normalizeVisualItem', 'characterReferenceLibraryFor', 'closeCharacterDetail', 'closeImageStylePanel', 'openVisualPicker', 'chooseCharacterReplaceIdentitySource', 'confirmCharacterDetailSelection']) {
+  for (const name of ['visualPreviewUrl', 'normalizeVisualItem', 'characterReferenceLibraryFor', 'closeCharacterDetail', 'closeImageStylePanel', 'openVisualPicker', 'choosePhotoToolZoneSource', 'confirmCharacterDetailSelection']) {
     vm.runInContext(extractFunction(name), context);
   }
   return { context, sandbox, calls, character };
@@ -76,14 +76,14 @@ function makeContext() {
 
 test('choosing "Character" in Replace Character opens the real Pro Studio Character picker, not a second grid', () => {
   const { context, sandbox, calls } = makeContext();
-  vm.runInContext("chooseCharacterReplaceIdentitySource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'identity', 'character')", context);
   assert.deepEqual(calls.openImageStylePanel, ['character']);
   assert.equal(sandbox.visualPickerRedirectTarget, 'replace_character');
 });
 
 test('"Use Character" from that picker commits into Replace Character\'s own state, never imageState', () => {
   const { context, sandbox, calls, character } = makeContext();
-  vm.runInContext("chooseCharacterReplaceIdentitySource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'identity', 'character')", context);
   sandbox.activeCharacterDetailId = character.id;
   sandbox.characterDetailPendingIds = [character.id + '_ref_1', character.id + '_ref_2'];
   vm.runInContext('confirmCharacterDetailSelection(null)', context);
@@ -104,7 +104,7 @@ test('"Use Character" from that picker commits into Replace Character\'s own sta
 
 test('characterReferenceUrls is capped at 3, matching the previous bespoke picker\'s own cap', () => {
   const { context, sandbox, character } = makeContext();
-  vm.runInContext("chooseCharacterReplaceIdentitySource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'identity', 'character')", context);
   sandbox.activeCharacterDetailId = character.id;
   sandbox.characterDetailPendingIds = [0, 1, 2, 3].map((i) => character.id + '_ref_' + i);
   vm.runInContext('confirmCharacterDetailSelection(null)', context);
@@ -126,7 +126,7 @@ test('a normal (non-redirected) character pick still commits to imageState exact
 
 test('cancelling/closing the picker without confirming clears the redirect so a later normal pick is unaffected', () => {
   const { context, sandbox } = makeContext();
-  vm.runInContext("chooseCharacterReplaceIdentitySource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'identity', 'character')", context);
   assert.equal(sandbox.visualPickerRedirectTarget, 'replace_character');
   vm.runInContext('closeImageStylePanel(null)', context);
   assert.equal(sandbox.visualPickerRedirectTarget, null);

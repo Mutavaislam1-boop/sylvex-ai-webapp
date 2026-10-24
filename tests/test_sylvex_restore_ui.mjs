@@ -19,9 +19,9 @@ test('Sylvex Restore remains inside Edit Upscale while Enhance Photo modal stays
   assert.ok(source.includes("SYLVEX.setEditUpscaleModel(event,\\'sylvex_sr\\')"));
   assert.match(source,/tool:'edit_workspace',editWorkspaceMode:mode/);
   assert.match(source,/enhancePhotoModel:'sylvex_sr'/);
-  const photoToolRenderer=extractFunction('renderEnhancePhotoModal');
-  assert.match(photoToolRenderer,/renderTopazEnhanceBody\(state\)/);
-  assert.doesNotMatch(photoToolRenderer,/Sylvex Restore/);
+  const enhance=extractFunction('generateEnhancePhotoTool');
+  assert.match(enhance,/model: 'topaz_enhance_photo'/);
+  assert.doesNotMatch(enhance,/sylvex_sr|Sylvex Restore/);
 });
 
 test('manual workflow has no automatic analysis gate',()=>{

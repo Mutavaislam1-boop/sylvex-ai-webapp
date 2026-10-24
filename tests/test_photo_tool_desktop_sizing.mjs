@@ -1,36 +1,43 @@
 // Run with: node --test tests/test_photo_tool_desktop_sizing.mjs
 //
-// Regression test for "Pro Studio Mini App - Navigation + Modal UI
-// Cleanup", item 4: Tattoo and Replace Object render their Before/After
-// compare block full-width inside the single-column `.tattoo-layout` /
-// `.replace-object-layout` (not the normal two-column photo-tool-layout),
-// which let it balloon to ~900px wide by up to 60vh tall on desktop. A
-// desktop/tablet-only (>680px) cap keeps it compact without touching the
-// mobile rules, which stay exactly as they were.
+// Tool windows are laid out like the Media viewer: one fixed-size window,
+// the banner edge to edge on the left (a strip on top on a phone), a clean
+// right side, and nothing scrolls - everything fits on one screen.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
 const css = readFileSync(new URL('../webapp/css/cabinet.css', import.meta.url), 'utf8');
+const js = readFileSync(new URL('../webapp/js/cabinet.js', import.meta.url), 'utf8');
+const block = css.slice(css.indexOf('CSS-БЛОК: photo tool windows'));
+const phone = block.slice(block.indexOf('@media(max-width:680px){'));
 
-test('base (mobile-inclusive) Before/After rules are unchanged: no width cap outside the desktop override', () => {
-  assert.match(css, /\.tattoo-result-compare\{width:100%;max-height:52vh;margin:0 auto;background:var\(--bg-1\);aspect-ratio:4\/3\}/);
-  assert.match(css, /\.replace-object-result-compare\{max-height:60vh;margin:0 auto;background:var\(--bg-1\)\}/);
+test('every tool window has one fixed size with no padding around the banner', () => {
+  assert.match(block, /#photoToolDialog:has\(\.ptool-layout\)\{width:min\(940px,calc\(100vw - 32px\)\);height:min\(620px,calc\(100vh - 40px\)\);height:min\(620px,calc\(100dvh - 40px\)\);max-width:none;max-height:none;padding:0;display:flex;overflow:hidden;/);
+  assert.match(block, /\.ptool-layout\{[^}]*grid-template-columns:minmax\(0,44%\) minmax\(0,1fr\)\}/);
 });
 
-test('a min-width:681px override caps Tattoo/Replace Object Before/After to a compact desktop size', () => {
-  const block = /@media\(min-width:681px\)\{[^]*?\.tattoo-result-compare\{([^}]*)\}[^]*?\.replace-object-result-compare\{([^}]*)\}[^]*?\}/.exec(css);
-  assert.ok(block, 'expected a min-width:681px override for both compare blocks');
-  assert.match(block[1], /max-width:\d+px/);
-  assert.match(block[1], /max-height:min\(/);
-  assert.match(block[2], /max-width:\d+px/);
-  assert.match(block[2], /max-height:min\(/);
+test('the right side never scrolls: it is a column whose upload areas shrink to fit', () => {
+  assert.match(block, /\.ptool-work\{[^}]*display:flex;flex-direction:column;[^}]*overflow:hidden;/);
+  assert.match(block, /\.ptool-zones\{flex:1 1 auto;min-height:0;/);
+  assert.match(block, /\.ptool-zone\{position:relative;flex:1 1 0;min-height:0;/);
+  assert.doesNotMatch(block, /overflow-y:auto/);
 });
 
-test('the desktop override does not touch any existing mobile (max-width) breakpoint', () => {
-  const desktopBlockStart = css.indexOf('@media(min-width:681px){\n  .tattoo-result-compare');
-  assert.ok(desktopBlockStart >= 0);
-  const desktopBlockEnd = css.indexOf('}\n', css.indexOf('.replace-object-result-compare{max-width', desktopBlockStart)) + 1;
-  const desktopBlock = css.slice(desktopBlockStart, desktopBlockEnd + 1);
-  assert.doesNotMatch(desktopBlock, /max-width:680px/);
+test('on a phone the banner is a strip on top and the window fills the screen', () => {
+  assert.match(phone, /#photoToolDialog:has\(\.ptool-layout\)\{width:100%;height:calc\(100vh - 16px\);height:calc\(100dvh - 16px\);/);
+  assert.match(phone, /\.ptool-layout\{grid-template-columns:minmax\(0,1fr\);grid-template-rows:clamp\(76px,17dvh,150px\) minmax\(0,1fr\)\}/);
+});
+
+test('the window has the kicker and title on the right and a round close over the corner', () => {
+  assert.match(js, /'<header class="ptool-head"><small>Быстрый инструмент<\/small><h3>' \+ S\.escapeHtml\(config\.title\) \+ '<\/h3><\/header>'/);
+  assert.match(js, /'<button type="button" class="ptool-close" aria-label="Закрыть" onclick="SYLVEX\.closePhotoToolModal\(event\)">×<\/button>'/);
+  assert.doesNotMatch(js, /<small>Фото-инструмент<\/small>/);
+});
+
+test('hair colour is a small pill beside the category switch that opens a panel over the window', () => {
+  assert.match(js, /'<div class="ptool-hair">' \+ hairBeardCatalogHtml\(\) \+ hairBeardColorsHtml\(\) \+ '<\/div>'/);
+  assert.match(block, /\.ptool-dropdown-panel\{position:absolute;right:0;bottom:calc\(100% \+ 8px\);/);
+  assert.match(block, /\.hair-beard-color-row\{display:grid;grid-template-columns:56px minmax\(0,1fr\);/);
+  assert.match(js, /const HAIR_BEARD_CATEGORY_LABELS = \{ men:'Мужчины', beard_mustache:'Борода и усы', women:'Девушки' \};/);
 });
