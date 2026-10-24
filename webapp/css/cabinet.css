@@ -2688,8 +2688,6 @@ CSS-БЛОК: .studio-frame-card span:last-child,.studio-image-tool span:last-ch
   pointer-events:none;
 }
 
-
-
 /* =====================================================
 CSS-БЛОК: .studio-frame-card.has-frame-preview
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -3902,7 +3900,6 @@ CSS-БЛОК: .view[data-view="shop"] .sub-card
   flex-direction:column;
 }
 
-
 /* =====================================================
 CSS-БЛОК: .view[data-view="shop"] .sub-cta
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -4213,7 +4210,6 @@ CSS-БЛОК: .view[data-view="tools"].active .sb-brand-chv
 .view[data-view="tools"].active .sb-brand-chv{
   display:none !important;
 }
-
 
 /* ===== AI particles: static by default, animated only during generation ===== */
 /* =====================================================
@@ -7193,19 +7189,10 @@ CSS-БЛОК: .generation-info-actions button
   width:36px;height:36px;flex:0 0 36px;border-radius:11px;border:1px solid var(--st-border, var(--border));
   background:var(--st-bg, var(--surface));color:var(--st-text, var(--text));font-size:23px;cursor:pointer
 }
-.photo-tool-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,1fr);gap:18px}
-.photo-tool-demo-column,.photo-tool-work-column{
-  min-width:0;padding:13px;border-radius:20px;background:var(--st-bg, var(--surface));border:1px solid var(--st-border, var(--border))
-}
+
 .photo-tool-demo{position:relative;aspect-ratio:4/3;border-radius:16px;overflow:hidden;background:var(--bg-1)}
 .photo-tool-demo video,.photo-tool-demo img{width:100%;height:100%;display:block;object-fit:cover}
-.photo-tool-compare{touch-action:pan-y;user-select:none;-webkit-user-select:none}
-.photo-tool-compare .photo-tool-after,.photo-tool-compare .photo-tool-before{position:absolute;inset:0}
-.photo-tool-compare .photo-tool-before{z-index:2;clip-path:inset(0 calc(100% - var(--compare-position)) 0 0)}
-.photo-tool-compare-line{position:absolute;z-index:3;top:0;bottom:0;left:var(--compare-position);width:2px;background:#fff;box-shadow:0 0 12px rgba(0,0,0,.7);transform:translateX(-1px);pointer-events:none}
-.photo-tool-compare-line::after{content:"↔";position:absolute;left:50%;top:50%;width:35px;height:35px;border-radius:50%;display:grid;place-items:center;transform:translate(-50%,-50%);background:rgba(14,15,18,.82);border:2px solid #fff;color:#fff;font-size:15px}
-.photo-tool-compare input[type="range"]{position:absolute;z-index:5;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize;touch-action:pan-y}
-.photo-tool-compare-label{position:absolute;z-index:4;top:10px;padding:5px 8px;border-radius:999px;background:rgba(0,0,0,.58);color:#fff;font-size:9px;letter-spacing:.08em;text-transform:uppercase;pointer-events:none}.photo-tool-compare-label.before{left:10px}.photo-tool-compare-label.after{right:10px}
+
 .photo-tool-demo-placeholder{
   position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
   gap:7px;padding:22px;text-align:center;color:rgba(255,255,255,.75);
@@ -7219,12 +7206,7 @@ CSS-БЛОК: .generation-info-actions button
 }
 .photo-tool-demo-placeholder b{font-size:15px}
 .photo-tool-demo-placeholder small{font-size:11px;color:rgba(255,255,255,.47)}
-.photo-tool-demo-column>p{margin:12px 4px 2px;color:var(--text-dim);font-size:13px;line-height:1.45}
-.photo-tool-work-column{display:flex;flex-direction:column;gap:12px}
-.photo-tool-library{min-width:0;padding:10px;border:1px solid var(--border);border-radius:15px;background:var(--surface-2)}
-.photo-tool-library>small{display:block;margin:0 0 8px;color:var(--text-mute);font-size:10px}
-.photo-tool-library>div{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}.photo-tool-library>div::-webkit-scrollbar{display:none}
-.photo-tool-library button{position:relative;flex:0 0 52px;width:52px;height:52px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2);color:var(--text);overflow:hidden;display:grid;place-items:center;cursor:pointer}.photo-tool-library button:disabled{opacity:.38}.photo-tool-library button.create{flex-basis:68px;width:68px;display:flex;flex-direction:column;gap:2px}.photo-tool-library button i{font-style:normal;font-size:16px}.photo-tool-library button b{font-size:8px}.photo-tool-library button img{width:100%;height:100%;object-fit:cover}
+
 .logo-reference-catalog{min-width:0;margin:0 0 14px;padding:12px;border:1px solid var(--border);border-radius:16px;background:var(--surface-2)}
 .logo-reference-catalog>header{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}.logo-reference-catalog>header b{font-size:13px;color:var(--text)}.logo-reference-catalog>header small{font-size:10px;color:var(--text-mute)}
 /* Generic one-row horizontal carousel used by Logo/Tattoo/Hair&Beard
@@ -7261,78 +7243,10 @@ CSS-БЛОК: .generation-info-actions button
 .replace-object-object-thumb.is-placeholder{display:grid;place-items:center}
 .replace-object-object-plus{font-size:22px;font-weight:300;color:var(--text-mute)}
 .replace-object-object-card span:last-child{display:block;overflow:hidden;font-size:9px;line-height:1.3;text-overflow:ellipsis;white-space:nowrap}
-.photo-tool-demo-column-result{min-width:0;width:100%}
-.logo-result-preview{box-sizing:border-box;position:relative;display:grid;place-items:center;width:100%;height:clamp(220px,34vw,340px);min-height:0;padding:18px;border:1px solid var(--border);border-radius:16px;background:#fff;overflow:hidden}.logo-result-preview img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}.logo-result-placeholder{padding:16px;color:#65666b;font-size:14px;line-height:1.4;text-align:center}.logo-result-links{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:9px}.logo-result-links a,.generation-result-reference{display:flex;align-items:center;gap:6px;margin-top:5px}.generation-result-reference img{width:26px;height:26px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff}.generation-result-reference small{overflow:hidden;color:var(--text-mute);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
-.generation-info-svg-download{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font:inherit;font-size:11px;font-weight:700;text-decoration:none;cursor:pointer}.logo-result-links small{font-size:10px;color:var(--text-mute)}
-.photo-tool-mask-note{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(77,177,255,.28);border-radius:14px;background:rgba(44,124,188,.12)}.photo-tool-mask-note>span{width:26px;height:26px;flex:0 0 26px;border-radius:50%;background:#3fbb78;box-shadow:0 0 0 5px rgba(63,187,120,.16)}.photo-tool-mask-note div{min-width:0}.photo-tool-mask-note b,.photo-tool-mask-note small{display:block;color:var(--text)}.photo-tool-mask-note b{font-size:11px}.photo-tool-mask-note small{margin-top:2px;color:var(--text-dim);font-size:9px;line-height:1.35}
-.photo-tool-mask-editor{padding:10px;border:1px solid rgba(77,177,255,.28);border-radius:15px;background:rgba(44,124,188,.10)}.photo-tool-mask-editor>header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.photo-tool-mask-editor>header b,.photo-tool-mask-editor>header small{display:block}.photo-tool-mask-editor>header b{font-size:11px;color:var(--text)}.photo-tool-mask-editor>header small{margin-top:2px;color:var(--text-dim);font-size:9px}.photo-tool-mask-editor>header button{padding:6px 9px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);font:inherit;font-size:9px;cursor:pointer}.photo-tool-mask-editor>div{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:11px;background:var(--bg-1)}.photo-tool-mask-editor img,.photo-tool-mask-editor canvas{position:absolute;inset:0;width:100%;height:100%}.photo-tool-mask-editor img{object-fit:contain}.photo-tool-mask-editor canvas{z-index:2;touch-action:none;cursor:crosshair}
-.remove-object-mask-panel{padding:0;border:0;background:none}
-.remove-object-mask-panel>header{padding:0 2px}
-.remove-object-mask-preview{position:relative;display:block;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:15px;border:1px solid var(--border);background:var(--bg-1);cursor:pointer;padding:0}
-.remove-object-mask-preview img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-.remove-object-mask-preview span{position:absolute;left:8px;bottom:8px;z-index:2;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.62);color:#fff;font-size:10px;font-weight:700}
-.photo-tool-upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.photo-tool-upload-grid.count-1{grid-template-columns:1fr}
-.photo-tool-upload-slot{
-  position:relative;min-height:135px;border-radius:15px;border:1px dashed var(--border-strong);
-  background:var(--surface);color:var(--text);display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:5px;padding:10px;overflow:hidden;cursor:pointer
-}
-.photo-tool-upload-slot.has-file{border-style:solid;border-color:rgba(120,183,255,.6)}
-.photo-tool-upload-slot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.photo-tool-upload-slot.has-file::after{content:"";position:absolute;inset:35% 0 0;background:linear-gradient(transparent,rgba(0,0,0,.86))}
-.photo-tool-upload-slot b,.photo-tool-upload-slot small{position:relative;z-index:1}
-.photo-tool-upload-slot b{font-size:13px}
-.photo-tool-upload-slot small{max-width:100%;font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.photo-tool-upload-slot.has-file b,.photo-tool-upload-slot.has-file small{color:#fff;margin-top:auto;text-shadow:0 1px 4px #000}
-.photo-tool-upload-plus{font-size:34px;font-weight:300;color:var(--text-mute)}
-.photo-tool-upload-slot i{
-  position:absolute;right:7px;top:7px;z-index:3;width:26px;height:26px;border-radius:50%;
-  display:grid;place-items:center;background:rgba(0,0,0,.68);color:#fff;font-style:normal;font-size:18px
-}
 
-/* Try-On: clean, self-contained person section (preview box + Character/
-   Media/Upload source buttons, mutually exclusive) plus a small overlay
-   picker for Character/Media - see renderTryOnModal() and friends in
-   cabinet.js. Garment slots reuse the plain .photo-tool-upload-slot look
-   unchanged (tryOnGarmentSectionHtml). */
-.try-on-section-label{display:block;margin:2px 0 6px;font-size:11px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.06em}
-.try-on-person-section{margin-bottom:4px}
-.try-on-person-preview-box{position:relative;display:flex;align-items:center;justify-content:center;min-height:96px;border-radius:14px;border:1px dashed var(--border-strong);background:var(--surface);overflow:hidden;margin-bottom:8px}
-.try-on-person-preview-box.has-image{border-style:solid;border-color:rgba(120,183,255,.6)}
-.try-on-person-preview-box img{width:100%;max-height:180px;object-fit:contain;display:block}
-.try-on-person-empty{font-size:12px;color:var(--text-mute)}
-.try-on-person-source-tag{position:absolute;left:8px;bottom:8px;padding:4px 9px;border-radius:999px;background:rgba(0,0,0,.62);color:#fff;font-size:10px;font-weight:700}
-.try-on-person-preview-box>i{position:absolute;right:7px;top:7px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.68);color:#fff;font-style:normal;font-size:18px;cursor:pointer}
-.try-on-person-sources{display:flex;gap:8px;margin-bottom:14px}
-.try-on-source-btn{flex:1 1 0;min-height:38px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
-.try-on-source-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.generation-result-reference{display:flex;align-items:center;gap:6px;margin-top:5px}.generation-result-reference img{width:26px;height:26px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff}.generation-result-reference small{overflow:hidden;color:var(--text-mute);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+.generation-info-svg-download{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font:inherit;font-size:11px;font-weight:700;text-decoration:none;cursor:pointer}
 
-.try-on-picker-modal{z-index:1000005}
-.try-on-picker-dialog{width:min(560px,calc(100vw - 24px));max-height:min(78vh,640px);overflow:auto;display:flex;flex-direction:column;padding:16px}
-.try-on-picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:10px}
-.try-on-picker-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;border-radius:13px;border:2px solid var(--border);background:var(--surface);cursor:pointer}
-.try-on-picker-card img{width:100%;aspect-ratio:1;border-radius:9px;object-fit:cover}
-.try-on-picker-card b{max-width:100%;font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.try-on-picker-placeholder{display:grid;place-items:center;width:100%;aspect-ratio:1;border-radius:9px;background:var(--surface-2);color:var(--text-dim);font-size:20px;font-weight:700}
-.try-on-picker-card.selected{border-color:var(--primary)}
-.try-on-picker-empty{grid-column:1/-1;padding:24px 0;text-align:center;color:var(--text-mute);font-size:13px}
-
-/* Character Replace: reuses every Try-On preview-box/source-button/picker
-   class above as-is (same visual design) - .character-replace-section is
-   just Try-On's own .try-on-person-section spacing under a tool-specific
-   name, and the picker modal/dialog double up the same base
-   .photo-tool-modal/.photo-tool-dialog classes with their own, same
-   convention as .try-on-picker-modal/.try-on-picker-dialog above. See
-   renderCharacterReplaceModal() and friends in cabinet.js. */
-.character-replace-section{margin-bottom:4px}
-.character-replace-picker-modal{z-index:1000005}
-.character-replace-picker-dialog{width:min(560px,calc(100vw - 24px));max-height:min(78vh,640px);overflow:auto;display:flex;flex-direction:column;padding:16px}
-
-.photo-tool-work-column textarea{
-  width:100%;min-height:64px;resize:vertical;border-radius:13px;border:1px solid var(--border);
-  background:var(--surface);color:var(--text);padding:11px 12px;font:inherit;font-size:13px;outline:none;box-sizing:border-box
-}
 .photo-tool-char-counter{display:block;text-align:right;font-size:11px;color:var(--text-dim);margin:-6px 2px 2px}
 .photo-tool-generate{
   min-height:46px;border:0;border-radius:14px;background:var(--primary);color:#fff;
@@ -7351,53 +7265,6 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-catalog-card>span>b{font-size:15px}
 .photo-tool-catalog-card>span>small{font-size:11px;line-height:1.35;color:var(--text-dim)}
 
-/* Remove Object: fullscreen mark-up editor. Uses the whole viewport (both
-   desktop and mobile) instead of the normal centered-card dialog every
-   other Photo Tool sheet uses - the image box itself is sized in JS
-   (initRemoveObjectMaskEditor) to the exact available area, preserving
-   aspect ratio, and the canvas is pinned to that same box with width:100%;
-   height:100% so it can never drift out of alignment with the image.
-   Selectors below double up the base .photo-tool-modal/.photo-tool-dialog
-   classes with their own (e.g. .photo-tool-dialog.remove-object-editor-dialog)
-   so they always outrank the generic small-modal rules - including the
-   generic mobile breakpoint further down this file - which otherwise wins
-   on equal specificity by simply appearing later in the file and would
-   shrink this back into a small bottom sheet on phones. */
-.photo-tool-modal.remove-object-editor{z-index:1000010;padding:0}
-.photo-tool-dialog.remove-object-editor-dialog{
-  width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;
-  display:flex;flex-direction:column;align-items:center;
-  padding:calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
-  box-sizing:border-box
-}
-.remove-object-editor-canvas-wrap{position:relative;flex:1 1 auto;min-height:0;max-width:100%;border-radius:16px;overflow:hidden;background:var(--bg-1)}
-.remove-object-editor-canvas-wrap img{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:contain;pointer-events:none}
-.remove-object-editor-canvas-wrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
-.remove-object-editor-controls{display:flex;margin-top:12px;width:100%;flex:0 0 auto}
-/* Single compact bottom toolbar: Color popover toggle | thickness slider |
-   Undo | Clear | Save - in that order, matching a familiar volume-slider
-   style rather than fixed-size buttons or a fullscreen thickness sheet. */
-.remove-object-editor-toolbar{display:flex;align-items:center;gap:8px;width:100%;min-width:0}
-.remove-object-editor-color{position:relative;flex:0 0 auto}
-.remove-object-editor-color-toggle{display:flex;align-items:center;gap:5px;height:38px;padding:0 9px;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer}
-.remove-object-editor-color-swatch{width:18px;height:18px;border-radius:50%;border:1px solid var(--border-strong);background:var(--swatch,#fff)}
-.remove-object-editor-color-caret{font-size:9px;color:var(--text-dim);line-height:1}
-.remove-object-editor-color-popover{
-  position:absolute;left:0;bottom:calc(100% + 8px);z-index:2;display:none;flex-wrap:wrap;gap:8px;
-  width:120px;padding:10px;border:1px solid var(--border);border-radius:14px;background:var(--surface-2);
-  box-shadow:0 18px 40px rgba(0,0,0,.35)
-}
-.remove-object-editor-color.open .remove-object-editor-color-popover{display:flex}
-.remove-object-editor-color-popover button{width:26px;height:26px;border-radius:50%;border:2px solid var(--border);background:var(--swatch);cursor:pointer;padding:0}
-.remove-object-editor-color-popover button.active{border-color:var(--text);box-shadow:0 0 0 2px var(--bg-1),0 0 0 3px var(--text)}
-.remove-object-editor-slider{flex:1 1 40px;min-width:40px;width:auto;accent-color:var(--primary)}
-.remove-object-editor-btn{flex:0 0 auto;min-height:38px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer}
-.remove-object-editor-save{background:var(--primary);color:#fff;border-color:var(--primary)}
-@media(max-width:420px){
-  .remove-object-editor-toolbar{gap:6px}
-  .remove-object-editor-btn{padding:0 9px;font-size:11px}
-  .remove-object-editor-color-toggle{padding:0 7px}
-}
 .photo-tool-modal.replace-object-mask-editor-modal{z-index:1000010;align-items:center;justify-content:center;padding:18px}
 .photo-tool-dialog.replace-object-mask-editor-dialog{width:min(980px,calc(100vw - 36px));height:min(760px,calc(100dvh - 36px));max-width:none;max-height:none;overflow:hidden;border-radius:22px;display:flex;flex-direction:column;align-items:center;box-sizing:border-box;padding:16px}
 .replace-object-mask-editor-dialog .photo-tool-head{width:100%;flex:0 0 auto}
@@ -7414,14 +7281,7 @@ CSS-БЛОК: .generation-info-actions button
 .replace-object-mask-toolbar button{min-height:40px;padding:0 13px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .replace-object-mask-toolbar button:disabled{opacity:.42;cursor:default}
 .replace-object-mask-toolbar button.save{background:var(--primary);border-color:var(--primary);color:#fff}
-.replace-object-mask-panel{padding:0;border:0;background:none}
-.replace-object-mask-panel>header{padding:0 2px}
-.replace-object-mask-preview{position:relative;display:block;width:100%;aspect-ratio:16/9;overflow:hidden;border:1px solid var(--border);border-radius:15px;background:var(--bg-1);padding:0;cursor:pointer}
-.replace-object-mask-preview img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-.replace-object-mask-preview span{position:absolute;left:8px;bottom:8px;z-index:2;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.68);color:#fff;font-size:10px;font-weight:700}
-.replace-object-result-compare{max-height:60vh;margin:0 auto;background:var(--bg-1)}
-.replace-object-result-compare .photo-tool-before,.replace-object-result-compare .photo-tool-after{object-fit:contain;object-position:center;background:var(--bg-1)}
-.replace-object-layout{grid-template-columns:minmax(0,1fr)}
+
 /* Desktop/tablet only: the single-column tools (Tattoo, Replace Object)
    let their Before/After block stretch to the full ~900px dialog width,
    which reads as an oversized slab on desktop compared to every other
@@ -7430,10 +7290,7 @@ CSS-БЛОК: .generation-info-actions button
    the demo column's own padding). Cap it to that same ~400px so Tattoo/
    Replace Object read as the same size as the rest; mobile (<=680px) is
    already naturally narrow and is left untouched. */
-@media(min-width:681px){
-  .tattoo-result-compare{max-width:400px;max-height:min(40vh,360px)}
-  .replace-object-result-compare{max-width:400px;max-height:min(44vh,360px)}
-}
+
 @media(max-width:600px){.photo-tool-modal.replace-object-mask-editor-modal{padding:8px}.photo-tool-dialog.replace-object-mask-editor-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);padding:11px;border-radius:18px}.replace-object-mask-editor-dialog .photo-tool-head{margin-bottom:10px}.replace-object-mask-editor-dialog .photo-tool-head h3{font-size:19px}.replace-object-mask-editor-dialog .photo-tool-head p{font-size:11px}.replace-object-mask-toolbar{flex-wrap:wrap;gap:6px;margin-top:9px}.replace-object-brush-size{flex:1 0 100%;min-width:0}.replace-object-mask-toolbar button{flex:1 1 auto;min-height:40px;padding:0 8px;font-size:11px}}
 .photo-catalog-dialog{width:min(1180px,calc(100vw - 24px));background:color-mix(in srgb, var(--st-bg-2, #121218) 55%, transparent);backdrop-filter:blur(18px)}
 .photo-catalog-tabs{display:flex;gap:7px;margin:0 0 12px;overflow-x:auto;scrollbar-width:none}.photo-catalog-tabs::-webkit-scrollbar{display:none}.photo-catalog-tabs button{flex:0 0 auto;padding:8px 12px;border:1px solid var(--st-border, rgba(255,255,255,.1));border-radius:999px;background:var(--st-bg-3, rgba(255,255,255,.06));color:var(--st-dim, rgba(255,255,255,.66));font:700 11px inherit;cursor:pointer}.photo-catalog-tabs button.active{background:var(--st-invert-bg, #f4f5f7);color:var(--st-invert-text, #111318);border-color:var(--st-invert-bg, #f4f5f7)}
@@ -7541,8 +7398,8 @@ CSS-БЛОК: .generation-info-actions button
 @media(max-width:680px){
   .photo-tool-modal{padding:10px;align-items:flex-end}
   .photo-tool-dialog{width:100%;max-height:92vh;padding:14px;border-radius:24px 24px 18px 18px}
-  .photo-tool-layout{grid-template-columns:1fr}
-  .photo-tool-demo-column .photo-tool-demo{aspect-ratio:16/8}
+  
+  
   .photo-tool-catalog{grid-template-columns:1fr}
   .photo-catalog-dialog{width:calc(100% - 10px);padding:8px;border-radius:18px}
   .photo-catalog-grid{column-count:4;column-gap:5px}
@@ -7551,13 +7408,13 @@ CSS-БЛОК: .generation-info-actions button
   .photo-catalog-card>span>b{font-size:8px}
   .photo-catalog-card>span>small{display:none}
   .photo-catalog-tabs{margin-bottom:8px}.photo-catalog-tabs button{padding:7px 10px;font-size:9px}.quick-image-detail-dialog{width:100%}.quick-image-detail-layout{grid-template-columns:1fr;overflow-y:auto}.quick-image-detail-reference img{max-height:34vh}.quick-image-detail-upload{min-height:112px}.quick-image-detail-form textarea{min-height:76px}
-  .photo-tool-upload-slot{min-height:112px}
+  
   .photo-tool-head h3{font-size:20px}
   .quick-image-detail-visual{min-height:210px;max-height:36vh}.quick-image-detail-visual #quickImageDetailImage{max-height:calc(36vh - 24px)}.quick-image-detail-fields{grid-template-columns:1fr}
-  .photo-tool-modal.logo-tool-modal{align-items:center;padding:8px max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
+  
   .logo-reference-card{flex:0 0 78px}
-  .photo-tool-modal.logo-tool-modal .photo-tool-dialog{width:100%;max-height:calc(100vh - 24px);max-height:calc(100dvh - max(16px,env(safe-area-inset-top)) - max(16px,env(safe-area-inset-bottom)));overflow-x:hidden;overflow-y:auto;padding:12px;border-radius:20px}
-  .logo-result-preview{height:clamp(180px,36vh,260px);height:clamp(180px,36svh,260px);padding:12px}
+  
+  
 }
 
 /* Brand-specific full-screen generators reuse the existing Pro Studio composer. */
@@ -8394,7 +8251,6 @@ max-height:88vh;
 .video-template-ratio-icon[data-ratio="9:16"]{width:12px;height:20px}
 .video-template-generate{min-height:42px;font-size:13px;border-radius:14px}
 }
-
 
 .studio-panel-divider{
   display:none;
@@ -9451,8 +9307,6 @@ in Pro Studio. Layout, sizing and interaction logic are untouched.
 .view[data-view="tools"].active .studio-grid-text-editor footer button{border:1px solid var(--st-border)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
 .view[data-view="tools"].active .studio-grid-text-editor footer button.primary{border-color:var(--st-invert-bg)!important;background:var(--st-invert-bg)!important;color:var(--st-invert-text)!important}
 
-
-
 .view[data-view="tools"].active .studio-grid-result-list button{background:var(--st-bg-3)!important}
 .view[data-view="tools"].active .studio-grid-result-list button.active{border-color:var(--st-accent)!important;box-shadow:0 0 0 2px var(--st-accent-bg)!important}
 .view[data-view="tools"].active .studio-grid-media-preview{background:var(--st-bg)!important}
@@ -9518,53 +9372,22 @@ html.web-embed body > #modelPop.web-studio-anchored-pop{
 .hair-beard-grid::-webkit-scrollbar{display:none}
 .hair-beard-card{position:relative;flex:0 0 98px;scroll-snap-align:start;padding:5px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:13px;background:var(--st-bg-2,#18191d);color:var(--st-text,#f3f3f3);text-align:left;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.hair-beard-card:active{transform:scale(.98)}.hair-beard-card.selected{border-color:var(--st-text,#fff);box-shadow:0 0 0 1px var(--st-text,#fff)}
 .hair-beard-card-image{display:block;width:100%;aspect-ratio:1;overflow:hidden;border-radius:9px;background:#fff}.hair-beard-card-image img{display:block;width:100%;height:100%;object-fit:contain}.hair-beard-card-name{display:block;min-height:30px;padding:6px 3px 2px;font-size:10px;line-height:1.15;font-weight:650;overflow-wrap:anywhere}.hair-beard-card-check{position:absolute;right:9px;top:9px;width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:#111;color:#fff;border:1px solid rgba(255,255,255,.82);font-size:12px;opacity:0;transform:scale(.8);transition:.16s}.hair-beard-card.selected .hair-beard-card-check{opacity:1;transform:scale(1)}
-.hair-beard-layout{grid-template-columns:minmax(0,.8fr) minmax(260px,1.2fr)}
+
 .tattoo-catalog{min-width:0;margin:0 0 14px;padding:12px;border:1px solid var(--st-border,rgba(255,255,255,.09));border-radius:18px;background:var(--st-bg-3,#111216)}
 .tattoo-catalog>header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:9px}.tattoo-catalog>header>b{font-size:12px;font-weight:700}.tattoo-catalog>header>small{font-size:10px;color:var(--st-mute,rgba(255,255,255,.5))}
 .tattoo-reference-grid{display:flex;gap:9px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none;overscroll-behavior:contain;padding:1px 3px 10px 1px}
 .tattoo-reference-grid::-webkit-scrollbar{display:none}
 .tattoo-reference-card{flex:0 0 112px;scroll-snap-align:start;padding:5px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:13px;background:var(--st-bg-2,#18191d);color:var(--st-text,#f3f3f3);text-align:left;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.tattoo-reference-card:active{transform:scale(.98)}.tattoo-reference-card.selected{border-color:var(--st-text,#fff);box-shadow:0 0 0 1px var(--st-text,#fff)}
 .tattoo-reference-card>span{display:block;width:100%;aspect-ratio:4/5;overflow:hidden;border-radius:9px;background:#fff}.tattoo-reference-card img{display:block;width:100%;height:100%;object-fit:cover}.tattoo-reference-card>b{display:block;min-height:28px;padding:6px 3px 2px;font-size:10px;line-height:1.15;font-weight:650;overflow-wrap:anywhere}
-.tattoo-layout{grid-template-columns:minmax(0,1fr)}
-.tattoo-result-compare{width:100%;max-height:52vh;margin:0 auto;background:var(--bg-1);aspect-ratio:4/3}
-.tattoo-result-compare .photo-tool-before,.tattoo-result-compare .photo-tool-after{object-fit:contain;object-position:center;background:var(--bg-1)}
-@media(max-width:680px){.tattoo-catalog{padding:9px;margin-bottom:10px}.tattoo-reference-grid{gap:7px}.tattoo-reference-card{flex:0 0 94px;padding:4px;border-radius:11px}.tattoo-reference-card>b{font-size:10px;min-height:26px}}
-.hair-beard-result-compare .photo-tool-before,.hair-beard-result-compare .photo-tool-after{object-fit:cover;object-position:var(--face-x,50%) var(--face-y,42%)}
-.hair-beard-result-compare.smart-crop-active{--smart-zoom:1.2}
-.hair-beard-result-compare.smart-crop-active .photo-tool-before,.hair-beard-result-compare.smart-crop-active .photo-tool-after{transform:scale(var(--smart-zoom));transform-origin:var(--face-x,50%) var(--face-y,42%)}
-.hair-beard-face-focus{position:absolute;z-index:3;left:var(--face-x,50%);top:var(--face-y,42%);width:34%;aspect-ratio:1/1.18;border:1px solid rgba(255,255,255,.82);border-radius:48%;box-shadow:0 0 0 999px rgba(0,0,0,.08);opacity:0;pointer-events:none;transform:translate(-50%,-50%);transition:opacity .2s ease}
-.hair-beard-result-compare.face-detected .hair-beard-face-focus{opacity:.45}
-.hair-beard-smart-crop{display:inline-flex;align-items:center;justify-content:center;min-height:28px;margin-top:7px;padding:3px 10px;border:1px solid var(--st-border,rgba(255,255,255,.16));border-radius:999px;background:transparent;color:var(--st-mute,rgba(255,255,255,.68));font:inherit;font-size:10px;cursor:pointer}
-.hair-beard-smart-crop.active{background:var(--st-invert-bg,#f1f3f5);border-color:var(--st-invert-bg,#f1f3f5);color:var(--st-invert-text,#111216)}
 
-@media(max-width:680px){.hair-beard-catalog{padding:9px;margin-bottom:10px}.hair-beard-tabs{gap:6px;padding-bottom:9px}.hair-beard-tab{min-height:34px;padding:0 11px;font-size:11px}.hair-beard-grid{gap:7px}.hair-beard-card{flex:0 0 84px;padding:4px;border-radius:11px}.hair-beard-card-name{font-size:10px;min-height:28px}.hair-beard-card-check{right:7px;top:7px}.hair-beard-layout{grid-template-columns:1fr}}
+@media(max-width:680px){.tattoo-catalog{padding:9px;margin-bottom:10px}.tattoo-reference-grid{gap:7px}.tattoo-reference-card{flex:0 0 94px;padding:4px;border-radius:11px}.tattoo-reference-card>b{font-size:10px;min-height:26px}}
+
+@media(max-width:680px){.hair-beard-catalog{padding:9px;margin-bottom:10px}.hair-beard-tabs{gap:6px;padding-bottom:9px}.hair-beard-tab{min-height:34px;padding:0 11px;font-size:11px}.hair-beard-grid{gap:7px}.hair-beard-card{flex:0 0 84px;padding:4px;border-radius:11px}.hair-beard-card-name{font-size:10px;min-height:28px}.hair-beard-card-check{right:7px;top:7px}}
 
 /* Pre-generation reference preview (shown the instant a Hair&Beard
    preset / Tattoo reference is selected, before Generate runs) - reuses
    .photo-tool-demo's own box sizing, just swaps in a plain contained
    image instead of the demo video/placeholder. */
-.hair-beard-reference-preview img,
-.tattoo-reference-preview img{width:100%;height:100%;display:block;object-fit:contain;background:var(--bg-1)}
-@media(min-width:681px){.tattoo-reference-preview{max-width:400px;margin:0 auto}}
-
-/* Isolated hairstyle, facial-hair, color and custom-reference controls. */
-.hair-beard-colors{margin-top:13px;padding-top:12px;border-top:1px solid var(--st-border,rgba(255,255,255,.1))}
-.hair-beard-colors>header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:9px}.hair-beard-colors>header>b{font-size:12px;font-weight:700}.hair-beard-colors>header>small{font-size:10px;color:var(--st-mute,rgba(255,255,255,.5))}
-.hair-beard-color-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-.hair-beard-color-control{min-width:0;padding:8px 9px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:12px;background:var(--st-bg-2,#18191d)}
-.hair-beard-color-label{display:block;margin-bottom:6px;font-size:11px;font-weight:650;color:var(--st-text,#f3f3f3)}
-.hair-beard-color-actions{display:flex;align-items:center;gap:6px;min-width:0}
-.hair-beard-color-swatch{width:30px;height:30px;flex:0 0 30px;display:block;overflow:hidden;border:1px solid var(--st-border,rgba(255,255,255,.2));border-radius:9px;background:#38291f;cursor:pointer}
-.hair-beard-color-swatch input{display:block;width:42px;height:42px;margin:-6px;padding:0;border:0;background:none;cursor:pointer}
-.hair-beard-color-hex{width:70px;min-width:0;height:30px;padding:0 7px;border:1px solid var(--st-border,rgba(255,255,255,.12));border-radius:8px;background:var(--st-bg-3,#111216);color:var(--st-text,#f3f3f3);font:11px ui-monospace,SFMono-Regular,monospace;outline:none}
-.hair-beard-color-hex:focus{border-color:var(--st-text,#fff)}
-.hair-beard-color-reset{min-width:0;padding:5px 6px;border:0;border-radius:7px;background:transparent;color:var(--st-mute,rgba(255,255,255,.55));font:inherit;font-size:9px;white-space:nowrap;cursor:pointer}
-.hair-beard-color-reset:hover{background:rgba(255,255,255,.07);color:var(--st-text,#fff)}
-.hair-beard-color-status{display:block;margin-top:5px;min-height:12px;color:var(--st-mute,rgba(255,255,255,.48));font-size:9px;line-height:1.2}
-.hair-beard-color-control.has-color .hair-beard-color-status{color:var(--st-text,#f3f3f3)}
-.hair-beard-color-all{display:inline-flex;align-items:center;justify-content:center;min-height:23px;margin-top:6px;padding:2px 8px;border:1px solid var(--st-border,rgba(255,255,255,.14));border-radius:999px;background:transparent;color:var(--st-mute,rgba(255,255,255,.6));font:inherit;font-size:9px;cursor:pointer;transition:background .16s ease,color .16s ease,border-color .16s ease}
-.hair-beard-color-all.active{background:var(--st-invert-bg,#f1f3f5);border-color:var(--st-invert-bg,#f1f3f5);color:var(--st-invert-text,#111216)}
-@media(max-width:680px){.hair-beard-colors{margin-top:10px;padding-top:10px}.hair-beard-colors>header>small{font-size:9px}.hair-beard-color-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.hair-beard-color-control{padding:7px 6px}.hair-beard-color-label{font-size:10px}.hair-beard-color-actions{gap:4px}.hair-beard-color-swatch{width:27px;height:27px;flex-basis:27px}.hair-beard-color-swatch input{width:39px;height:39px}.hair-beard-color-hex{width:55px;height:28px;padding:0 5px;font-size:10px}.hair-beard-color-reset{font-size:8px;padding:5px 3px}}
 
 /* Full-screen desktop Edit workspace: deliberately isolated from the Photo Tool modal. */
 .edit-workspace{position:fixed;inset:0;z-index:1000020;display:none;overflow:hidden;background:#080809;color:#f4f4f5;font-family:inherit}
@@ -10417,84 +10240,117 @@ With references, the prompt under the stack gets the same block.
 
 /* =====================================================
 CSS-БЛОК: photo tool windows
-One fixed-size window for every tool: a vertical banner on the left, the
-tool's upload areas on the right split by a line, its options and
-Generate under them. Taller tools scroll inside the right column.
+Laid out like the Media viewer: the banner fills the left side edge to
+edge (the top on a phone), the right side is a clean area - kicker,
+title, the upload areas with small pluses, the text field, the preset
+icons and Generate - and everything fits on one screen, no scrolling.
 ===================================================== */
-#photoToolDialog:has(.ptool-layout){width:min(920px,calc(100vw - 32px));height:min(640px,calc(100vh - 40px));max-height:none;display:flex;flex-direction:column;overflow:hidden}
-#photoToolDialog:has(.ptool-layout) #photoToolModalBody{display:flex;flex-direction:column;flex:1;min-height:0}
-#photoToolDialog:has(.ptool-layout) .photo-tool-head{flex:0 0 auto}
-.ptool-layout{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,38%) minmax(0,1fr);gap:16px}
-.ptool-banner{min-height:0;border-radius:20px;background:linear-gradient(160deg,var(--ptool-a),var(--ptool-b));background-size:cover;background-position:center}
-.ptool-work{min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px;overflow-y:auto;overscroll-behavior:contain;padding:12px;border-radius:20px;background:var(--st-bg, var(--surface));border:1px solid var(--st-border, var(--border))}
-.ptool-zones{flex:1 0 auto;display:flex;flex-direction:column;min-height:210px}
-.ptool-zone{position:relative;flex:1 1 0;min-height:118px;display:flex;flex-direction:column;gap:6px}
-.ptool-zone-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
-.ptool-zone-head b{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--st-mute, var(--text-mute))}
+#photoToolDialog:has(.ptool-layout){width:min(940px,calc(100vw - 32px));height:min(620px,calc(100vh - 40px));height:min(620px,calc(100dvh - 40px));max-width:none;max-height:none;padding:0;display:flex;overflow:hidden;border-radius:24px;background:var(--st-bg, var(--surface))}
+#photoToolDialog:has(.ptool-layout) #photoToolModalBody{display:flex;flex:1;min-width:0;min-height:0}
+.ptool-layout{position:relative;flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(0,44%) minmax(0,1fr)}
+.ptool-banner{min-width:0;min-height:0;background:linear-gradient(160deg,var(--ptool-a),var(--ptool-b));background-size:cover;background-position:center}
+.ptool-close{position:absolute;z-index:3;top:12px;right:12px;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:rgba(10,10,12,.55);color:#fff;font-size:20px;line-height:34px;text-align:center;cursor:pointer;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.ptool-work{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;gap:12px;padding:24px 24px 20px;overflow:hidden;color:var(--st-text, var(--text))}
+.ptool-head{flex:0 0 auto;padding-right:40px}
+.ptool-head small{display:block;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--st-accent, #5b8dff)}
+.ptool-head h3{margin:4px 0 0;font-size:22px;font-weight:800;line-height:1.15;color:var(--st-text, var(--text))}
+
+/* Upload areas: no frames - a small label, the photos and a small ＋. */
+.ptool-zones{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.ptool-zone{position:relative;flex:1 1 0;min-height:0;display:flex;flex-direction:column;gap:6px}
+.ptool-zone-head{flex:0 0 auto;display:flex;align-items:baseline;gap:8px}
+.ptool-zone-head b{font-size:11px;font-weight:600;color:var(--st-mute, var(--text-mute))}
 .ptool-zone-head small{font-size:11px;color:var(--st-mute, var(--text-mute))}
-.ptool-zone-body{position:relative;flex:1;min-height:84px;display:flex;flex-wrap:wrap;align-items:center;align-content:center;justify-content:center;gap:10px}
-.ptool-divider{flex:0 0 auto;width:100%;height:0;margin:8px 0;border:0;border-top:1px solid var(--st-border, var(--border))}
-.ptool-add{flex:0 0 auto;width:64px;height:64px;padding:0;border-radius:50%;border:1.5px dashed var(--st-mute, var(--text-mute));background:transparent;color:var(--st-text, var(--text));font-size:28px;line-height:1;display:grid;place-items:center;cursor:pointer;transition:background .15s ease,transform .15s ease}
-.ptool-add:hover{background:var(--st-bg-2, var(--surface-2));transform:scale(1.05)}
-.ptool-zone.has-items .ptool-add{width:56px;height:56px;border-radius:14px;font-size:22px}
-.ptool-ref{position:relative;flex:0 0 auto;margin:0;width:92px;height:92px;border-radius:14px;overflow:hidden;background:var(--st-bg-2, var(--surface-2))}
-.ptool-zone[data-max="1"] .ptool-ref{width:auto;max-width:100%;height:min(100%,150px);min-height:72px;aspect-ratio:19/15}
+.ptool-zone-body{position:relative;flex:1 1 auto;min-height:0;display:flex;align-items:center;gap:8px}
+.ptool-divider{flex:0 0 auto;width:100%;height:0;margin:10px 0;border:0;border-top:1px solid var(--st-line-2, var(--border))}
+.ptool-add{flex:0 0 auto;width:44px;height:44px;padding:0;border:0;border-radius:50%;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font-size:22px;line-height:1;display:grid;place-items:center;cursor:pointer;transition:background .15s ease,transform .15s ease}
+.ptool-add:hover{transform:scale(1.06);background:var(--st-bg-3, var(--surface-2))}
+.ptool-ref{position:relative;flex:0 0 auto;margin:0;height:min(100%,88px);min-height:40px;aspect-ratio:1;border-radius:12px;overflow:hidden;background:var(--st-bg-2, var(--surface-2))}
+.ptool-zone[data-max="1"] .ptool-ref{height:min(100%,190px);aspect-ratio:auto;max-width:100%}
+.ptool-zone[data-max="1"] .ptool-ref img{width:auto;max-width:100%;min-width:40px}
 .ptool-ref img{display:block;width:100%;height:100%;object-fit:cover}
 .ptool-ref.is-openable{cursor:zoom-in}
-.ptool-ref-x{position:absolute;top:5px;right:5px;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.62);color:#fff;font-size:15px;line-height:24px;text-align:center;cursor:pointer}
-.ptool-chooser{display:none;position:absolute;inset:0;z-index:2;align-items:center;justify-content:center;gap:10px;border-radius:14px;background:var(--st-bg, var(--surface))}
+.ptool-ref-x{position:absolute;top:5px;right:5px;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:14px;line-height:22px;text-align:center;cursor:pointer}
+.ptool-chooser{display:none;position:absolute;inset:0;z-index:2;align-items:center;gap:8px;background:var(--st-bg, var(--surface))}
 .ptool-zone.is-choosing .ptool-chooser{display:flex}
-.ptool-chooser button{padding:10px 18px;border-radius:999px;border:1px solid var(--st-border, var(--border));background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:13px;font-weight:600;cursor:pointer}
-.ptool-chooser button:hover{border-color:var(--st-text, var(--text))}
-.ptool-zone-hint{display:block;text-align:center;font-size:11px;color:var(--st-mute, var(--text-mute))}
-.ptool-zone-tag{position:absolute;left:4px;bottom:4px;padding:3px 9px;border-radius:999px;background:#10b981;color:#fff;font-size:10px;font-weight:700;pointer-events:none}
-.ptool-zone-badge{position:absolute;left:4px;bottom:4px;z-index:1;width:46px;height:46px;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.28)}
+.ptool-chooser button{padding:10px 16px;border:0;border-radius:999px;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.ptool-chooser button:hover{background:var(--st-bg-3, var(--surface-2))}
+.ptool-zone-hint{flex:0 0 auto;font-size:11px;color:var(--st-mute, var(--text-mute))}
+.ptool-zone-tag{position:absolute;left:6px;bottom:6px;padding:3px 9px;border-radius:999px;background:#10b981;color:#fff;font-size:10px;font-weight:700;pointer-events:none}
+.ptool-zone-badge{position:absolute;left:6px;bottom:6px;z-index:1;width:42px;height:42px;border-radius:11px;overflow:hidden;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.28)}
 .ptool-zone-badge img{display:block;width:100%;height:100%;object-fit:cover}
 .ptool-zone-badge button{position:absolute;top:2px;right:2px;width:16px;height:16px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.62);color:#fff;font-size:11px;line-height:16px;cursor:pointer}
-.ptool-work textarea{flex:0 0 auto;width:100%;min-height:58px;box-sizing:border-box;resize:none;padding:10px 12px;border-radius:14px;border:1px solid var(--st-border, var(--border));background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:14px}
-.ptool-work .photo-tool-char-counter{align-self:flex-end;margin-top:-6px}
-.ptool-work .photo-tool-generate{flex:0 0 auto;margin-top:auto}
+
+/* The text field: one quiet chat-like box. */
+.ptool-work textarea{flex:0 0 auto;width:100%;height:46px;min-height:46px;box-sizing:border-box;resize:none;padding:13px 14px;border:0;border-radius:14px;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:14px;line-height:1.4;outline:none}
+.ptool-work textarea::placeholder{color:var(--st-mute, var(--text-mute))}
+.ptool-work textarea:focus{box-shadow:0 0 0 1.5px var(--st-line-2, var(--border))}
+.ptool-work .photo-tool-char-counter{align-self:flex-end;margin:-8px 0 -4px;font-size:11px}
+.ptool-work .photo-tool-generate{flex:0 0 auto;width:100%;height:46px;margin:0;border-radius:14px}
 #uploadPanel.for-photo-tool{z-index:1000006 !important}
 body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
-@media(max-width:680px){
-  #photoToolDialog:has(.ptool-layout){width:100%;height:min(86vh,720px);height:min(86dvh,720px)}
-  .ptool-layout{grid-template-columns:30% minmax(0,1fr);gap:10px}
-  .ptool-banner{border-radius:16px}
-  .ptool-work{padding:10px;border-radius:16px}
-  .ptool-ref{width:72px;height:72px}
-  .ptool-zone[data-max="1"] .ptool-ref{height:min(100%,120px)}
-  .ptool-add{width:54px;height:54px}
-  .ptool-chooser{flex-direction:column}
-}
-/* Built-in references of a tool: a row of small icons above Generate. */
+
+/* Built-in references: one row of small icons above Generate. */
 .ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.hair-beard-catalog,.replace-object-objects-row){flex:0 0 auto;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
-.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px;padding:0}
-.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header b{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--st-mute, var(--text-mute))}
+.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header{display:flex;margin:0 0 6px;padding:0}
+.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header b{font-size:11px;font-weight:600;color:var(--st-mute, var(--text-mute))}
 .ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header small{display:none}
 .ptool-work .preset-carousel{position:relative;margin:0;padding:0}
 .ptool-work .preset-carousel-arrow{display:none}
 .ptool-work .preset-carousel-track{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px}
 .ptool-work .preset-carousel-track::-webkit-scrollbar{display:none}
-.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card){flex:0 0 54px !important;width:54px !important;min-width:0 !important;height:54px;margin:0;padding:0 !important;border:0 !important;border-radius:12px !important;overflow:hidden;background:var(--st-bg-2, var(--surface-2)) !important;box-shadow:none !important;cursor:pointer}
+.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card){flex:0 0 46px !important;width:46px !important;min-width:0 !important;height:46px;margin:0;padding:0 !important;border:0 !important;border-radius:11px !important;overflow:hidden;background:var(--st-bg-2, var(--surface-2)) !important;box-shadow:none !important;cursor:pointer}
 .ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card) :is(span,.hair-beard-card-image){display:block;width:100%;height:100%;margin:0;padding:0;border-radius:0;background:none}
-.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card) img{display:block;width:54px !important;height:54px !important;max-width:none;object-fit:cover;border-radius:0}
+.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card) img{display:block;width:46px !important;height:46px !important;max-width:none;object-fit:cover;border-radius:0}
 .ptool-work :is(.tattoo-reference-card>b,.logo-reference-card>span,.hair-beard-card-name,.hair-beard-card-check,.replace-object-object-card>b,.replace-object-object-card>small){display:none !important}
+.ptool-work .replace-object-object-plus{display:grid;place-items:center;width:100%;height:100%;font-size:20px}
 .ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card).selected{outline:2px solid var(--st-text, var(--text));outline-offset:-2px}
-.ptool-work .hair-beard-tabs{display:flex;gap:6px;margin:0 0 6px;padding:0;overflow-x:auto;scrollbar-width:none}
-.ptool-work .hair-beard-tab{flex:0 0 auto;padding:6px 12px;border-radius:999px;font-size:12px}
-/* A folded control (hair & beard colour). */
-.ptool-dropdown{flex:0 0 auto;border-radius:14px;border:1px solid var(--st-border, var(--border));background:var(--st-bg-2, var(--surface-2))}
-.ptool-dropdown>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;cursor:pointer;list-style:none;font-size:13px;font-weight:600}
+
+/* Hair & beard: the category switch and the colour pill share one line. */
+.ptool-hair{position:relative;flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;row-gap:6px}
+.ptool-hair .hair-beard-catalog{display:contents}
+.ptool-hair .preset-carousel{grid-column:1 / -1;grid-row:2}
+.ptool-work .hair-beard-tabs{grid-column:1;grid-row:1;display:flex;gap:4px;margin:0;padding:0;overflow-x:auto;scrollbar-width:none}
+.ptool-work .hair-beard-tabs::-webkit-scrollbar{display:none}
+.ptool-work .hair-beard-tab{flex:0 0 auto;height:30px;min-height:0;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--st-dim, var(--text-mute));font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.ptool-work .hair-beard-tab.active{background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text))}
+.ptool-dropdown{position:relative;z-index:4;grid-column:2;grid-row:1}
+.ptool-dropdown>summary{display:flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:999px;background:var(--st-bg-2, var(--surface-2));font-size:12px;font-weight:600;list-style:none;cursor:pointer;white-space:nowrap}
 .ptool-dropdown>summary::-webkit-details-marker{display:none}
-.ptool-dropdown>summary::after{content:"";width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg);margin:-3px 2px 0 0;transition:transform .2s}
-.ptool-dropdown[open]>summary::after{transform:rotate(-135deg);margin-top:3px}
-.ptool-dropdown>summary small{flex:1;text-align:right;font-weight:400;font-size:12px;color:var(--st-mute, var(--text-mute));overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.ptool-dropdown-panel{display:flex;flex-direction:column;gap:10px;padding:2px 12px 12px}
-.hair-beard-color-row{display:flex;flex-direction:column;gap:6px}
-.hair-beard-color-row>b{font-size:11px;font-weight:600;color:var(--st-mute, var(--text-mute))}
-.hair-beard-swatches{display:flex;flex-wrap:wrap;gap:6px}
-.hair-beard-swatch{position:relative;width:24px;height:24px;padding:0;border-radius:50%;border:1px solid rgba(127,127,127,.35);background:var(--swatch,#fff);cursor:pointer}
-.hair-beard-swatch.active{box-shadow:0 0 0 2px var(--st-bg-2, var(--surface-2)),0 0 0 4px var(--st-text, var(--text))}
+.ptool-dropdown>summary::after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-135deg);margin-top:3px;transition:transform .2s}
+.ptool-dropdown[open]>summary::after{transform:rotate(45deg);margin-top:-3px}
+.ptool-dots{display:flex;gap:3px;font-style:normal}
+.ptool-dots:empty{display:none}
+.ptool-dots b{width:10px;height:10px;border-radius:50%;background:var(--swatch);box-shadow:0 0 0 1px rgba(127,127,127,.35)}
+.ptool-dropdown-panel{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;max-width:calc(100vw - 40px);display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:16px;background:var(--st-bg, var(--surface));border:1px solid var(--st-line-2, var(--border));box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.hair-beard-color-row{display:grid;grid-template-columns:56px minmax(0,1fr);align-items:center;gap:8px}
+.hair-beard-color-row>b{font-size:12px;font-weight:600;color:var(--st-dim, var(--text-mute))}
+.hair-beard-swatches{display:flex;flex-wrap:wrap;gap:5px}
+.hair-beard-swatch{position:relative;width:20px;height:20px;padding:0;border-radius:50%;border:1px solid rgba(127,127,127,.35);background:var(--swatch,#fff);cursor:pointer}
+.hair-beard-swatch.active{box-shadow:0 0 0 2px var(--st-bg, var(--surface)),0 0 0 3.5px var(--st-text, var(--text))}
 .hair-beard-swatch.is-original{background:linear-gradient(135deg,#fff 46%,#e5484d 46% 54%,#fff 54%)}
 .hair-beard-swatch.is-custom{overflow:hidden;background:conic-gradient(#ef4444,#f59e0b,#22c55e,#06b6d4,#6366f1,#ec4899,#ef4444)}
 .hair-beard-swatch.is-custom input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+
+/* Phone: the banner on top as a strip, the rest under it on one screen. */
+@media(max-width:680px){
+  .photo-tool-modal:has(.ptool-layout){padding:8px;align-items:center}
+  #photoToolDialog:has(.ptool-layout){width:100%;height:calc(100vh - 16px);height:calc(100dvh - 16px);border-radius:22px}
+  html.browser-app #photoToolDialog:has(.ptool-layout){height:calc(var(--bvh,1vh) * 100 - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
+  .ptool-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:clamp(76px,17dvh,150px) minmax(0,1fr)}
+  .ptool-close{top:10px;right:10px}
+  .ptool-work{gap:10px;padding:14px 16px 16px}
+  .ptool-head{padding-right:0}
+  .ptool-head h3{font-size:19px}
+  .ptool-divider{margin:8px 0}
+  .ptool-zone[data-max="1"] .ptool-ref{height:min(100%,170px)}
+  .ptool-dropdown-panel{width:calc(100vw - 48px);max-width:none;padding:12px}
+  .hair-beard-color-row{grid-template-columns:48px minmax(0,1fr)}
+  .hair-beard-swatches{gap:3px}
+  .hair-beard-swatch{width:15px;height:15px}
+}
+@media(max-width:680px) and (max-height:620px){
+  .ptool-layout{grid-template-rows:60px minmax(0,1fr)}
+  .ptool-head small{display:none}
+  .ptool-head h3{margin:0;font-size:17px}
+}

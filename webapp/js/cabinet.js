@@ -9333,7 +9333,7 @@ function updateLogoPrompt(e) {
   if(button)button.disabled=!logoState.prompt.trim()||logoState.generating;
 }
 
-const HAIR_BEARD_CATEGORY_LABELS = { men:'Men', beard_mustache:'Beard & Mustache', women:'Women' };
+const HAIR_BEARD_CATEGORY_LABELS = { men:'Мужчины', beard_mustache:'Борода и усы', women:'Девушки' };
 const HAIR_BEARD_PRESET_LABELS = {
   bald:'Bald',buzz_cut:'Buzz cut',very_short:'Very short',crew_cut:'Crew cut',short_crop:'Short crop',textured_crop:'Textured crop',side_part:'Side part',slick_back:'Slick back',quiff:'Quiff',medium_hair:'Medium hair',long_hair:'Long hair',long_wavy_hair:'Long wavy hair',curly_hair:'Curly hair',afro:'Afro',middle_part:'Middle part',man_bun:'Man bun',
   clean_shaven:'Clean shaven',light_stubble:'Light stubble',heavy_stubble:'Heavy stubble',short_beard:'Short beard',medium_beard:'Medium beard',long_beard:'Long beard',full_beard:'Full beard',beard_without_mustache:'Beard without mustache',goatee:'Goatee',mustache:'Mustache',thick_mustache:'Thick mustache',beard_and_mustache:'Beard and mustache',long_beard_long_hair:'Long beard · long hair',long_beard_short_hair:'Long beard · short hair',beard_bald:'Beard · bald',beard_buzz_cut:'Beard · buzz cut',beard_medium_hair:'Beard · medium hair',mustache_short_hair:'Mustache · short hair',stubble_short_hair:'Stubble · short hair',
@@ -9392,14 +9392,14 @@ const HAIR_BEARD_COLOR_SWATCHES = [
   ['#e3c88f','Блонд'],['#efe3c4','Платиновый'],['#a5452c','Рыжий'],['#7b2f2a','Медный'],['#8e8e8e','Седой'],['#e9e9e9','Белый'],
 ];
 
-function hairBeardColorSummary() {
-  const chosen = HAIR_BEARD_COLOR_PARTS.filter((part) => hairBeardState.colors[part]);
-  return chosen.length ? chosen.map((part) => HAIR_BEARD_COLOR_FIELDS[part].label).join(', ') : 'как на фото';
+function hairBeardColorDotsHtml() {
+  return HAIR_BEARD_COLOR_PARTS.filter((part) => hairBeardState.colors[part])
+    .map((part) => '<b style="--swatch:' + hairBeardState.colors[part] + '" title="' + S.escapeHtml(HAIR_BEARD_COLOR_FIELDS[part].label) + '"></b>').join('');
 }
 
 // Colour of hair, beard, mustache and brows - folded into one dropdown.
 function hairBeardColorsHtml() {
-  return '<details class="ptool-dropdown hair-beard-colors"><summary><span>Цвет</span><small id="hairBeardColorSummary">' + S.escapeHtml(hairBeardColorSummary()) + '</small></summary><div class="ptool-dropdown-panel">'
+  return '<details class="ptool-dropdown hair-beard-colors"><summary><span>Цвет</span><i class="ptool-dots" id="hairBeardColorDots">' + hairBeardColorDotsHtml() + '</i></summary><div class="ptool-dropdown-panel">'
     + HAIR_BEARD_COLOR_PARTS.map((part) => {
       const current = hairBeardState.colors[part];
       return '<div class="hair-beard-color-row" data-color-part="' + part + '"><b>' + S.escapeHtml(HAIR_BEARD_COLOR_FIELDS[part].label) + '</b><div class="hair-beard-swatches">'
@@ -9421,8 +9421,15 @@ function setHairBeardColor(e, part, color) {
     const value = swatch.dataset.color;
     swatch.classList.toggle('active', value === undefined ? !!clean && !HAIR_BEARD_COLOR_SWATCHES.some(([hex]) => hex === clean) : value === (clean || ''));
   });
-  const summary = document.getElementById('hairBeardColorSummary');
-  if (summary) summary.textContent = hairBeardColorSummary();
+  const dots = document.getElementById('hairBeardColorDots');
+  if (dots) dots.innerHTML = hairBeardColorDotsHtml();
+}
+
+// Closes an open dropdown (hair colour) when the click lands outside it.
+function closePhotoToolDropdowns(e) {
+  document.querySelectorAll('#photoToolModalBody .ptool-dropdown[open]').forEach((menu) => {
+    if (!e || !menu.contains(e.target)) menu.removeAttribute('open');
+  });
 }
 
 function hairBeardCatalogHtml() {
@@ -9553,8 +9560,7 @@ const PHOTO_TOOL_BANNERS = {
 };
 
 function photoToolHeadHtml(config) {
-  return '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
-    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>';
+  return '<header class="ptool-head"><small>Быстрый инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></header>';
 }
 
 function photoToolBannerHtml(tool, config) {
@@ -9796,16 +9802,16 @@ function photoToolPromptHtml(tool) {
   if (tool === 'hair_beard') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">' + S.escapeHtml(hairBeardState.referencePrompt) + '</textarea>';
   if (tool === 'tattoo') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Опишите тату (необязательно)" oninput="SYLVEX.updateTattooPrompt(event)">' + S.escapeHtml(tattooState.prompt) + '</textarea>';
   if (tool === 'logo') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Опишите логотип" oninput="SYLVEX.updateLogoPrompt(event)">' + S.escapeHtml(logoState.prompt) + '</textarea>';
-  if (tool === 'animate_photo') return '<textarea id="photoToolExtraPrompt" rows="2" maxlength="' + ANIMATE_PHOTO_PROMPT_MAX_LENGTH + '" placeholder="Опишите желаемое движение (необязательно)" oninput="SYLVEX.updateAnimatePhotoPromptCounter()"></textarea><small class="photo-tool-char-counter" id="photoToolPromptCounter">0/' + ANIMATE_PHOTO_PROMPT_MAX_LENGTH + '</small>';
+  if (tool === 'animate_photo') return '<textarea id="photoToolExtraPrompt" rows="2" maxlength="' + ANIMATE_PHOTO_PROMPT_MAX_LENGTH + '" placeholder="Опишите движение (необязательно)" oninput="SYLVEX.updateAnimatePhotoPromptCounter()"></textarea><small class="photo-tool-char-counter" id="photoToolPromptCounter">0/' + ANIMATE_PHOTO_PROMPT_MAX_LENGTH + '</small>';
   if (tool === 'remove_object') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Что удалить (необязательно)" oninput="SYLVEX.updateRemoveObjectReadiness()"></textarea>';
-  if (tool === 'replace_object' || tool === 'face_retouch') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"></textarea>';
+  if (tool === 'replace_object' || tool === 'face_retouch') return '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Пожелания (необязательно)"></textarea>';
   return '';
 }
 
 // Built-in references of a tool, in a row of small icons above Generate.
 function photoToolPresetsHtml(tool) {
   if (tool === 'tattoo') return tattooCatalogHtml();
-  if (tool === 'hair_beard') return hairBeardColorsHtml() + hairBeardCatalogHtml();
+  if (tool === 'hair_beard') return '<div class="ptool-hair">' + hairBeardCatalogHtml() + hairBeardColorsHtml() + '</div>';
   if (tool === 'logo') return logoCatalogHtml();
   if (tool === 'replace_object') return replaceObjectObjectsRowHtml();
   return '';
@@ -9821,10 +9827,11 @@ function renderPhotoToolModal() {
     renderPhotoToolCatalog();
     return;
   }
-  body.innerHTML = photoToolHeadHtml(config)
-    + '<div class="ptool-layout" data-tool="' + tool + '">'
+  body.innerHTML = '<div class="ptool-layout" data-tool="' + tool + '">'
     + photoToolBannerHtml(tool, config)
-    + '<div class="ptool-work">'
+    + '<button type="button" class="ptool-close" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button>'
+    + '<div class="ptool-work" onclick="SYLVEX.closePhotoToolDropdowns(event)">'
+    + photoToolHeadHtml(config)
     + '<div class="ptool-zones" id="ptoolZones">' + photoToolZonesInnerHtml(tool) + '</div>'
     + photoToolPromptHtml(tool)
     + photoToolPresetsHtml(tool)
@@ -30458,6 +30465,7 @@ async function waitGeneration(jobId, options) {
   S.setReplaceObjectBrushSize = setReplaceObjectBrushSize;
   S.updateRemoveObjectReadiness = updateRemoveObjectReadiness;
   S.updateAnimatePhotoPromptCounter = updateAnimatePhotoPromptCounter;
+  S.closePhotoToolDropdowns = closePhotoToolDropdowns;
   S.openQuickImageExtraFile = openQuickImageExtraFile;
   S.onQuickImageExtraFile = onQuickImageExtraFile;
   S.clearTryOnPerson = clearTryOnPerson;
