@@ -77,12 +77,15 @@ test('one card per reference the request used, in its order, no duplicates or ex
 
 test('the stack replaces the reference group in the workspace, and shows from the moment Generate is pressed', () => {
   assert.ok(cabinet.includes("renderReferenceRequest(refs, userPrompt, 'r' + i)"));
-  assert.ok(cabinet.includes("renderReferenceRequest(resultRefs, requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1))"));
+  assert.ok(cabinet.includes("renderReferenceRequest(resultRefs, !m.retryRequest && requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1))"));
   assert.ok(cabinet.includes("renderReferenceRequest(pendingRefs, '', 'r' + i)"), 'while generating, keyed like its result');
   assert.ok(cabinet.includes("? renderReferenceStack(m.referenceImages, 'u' + i)"));
-  const send = cabinet.slice(cabinet.indexOf('      loadingIndex = appendPendingGenerationPlaceholder();\n      // The workspace shows'), cabinet.indexOf('    } else if (!uploadOnlyVoice) {'));
+  const send = cabinet.slice(cabinet.indexOf("    if (photoMode) {\n      // The prompt with this request's references"), cabinet.indexOf('    } else if (!uploadOnlyVoice) {'));
   assert.ok(send.includes("requestImageDisplayReferences({ type: 'image', image_options: imageOptionsSnapshot })"));
-  assert.ok(send.includes('chatMessages[loadingIndex].requestReferences = pendingRefs;'));
+  // While it generates, the references sit with the prompt message,
+  // keyed like its result.
+  assert.ok(send.includes('referenceImages: pendingRefs.length ? pendingRefs : null,'));
+  assert.ok(cabinet.includes("else if (promptRefs.length) inner += renderReferenceRequest(promptRefs, String(m.text || ''), 'r' + (i + 1));"));
   assert.ok(cabinet.includes('    mountReferenceStacks(el);\n    el.scrollTop = el.scrollHeight;'));
 });
 

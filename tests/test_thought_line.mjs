@@ -180,10 +180,10 @@ test('Pro Studio only: Grid and Edit carry no line', () => {
 
 test('Pro Studio starts the line at once, holds the result until it settles and keeps it in view', () => {
   assert.ok(cabinet.includes("if(typeof window.requestIdleCallback==='function')window.requestIdleCallback(warm,{timeout:3000});else setTimeout(warm,1200);"), 'bundle loaded before the first Generate');
-  assert.ok(cabinet.includes("    if (m.isError || !generationThoughtDone(m.thought)) return '<div class=\"msg ai generation-loading-msg\"><div class=\"ai-avatar\">S</div>' + slot + '</div>';"), 'held result; a failure is the line alone');
+  assert.ok(cabinet.includes("    if (m.isError || !generationThoughtDone(m.thought)) return '<div class=\"msg ai generation-loading-msg\"><div class=\"ai-avatar\">S</div>' + slot + (m.isError ? failedGenerationRetry(i) : '') + '</div>';"), 'held result; a failure is the line with its retry');
   assert.ok(cabinet.includes('if(area&&grew>0&&area.scrollHeight-area.scrollTop-area.clientHeight-grew<96)area.scrollTop=area.scrollHeight;'));
   assert.ok(cabinet.includes('    if (placeholder && placeholder.thoughtKey) bindGenerationThought(jobId, placeholder.thoughtKey, placeholder.thought);\n    noteGenerationJob(jobId, job);'));
-  assert.ok(cabinet.includes("el.innerHTML = chatMessages.map((m, i) => withChatThought(m, messageHtml(m, i))).join('');"));
+  assert.ok(cabinet.includes("el.innerHTML = chatMessages.map((m, i) => withChatThought(m, messageHtml(m, i), i)).join('');"));
 });
 
 test('only the latest failure stays in the workspace', () => {

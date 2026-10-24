@@ -10389,3 +10389,17 @@ the studio theme's text colour.
 .generation-thought{display:flex;align-items:center;min-height:32px;max-width:100%;padding:4px 2px;--sx-thought-color:var(--st-text,#f3f3f3)}
 .generation-thought-msg{max-width:78% !important}
 .sx-thought-host{max-width:100%}
+
+/* =====================================================
+CSS-БЛОК: Pro Studio prompt message
+The prompt sent for a generation stays in the workspace: a light-blue
+block on the right, at most half of the workspace wide (wider on phones).
+With references, the prompt under the stack gets the same block.
+===================================================== */
+.view[data-view="tools"].active #chatArea .msg.user{max-width:50%}
+.view[data-view="tools"].active #chatArea .msg.user .bubble,
+.view[data-view="tools"].active #chatArea .msg.user .bubble:has(> .msg-ref-stack) > .msg-ref-user-prompt{background:#dbeafe;color:#0b2447;border:1px solid #bfdbfe;border-radius:18px;border-bottom-right-radius:6px;padding:11px 14px;box-shadow:none;overflow-wrap:anywhere}
+.view[data-view="tools"].active #chatArea .msg.user .bubble:has(> .msg-ref-stack) > .msg-ref-user-prompt{margin-top:8px!important}
+@media (max-width:700px){.view[data-view="tools"].active #chatArea .msg.user{max-width:80%}}
+/* The retry under a failed generation. */
+.generation-retry{margin:2px 0 0 2px}
