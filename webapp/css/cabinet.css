@@ -10332,6 +10332,23 @@ body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
 .hair-beard-swatch.is-custom{overflow:hidden;background:conic-gradient(#ef4444,#f59e0b,#22c55e,#06b6d4,#6366f1,#ec4899,#ef4444)}
 .hair-beard-swatch.is-custom input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 
+/* Captions follow the Pro Studio theme: dark on White, light on Black/Gray. */
+.ptool-work textarea::placeholder{color:var(--st-dim, var(--text-mute))}
+.ptool-work .photo-tool-char-counter{color:var(--st-dim, var(--text-mute))}
+.ptool-work .replace-object-object-card span:last-child{color:var(--st-dim, var(--text-mute))}
+.ptool-zone-tag{background:#0e8a60}
+.ptool-work .photo-tool-generate:disabled{opacity:1;background:var(--st-bg-3, var(--surface-2));color:var(--st-dim, var(--text-mute))}
+#uploadPanel .upload-photo-center-sub{color:var(--st-dim, var(--text-mute))!important}
+.upload-panel-empty{padding:18px;color:var(--st-mute, var(--text-mute));font-size:13px}
+.photo-tool-dialog.replace-object-mask-editor-dialog{background:var(--st-bg, var(--surface));color:var(--st-text, var(--text));border-color:var(--st-line-2, var(--border))}
+.replace-object-mask-editor-dialog .photo-tool-head small,.replace-object-mask-editor-dialog .photo-tool-head p,.replace-object-brush-size{color:var(--st-dim, var(--text-dim))}
+.replace-object-mask-editor-dialog .photo-tool-head h3,.replace-object-brush-size b{color:var(--st-text, var(--text))}
+.replace-object-mask-editor-dialog .photo-tool-head>button{border-color:var(--st-line-2, var(--border));background:var(--st-bg-2, var(--surface));color:var(--st-text, var(--text))}
+.replace-object-mask-canvas-wrap,.replace-object-mask-canvas-wrap canvas{background:var(--st-bg-2, #111318)}
+.replace-object-editor-loading{color:var(--st-dim, rgba(255,255,255,.72))}
+.replace-object-mask-toolbar button{border-color:var(--st-line-2, var(--border));background:var(--st-bg-2, var(--surface));color:var(--st-text, var(--text))}
+.replace-object-mask-toolbar button.save{border-color:var(--primary);background:var(--primary);color:#fff}
+
 /* Phone: the banner on top as a strip, the rest under it on one screen. */
 @media(max-width:680px){
   .photo-tool-modal:has(.ptool-layout){padding:8px;align-items:center}
