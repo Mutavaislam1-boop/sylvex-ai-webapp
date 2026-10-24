@@ -87,7 +87,7 @@ function makeContext() {
     imageCharacters: () => [character],
     openImageStylePanel: (e, kind) => { calls.openImageStylePanel.push(kind); },
     openTryOnMediaPicker: () => { throw new Error('the Media picker must not be touched by a Character pick'); },
-    document: { getElementById: (id) => dom[id] || null },
+    document: { getElementById: (id) => dom[id] || null, body: fakeElement({}) },
     hideImageStyleInfo: () => {},
     applyCharacterReferenceSelection: () => { calls.applyCharacterReferenceSelection += 1; },
     sendVisualInteraction: () => { calls.sendVisualInteraction += 1; },
@@ -97,7 +97,7 @@ function makeContext() {
     toast: (msg) => { calls.toast.push(msg); },
   };
   const context = vm.createContext(sandbox);
-  for (const name of ['visualPreviewUrl', 'normalizeVisualItem', 'characterReferenceLibraryFor', 'closeCharacterDetail', 'closeImageStylePanel', 'openVisualPicker', 'chooseTryOnPersonSource', 'confirmCharacterDetailSelection']) {
+  for (const name of ['visualPreviewUrl', 'normalizeVisualItem', 'characterReferenceLibraryFor', 'closeCharacterDetail', 'closeImageStylePanel', 'openVisualPicker', 'choosePhotoToolZoneSource', 'confirmCharacterDetailSelection']) {
     vm.runInContext(extractFunction(name), context);
   }
   return { context, sandbox, calls, character };
@@ -118,14 +118,14 @@ test('the bespoke Try-On Character picker functions no longer exist', () => {
 
 test('choosing "Character" in Try-On opens the real Pro Studio Character picker, not a second grid', () => {
   const { context, sandbox, calls } = makeContext();
-  vm.runInContext("chooseTryOnPersonSource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'person', 'character')", context);
   assert.deepEqual(calls.openImageStylePanel, ['character']);
   assert.equal(sandbox.visualPickerRedirectTarget, 'try_on');
 });
 
 test('"Use Character" from that picker commits into Try-On\'s own state, never imageState or replace_character', () => {
   const { context, sandbox, calls, character } = makeContext();
-  vm.runInContext("chooseTryOnPersonSource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'person', 'character')", context);
   sandbox.activeCharacterDetailId = character.id;
   sandbox.characterDetailPendingIds = [character.id + '_ref_1', character.id + '_ref_2'];
   vm.runInContext('confirmCharacterDetailSelection(null)', context);
@@ -156,7 +156,7 @@ test('"Use Character" from that picker commits into Try-On\'s own state, never i
 
 test('characterReferenceUrls is capped at 3, matching Replace Character\'s own cap', () => {
   const { context, sandbox, character } = makeContext();
-  vm.runInContext("chooseTryOnPersonSource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'person', 'character')", context);
   sandbox.activeCharacterDetailId = character.id;
   sandbox.characterDetailPendingIds = [0, 1, 2, 3].map((i) => character.id + '_ref_' + i);
   vm.runInContext('confirmCharacterDetailSelection(null)', context);
@@ -171,7 +171,7 @@ test('characterReferenceUrls is capped at 3, matching Replace Character\'s own c
 
 test('a zero-reference selection still commits the Character itself with an empty reference list', () => {
   const { context, sandbox, character } = makeContext();
-  vm.runInContext("chooseTryOnPersonSource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'person', 'character')", context);
   sandbox.activeCharacterDetailId = character.id;
   sandbox.characterDetailPendingIds = [];
   vm.runInContext('confirmCharacterDetailSelection(null)', context);
@@ -186,10 +186,12 @@ test('a zero-reference selection still commits the Character itself with an empt
 
 test('cancelling/closing the picker without confirming clears the redirect so a later pick is unaffected', () => {
   const { context, sandbox } = makeContext();
-  vm.runInContext("chooseTryOnPersonSource(null, 'character')", context);
+  vm.runInContext("choosePhotoToolZoneSource(null, 'person', 'character')", context);
   assert.equal(sandbox.visualPickerRedirectTarget, 'try_on');
+  assert.equal(sandbox.document.body.classList.contains('photo-tool-picking'), true, 'the picker opens above the tool window');
   vm.runInContext('closeImageStylePanel(null)', context);
   assert.equal(sandbox.visualPickerRedirectTarget, null, 'no stray redirect must be left armed');
+  assert.equal(sandbox.document.body.classList.contains('photo-tool-picking'), false);
   // Try-On's own state is untouched by a cancelled pick.
   assert.equal(sandbox.photoToolState.try_on.characterId, null);
   assert.equal(sandbox.photoToolState.try_on.personSource, null);
@@ -215,11 +217,8 @@ test('a normal (non-redirected) character pick elsewhere still commits to imageS
 
 test('Replace Character\'s own "choose a Character" redirect still works unchanged', () => {
   const { context, sandbox, calls, character } = makeContext();
-  // Mirrors chooseCharacterReplaceIdentitySource's own redirect, inlined
-  // here since that function isn't extracted into this context - only its
-  // effect (the redirect target + shared-picker open) matters for proving
-  // DUP-1 didn't disturb Replace Character's own path.
-  vm.runInContext("visualPickerRedirectTarget = 'replace_character'; openVisualPicker(null, 'character')", context);
+  sandbox.activePhotoTool = 'replace_character';
+  vm.runInContext("choosePhotoToolZoneSource(null, 'identity', 'character')", context);
   assert.deepEqual(calls.openImageStylePanel, ['character']);
   sandbox.activeCharacterDetailId = character.id;
   sandbox.characterDetailPendingIds = [character.id + '_ref_0', character.id + '_ref_1'];

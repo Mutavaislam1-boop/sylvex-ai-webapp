@@ -1,6 +1,6 @@
 """Remove Object is the first Quick Tool migrated to an isolated generation
 flow: its request must be built from exactly three tool-owned inputs
-(image_options.removeObjectSourceUrl/removeObjectMaskUrl/
+(image_options.removeObjectSourceUrl/removeObjectMaskStrokes + removeObjectEditorSize/
 removeObjectInstruction) and never from normal Pro Studio composer state
 (Character/Object/Style/previous prompt/previous references) - the bug the
 old shared Photo Tool path had, since it built every tool's request from
@@ -30,19 +30,6 @@ def _png_data_uri(size=(8, 8), color=(10, 20, 30, 255)):
     from PIL import Image
 
     img = Image.new("RGBA", size, color)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
-
-
-def _mask_data_uri_with_left_half_marked(size=(8, 8)):
-    from PIL import Image
-
-    img = Image.new("RGBA", size, (0, 0, 0, 0))
-    for x in range(size[0] // 2):
-        for y in range(size[1]):
-            img.putpixel((x, y), (255, 255, 255, 255))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     encoded = base64.b64encode(buf.getvalue()).decode("ascii")
@@ -110,7 +97,6 @@ def test_calculate_generation_price_ignores_leaked_style_character_object_surcha
         "image_options": {
             "tool": "remove_object",
             "removeObjectSourceUrl": "https://example.com/source.png",
-            "removeObjectMaskUrl": "",
             "removeObjectInstruction": "the red cup",
             # Noise (the exact shape the real frontend never sends for this
             # tool) that must not be interpreted as character/object
@@ -254,7 +240,6 @@ def test_generate_remove_object_image_rejects_image_only(monkeypatch):
         "image_options": {
             "tool": "remove_object",
             "removeObjectSourceUrl": _png_data_uri(),
-            "removeObjectMaskUrl": "",
             "removeObjectInstruction": "",
         },
     }))
@@ -280,7 +265,6 @@ def test_generate_remove_object_image_text_only_success_sends_no_mask_file(monke
         "image_options": {
             "tool": "remove_object",
             "removeObjectSourceUrl": _png_data_uri(),
-            "removeObjectMaskUrl": "",
             "removeObjectInstruction": "the red cup on the table",
             # Leaked normal Pro Studio state that must be completely ignored.
             "characterId": "char_1",
@@ -315,8 +299,10 @@ def test_generate_remove_object_image_with_mask_sends_real_inverted_mask(monkeyp
         "job_id": "",
         "image_options": {
             "tool": "remove_object",
-            "removeObjectSourceUrl": _png_data_uri(),
-            "removeObjectMaskUrl": _mask_data_uri_with_left_half_marked(),
+            "removeObjectSourceUrl": _png_data_uri(size=(40, 20)),
+            # The user's brush marks, in the editor's own pixel coordinates.
+            "removeObjectMaskStrokes": [{"width": 2, "points": [{"x": 2, "y": 2}, {"x": 3, "y": 3}]}],
+            "removeObjectEditorSize": {"width": 40, "height": 20},
             "removeObjectInstruction": "",
         },
     }
@@ -324,6 +310,8 @@ def test_generate_remove_object_image_with_mask_sends_real_inverted_mask(monkeyp
     assert result["ok"] is True
     assert "mask" in captured["files"]
     assert "transparent mask" in captured["data"]["prompt"].lower()
+    # The marked area also reaches the model as coordinates.
+    assert "The user marked the target object at x" in captured["data"]["prompt"]
 
     from PIL import Image
 
@@ -346,14 +334,15 @@ def test_generate_remove_object_image_falls_back_to_text_only_when_mask_is_unusa
     monkeypatch.setattr(main.requests, "post", fake_post)
     monkeypatch.setattr(main, "send_generated_images_to_telegram", lambda *a, **k: True)
 
-    broken_mask = "data:image/png;base64," + base64.b64encode(b"not a real image").decode("ascii")
     payload = {
         "telegram_id": 0,
         "job_id": "",
         "image_options": {
             "tool": "remove_object",
             "removeObjectSourceUrl": _png_data_uri(),
-            "removeObjectMaskUrl": broken_mask,
+            # Marks that draw nothing usable.
+            "removeObjectMaskStrokes": [{"width": 2, "points": [{"x": "not-a-number", "y": None}]}],
+            "removeObjectEditorSize": {"width": 8, "height": 8},
             "removeObjectInstruction": "",
         },
     }
