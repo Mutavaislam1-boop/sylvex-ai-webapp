@@ -39,3 +39,16 @@ test('the prompt block is light blue and at most half of the workspace', () => {
   assert.match(css, /background:#dbeafe;color:#0b2447;border:1px solid #bfdbfe/);
   assert.match(css, /@media \(max-width:700px\)\{\.view\[data-view="tools"\]\.active #chatArea \.msg\.user\{max-width:80%\}\}/);
 });
+
+test('a long prompt starts folded to the composer box; the corner arrow opens it', () => {
+  assert.match(js, /function renderFoldablePrompt\(html, index\) \{/);
+  assert.match(js, /inner \+= m\.role === 'ai' \? renderSylvexChatLinks\(textHtml\) : renderFoldablePrompt\(textHtml, i\);/);
+  assert.match(js, /const fold = Math\.max\(2, Math\.floor\(limit \/ lineHeight\)\) \* lineHeight;/);
+  assert.match(js, /return input\.clientHeight - \(parseFloat\(style\.paddingTop\) \|\| 0\) - \(parseFloat\(style\.paddingBottom\) \|\| 0\);/);
+  assert.match(js, /    mountReferenceStacks\(el\);\n    foldLongPrompts\(el\);\n    el\.scrollTop = el\.scrollHeight;/);
+  assert.match(js, /regenMsg, retryTextGeneration, reportGenerationError, togglePromptFold,/);
+  // Usable while a generation runs (the workspace click lock lets it through).
+  assert.match(js, /if \(target\.closest\('\.msg-prompt-toggle'\)\) return;\n      if \(target\.closest\('\.view\[data-view="tools"\]'\)\) \{/);
+  assert.match(css, /#chatArea \.msg-prompt-toggle\{display:none;position:absolute;right:-8px;bottom:-6px;[^}]*border:0!important;[^}]*background:none!important;/);
+  assert.match(css, /#chatArea \.msg-prompt\.is-open \.msg-prompt-toggle svg\{transform:rotate\(180deg\)\}/);
+});

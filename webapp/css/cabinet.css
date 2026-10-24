@@ -10403,3 +10403,14 @@ With references, the prompt under the stack gets the same block.
 @media (max-width:700px){.view[data-view="tools"].active #chatArea .msg.user{max-width:80%}}
 /* The retry under a failed generation. */
 .generation-retry{margin:2px 0 0 2px}
+/* A long prompt starts folded (foldLongPrompts): a small bare arrow in the
+   bottom-right corner opens it and, turned up, folds it back. */
+#chatArea .msg-prompt{position:relative}
+#chatArea .msg-prompt-text{line-height:1.45;overflow:hidden;overflow-wrap:anywhere}
+#chatArea .msg-prompt.is-long{padding-bottom:16px}
+#chatArea .msg-prompt.is-long:not(.is-open) .msg-prompt-text{-webkit-mask-image:linear-gradient(#000 calc(100% - 1.45em),rgba(0,0,0,.25));mask-image:linear-gradient(#000 calc(100% - 1.45em),rgba(0,0,0,.25))}
+#chatArea .msg-prompt-toggle{display:none;position:absolute;right:-8px;bottom:-6px;width:22px;height:22px;min-width:0;min-height:0;padding:0!important;margin:0;border:0!important;border-radius:0;background:none!important;box-shadow:none!important;color:inherit;opacity:.65;cursor:pointer;place-items:center}
+#chatArea .msg-prompt-toggle:hover{opacity:1}
+#chatArea .msg-prompt.is-long .msg-prompt-toggle{display:grid}
+#chatArea .msg-prompt-toggle svg{width:15px;height:15px;transition:transform .2s ease}
+#chatArea .msg-prompt.is-open .msg-prompt-toggle svg{transform:rotate(180deg)}
