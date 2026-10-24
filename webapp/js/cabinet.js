@@ -17786,16 +17786,23 @@ function renderGeneratedTelegramButton(url, kind) {
   // The settled line sits under the result's avatar, where the loading line
   // was. The result itself is held until its line has ticked every stage and
   // folded. A failed generation is told by its line alone (no error card).
-  function withChatThought(m, html) {
+  function withChatThought(m, html, i) {
     if (m && m.dismissed) return '';
     if (!m || !m.thoughtKey || !m.thought || isLoadingChatMessage(m)) return html;
     const slot = generationThoughtSlot(m.thoughtKey, 'generation-thought');
-    if (m.isError || !generationThoughtDone(m.thought)) return '<div class="msg ai generation-loading-msg"><div class="ai-avatar">S</div>' + slot + '</div>';
+    if (m.isError || !generationThoughtDone(m.thought)) return '<div class="msg ai generation-loading-msg"><div class="ai-avatar">S</div>' + slot + (m.isError ? failedGenerationRetry(i) : '') + '</div>';
     const avatar = '<div class="ai-avatar">S</div>';
     const at = html.indexOf(avatar);
     return at >= 0
       ? html.slice(0, at + avatar.length) + slot + html.slice(at + avatar.length)
       : '<div class="msg ai generation-thought-msg">' + slot + '</div>' + html;
+  }
+  // A small retry under a failed generation whose prompt is in the
+  // workspace (regenMsg -> retryFailedGeneration).
+  function failedGenerationRetry(i) {
+    const prompt = chatMessages[i - 1];
+    if (!prompt || prompt.role !== 'user') return '';
+    return '<div class="msg-actions generation-retry"><button class="msg-action-btn" type="button" onclick="SYLVEX.regenMsg(' + i + ')" aria-label="Повторить генерацию" title="Повторить генерацию">' + generationActionIcon('restart') + '</button></div>';
   }
   // Only the latest failure stays in the workspace: an error row is dropped
   // as soon as anything follows it (the next request).
@@ -17895,13 +17902,18 @@ function renderGeneratedTelegramButton(url, kind) {
       let inner = '';
       const next = chatMessages[i + 1];
       const resultRefs = m.role === 'user' && next && next.imageResultMini ? requestImageDisplayReferences(next.metadata) : [];
-      if (resultRefs.length) inner += renderReferenceRequest(resultRefs, requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1));
+      // A prompt sent with references looks the same before its result as
+      // after: the stack, then the prompt (keyed to the generation slot, so
+      // the stack carries over to the result).
+      const promptRefs = !resultRefs.length && m.role === 'user' && m.retryRequest && m.referenceImages && m.referenceImages.length ? m.referenceImages : [];
+      if (resultRefs.length) inner += renderReferenceRequest(resultRefs, !m.retryRequest && requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1));
+      else if (promptRefs.length) inner += renderReferenceRequest(promptRefs, String(m.text || ''), 'r' + (i + 1));
       else if (m.text) {
         const textHtml = S.escapeHtml(m.text).replace(/\n/g, '<br>');
         inner += m.role === 'ai' ? renderSylvexChatLinks(textHtml) : textHtml;
       }
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
-      if (!resultRefs.length && m.referenceImages && m.referenceImages.length) {
+      if (!resultRefs.length && !promptRefs.length && m.referenceImages && m.referenceImages.length) {
         inner += REF_STACK_ENABLED
           ? renderReferenceStack(m.referenceImages, 'u' + i)
           : '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
@@ -17956,7 +17968,7 @@ function renderGeneratedTelegramButton(url, kind) {
         + (m.role === 'ai' ? '<div class="ai-avatar">S</div>' : '')
         + '<div class="bubble">' + inner + '</div>' + actions + '</div>';
     };
-    el.innerHTML = chatMessages.map((m, i) => withChatThought(m, messageHtml(m, i))).join('');
+    el.innerHTML = chatMessages.map((m, i) => withChatThought(m, messageHtml(m, i), i)).join('');
     syncChatGenerationThoughts();
     mountReferenceStacks(el);
     el.scrollTop = el.scrollHeight;
@@ -23911,14 +23923,34 @@ async function waitGeneration(jobId, options) {
     const musicMode = isMusicMode();
     let loadingIndex = -1;
     const uploadOnlyVoice = isVoiceMode() && !v && audioUploads.length && !attachment && !referenceImages.length;
+    // The prompt stays in the workspace as the user's message, together
+    // with what this request was sent with: the retry under a failed
+    // generation sends it again (retryFailedGeneration).
+    const retryRequest = {
+      prompt: v,
+      attachment: attachment ? Object.assign({}, attachment) : null,
+      referenceImages: referenceImages.slice(),
+      videoOptions: videoOptionsSnapshot,
+      audioUploads: audioUploads.slice(),
+      catalogGeneration: catalogGeneration || null,
+      speakerVoices: isVoiceMode() && voiceWorkspaceMode === 'dialogue' ? voiceState.speakerVoices.slice() : null,
+    };
     if (photoMode) {
-      loadingIndex = appendPendingGenerationPlaceholder();
-      // The workspace shows this request's references while it runs - the
-      // same list its result will show (display only).
+      // The prompt with this request's references - the same list its
+      // result will show (display only).
       const pendingRefs = imageOptionsSnapshot && !imageOptionsSnapshot.catalog_reference_hidden
         ? requestImageDisplayReferences({ type: 'image', image_options: imageOptionsSnapshot })
         : [];
-      if (pendingRefs.length) chatMessages[loadingIndex].requestReferences = pendingRefs;
+      const shownPrompt = catalogGeneration ? String(visibleInputValue || catalogGeneration.displayPrompt || '') : v;
+      if (shownPrompt || pendingRefs.length) {
+        chatMessages.push({
+          role: 'user',
+          text: shownPrompt,
+          referenceImages: pendingRefs.length ? pendingRefs : null,
+          retryRequest,
+        });
+      }
+      loadingIndex = appendPendingGenerationPlaceholder();
     } else if (!uploadOnlyVoice) {
       chatMessages.push({
         role: 'user',
@@ -23927,6 +23959,7 @@ async function waitGeneration(jobId, options) {
         attachmentName: null,
         referenceImages: referenceImages.length ? referenceImages : null,
         referenceVideos: referenceVideos.length ? referenceVideos : null,
+        retryRequest,
       });
       loadingIndex = appendPendingGenerationPlaceholder();
     }
@@ -24003,7 +24036,6 @@ async function waitGeneration(jobId, options) {
         chatMessages[loadingIndex] = {
           role: 'ai',
           imageResultMini: true,
-          userPrompt: visibleInputValue,
           metadata: imageGenerationMetadata(
             v,
             referenceImages,
@@ -24098,29 +24130,7 @@ async function waitGeneration(jobId, options) {
       rememberCurrentChatSpace();
       if (err && err.terminalStatus) unlockAfterRender = true;
       else if (!activeGeneration.jobId) {
-        ta.value = catalogGeneration ? String(catalogGeneration.displayPrompt || '') : v;
-        autoGrow(ta);
-        setCurrentModeAttachment(attachment);
-        if (photoMode) {
-          imageState.referenceImageUrls = referenceImages.slice();
-          imageState.referenceImageUrl = referenceImages[0] || '';
-          imageState.uploadedImageUrls = referenceImages.slice();
-        } else if (isVideoMode()) {
-          videoState.referenceImageUrls = referenceImages.slice();
-          if (videoOptionsSnapshot) {
-            videoState.inputVideo = videoOptionsSnapshot.input_video || videoOptionsSnapshot.video_url || '';
-            videoState.videoUrl = videoState.inputVideo;
-            videoState.editInputVideo = videoOptionsSnapshot.input_video || '';
-            videoState.editVideoUrl = videoState.editInputVideo;
-            videoState.referenceVideoUrl = videoOptionsSnapshot.reference_video || '';
-          }
-        } else if (isMusicMode() || isVoiceMode()) {
-          currentAudioState().uploads = audioUploads.slice();
-        }
-        renderComposerImageDraft();
-        renderUploadedPhotoGrid();
-        updateImageUploadButtonPreview();
-        if (isVoiceMode()) renderVoiceToolPanel();
+        restoreGenerationInputs(retryRequest);
         clearActiveProStudioJob();
       }
     } finally {
@@ -24286,9 +24296,68 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  // Puts a request's inputs back into the composer: the prompt, its
+  // attachment and the references that sending cleared. Used when a request
+  // could not start, and by the retry under a failed generation.
+  function restoreGenerationInputs(request) {
+    const ta = document.getElementById('chatInput');
+    const referenceImages = (request && request.referenceImages) || [];
+    const videoOptions = request && request.videoOptions;
+    if (request.catalogGeneration) pendingCatalogImageGeneration = request.catalogGeneration;
+    ta.value = request.catalogGeneration ? String(request.catalogGeneration.displayPrompt || '') : String(request.prompt || '');
+    autoGrow(ta);
+    setCurrentModeAttachment(request.attachment || null);
+    if (isImageMode()) {
+      imageState.referenceImageUrls = referenceImages.slice();
+      imageState.referenceImageUrl = referenceImages[0] || '';
+      imageState.uploadedImageUrls = referenceImages.slice();
+    } else if (isVideoMode()) {
+      videoState.referenceImageUrls = referenceImages.slice();
+      if (videoOptions) {
+        videoState.inputVideo = videoOptions.input_video || videoOptions.video_url || '';
+        videoState.videoUrl = videoState.inputVideo;
+        videoState.editInputVideo = videoOptions.input_video || '';
+        videoState.editVideoUrl = videoState.editInputVideo;
+        videoState.referenceVideoUrl = videoOptions.reference_video || '';
+      }
+    } else if (isMusicMode() || isVoiceMode()) {
+      currentAudioState().uploads = (request.audioUploads || []).slice();
+      if (isVoiceMode() && voiceWorkspaceMode === 'dialogue' && Array.isArray(request.speakerVoices)) {
+        voiceState.speakerVoices = request.speakerVoices.slice();
+        renderVoiceControls();
+      }
+    }
+    renderComposerImageDraft();
+    renderUploadedPhotoGrid();
+    updateImageUploadButtonPreview();
+    if (isVoiceMode()) renderVoiceToolPanel();
+    updateSendButton();
+  }
+
+  // The retry under a failed generation: its prompt and inputs go out again
+  // through the composer, with the model picked now. The failed row and its
+  // prompt make way for the new request.
+  function retryFailedGeneration(i) {
+    const failed = chatMessages[i];
+    const prompt = chatMessages[i - 1];
+    if (!failed || !failed.isError || !prompt || prompt.role !== 'user') return;
+    if (activeGenerationLocked() || generationSubmitting) {
+      toast(activeGenerationButtonLabel(activeGeneration.status));
+      return;
+    }
+    restoreGenerationInputs(prompt.retryRequest || { prompt: prompt.text || '', referenceImages: prompt.referenceImages || [] });
+    chatMessages.splice(i - 1, 2);
+    renderChat();
+    sendChat();
+  }
+
   function regenMsg(i) {
   if (studioMode === 'text') {
     retryTextGeneration(i);
+    return;
+  }
+  if (chatMessages[i] && chatMessages[i].isError) {
+    retryFailedGeneration(i);
     return;
   }
   const prev = chatMessages[i - 1];
