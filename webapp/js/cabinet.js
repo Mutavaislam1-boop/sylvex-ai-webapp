@@ -6698,8 +6698,22 @@ function closePhotoCatalog(e) {
 function ensureQuickImageDetailModal() {
   let modal = document.getElementById('quickImageDetailModal');
   if (modal) return modal;
-  modal = document.createElement('div'); modal.id = 'quickImageDetailModal'; modal.className = 'photo-tool-modal quick-image-detail-modal'; modal.onclick = closeQuickImageDetail;
-  modal.innerHTML = '<section class="photo-tool-dialog quick-image-detail-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()"><header class="photo-tool-head"><div><small id="quickImageDetailKind">Каталог</small><h3 id="quickImageDetailTitle">Изображение</h3></div><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeQuickImageDetail(event)">×</button></header><div class="quick-image-detail-layout"><div class="quick-image-detail-reference"><div class="quick-image-detail-visual"><img id="quickImageDetailImage" alt="" /></div><p id="quickImageDetailDescription"></p></div><div class="quick-image-detail-form"><button id="quickImageDetailUpload" class="quick-image-detail-upload" type="button" onclick="SYLVEX.openQuickImageDetailFile(event)" ondblclick="SYLVEX.removeQuickImageDetailFile(event)"><span>＋</span><b>Загрузить своё фото</b><small>JPG, PNG или WEBP</small><i class="quick-image-detail-remove" role="button" aria-label="Убрать фото" onclick="SYLVEX.removeQuickImageDetailFile(event)">×</i></button><input id="quickImageDetailFile" type="file" accept="image/*" hidden onchange="SYLVEX.onQuickImageDetailFile(event)" /><div id="quickImageDetailFields" class="quick-image-detail-fields"></div><textarea id="quickImageDetailPrompt" placeholder="Кратко опишите желаемый результат (необязательно)"></textarea><button id="quickImageDetailGenerate" class="photo-tool-generate" type="button" disabled onclick="SYLVEX.generateQuickImageDetail(event)">Сгенерировать</button></div></div></section>';
+  // The approved catalog block - the same as a video template's: the item on
+  // the left, its title and description, the upload area, Generate.
+  modal = document.createElement('div'); modal.id = 'quickImageDetailModal'; modal.className = 'video-template-modal-backdrop quick-image-detail-modal'; modal.onclick = closeQuickImageDetail;
+  modal.innerHTML = '<div class="video-template-modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
+    + '<button class="video-template-modal-close" type="button" aria-label="Закрыть" onclick="SYLVEX.closeQuickImageDetail(event)">×</button>'
+    + '<div class="video-template-preview"><img id="quickImageDetailImage" alt="" /></div>'
+    + '<div class="video-template-details">'
+    + '<h3 id="quickImageDetailTitle">Изображение</h3><p id="quickImageDetailDescription"></p>'
+    + '<button id="quickImageDetailUpload" class="video-template-upload" type="button" onclick="SYLVEX.openQuickImageDetailFile(event)" ondblclick="SYLVEX.removeQuickImageDetailFile(event)">'
+    + '<span class="video-template-upload-icon">▧</span><b>Загрузить изображение</b><small>PNG, JPG или вставьте из буфера обмена</small>'
+    + '<i class="quick-image-detail-remove" role="button" aria-label="Убрать фото" onclick="SYLVEX.removeQuickImageDetailFile(event)">×</i></button>'
+    + '<input id="quickImageDetailFile" type="file" accept="image/*" hidden onchange="SYLVEX.onQuickImageDetailFile(event)" />'
+    + '<div id="quickImageDetailFields" class="quick-image-detail-fields"></div>'
+    + '<textarea id="quickImageDetailPrompt" placeholder="Кратко опишите желаемый результат (необязательно)"></textarea>'
+    + '<button id="quickImageDetailGenerate" class="video-template-generate" type="button" disabled onclick="SYLVEX.generateQuickImageDetail(event)">Сгенерировать</button>'
+    + '</div></div>';
   document.body.appendChild(modal); return modal;
 }
 
@@ -6743,16 +6757,27 @@ function selectPhotoCatalogItem(e, id, source) {
   const titleEl = document.getElementById('quickImageDetailTitle');
   titleEl.textContent = item.title;
   titleEl.hidden = item.kind === 'references';
-  document.getElementById('quickImageDetailKind').textContent = item.kind === 'styles' ? 'Стиль' : (item.kind === 'objects' ? 'Объект' : 'Референс');
   document.getElementById('quickImageDetailImage').src = item.url;
   document.getElementById('quickImageDetailDescription').textContent = item.description || (item.kind === 'styles' ? 'Загрузите своё фото — стиль применится автоматически.' : 'Загрузите своё фото и при необходимости уточните результат.');
   const prompt = document.getElementById('quickImageDetailPrompt'); prompt.value = ''; prompt.hidden = item.kind === 'styles';
   renderQuickImageDetailFields(item);
-  const upload = document.getElementById('quickImageDetailUpload'); upload.classList.remove('has-image'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить своё фото';
+  const upload = document.getElementById('quickImageDetailUpload'); upload.classList.remove('has-image'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить изображение';
   const generateButton = document.getElementById('quickImageDetailGenerate');
   generateButton.disabled = true; generateButton.hidden = false; generateButton.textContent = 'Сгенерировать'; generateButton.classList.remove('is-ready');
   modal.classList.add('show');
 }
+
+// "PNG, JPG или вставьте из буфера обмена": a pasted picture goes into the
+// open catalog block, as it does into a video template's.
+document.addEventListener('paste', (e) => {
+  const detail = document.getElementById('quickImageDetailModal');
+  if (!detail || !detail.classList.contains('show') || !quickImageDetailState || quickImageDetailState.uploading) return;
+  const entry = Array.from((e.clipboardData && e.clipboardData.items) || []).find((item) => item.kind === 'file' && /^image\//.test(item.type));
+  const file = entry && entry.getAsFile();
+  if (!file) return;
+  e.preventDefault();
+  onQuickImageDetailFile({ target: { files: [file] } });
+});
 
 function closeQuickImageDetail(e) { if (e) { e.preventDefault(); e.stopPropagation(); } const modal = document.getElementById('quickImageDetailModal'); if (modal) modal.classList.remove('show'); }
 function openQuickImageDetailFile(e) { if (e) { e.preventDefault(); e.stopPropagation(); } const input = document.getElementById('quickImageDetailFile'); if (input) { input.value = ''; input.click(); } }
@@ -6762,7 +6787,7 @@ function removeQuickImageDetailFile(e) {
   if (state.previewUrl) { try { URL.revokeObjectURL(state.previewUrl); } catch (_) {} }
   state.uploadedUrl = ''; state.previewUrl = '';
   const upload = document.getElementById('quickImageDetailUpload');
-  if (upload) { upload.classList.remove('has-image', 'is-uploading'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить своё фото'; }
+  if (upload) { upload.classList.remove('has-image', 'is-uploading'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить изображение'; }
   const button = document.getElementById('quickImageDetailGenerate');
   if (button) { button.hidden = false; button.disabled = true; button.textContent = 'Сгенерировать'; button.classList.remove('is-ready'); }
 }
