@@ -17748,10 +17748,57 @@ function renderGeneratedTelegramButton(url, kind) {
     });
   }
 
-  function renderReferenceRequest(refs, prompt, key) {
+  function renderReferenceRequest(refs, prompt, key, index) {
+    const promptHtml = prompt ? S.escapeHtml(prompt).replace(/\n/g, '<br>') : '';
     return renderReferenceStack(refs, key)
-      + (prompt ? '<div class="msg-ref-user-prompt">' + S.escapeHtml(prompt).replace(/\n/g, '<br>') + '</div>' : '');
+      + (promptHtml ? '<div class="msg-ref-user-prompt">' + (index === undefined ? promptHtml : renderFoldablePrompt(promptHtml, index)) + '</div>' : '');
   }
+
+  // A sent prompt starts folded to the size of the composer's text box -
+  // whatever fits there shows here - and the small arrow in its corner
+  // opens it (foldLongPrompts measures after every render).
+  const openPrompts = new WeakSet();
+  function renderFoldablePrompt(html, index) {
+    return '<div class="msg-prompt" data-prompt-index="' + index + '"><div class="msg-prompt-text">' + html + '</div>'
+      + '<button type="button" class="msg-prompt-toggle" aria-expanded="false" aria-label="Развернуть промпт" title="Развернуть" onclick="SYLVEX.togglePromptFold(event,' + index + ')">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></div>';
+  }
+  function promptFoldHeight() {
+    const input = document.getElementById('chatInput');
+    if (!input || !input.clientHeight) return 0;
+    const style = getComputedStyle(input);
+    return input.clientHeight - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0);
+  }
+  function foldLongPrompts(area) {
+    if (!area) return;
+    const limit = promptFoldHeight() || 150;
+    area.querySelectorAll('.msg-prompt').forEach((box) => {
+      const text = box.querySelector('.msg-prompt-text');
+      const toggle = box.querySelector('.msg-prompt-toggle');
+      const message = chatMessages[Number(box.dataset.promptIndex)];
+      const lineHeight = parseFloat(getComputedStyle(text).lineHeight) || 20;
+      // Whole lines only, never a line cut in half.
+      const fold = Math.max(2, Math.floor(limit / lineHeight)) * lineHeight;
+      text.style.maxHeight = '';
+      const long = text.scrollHeight > fold + 2;
+      const open = long && !!message && openPrompts.has(message);
+      box.classList.toggle('is-long', long);
+      box.classList.toggle('is-open', open);
+      if (long && !open) text.style.maxHeight = fold + 'px';
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.setAttribute('aria-label', open ? 'Свернуть промпт' : 'Развернуть промпт');
+      toggle.title = open ? 'Свернуть' : 'Развернуть';
+    });
+  }
+  function togglePromptFold(event, index) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    const message = chatMessages[index];
+    if (!message) return;
+    if (openPrompts.has(message)) openPrompts.delete(message);
+    else openPrompts.add(message);
+    foldLongPrompts(document.getElementById('chatArea'));
+  }
+  window.addEventListener('resize', () => foldLongPrompts(document.getElementById('chatArea')));
 
   function requestPromptIsInternal(meta) {
     const options = meta && (meta.image_options || meta.settings) || {};
@@ -17878,7 +17925,7 @@ function renderGeneratedTelegramButton(url, kind) {
         const pairedUser = refs.length && previous && previous.role === 'user' && !Object.prototype.hasOwnProperty.call(m, 'userPrompt');
         const userPrompt = requestPromptIsInternal(m.metadata) ? '' : String(m.userPrompt || '');
         const referenceMessage = refs.length && !pairedUser
-          ? '<div class="msg user msg-reference-request"><div class="bubble">' + renderReferenceRequest(refs, userPrompt, 'r' + i) + '</div></div>'
+          ? '<div class="msg user msg-reference-request"><div class="bubble">' + renderReferenceRequest(refs, userPrompt, 'r' + i, i) + '</div></div>'
           : '';
         return referenceMessage + '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderImageResultMiniCard(m, i)
@@ -17906,11 +17953,11 @@ function renderGeneratedTelegramButton(url, kind) {
       // after: the stack, then the prompt (keyed to the generation slot, so
       // the stack carries over to the result).
       const promptRefs = !resultRefs.length && m.role === 'user' && m.retryRequest && m.referenceImages && m.referenceImages.length ? m.referenceImages : [];
-      if (resultRefs.length) inner += renderReferenceRequest(resultRefs, !m.retryRequest && requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1));
-      else if (promptRefs.length) inner += renderReferenceRequest(promptRefs, String(m.text || ''), 'r' + (i + 1));
+      if (resultRefs.length) inner += renderReferenceRequest(resultRefs, !m.retryRequest && requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1), i);
+      else if (promptRefs.length) inner += renderReferenceRequest(promptRefs, String(m.text || ''), 'r' + (i + 1), i);
       else if (m.text) {
         const textHtml = S.escapeHtml(m.text).replace(/\n/g, '<br>');
-        inner += m.role === 'ai' ? renderSylvexChatLinks(textHtml) : textHtml;
+        inner += m.role === 'ai' ? renderSylvexChatLinks(textHtml) : renderFoldablePrompt(textHtml, i);
       }
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
       if (!resultRefs.length && !promptRefs.length && m.referenceImages && m.referenceImages.length) {
@@ -17971,6 +18018,7 @@ function renderGeneratedTelegramButton(url, kind) {
     el.innerHTML = chatMessages.map((m, i) => withChatThought(m, messageHtml(m, i), i)).join('');
     syncChatGenerationThoughts();
     mountReferenceStacks(el);
+    foldLongPrompts(el);
     el.scrollTop = el.scrollHeight;
   }
 
@@ -27493,6 +27541,9 @@ async function waitGeneration(jobId, options) {
       const target = event.target;
       if (!target || !target.closest) return;
       if (target.closest('#historyBtn, [data-view="history"], #histBackdrop, #histDrawer .hd-close, #histDrawer .hd-section')) return;
+      // Opening or folding a sent prompt changes nothing - it stays usable
+      // while a generation runs.
+      if (target.closest('.msg-prompt-toggle')) return;
       if (target.closest('.view[data-view="tools"]')) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -31059,7 +31110,7 @@ async function waitGeneration(jobId, options) {
     retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
-    sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
+    sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, togglePromptFold, newChat,
     openQuickTextChat,
     openConv, deleteConv, expandHistorySection, setConversationHistoryFilter, manageConversationHistory, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, openBrowserBillingPortal, contactAdmin, switchShopTab, openSpendingStats,
