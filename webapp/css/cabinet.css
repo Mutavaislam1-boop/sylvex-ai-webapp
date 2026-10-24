@@ -10240,81 +10240,101 @@ With references, the prompt under the stack gets the same block.
 
 /* =====================================================
 CSS-БЛОК: photo tool windows
-Laid out like the Media viewer: the banner fills the left side edge to
-edge (the top on a phone), the right side is a clean area - kicker,
-title, the upload areas with small pluses, the text field, the preset
-icons and Generate - and everything fits on one screen, no scrolling.
+The banner fills the left side edge to edge (the top on a phone). The
+right side: the gradient "Быстрый инструмент", the tool's title and a
+short line, the upload areas as dashed tiles with a thin ＋, a pill text
+field, the preset row with page dots, and a gradient Generate pill on
+the right. Everything fits on one screen, no scrolling.
 ===================================================== */
-#photoToolDialog:has(.ptool-layout){width:min(940px,calc(100vw - 32px));height:min(620px,calc(100vh - 40px));height:min(620px,calc(100dvh - 40px));max-width:none;max-height:none;padding:0;display:flex;overflow:hidden;border-radius:24px;background:var(--st-bg, var(--surface))}
+#photoToolDialog:has(.ptool-layout){--ptool-grad:linear-gradient(90deg,#2f8fb8,#86d36a);width:min(980px,calc(100vw - 32px));height:min(700px,calc(100vh - 40px));height:min(700px,calc(100dvh - 40px));max-width:none;max-height:none;padding:0;display:flex;overflow:hidden;border-radius:24px;background:var(--st-bg, var(--surface))}
 #photoToolDialog:has(.ptool-layout) #photoToolModalBody{display:flex;flex:1;min-width:0;min-height:0}
-.ptool-layout{position:relative;flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(0,44%) minmax(0,1fr)}
+.ptool-layout{position:relative;flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(0,46%) minmax(0,1fr)}
 .ptool-banner{min-width:0;min-height:0;background:linear-gradient(160deg,var(--ptool-a),var(--ptool-b));background-size:cover;background-position:center}
 .ptool-close{position:absolute;z-index:3;top:12px;right:12px;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:rgba(10,10,12,.55);color:#fff;font-size:20px;line-height:34px;text-align:center;cursor:pointer;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-.ptool-work{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;gap:12px;padding:24px 24px 20px;overflow:hidden;color:var(--st-text, var(--text))}
+.ptool-work{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;gap:12px;padding:22px 22px 20px;overflow:visible;color:var(--st-text, var(--text))}
 .ptool-head{flex:0 0 auto;padding-right:40px}
-.ptool-head small{display:block;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--st-accent, #5b8dff)}
-.ptool-head h3{margin:4px 0 0;font-size:22px;font-weight:800;line-height:1.15;color:var(--st-text, var(--text))}
+.ptool-kicker{display:inline-block;background:var(--ptool-grad);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:-.01em}
+.ptool-head h3{margin:4px 0 0;font-size:18px;font-weight:700;line-height:1.2;color:var(--st-text, var(--text))}
+.ptool-head p{margin:5px 0 0;font-size:14px;line-height:1.35;color:var(--st-dim, var(--text-mute))}
 
-/* Upload areas: no frames - a small label, the photos and a small ＋. */
+/* Upload areas: a label, then a dashed tile with a thin ＋. */
 .ptool-zones{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .ptool-zone{position:relative;flex:1 1 0;min-height:0;display:flex;flex-direction:column;gap:6px}
 .ptool-zone-head{flex:0 0 auto;display:flex;align-items:baseline;gap:8px}
-.ptool-zone-head b{font-size:11px;font-weight:600;color:var(--st-mute, var(--text-mute))}
-.ptool-zone-head small{font-size:11px;color:var(--st-mute, var(--text-mute))}
-.ptool-zone-body{position:relative;flex:1 1 auto;min-height:0;display:flex;align-items:center;gap:8px}
+.ptool-zone-head b{font-size:13px;font-weight:500;color:var(--st-mute, var(--text-mute))}
+.ptool-zone-head small{font-size:12px;color:var(--st-mute, var(--text-mute))}
+.ptool-zone-body{position:relative;flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:10px}
 .ptool-divider{flex:0 0 auto;width:100%;height:0;margin:10px 0;border:0;border-top:1px solid var(--st-line-2, var(--border))}
-.ptool-add{flex:0 0 auto;width:44px;height:44px;padding:0;border:0;border-radius:50%;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font-size:22px;line-height:1;display:grid;place-items:center;cursor:pointer;transition:background .15s ease,transform .15s ease}
-.ptool-add:hover{transform:scale(1.06);background:var(--st-bg-3, var(--surface-2))}
-.ptool-ref{position:relative;flex:0 0 auto;margin:0;height:min(100%,88px);min-height:40px;aspect-ratio:1;border-radius:12px;overflow:hidden;background:var(--st-bg-2, var(--surface-2))}
+.ptool-add{flex:0 0 auto;height:min(100%,88px);min-height:40px;aspect-ratio:1;padding:0;border:2px dashed rgba(127,127,127,.45);border-radius:18px;background:transparent;color:var(--st-mute, var(--text-mute));display:grid;place-items:center;cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease}
+.ptool-zone:not(.has-items) .ptool-add{height:min(100%,160px);border-radius:24px}
+.ptool-add:hover{border-color:var(--st-text, var(--text));color:var(--st-text, var(--text));background:var(--st-bg-2, var(--surface-2))}
+.ptool-add>span{position:relative;width:38%;aspect-ratio:1;font-size:0}
+.ptool-add>span::before,.ptool-add>span::after{content:"";position:absolute;left:50%;top:50%;border-radius:2px;background:currentColor;transform:translate(-50%,-50%)}
+.ptool-add>span::before{width:100%;height:2px}
+.ptool-add>span::after{width:2px;height:100%}
+.ptool-ref{position:relative;flex:0 0 auto;margin:0;height:min(100%,88px);min-height:40px;aspect-ratio:1;border-radius:16px;overflow:hidden;background:var(--st-bg-2, var(--surface-2))}
 .ptool-zone[data-max="1"] .ptool-ref{height:min(100%,190px);aspect-ratio:auto;max-width:100%}
 .ptool-zone[data-max="1"] .ptool-ref img{width:auto;max-width:100%;min-width:40px}
 .ptool-ref img{display:block;width:100%;height:100%;object-fit:cover}
 .ptool-ref.is-openable{cursor:zoom-in}
-.ptool-ref-x{position:absolute;top:5px;right:5px;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:14px;line-height:22px;text-align:center;cursor:pointer}
-.ptool-chooser{display:none;position:absolute;inset:0;z-index:2;align-items:center;gap:8px;background:var(--st-bg, var(--surface))}
+.ptool-ref-x{position:absolute;top:6px;right:6px;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:14px;line-height:22px;text-align:center;cursor:pointer}
+.ptool-chooser{display:none;position:absolute;inset:0;z-index:2;align-items:center;justify-content:center;gap:8px;background:var(--st-bg, var(--surface))}
 .ptool-zone.is-choosing .ptool-chooser{display:flex}
-.ptool-chooser button{padding:10px 16px;border:0;border-radius:999px;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.ptool-chooser button{padding:11px 18px;border:0;border-radius:999px;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .ptool-chooser button:hover{background:var(--st-bg-3, var(--surface-2))}
-.ptool-zone-hint{flex:0 0 auto;font-size:11px;color:var(--st-mute, var(--text-mute))}
-.ptool-zone-tag{position:absolute;left:6px;bottom:6px;padding:3px 9px;border-radius:999px;background:#10b981;color:#fff;font-size:10px;font-weight:700;pointer-events:none}
+.ptool-zone-hint{flex:0 0 auto;font-size:11px;text-align:center;color:var(--st-dim, var(--text-mute))}
+.ptool-zone-tag{position:absolute;left:6px;bottom:6px;padding:3px 9px;border-radius:999px;background:#0e8a60;color:#fff;font-size:10px;font-weight:700;pointer-events:none}
 .ptool-zone-badge{position:absolute;left:6px;bottom:6px;z-index:1;width:42px;height:42px;border-radius:11px;overflow:hidden;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.28)}
 .ptool-zone-badge img{display:block;width:100%;height:100%;object-fit:cover}
 .ptool-zone-badge button{position:absolute;top:2px;right:2px;width:16px;height:16px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.62);color:#fff;font-size:11px;line-height:16px;cursor:pointer}
 
-/* The text field: one quiet chat-like box. */
-.ptool-work textarea{flex:0 0 auto;width:100%;height:46px;min-height:46px;box-sizing:border-box;resize:none;padding:13px 14px;border:0;border-radius:14px;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:14px;line-height:1.4;outline:none}
-.ptool-work textarea::placeholder{color:var(--st-mute, var(--text-mute))}
-.ptool-work textarea:focus{box-shadow:0 0 0 1.5px var(--st-line-2, var(--border))}
-.ptool-work .photo-tool-char-counter{align-self:flex-end;margin:-8px 0 -4px;font-size:11px}
-.ptool-work .photo-tool-generate{flex:0 0 auto;width:100%;height:46px;margin:0;border-radius:14px}
+/* The text field: one pill. */
+.ptool-work textarea{flex:0 0 auto;width:100%;height:54px;min-height:54px;box-sizing:border-box;resize:none;padding:16px 22px;border:1.5px solid var(--st-line-2, var(--border));border-radius:999px;background:var(--st-bg, var(--surface));color:var(--st-text, var(--text));font:inherit;font-size:14px;line-height:1.4;outline:none;overflow-y:auto;scrollbar-width:none;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+.ptool-work textarea::-webkit-scrollbar{display:none}
+.ptool-work textarea::placeholder{color:var(--st-dim, var(--text-mute))}
+.ptool-work textarea:focus{border-color:var(--st-dim, var(--text-mute))}
+.ptool-work .photo-tool-char-counter{align-self:flex-end;margin:-8px 14px -4px;font-size:11px;color:var(--st-dim, var(--text-mute))}
+
+/* Generate: a gradient pill on the right. */
+.ptool-work .photo-tool-generate{flex:0 0 auto;align-self:flex-end;width:auto;min-width:190px;height:50px;margin:0;padding:0 34px;border:0;border-radius:999px;background:var(--ptool-grad);color:#fff;font-size:17px;font-weight:600;letter-spacing:.01em}
+.ptool-work .photo-tool-generate:disabled{opacity:1;background:var(--st-bg-3, var(--surface-2));color:var(--st-dim, var(--text-mute))}
 #uploadPanel.for-photo-tool{z-index:1000006 !important}
 body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
 
-/* Built-in references: one row of small icons above Generate. */
+/* Built-in references: a row of portrait cards with page dots. */
 .ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.hair-beard-catalog,.replace-object-objects-row){flex:0 0 auto;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
-.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header{display:flex;margin:0 0 6px;padding:0}
-.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header b{font-size:11px;font-weight:600;color:var(--st-mute, var(--text-mute))}
+.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header{display:flex;flex-direction:row;align-items:center;text-align:left;justify-content:space-between;gap:8px;margin:0 0 6px;padding:0}
+.ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header b{font-size:13px;font-weight:500;color:var(--st-mute, var(--text-mute))}
 .ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.replace-object-objects-row)>header small{display:none}
+.ptool-pages{display:flex;gap:7px;margin-left:auto}
+.ptool-pages[hidden]{display:none}
+.ptool-pages button{width:9px;height:9px;padding:0;border:0;border-radius:50%;background:var(--st-line-2, rgba(127,127,127,.3));cursor:pointer}
+.ptool-pages button.active{background:var(--ptool-grad)}
 .ptool-work .preset-carousel{position:relative;margin:0;padding:0}
 .ptool-work .preset-carousel-arrow{display:none}
-.ptool-work .preset-carousel-track{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px}
+.ptool-work .preset-carousel-track{display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding:2px}
 .ptool-work .preset-carousel-track::-webkit-scrollbar{display:none}
-.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card){flex:0 0 46px !important;width:46px !important;min-width:0 !important;height:46px;margin:0;padding:0 !important;border:0 !important;border-radius:11px !important;overflow:hidden;background:var(--st-bg-2, var(--surface-2)) !important;box-shadow:none !important;cursor:pointer}
+.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card){flex:0 0 58px !important;width:58px !important;min-width:0 !important;height:72px;margin:0;padding:0 !important;border:0 !important;border-radius:10px !important;overflow:hidden;background:var(--st-bg-2, var(--surface-2)) !important;box-shadow:none !important;cursor:pointer;scroll-snap-align:start}
 .ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card) :is(span,.hair-beard-card-image){display:block;width:100%;height:100%;margin:0;padding:0;border-radius:0;background:none}
-.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card) img{display:block;width:46px !important;height:46px !important;max-width:none;object-fit:cover;border-radius:0}
+.ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card) img{display:block;width:58px !important;height:72px !important;max-width:none;object-fit:cover;border-radius:0}
 .ptool-work :is(.tattoo-reference-card>b,.logo-reference-card>span,.hair-beard-card-name,.hair-beard-card-check,.replace-object-object-card>b,.replace-object-object-card>small){display:none !important}
-.ptool-work .replace-object-object-plus{display:grid;place-items:center;width:100%;height:100%;font-size:20px}
+.ptool-work .replace-object-object-card{position:relative}
+.ptool-work .replace-object-object-card span:last-child{position:absolute;left:0;right:0;bottom:0;height:auto;padding:10px 3px 3px;background:linear-gradient(transparent,rgba(0,0,0,.6));color:#fff;font-size:9px;line-height:1.2;text-align:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ptool-work .replace-object-object-card .replace-object-object-thumb{height:100%}
+.ptool-work .replace-object-object-card.is-create span:last-child{background:none;color:var(--st-dim, var(--text-mute))}
+.ptool-work .replace-object-object-plus{display:grid;place-items:center;width:100%;height:100%;font-size:22px}
 .ptool-work :is(.tattoo-reference-card,.logo-reference-card,.hair-beard-card,.replace-object-object-card).selected{outline:2px solid var(--st-text, var(--text));outline-offset:-2px}
 
-/* Hair & beard: the category switch and the colour pill share one line. */
-.ptool-hair{position:relative;flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;row-gap:6px}
+/* Hair & beard: the category switch, the page dots and the colour pill on one line. */
+.ptool-hair{position:relative;flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;column-gap:10px;row-gap:6px}
 .ptool-hair .hair-beard-catalog{display:contents}
 .ptool-hair .preset-carousel{grid-column:1 / -1;grid-row:2}
+.ptool-hair .ptool-pages{grid-column:2;grid-row:1}
 .ptool-work .hair-beard-tabs{grid-column:1;grid-row:1;display:flex;gap:4px;margin:0;padding:0;overflow-x:auto;scrollbar-width:none}
 .ptool-work .hair-beard-tabs::-webkit-scrollbar{display:none}
 .ptool-work .hair-beard-tab{flex:0 0 auto;height:30px;min-height:0;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--st-dim, var(--text-mute));font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .ptool-work .hair-beard-tab.active{background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text))}
-.ptool-dropdown{position:relative;z-index:4;grid-column:2;grid-row:1}
+.ptool-dropdown{position:relative;z-index:4;grid-column:3;grid-row:1}
 .ptool-dropdown>summary{display:flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:999px;background:var(--st-bg-2, var(--surface-2));font-size:12px;font-weight:600;list-style:none;cursor:pointer;white-space:nowrap}
 .ptool-dropdown>summary::-webkit-details-marker{display:none}
 .ptool-dropdown>summary::after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-135deg);margin-top:3px;transition:transform .2s}
@@ -10322,22 +10342,36 @@ body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
 .ptool-dots{display:flex;gap:3px;font-style:normal}
 .ptool-dots:empty{display:none}
 .ptool-dots b{width:10px;height:10px;border-radius:50%;background:var(--swatch);box-shadow:0 0 0 1px rgba(127,127,127,.35)}
-.ptool-dropdown-panel{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;max-width:calc(100vw - 40px);display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:16px;background:var(--st-bg, var(--surface));border:1px solid var(--st-line-2, var(--border));box-shadow:0 18px 50px rgba(0,0,0,.35)}
-.hair-beard-color-row{display:grid;grid-template-columns:56px minmax(0,1fr);align-items:center;gap:8px}
-.hair-beard-color-row>b{font-size:12px;font-weight:600;color:var(--st-dim, var(--text-mute))}
-.hair-beard-swatches{display:flex;flex-wrap:wrap;gap:5px}
-.hair-beard-swatch{position:relative;width:20px;height:20px;padding:0;border-radius:50%;border:1px solid rgba(127,127,127,.35);background:var(--swatch,#fff);cursor:pointer}
-.hair-beard-swatch.active{box-shadow:0 0 0 2px var(--st-bg, var(--surface)),0 0 0 3.5px var(--st-text, var(--text))}
-.hair-beard-swatch.is-original{background:linear-gradient(135deg,#fff 46%,#e5484d 46% 54%,#fff 54%)}
-.hair-beard-swatch.is-custom{overflow:hidden;background:conic-gradient(#ef4444,#f59e0b,#22c55e,#06b6d4,#6366f1,#ec4899,#ef4444)}
-.hair-beard-swatch.is-custom input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+
+/* The colour window: the parts on the left, the picker on the right. */
+.ptool-dropdown-panel{position:absolute;right:0;bottom:calc(100% + 8px);display:grid;grid-template-columns:auto 196px;gap:12px;padding:12px;border-radius:18px;background:var(--st-bg, var(--surface));border:1px solid var(--st-line-2, var(--border));box-shadow:0 18px 50px rgba(0,0,0,.28)}
+.ptool-color-parts{display:flex;flex-direction:column;gap:4px;min-width:140px}
+.ptool-color-part{display:flex;align-items:center;gap:4px}
+.ptool-color-reset{width:20px;height:20px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--st-dim, var(--text-mute));font-size:15px;line-height:20px;cursor:pointer}
+.ptool-color-reset:disabled{visibility:hidden}
+.ptool-color-name{flex:1;display:flex;align-items:center;gap:9px;height:34px;padding:0 12px 0 5px;border:0;border-radius:999px;background:transparent;color:var(--st-text, var(--text));font:inherit;cursor:pointer;text-align:left}
+.ptool-color-part.is-active .ptool-color-name{background:var(--st-accent-bg, rgba(91,141,255,.16))}
+.ptool-color-name b{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+:is(.ptool-color-name,.ptool-color-hex) i{flex:0 0 auto;width:24px;height:24px;border-radius:50%;background:var(--swatch);box-shadow:0 0 0 1px rgba(127,127,127,.35)}
+:is(.ptool-color-name,.ptool-color-hex) i.is-original{background:linear-gradient(135deg,#fff 46%,#e5484d 46% 54%,#fff 54%)}
+.ptool-color-editor{display:flex;flex-direction:column;gap:9px}
+.ptool-color-sv{position:relative;height:96px;border-radius:10px;cursor:crosshair;touch-action:none;background:linear-gradient(transparent,#000),linear-gradient(90deg,#fff,hsl(var(--hue) 100% 50%))}
+.ptool-color-sv i{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.35);pointer-events:none}
+.ptool-color-hue{width:100%;height:10px;margin:0;border-radius:999px;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);-webkit-appearance:none;appearance:none;outline:none;cursor:pointer}
+.ptool-color-hue::-webkit-slider-thumb{width:14px;height:14px;border:2px solid #fff;border-radius:50%;background:transparent;box-shadow:0 0 0 1px rgba(0,0,0,.35);-webkit-appearance:none;appearance:none}
+.ptool-color-hue::-moz-range-thumb{width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:transparent;box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+.ptool-color-row{display:flex;align-items:center;gap:6px}
+.ptool-color-tool{flex:0 0 auto;width:30px;height:30px;padding:5px;border:1px solid var(--st-line-2, var(--border));border-radius:9px;background:transparent;color:var(--st-text, var(--text));cursor:pointer}
+.ptool-color-tool svg{display:block;width:100%;height:100%}
+.ptool-color-hex{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:30px;padding:0 8px 0 5px;border:1px solid var(--st-line-2, var(--border));border-radius:9px}
+.ptool-color-hex i{width:18px;height:18px}
+.ptool-color-hex input{width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--st-text, var(--text));font:inherit;font-size:12px;outline:none;text-transform:uppercase}
+.ptool-color-hex input::placeholder{text-transform:none;color:var(--st-dim, var(--text-mute))}
+.ptool-color-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.ptool-color-grid button{aspect-ratio:1;padding:0;border:0;border-radius:50%;background:var(--swatch);box-shadow:inset 0 0 0 1px rgba(127,127,127,.3);cursor:pointer}
+.ptool-color-grid button.active{box-shadow:0 0 0 2px var(--st-bg, var(--surface)),0 0 0 3.5px var(--st-text, var(--text))}
 
 /* Captions follow the Pro Studio theme: dark on White, light on Black/Gray. */
-.ptool-work textarea::placeholder{color:var(--st-dim, var(--text-mute))}
-.ptool-work .photo-tool-char-counter{color:var(--st-dim, var(--text-mute))}
-.ptool-work .replace-object-object-card span:last-child{color:var(--st-dim, var(--text-mute))}
-.ptool-zone-tag{background:#0e8a60}
-.ptool-work .photo-tool-generate:disabled{opacity:1;background:var(--st-bg-3, var(--surface-2));color:var(--st-dim, var(--text-mute))}
 #uploadPanel .upload-photo-center-sub{color:var(--st-dim, var(--text-mute))!important}
 .upload-panel-empty{padding:18px;color:var(--st-mute, var(--text-mute));font-size:13px}
 .photo-tool-dialog.replace-object-mask-editor-dialog{background:var(--st-bg, var(--surface));color:var(--st-text, var(--text));border-color:var(--st-line-2, var(--border))}
@@ -10354,20 +10388,29 @@ body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
   .photo-tool-modal:has(.ptool-layout){padding:8px;align-items:center}
   #photoToolDialog:has(.ptool-layout){width:100%;height:calc(100vh - 16px);height:calc(100dvh - 16px);border-radius:22px}
   html.browser-app #photoToolDialog:has(.ptool-layout){height:calc(var(--bvh,1vh) * 100 - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
-  .ptool-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:clamp(76px,17dvh,150px) minmax(0,1fr)}
+  .ptool-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:clamp(70px,15dvh,140px) minmax(0,1fr)}
   .ptool-close{top:10px;right:10px}
   .ptool-work{gap:10px;padding:14px 16px 16px}
   .ptool-head{padding-right:0}
-  .ptool-head h3{font-size:19px}
+  .ptool-kicker{font-size:21px}
+  .ptool-head h3{margin-top:2px;font-size:16px}
+  .ptool-head p{margin-top:3px;font-size:12.5px}
   .ptool-divider{margin:8px 0}
+  .ptool-zone:not(.has-items) .ptool-add{height:min(100%,140px)}
   .ptool-zone[data-max="1"] .ptool-ref{height:min(100%,170px)}
-  .ptool-dropdown-panel{width:calc(100vw - 48px);max-width:none;padding:12px}
-  .hair-beard-color-row{grid-template-columns:48px minmax(0,1fr)}
-  .hair-beard-swatches{gap:3px}
-  .hair-beard-swatch{width:15px;height:15px}
+  .ptool-work textarea{height:48px;min-height:48px;padding:13px 18px}
+  .ptool-work .photo-tool-generate{align-self:stretch;height:48px}
+  .ptool-dropdown-panel{grid-template-columns:minmax(0,1fr);width:calc(100vw - 48px);max-width:340px}
+  .ptool-color-parts{display:grid;grid-template-columns:1fr 1fr;gap:2px;min-width:0}
+  .ptool-color-name{height:30px}
+  .ptool-color-name b{font-size:12px}
+  .ptool-color-sv{height:84px}
+  .ptool-color-grid{gap:5px;max-width:220px}
+}
+@media(max-width:680px) and (max-height:720px){
+  .ptool-head p{display:none}
 }
 @media(max-width:680px) and (max-height:620px){
-  .ptool-layout{grid-template-rows:60px minmax(0,1fr)}
-  .ptool-head small{display:none}
-  .ptool-head h3{margin:0;font-size:17px}
+  .ptool-layout{grid-template-rows:56px minmax(0,1fr)}
+  .ptool-kicker{font-size:17px}
 }

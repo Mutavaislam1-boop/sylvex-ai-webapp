@@ -383,7 +383,7 @@ photoToolState.replace_character = {
 let visualPickerRedirectTarget = null;
 
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
-const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, customPresets: [], referencePrompt: '', generatingReference: false };
+const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, colorPart: 'hair', colorHue: 24, customPresets: [], referencePrompt: '', generatingReference: false };
 const HAIR_BEARD_IMAGE_MODEL = 'gpt_image_2_5_sunburst';
 const tattooState = { selectedReferenceId:null, uploadedReference:'', customReferences:[], prompt:'', generatingReference:false };
 const TATTOO_REFERENCES = Array.from({length:24},(_,index)=>({
@@ -9388,8 +9388,10 @@ const HAIR_BEARD_COLOR_PARTS = ['hair','beard','mustache','eyebrows'];
 
 
 const HAIR_BEARD_COLOR_SWATCHES = [
-  ['#1b1b1b','Чёрный'],['#3b2a20','Тёмно-каштановый'],['#6a4a32','Каштановый'],['#9a7350','Светло-каштановый'],['#c9a86a','Русый'],
-  ['#e3c88f','Блонд'],['#efe3c4','Платиновый'],['#a5452c','Рыжий'],['#7b2f2a','Медный'],['#8e8e8e','Седой'],['#e9e9e9','Белый'],
+  ['#000000','Чёрный'],['#3a3a3a','Графит'],['#5f5f5f','Тёмно-серый'],['#8c8c8c','Седой'],['#b5b5b5','Пепельный'],['#dcdcdc','Серебристый'],['#ffffff','Белый'],
+  ['#1c1410','Иссиня-чёрный'],['#3b2a20','Тёмно-каштановый'],['#6a4a32','Каштановый'],['#9a7350','Светло-каштановый'],['#c9a86a','Русый'],['#e3c88f','Блонд'],['#efe3c4','Платиновый'],
+  ['#7b2f2a','Медный'],['#a5452c','Рыжий'],['#e0573d','Огненный'],['#e84a8a','Розовый'],['#b06ad9','Сиреневый'],['#6b4bd6','Фиолетовый'],['#2b4fd1','Синий'],
+  ['#2a9bb5','Бирюзовый'],['#4cc3e0','Голубой'],['#3fa66b','Зелёный'],['#8fd16a','Салатовый'],['#f2d14b','Жёлтый'],['#f2a24b','Оранжевый'],['#e8743b','Морковный'],
 ];
 
 function hairBeardColorDotsHtml() {
@@ -9398,37 +9400,147 @@ function hairBeardColorDotsHtml() {
 }
 
 // Colour of hair, beard, mustache and brows - folded into one dropdown.
+// Hair colour: a list of the parts (each with its colour and a reset) and,
+// beside it, a picker for the chosen part - shade square, hue, HEX,
+// eyedropper, reset and a palette.
 function hairBeardColorsHtml() {
-  return '<details class="ptool-dropdown hair-beard-colors"><summary><span>Цвет</span><i class="ptool-dots" id="hairBeardColorDots">' + hairBeardColorDotsHtml() + '</i></summary><div class="ptool-dropdown-panel">'
-    + HAIR_BEARD_COLOR_PARTS.map((part) => {
-      const current = hairBeardState.colors[part];
-      return '<div class="hair-beard-color-row" data-color-part="' + part + '"><b>' + S.escapeHtml(HAIR_BEARD_COLOR_FIELDS[part].label) + '</b><div class="hair-beard-swatches">'
-        + '<button type="button" class="hair-beard-swatch is-original' + (current ? '' : ' active') + '" data-color="" title="Как на фото" aria-label="Как на фото" onclick="SYLVEX.setHairBeardColor(event,\'' + part + '\',\'\')"></button>'
-        + HAIR_BEARD_COLOR_SWATCHES.map(([hex, name]) => '<button type="button" class="hair-beard-swatch' + (current === hex ? ' active' : '') + '" data-color="' + hex + '" style="--swatch:' + hex + '" title="' + name + '" aria-label="' + name + '" onclick="SYLVEX.setHairBeardColor(event,\'' + part + '\',\'' + hex + '\')"></button>').join('')
-        + '<label class="hair-beard-swatch is-custom' + (current && !HAIR_BEARD_COLOR_SWATCHES.some(([hex]) => hex === current) ? ' active' : '') + '" title="Свой цвет"><input type="color" value="' + (current || HAIR_BEARD_COLOR_FIELDS[part].default) + '" aria-label="Свой цвет" onchange="SYLVEX.setHairBeardColor(event,\'' + part + '\',this.value)"></label>'
-        + '</div></div>';
-    }).join('')
-    + '</div></details>';
+  return '<details class="ptool-dropdown hair-beard-colors"><summary><span>Цвет</span><i class="ptool-dots" id="hairBeardColorDots">' + hairBeardColorDotsHtml() + '</i></summary>'
+    + '<div class="ptool-dropdown-panel ptool-color">' + hairBeardColorPanelInnerHtml() + '</div></details>';
+}
+
+function hairBeardColorPanelInnerHtml() {
+  const active = hairBeardState.colorPart;
+  const parts = HAIR_BEARD_COLOR_PARTS.map((part) => {
+    const color = hairBeardState.colors[part];
+    return '<div class="ptool-color-part' + (part === active ? ' is-active' : '') + '" data-color-part="' + part + '">'
+      + '<button type="button" class="ptool-color-reset"' + (color ? '' : ' disabled') + ' aria-label="Как на фото" title="Как на фото" onclick="SYLVEX.setHairBeardColor(event,\'' + part + '\',\'\')">×</button>'
+      + '<button type="button" class="ptool-color-name" onclick="SYLVEX.selectHairBeardColorPart(event,\'' + part + '\')"><i class="' + (color ? '' : 'is-original') + '" style="--swatch:' + (color || 'transparent') + '"></i><b>' + S.escapeHtml(HAIR_BEARD_COLOR_FIELDS[part].label) + '</b></button></div>';
+  }).join('');
+  const color = hairBeardState.colors[active];
+  const hsv = hairBeardColorHsv(color);
+  const eyedropper = typeof window !== 'undefined' && 'EyeDropper' in window;
+  return '<div class="ptool-color-parts">' + parts + '</div>'
+    + '<div class="ptool-color-editor">'
+    + '<div class="ptool-color-sv" style="--hue:' + Math.round(hsv.h) + '" onpointerdown="SYLVEX.startHairBeardColorDrag(event)"><i style="left:' + (hsv.s * 100).toFixed(1) + '%;top:' + ((1 - hsv.v) * 100).toFixed(1) + '%"></i></div>'
+    + '<input class="ptool-color-hue" type="range" min="0" max="359" value="' + Math.round(hsv.h) + '" aria-label="Оттенок" oninput="SYLVEX.setHairBeardHue(event)">'
+    + '<div class="ptool-color-row">'
+    + '<button type="button" class="ptool-color-tool" aria-label="Как на фото" title="Как на фото" onclick="SYLVEX.setHairBeardColor(event,\'' + active + '\',\'\')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
+    + '<label class="ptool-color-hex"><i class="' + (color ? '' : 'is-original') + '" style="--swatch:' + (color || 'transparent') + '"></i><input type="text" maxlength="7" spellcheck="false" autocomplete="off" placeholder="как на фото" value="' + (color || '') + '" aria-label="HEX" onchange="SYLVEX.setHairBeardHex(event)"></label>'
+    + (eyedropper ? '<button type="button" class="ptool-color-tool" aria-label="Пипетка" title="Пипетка" onclick="SYLVEX.pickHairBeardColorWithEyedropper(event)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5l4 4M16.5 3.5a2.1 2.1 0 013 3l-2 2-3-3 2-2zM14 8l-8.5 8.5L5 19l2.5-.5L16 10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : '')
+    + '</div>'
+    + '<div class="ptool-color-grid">' + HAIR_BEARD_COLOR_SWATCHES.map(([hex, name]) => '<button type="button" class="' + (color === hex ? 'active' : '') + '" style="--swatch:' + hex + '" title="' + name + '" aria-label="' + name + '" onclick="SYLVEX.setHairBeardColor(event,\'' + active + '\',\'' + hex + '\')"></button>').join('') + '</div>'
+    + '</div>';
+}
+
+function hexToHsvColor(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = (max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
+  return { h: h < 0 ? h + 360 : h, s: max ? d / max : 0, v: max };
+}
+
+function hsvToHexColor(h, s, v) {
+  const channel = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return '#' + [channel(5), channel(3), channel(1)].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+}
+
+// The picker's position for a colour; a grey keeps the last hue.
+function hairBeardColorHsv(color) {
+  if (!color) return { h: hairBeardState.colorHue, s: .55, v: .35 };
+  const hsv = hexToHsvColor(color);
+  if (hsv.s > .02) hairBeardState.colorHue = hsv.h; else hsv.h = hairBeardState.colorHue;
+  return hsv;
+}
+
+function refreshHairBeardColorPanel() {
+  const panel = document.querySelector('#photoToolModalBody .ptool-color');
+  if (panel) panel.innerHTML = hairBeardColorPanelInnerHtml();
+  const dots = document.getElementById('hairBeardColorDots');
+  if (dots) dots.innerHTML = hairBeardColorDotsHtml();
+}
+
+// While the shade square or the hue is dragged, only the marks move -
+// rebuilding would drop the pointer.
+function syncHairBeardColorMarks(hsv) {
+  const panel = document.querySelector('#photoToolModalBody .ptool-color');
+  if (!panel) return;
+  const part = hairBeardState.colorPart, color = hairBeardState.colors[part];
+  const square = panel.querySelector('.ptool-color-sv'), handle = square && square.querySelector('i');
+  if (square) square.style.setProperty('--hue', Math.round(hsv.h));
+  if (handle) { handle.style.left = (hsv.s * 100).toFixed(1) + '%'; handle.style.top = ((1 - hsv.v) * 100).toFixed(1) + '%'; }
+  panel.querySelectorAll('.ptool-color-hex i, .ptool-color-part[data-color-part="' + part + '"] i').forEach((dot) => { dot.style.setProperty('--swatch', color || 'transparent'); dot.classList.toggle('is-original', !color); });
+  const hex = panel.querySelector('.ptool-color-hex input');
+  if (hex) hex.value = color || '';
+  const dots = document.getElementById('hairBeardColorDots');
+  if (dots) dots.innerHTML = hairBeardColorDotsHtml();
+}
+
+function selectHairBeardColorPart(e, part) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (!HAIR_BEARD_COLOR_FIELDS[part]) return;
+  hairBeardState.colorPart = part;
+  refreshHairBeardColorPanel();
+}
+
+function setHairBeardHex(e) {
+  if (e) e.stopPropagation();
+  const value = String((e && e.currentTarget && e.currentTarget.value) || '').trim();
+  const hex = /^#?[0-9a-f]{6}$/i.test(value) ? (value[0] === '#' ? value : '#' + value) : value ? null : '';
+  if (hex === null) { refreshHairBeardColorPanel(); return; }
+  setHairBeardColor(null, hairBeardState.colorPart, hex);
+}
+
+function setHairBeardHue(e) {
+  if (e) e.stopPropagation();
+  const hue = Number(e && e.currentTarget && e.currentTarget.value) || 0;
+  hairBeardState.colorHue = hue;
+  const part = hairBeardState.colorPart, color = hairBeardState.colors[part];
+  const hsv = color ? hexToHsvColor(color) : { s: .55, v: .35 };
+  hsv.h = hue;
+  if (color && hsv.s > .02) hairBeardState.colors[part] = hsvToHexColor(hue, hsv.s, hsv.v);
+  syncHairBeardColorMarks(hsv);
+}
+
+function startHairBeardColorDrag(e) {
+  const square = e && e.currentTarget;
+  if (!square) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const pick = (evt) => {
+    const rect = square.getBoundingClientRect();
+    const s = Math.max(0, Math.min(1, (evt.clientX - rect.left) / Math.max(1, rect.width)));
+    const v = 1 - Math.max(0, Math.min(1, (evt.clientY - rect.top) / Math.max(1, rect.height)));
+    const h = hairBeardState.colorHue;
+    hairBeardState.colors[hairBeardState.colorPart] = hsvToHexColor(h, s, v);
+    syncHairBeardColorMarks({ h, s, v });
+  };
+  pick(e);
+  if (square.setPointerCapture) square.setPointerCapture(e.pointerId);
+  square.onpointermove = pick;
+  square.onpointerup = square.onpointercancel = () => { square.onpointermove = square.onpointerup = square.onpointercancel = null; refreshHairBeardColorPanel(); };
+}
+
+function pickHairBeardColorWithEyedropper(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (typeof window === 'undefined' || !('EyeDropper' in window)) return;
+  const part = hairBeardState.colorPart;
+  new window.EyeDropper().open().then((result) => setHairBeardColor(null, part, result && result.sRGBHex)).catch(() => {});
 }
 
 function setHairBeardColor(e, part, color) {
-  if (e && e.type === 'click') { e.preventDefault(); e.stopPropagation(); }
+  if (e) { e.preventDefault(); e.stopPropagation(); }
   if (!HAIR_BEARD_COLOR_FIELDS[part]) return;
   const clean = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : null;
   hairBeardState.colors[part] = clean;
-  const row = document.querySelector('#photoToolModalBody .hair-beard-color-row[data-color-part="' + part + '"]');
-  if (row) row.querySelectorAll('.hair-beard-swatch').forEach((swatch) => {
-    const value = swatch.dataset.color;
-    swatch.classList.toggle('active', value === undefined ? !!clean && !HAIR_BEARD_COLOR_SWATCHES.some(([hex]) => hex === clean) : value === (clean || ''));
-  });
-  const dots = document.getElementById('hairBeardColorDots');
-  if (dots) dots.innerHTML = hairBeardColorDotsHtml();
+  refreshHairBeardColorPanel();
 }
 
 // Closes an open dropdown (hair colour) when the click lands outside it.
 function closePhotoToolDropdowns(e) {
   document.querySelectorAll('#photoToolModalBody .ptool-dropdown[open]').forEach((menu) => {
-    if (!e || !menu.contains(e.target)) menu.removeAttribute('open');
+    if (!e || (e.target.isConnected && !menu.contains(e.target))) menu.removeAttribute('open');
   });
 }
 
@@ -9559,8 +9671,18 @@ const PHOTO_TOOL_BANNERS = {
   replace_object:['#ec4899','#8b5cf6'], hair_beard:['#92400e','#f59e0b'], face_retouch:['#f472b6','#fb7185'],
 };
 
-function photoToolHeadHtml(config) {
-  return '<header class="ptool-head"><small>Быстрый инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></header>';
+// One short line under each tool's title.
+const PHOTO_TOOL_NOTES = {
+  try_on:'Реалистичная примерка одежды', remove_bg:'Чистый фон за один шаг', replace_character:'Сохранение сцены и позы',
+  enhance:'Детализация и качество', animate_photo:'Фото превращается в видео', tattoo:'Реалистичное нанесение',
+  logo:'Размещение на изображении', remove_object:'Восстановление фона', watermark_removal:'Чистое восстановление фото',
+  replace_object:'Новый объект в сцене', hair_beard:'Стиль, форма и цвет волос', face_retouch:'Естественная коррекция кожи',
+};
+
+function photoToolHeadHtml(tool, config) {
+  const note = PHOTO_TOOL_NOTES[tool];
+  return '<header class="ptool-head"><b class="ptool-kicker">Быстрый инструмент</b><h3>' + S.escapeHtml(config.title) + '</h3>'
+    + (note ? '<p>' + S.escapeHtml(note) + '</p>' : '') + '</header>';
 }
 
 function photoToolBannerHtml(tool, config) {
@@ -9831,7 +9953,7 @@ function renderPhotoToolModal() {
     + photoToolBannerHtml(tool, config)
     + '<button type="button" class="ptool-close" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button>'
     + '<div class="ptool-work" onclick="SYLVEX.closePhotoToolDropdowns(event)">'
-    + photoToolHeadHtml(config)
+    + photoToolHeadHtml(tool, config)
     + '<div class="ptool-zones" id="ptoolZones">' + photoToolZonesInnerHtml(tool) + '</div>'
     + photoToolPromptHtml(tool)
     + photoToolPresetsHtml(tool)
@@ -9839,6 +9961,38 @@ function renderPhotoToolModal() {
     + photoToolGenerateButtonLabel(state)
     + '</button>'
     + '</div></div>';
+  mountPhotoToolPresetPages();
+}
+
+// Page dots over a preset row: one dot per screenful, the current one lit;
+// a dot scrolls the row to its page.
+function mountPhotoToolPresetPages() {
+  document.querySelectorAll('#photoToolModalBody .ptool-work .preset-carousel').forEach((carousel) => {
+    const track = carousel.querySelector('.preset-carousel-track');
+    if (!track) return;
+    const nav = document.createElement('div');
+    nav.className = 'ptool-pages';
+    nav.hidden = true;
+    const header = carousel.parentElement && carousel.parentElement.querySelector(':scope > header');
+    if (header) header.appendChild(nav); else carousel.before(nav);
+    const update = () => {
+      const width = Math.max(1, track.clientWidth);
+      const pages = Math.max(1, Math.ceil((track.scrollWidth - 2) / width));
+      const end = track.scrollLeft >= track.scrollWidth - width - 2;
+      const active = end ? pages - 1 : Math.min(pages - 1, Math.round(track.scrollLeft / width));
+      if (nav.childElementCount !== pages) nav.innerHTML = Array.from({ length: pages }, (_, i) => '<button type="button" aria-label="Страница ' + (i + 1) + '"></button>').join('');
+      nav.hidden = pages < 2;
+      Array.from(nav.children).forEach((dot, i) => dot.classList.toggle('active', i === active));
+    };
+    nav.onclick = (e) => {
+      const dot = e.target.closest('button');
+      if (!dot) return;
+      e.stopPropagation();
+      track.scrollTo({ left: Array.from(nav.children).indexOf(dot) * track.clientWidth, behavior: 'smooth' });
+    };
+    track.addEventListener('scroll', update, { passive: true });
+    window.requestAnimationFrame(update);
+  });
 }
 
 // =====================================================
@@ -10043,6 +10197,7 @@ function closePhotoToolModal(e) {
       hairBeardState.category = 'men';
       hairBeardState.selectedPresetId = null;
       hairBeardState.colors = { hair:null, beard:null, mustache:null, eyebrows:null };
+      hairBeardState.colorPart = 'hair';
       hairBeardState.customPresets = [];
       hairBeardState.referencePrompt = '';
       hairBeardState.generatingReference = false;
@@ -30466,6 +30621,11 @@ async function waitGeneration(jobId, options) {
   S.updateRemoveObjectReadiness = updateRemoveObjectReadiness;
   S.updateAnimatePhotoPromptCounter = updateAnimatePhotoPromptCounter;
   S.closePhotoToolDropdowns = closePhotoToolDropdowns;
+  S.selectHairBeardColorPart = selectHairBeardColorPart;
+  S.setHairBeardHex = setHairBeardHex;
+  S.setHairBeardHue = setHairBeardHue;
+  S.startHairBeardColorDrag = startHairBeardColorDrag;
+  S.pickHairBeardColorWithEyedropper = pickHairBeardColorWithEyedropper;
   S.openQuickImageExtraFile = openQuickImageExtraFile;
   S.onQuickImageExtraFile = onQuickImageExtraFile;
   S.clearTryOnPerson = clearTryOnPerson;
