@@ -14,7 +14,6 @@ import urllib.parse
 from functools import lru_cache
 from typing import BinaryIO, Iterator, Optional
 
-from dotenv import load_dotenv
 from db_pool import db_connect
 from services.safe_io import safe_local_path
 from services.security import SecurityError
@@ -23,7 +22,6 @@ from services.media_access import sign_media_url
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
 LOCAL_GENERATED_DIR = ROOT_DIR / "webapp" / "generated"
-load_dotenv(ROOT_DIR / ".env")
 
 
 def _env(name: str) -> str:

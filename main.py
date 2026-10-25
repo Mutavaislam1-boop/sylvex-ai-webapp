@@ -32,7 +32,6 @@ from typing import Optional
 from uuid import uuid4
 import requests
 import psycopg2
-from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from routers.video_templates import router as video_templates_router
 
@@ -72,7 +71,6 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-load_dotenv()
 
 from services.runtime_checks import is_production as runtime_is_production
 from services.security import (

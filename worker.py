@@ -8,11 +8,8 @@ existing queue, generation, billing, storage and Telegram delivery logic from
 import asyncio
 import signal
 
-from dotenv import load_dotenv
 from db_pool import close_db_pool, db_pool_status, start_db_pool
 
-
-load_dotenv()
 
 from main import (  # noqa: E402
     BOT_TOKEN,
