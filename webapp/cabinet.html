@@ -523,11 +523,12 @@ HTML-страница Mini App. Комментарии подписывают э
               </div>
               <div class="vgen-upload-row voiceover-only" onclick="SYLVEX.openVoiceUpload(event)">
                 <span class="vgen-upload-lbl" id="voiceUploadLabel">Загрузить</span>
+                <button class="vgen-upload-clear" id="voiceUploadClear" type="button" aria-label="Убрать файл" hidden onclick="event.stopPropagation();SYLVEX.clearVoiceUploads(event)">×</button>
                 <div class="vgen-upload-icons" aria-hidden="true">
                   <span class="vgen-uico" onclick="event.stopPropagation();SYLVEX.openVoiceUpload(event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"></path><path d="M6 10l6 6 6-6"></path><path d="M4 20h16"></path></svg></span>
                   <span class="vgen-uico" onclick="event.stopPropagation();SYLVEX.openVoiceUpload(event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v6h6"></path></svg></span>
                   <span class="vgen-uico" onclick="event.stopPropagation();SYLVEX.openVoiceCreate(event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path></svg></span>
-                  <span class="vgen-uico" onclick="event.stopPropagation();SYLVEX.openVoiceMediaPicker(event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"></rect><path d="M17 10l4-2v8l-4-2"></path></svg></span>
+                  <span class="vgen-uico" onclick="event.stopPropagation();SYLVEX.openVoiceUpload(event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"></rect><path d="M17 10l4-2v8l-4-2"></path></svg></span>
                 </div>
               </div>
               <div class="voice-horizontal-tools dialogue-only" id="voiceHorizontalTools" data-open="true">
@@ -801,18 +802,6 @@ HTML-страница Mini App. Комментарии подписывают э
                 <button class="studio-select-pill text-only" type="button" aria-label="Версия модели" onclick="SYLVEX.openImageOptionMenu(event,'text_version')">
                   <span id="textVersionVal">5.5</span>
                 </button>
-                <button class="studio-select-pill text-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'text_tool')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h16"/></svg>
-                  <span id="textToolVal">Текст</span>
-                </button>
-                <button class="studio-select-pill text-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'text_format')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
-                  <span id="textFormatVal">Реклама</span>
-                </button>
-                <button class="studio-select-pill text-only" type="button" aria-label="Стили текста" onclick="SYLVEX.openImageOptionMenu(event,'text_style')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                  <span id="textStyleVal">Стили текста</span>
-                </button>
                 <!-- ==================================================
                 HTML-ЭЛЕМЕНТ: 1:1
                 При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'size')
@@ -883,6 +872,10 @@ HTML-страница Mini App. Комментарии подписывают э
                   <svg width="18" height="18" fill="none" viewBox="0 0 16 16" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.3" d="M6 11.667H2.333m2-3.667h-3M6 4.333H2.666M11.333 2 6.935 8.157c-.194.272-.292.408-.287.522a.333.333 0 0 0 .13.252c.09.069.257.069.591.069h3.297L10 14l4.397-6.157c.195-.272.292-.408.288-.522a.333.333 0 0 0-.13-.252C14.466 7 14.299 7 13.964 7h-3.297l.667-5Z"></path></svg>
                   <span id="musicGenreVal">Auto</span>
                 </button>
+                <button class="studio-select-pill music-only" id="musicVocalButton" type="button" onclick="SYLVEX.openImageOptionMenu(event,'vocal')">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+                  <span id="musicVocalVal">Вокал</span>
+                </button>
                 <!-- ==================================================
                 HTML-ЭЛЕМЕНТ: studio-select-pill music-only
                 При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'settings')
@@ -908,17 +901,6 @@ HTML-страница Mini App. Комментарии подписывают э
                 <button class="studio-select-pill voice-only voice-bottom-labeled" type="button" aria-label="Создать текст с помощью AI" title="Создать текст с помощью AI" onclick="SYLVEX.openVoiceAddon(event,'ai',true)">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.3 4.2L17.5 8l-4.2 1.3L12 13.5l-1.3-4.2L6.5 8l4.2-.8L12 3z"/><path d="m18 14 .8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z"/></svg>
                   <span>Создать текст с AI</span>
-                </button>
-                <button class="studio-select-pill voice-only voice-bottom-labeled" type="button" aria-label="Общие настройки" title="Общие настройки" onclick="SYLVEX.openImageOptionMenu(event,'settings')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg>
-                  <span>Общие настройки</span>
-                </button>
-                <button class="studio-select-pill voice-only voice-bottom-labeled" type="button" aria-label="Шаблоны текста" title="Шаблоны текста" onclick="SYLVEX.openVoiceAddon(event,'templates',true)">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>
-                  <span>Шаблоны текста</span>
-                </button>
-                <button class="studio-select-pill image-settings-pill voice-only voice-settings-round" type="button" aria-label="Настройки голоса" title="Настройки голоса" onclick="SYLVEX.openVoiceAddon(event,'settings',true)">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
                 </button>
                 <button class="text-mic-floating text-only" id="micBtn" type="button" aria-label="Голосовой набор" onclick="SYLVEX.toggleMic(event)">
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
