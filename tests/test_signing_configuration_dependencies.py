@@ -91,3 +91,15 @@ def test_existing_media_url_requires_reissue_when_fallback_bot_token_changes(mon
     monkeypatch.setenv("BOT_TOKEN", "dummy-new-bot-token")
     assert not valid_media_url(value)
     assert valid_media_url(sign_media_url("/generated/dummy-sx001.png"))
+
+
+@pytest.mark.parametrize('create,verify', [
+    (security.create_web_session_token, security.verify_web_session_token),
+    (security.create_tg_session_token, security.verify_tg_session_token),
+])
+def test_current_independent_session_secret_preserves_cookies_on_bot_rotation(monkeypatch, create, verify):
+    # Production uses WEB_SESSION_SECRET independently, without MEDIA_SIGNING_SECRET.
+    monkeypatch.setenv('WEB_SESSION_SECRET', 'dummy-independent-web-session-secret')
+    cookie = create(101, 7)
+    monkeypatch.setenv('BOT_TOKEN', 'dummy-new-bot-token')
+    assert verify(cookie) == (101, 7)

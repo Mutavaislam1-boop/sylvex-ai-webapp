@@ -2683,7 +2683,8 @@ async def poll_crypto_invoice(invoice_id: int, telegram_id: int, pack_id: str):
 
 
 def paypal_configured() -> bool:
-    return bool(PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET)
+    # PayPal is retired, even while old Railway Variables are being removed.
+    return False
 
 
 # =====================================================
@@ -4302,22 +4303,12 @@ async def public_config():
         "webapp_url": WEBAPP_URL,
         "payment_webapp_url": PAYMENT_WEBAPP_URL,
         "shop_webapp_url": SHOP_WEBAPP_URL,
-        # PAYPAL_CLIENT_ID is a public identifier (pairs with the JS SDK,
-        # never with PAYPAL_CLIENT_SECRET) - safe to hand to any client, same
-        # as the Google OAuth client id in /api/web/auth/config. Lets the
-        # Website load the PayPal JS SDK and know which sandbox/live plan
-        # ids to pass into actions.subscription.create() without hardcoding
-        # them into static HTML.
-        "paypal_client_id": PAYPAL_CLIENT_ID or "",
-        "paypal_enabled": paypal_configured(),
-        # Distinct from paypal_enabled: Orders/Capture credit purchases only
-        # need PAYPAL_CLIENT_ID/SECRET, but a Pro subscribe button also
-        # needs both plan ids - report that separately so the Website can
-        # hide just the subscribe buttons (not the whole Store) if only the
-        # plan ids are missing.
-        "paypal_subscriptions_enabled": paypal_subscriptions_configured(),
-        "paypal_pro_monthly_plan_id": PAYPAL_PRO_MONTHLY_PLAN_ID,
-        "paypal_pro_yearly_plan_id": PAYPAL_PRO_YEARLY_PLAN_ID,
+        # Retired provider: keep the response shape for older clients.
+        "paypal_client_id": "",
+        "paypal_enabled": False,
+        "paypal_subscriptions_enabled": False,
+        "paypal_pro_monthly_plan_id": "",
+        "paypal_pro_yearly_plan_id": "",
         # Website Stripe Checkout (plans, packs, custom amounts). No key or
         # id is exposed; the Website only needs to know whether to offer it.
         "stripe_enabled": stripe_enabled(),
@@ -4331,25 +4322,8 @@ async def public_config():
 # =====================================================
 @app.get("/api/payment-links")
 async def payment_links():
-    products = []
-    for pack_id, item in SHOP_ITEMS.items():
-        products.append({
-            "id": pack_id,
-            "pack_id": pack_id,
-            "name": item["title"],
-            "description": "Подписка SYLVEX Pro" if item["kind"] == "subscription" else f"{item['credits']} токенов SYLVEX",
-            "price": int(round(float(item["usd"]) * 100)),
-            "price_formatted": f"${float(item['usd']):.2f}",
-            "is_subscription": item["kind"] == "subscription",
-            "purchase_type": paypal_purchase_type(item),
-        })
-
-    return {
-        "success": True,
-        "source": "paypal",
-        "products": products,
-        "packages": {},
-    }
+    # Legacy PayPal catalog: old clients must not offer checkout.
+    return {"success": True, "source": "retired", "products": [], "packages": {}}
 
 # =====================================================
 # API ENDPOINT: save_settings
@@ -13683,60 +13657,7 @@ async def public_prostudio_get_share(share_id: str):
 # =====================================================
 @app.post("/api/public/payments/paypal/create-order")
 async def public_paypal_create_order(request: Request):
-    data = await request.json()
-    pack_id = data.get("pack_id") or data.get("package") or data.get("plan") or ""
-    purchase_type = data.get("type") or data.get("purchase_type") or ""
-    item = shop_item(pack_id)
-    telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
-    # A real Telegram Mini App call always presents signed initData (see
-    # SecurityMiddleware); a Website call never does - same distinction
-    # public_lemonsqueezy_checkout already used. Only affects which page
-    # PayPal sends the buyer back to (paypal_website_return_url vs the
-    # Mini App's SHOP_WEBAPP_URL) - identity/crediting is unaffected either
-    # way, since that always comes from the middleware-resolved telegram_id.
-    is_website = not getattr(request.state, "telegram_init_data", "")
-
-    if not item:
-        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
-    expected_type = paypal_purchase_type(item)
-    if purchase_type and purchase_type not in {expected_type, item.get("kind")}:
-        return JSONResponse({"ok": False, "error": "purchase_type_mismatch"}, status_code=400)
-    if not telegram_id:
-        return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
-    if not paypal_configured():
-        return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
-
-    try:
-        order = create_paypal_order(telegram_id, pack_id, item, is_website)
-    except Exception as exc:
-        print("PAYPAL CREATE ORDER ERROR:", exc)
-        return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
-
-    checkout_url = paypal_approve_url(order)
-    if not order.get("id") or not checkout_url:
-        return JSONResponse({"ok": False, "error": "paypal_checkout_url_missing"}, status_code=502)
-
-    save_paypal_order(telegram_id, pack_id, item, order, checkout_url)
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="payment_invoice_created",
-        event_name="paypal_order_created",
-        payload={
-            "pack_id": pack_id,
-            "paypal_order_id": order.get("id"),
-            "url": checkout_url,
-        },
-    )
-
-    return {
-        "ok": True,
-        "url": checkout_url,
-        "approval_url": checkout_url,
-        "paypal_order_id": order.get("id"),
-        "pack_id": pack_id,
-        "type": expected_type,
-    }
+    return JSONResponse({"ok": False, "error": "paypal_retired"}, status_code=410)
 
 
 # =====================================================
@@ -13747,43 +13668,7 @@ async def public_paypal_create_order(request: Request):
 # =====================================================
 @app.post("/api/public/payments/paypal/subscription-created")
 async def public_paypal_subscription_created(request: Request):
-    if not paypal_subscriptions_configured():
-        return JSONResponse({"ok": False, "error": "paypal_subscriptions_not_configured"}, status_code=502)
-
-    data = await request.json()
-    subscription_id = (data.get("subscription_id") or data.get("subscriptionID") or "").strip()
-    plan_id = (data.get("plan_id") or "").strip()
-    plan_type = (data.get("plan_type") or "").strip().lower()
-    telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
-    pack_id = paypal_subscription_pack_for_plan(plan_id, plan_type)
-
-    if not telegram_id:
-        return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
-    if not subscription_id:
-        return JSONResponse({"ok": False, "error": "subscription_id_required"}, status_code=400)
-    if not pack_id:
-        return JSONResponse({"ok": False, "error": "unknown_plan"}, status_code=400)
-
-    verified = await asyncio.to_thread(verified_paypal_subscription, subscription_id)
-    if verified.get("plan_id") != plan_id or read_binding(verified.get("custom_id"), plan_id) != telegram_id:
-        raise HTTPException(status_code=403, detail="paypal_owner_mismatch")
-    saved = await asyncio.to_thread(save_paypal_subscription, telegram_id, subscription_id, plan_id, plan_type)
-    if not saved:
-        return JSONResponse({"ok": False, "error": "subscription_save_failed"}, status_code=500)
-
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="paypal_subscription_created",
-        event_name="paypal_subscription_created",
-        payload={
-            "subscription_id": subscription_id,
-            "plan_id": plan_id,
-            "plan_type": plan_type,
-            "pack_id": pack_id,
-        },
-    )
-    return {"ok": True, "status": "pending", "subscription_id": subscription_id, "pack_id": pack_id}
+    return JSONResponse({"ok": False, "error": "paypal_retired"}, status_code=410)
 
 
 # =====================================================
@@ -13794,31 +13679,8 @@ async def public_paypal_subscription_created(request: Request):
 # =====================================================
 @app.post("/api/public/payments/paypal/webhook")
 async def public_paypal_webhook(request: Request):
-    raw_body = await request.body()
-    try:
-        event = json.loads(raw_body.decode("utf-8"))
-    except Exception:
-        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
-
-    if not verify_paypal_webhook(request.headers, event):
-        return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=401)
-
-    event_type = event.get("event_type") or ""
-    if event_type in {"BILLING.SUBSCRIPTION.ACTIVATED", "PAYMENT.SALE.COMPLETED"}:
-        created = activate_paypal_subscription_from_event(event)
-        return {"ok": True, "created": created}
-
-    if event_type in _PAYPAL_SUBSCRIPTION_LIFECYCLE_EVENTS:
-        updated = sync_paypal_subscription_lifecycle_event(event)
-        return {"ok": True, "updated": updated}
-
-    if event_type != "PAYMENT.CAPTURE.COMPLETED":
-        return {"ok": True, "ignored": event_type}
-
-    created = finalize_paypal_capture(event)
-    if not created:
-        created = activate_paypal_subscription_from_event(event)
-    return {"ok": True, "created": created}
+    # Do not acknowledge or apply financial events from the retired provider.
+    return JSONResponse({"ok": False, "error": "paypal_retired"}, status_code=410)
 
 
 # =====================================================
@@ -28250,13 +28112,7 @@ async def security_error_handler(request: Request, exc: SecurityError):
 
 @app.post("/api/public/payments/paypal/subscription-binding")
 async def public_paypal_subscription_binding(request: Request):
-    if not paypal_subscriptions_configured():
-        return JSONResponse({"ok": False, "error": "paypal_subscriptions_not_configured"}, status_code=502)
-    data = await request.json()
-    plan = str(data.get("plan_id") or "")
-    if not paypal_subscription_pack_for_plan(plan):
-        raise HTTPException(status_code=400, detail="unknown_plan")
-    return {"ok": True, "custom_id": make_binding(request.state.telegram_id, plan)}
+    return JSONResponse({"ok": False, "error": "paypal_retired"}, status_code=410)
 
 
 def verified_paypal_subscription(subscription_id: str) -> dict:

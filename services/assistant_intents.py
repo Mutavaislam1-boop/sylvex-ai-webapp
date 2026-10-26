@@ -143,9 +143,8 @@ INTENTS = [
         "keywords": {"payment": 3, "paypal": 3, "card": 1, "billing": 3, "invoice": 2, "refund": 2},
         "phrases": {"payment methods": 5, "how do i pay": 5, "can i pay with card": 5, "payment failed": 4},
         "text": (
-            "SYLVEX accepts payment through PayPal, including direct credit/debit card checkout - you "
-            "don't need a PayPal account to pay by card. Apple Pay and Google Pay are available when "
-            "supported by your device."
+            "SYLVEX accepts card payments through Stripe in the Store. PayPal is no longer available. "
+            "Available payment methods are shown at checkout."
         ),
         "actions": [open_route("View Pricing", "/store.html"), open_route("Open Profile", "/account/profile.html")],
     },
