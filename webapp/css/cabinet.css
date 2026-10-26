@@ -8154,7 +8154,8 @@ CSS-БЛОК: .video-template-preview video
 .video-template-preview video{
   width:100%;
   height:100%;
-  object-fit:cover;
+  /* The whole reference, centred; the rest of the side stays empty. */
+  object-fit:contain;
 }
 
 /* =====================================================
@@ -8176,6 +8177,10 @@ CSS-БЛОК: .video-template-preview-fallback
   inset:0;
   z-index:1;
 }
+
+/* With the reference fitted whole, its empty sides stay plain: the
+   placeholder shows only when there is no video (or it failed to load). */
+.video-template-preview:has(> video[src]:not([src=""]):not([style*="none"])) .video-template-preview-fallback{visibility:hidden}
 
 .video-template-preview video:not([src]),
 .video-template-preview video[src=""]{
@@ -10238,7 +10243,7 @@ fields and Generate (no aspect ratio for a picture).
 ===================================================== */
 .quick-image-detail-modal{z-index:1000001}
 .quick-image-detail-modal:not(.show){display:none}
-.quick-image-detail-modal .video-template-preview img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.quick-image-detail-modal .video-template-preview img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .quick-image-detail-modal .video-template-details{min-height:0;max-height:min(620px,calc(100vh - 36px));overflow-y:auto}
 .quick-image-detail-modal .video-template-details h3[hidden]{display:none}
 .quick-image-detail-modal .video-template-upload{position:relative;flex:0 0 auto;background-position:center;background-size:cover;background-repeat:no-repeat;font:inherit}
