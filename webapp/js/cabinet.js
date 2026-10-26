@@ -24575,28 +24575,7 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Shop: buy flow ===== */
-  const PAYPAL_PRO_MONTHLY_PLAN_ID = 'P-2JN99488MP781262CNJDGCZI';
-  const PAYPAL_PRO_YEARLY_PLAN_ID = 'P-0YT1496917791881BNJDGRMY';
-  const paypalSubscriptionRendered = {};
-  const paypalSubscriptionRenderAttempts = {};
   let pendingPack = null;
-  function getPayPalSubscriptionConfig(packId) {
-    if (packId === 'sub_month') {
-      return {
-        containerId: 'paypalSubscribePayMonth',
-        planId: PAYPAL_PRO_MONTHLY_PLAN_ID,
-        planType: 'monthly',
-      };
-    }
-    if (packId === 'sub_year') {
-      return {
-        containerId: 'paypalSubscribePayYear',
-        planId: PAYPAL_PRO_YEARLY_PLAN_ID,
-        planType: 'yearly',
-      };
-    }
-    return null;
-  }
   function resetPayPalSubscriptionPanel() {
     const panel = document.getElementById('paypalSubscriptionPanel');
     if (panel) panel.hidden = true;
@@ -24604,18 +24583,6 @@ async function waitGeneration(jobId, options) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     });
-  }
-  function showPayPalSubscriptionPanel(packId) {
-    const config = getPayPalSubscriptionConfig(packId);
-    const panel = document.getElementById('paypalSubscriptionPanel');
-    if (!config || !panel) return false;
-    resetPayPalSubscriptionPanel();
-    const container = document.getElementById(config.containerId);
-    if (!container) return false;
-    panel.hidden = false;
-    container.hidden = false;
-    renderPayPalSubscriptionButton(config);
-    return true;
   }
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openBuy
@@ -24901,92 +24868,6 @@ async function waitGeneration(jobId, options) {
     if (!iso) return '—';
     try { return new Date(iso).toLocaleDateString('ru-RU', { day:'2-digit', month:'long', year:'numeric' }); }
     catch { return '—'; }
-  }
-
-  // =====================================================
-  // ОТРИСОВКА ИНТЕРФЕЙСА: renderPayPalSubscriptionButton
-  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
-  // =====================================================
-  function renderPayPalSubscriptionButton(config) {
-    const container = document.getElementById(config.containerId);
-    if (!container || paypalSubscriptionRendered[config.containerId]) return;
-
-    if (!window.paypal || !window.paypal.Buttons) {
-      paypalSubscriptionRenderAttempts[config.containerId] = (paypalSubscriptionRenderAttempts[config.containerId] || 0) + 1;
-      if (paypalSubscriptionRenderAttempts[config.containerId] < 30) {
-        setTimeout(() => renderPayPalSubscriptionButton(config), 300);
-      }
-      return;
-    }
-
-    container.innerHTML = '';
-    window.paypal.Buttons({
-      style: {
-        shape: 'rect',
-        color: 'gold',
-        layout: 'vertical',
-        label: 'subscribe',
-        height: 45,
-      },
-      async createSubscription(data, actions) {
-        const tg = getTelegramId();
-        if (!tg) {
-          toast('Telegram ID не найден');
-          return Promise.reject(new Error('telegram_id_required'));
-        }
-        const bindingResponse = await fetch('/api/public/payments/paypal/subscription-binding', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({plan_id: config.planId})
-        });
-        const binding = await bindingResponse.json();
-        if (!bindingResponse.ok || !binding.custom_id) throw new Error(binding.error || 'subscription_binding_failed');
-        return actions.subscription.create({
-          plan_id: config.planId,
-          custom_id: binding.custom_id,
-        });
-      },
-      async onApprove(data) {
-        const subscriptionID = data && data.subscriptionID;
-        const tg = getTelegramId();
-        if (!subscriptionID || !tg) {
-          toast('Не удалось сохранить подписку PayPal');
-          return;
-        }
-
-        try {
-          const response = await fetch('/api/public/payments/paypal/subscription-created', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              telegram_id: tg,
-              user_id: tg,
-              subscription_id: subscriptionID,
-              subscriptionID,
-              plan_id: config.planId,
-              plan_type: config.planType,
-            }),
-          });
-          const result = await response.json();
-          if (!response.ok || result.error) {
-            toast('Ошибка: ' + (result.error || response.status));
-            return;
-          }
-          resetPayPalSubscriptionPanel();
-          if (S.syncUser) setTimeout(() => S.syncUser(), 2500);
-        } catch (e) {
-          toast('Сетевая ошибка');
-        }
-      },
-      onError(err) {
-        console.warn('PAYPAL SUBSCRIPTION ERROR:', err);
-        toast('PayPal подписка не открылась');
-      },
-      onCancel() {},
-    }).render('#' + config.containerId).then(() => {
-      paypalSubscriptionRendered[config.containerId] = true;
-    }).catch((err) => {
-      console.warn('PAYPAL SUBSCRIPTION RENDER FAILED:', err);
-    });
   }
 
   /* ===== Telegram Stars subscription management ===== */
@@ -26039,7 +25920,7 @@ async function waitGeneration(jobId, options) {
       return;
     }
     if (method === 'paypal') {
-      window.location.href = url;
+      toast('PayPal больше не используется. Откройте магазин SYLVEX.');
       return;
     }
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
