@@ -7,6 +7,7 @@ HTML-страница Mini App. Комментарии подписывают э
 <html lang="en" data-theme="dark" data-lang="en">
 <head>
   <script src="/js/api-auth.js?v=account-separation-v1-20261019"></script>
+  <script src="js/animated-content.js?v=animated-content-20261027"></script>
 <script>console.log("SYLVEX_INDEX_HTML_LOADED");</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -65,7 +66,7 @@ HTML-ЭЛЕМЕНТ: элемент
 <script src="js/glide-select.js?v=glide-20261027"></script>
 <script>
   // Load the cabinet markup, then boot the app.
-  fetch('cabinet.html?v=glide-20261027')
+  fetch('cabinet.html?v=home-rise-20261027')
     .then(r => {
       if (!r.ok) throw new Error('Failed to load cabinet.html: ' + r.status);
       return r.text();
