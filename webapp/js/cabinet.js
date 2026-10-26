@@ -6758,6 +6758,9 @@ function selectPhotoCatalogItem(e, id, source) {
   titleEl.textContent = item.title;
   titleEl.hidden = item.kind === 'references';
   document.getElementById('quickImageDetailImage').src = item.url;
+  // Under the fitted picture: the same picture, blurred, filling the side.
+  const preview = document.querySelector('#quickImageDetailModal .video-template-preview');
+  if (preview) preview.style.setProperty('--catalog-backdrop', 'url("' + String(item.url || '').replace(/["\\]/g, '\\$&') + '")');
   document.getElementById('quickImageDetailDescription').textContent = item.description || (item.kind === 'styles' ? 'Загрузите своё фото — стиль применится автоматически.' : 'Загрузите своё фото и при необходимости уточните результат.');
   const prompt = document.getElementById('quickImageDetailPrompt'); prompt.value = ''; prompt.hidden = item.kind === 'styles';
   renderQuickImageDetailFields(item);
@@ -21959,7 +21962,8 @@ function maybeShowVideoTemplateIntro(force) {
         : '');
     modal.innerHTML = '<div class="video-template-modal">'
       + '<button class="video-template-modal-close" type="button" aria-label="Close">×</button>'
-      + '<div class="video-template-preview">' + previewHtml + '</div>'
+      // Under the fitted video: its cover, blurred, filling the side.
+      + '<div class="video-template-preview"' + (template.poster_url ? ' style="--catalog-backdrop:url(&quot;' + S.escapeHtml(template.poster_url) + '&quot;)"' : '') + '>' + previewHtml + '</div>'
       + '<div class="video-template-details">'
       + '<h3>' + S.escapeHtml(template.title || 'Video') + '</h3>'
       + '<p>' + S.escapeHtml(template.description || '') + '</p>'
