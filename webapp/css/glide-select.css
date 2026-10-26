@@ -1,0 +1,51 @@
+/* GlideSelect for SYLVEX (js/glide-select.js): one look for every list a
+   button opens - a compact surface, a highlight pill gliding between the
+   rows, a check on the chosen row. Dark by default; light when the button
+   it opened from has dark text (data-glide-tone). The same file runs in the
+   Mini App and on the website. :is(#gl,*) only raises specificity over the
+   apps' own menu rules; it matches any element. */
+[data-glide-menu],.glide-select__menu{--gl-surface:#27272a;--gl-highlight:#3f3f46;--gl-text:#f5f5f5;--gl-accent:#f5f5f5;--gl-border:rgba(255,255,255,.06);--gl-shadow:0 4px 16px rgba(0,0,0,.22);--gl-radius:12px;--gl-inner:8px;--gl-ease:cubic-bezier(.23,1,.32,1)}
+/* A menu opened from a dark-text button (a light page) turns light. */
+[data-glide-tone="light"]:is([data-glide-menu],.glide-select__menu){--gl-surface:#fff;--gl-highlight:#f0f0f2;--gl-text:#18181b;--gl-accent:#18181b;--gl-border:rgba(0,0,0,.08);--gl-shadow:0 8px 24px rgba(0,0,0,.12)}
+:is(.studio-select-pill.wide > svg:last-child,.photo-picker-trigger > i,.qt-model-trigger > i){--gl-ease:cubic-bezier(.23,1,.32,1)}
+
+/* ---------- the apps' own menus ---------- */
+[data-glide-menu]:is(#gl,*):is(#gl,*):is(#gl,*){background:var(--gl-surface)!important;color:var(--gl-text)!important;border:1px solid var(--gl-border)!important;border-radius:var(--gl-radius)!important;box-shadow:var(--gl-shadow)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+[data-glide-list]:is(#gl,*):is(#gl,*){position:relative}
+/* A menu's own title sits on the menu surface, without a band of its own. */
+[data-glide-menu] :is(.image-size-sheet-title,.image-model-sheet-title,.qt-model-title):is(#gl,*):is(#gl,*):is(#gl,*){background:transparent!important}
+.glide-pill{position:absolute;top:0;left:0;z-index:0;width:0;height:0;border-radius:var(--gl-inner);background:var(--gl-highlight);opacity:0;pointer-events:none;transition:transform 220ms var(--gl-ease),width 220ms var(--gl-ease),height 220ms var(--gl-ease),opacity 150ms ease}
+[data-glide-list] [data-glide-row]:is(#gl,*):is(#gl,*):is(#gl,*){position:relative;z-index:1;border-radius:var(--gl-inner)!important;background:transparent!important;box-shadow:none!important;color:var(--gl-text)!important;transition:background-color 150ms ease!important}
+/* The chosen row is shaded while nothing is lit; once the pill moves it
+   carries the highlight alone. */
+[data-glide-list]:not([data-glide-live]) [data-glide-row]:is(.sel,.active,.is-selected,.selected,[aria-selected="true"]):is(#gl,*):is(#gl,*):is(#gl,*){background:color-mix(in srgb,var(--gl-highlight) 60%,transparent)!important}
+/* The check sits on the chosen row only, in the accent colour. */
+[data-glide-list] [data-glide-row]:not(.image-seed-row) .image-size-check:is(#gl,*):is(#gl,*){visibility:hidden;color:var(--gl-accent)!important}
+[data-glide-list] [data-glide-row]:is(.sel,.active,.is-selected):not(.image-seed-row) .image-size-check:is(#gl,*):is(#gl,*){visibility:visible}
+[data-glide-list] [data-glide-row].is-selected > i:last-child:is(#gl,*){color:var(--gl-accent)!important}
+
+/* The button a menu is open from: its arrow turns over. */
+:is(.studio-select-pill.wide > svg:last-child,.photo-picker-trigger > i,.qt-model-trigger > i){transition:transform 200ms var(--gl-ease)}
+[data-glide-open]:is(.studio-select-pill.wide) > svg:last-child,[data-glide-open]:is(.photo-picker-trigger,.qt-model-trigger) > i{transform:rotate(180deg)}
+
+/* ---------- a native <select>: the same menu instead of the system one ---------- */
+.glide-select__menu{position:fixed;z-index:2147483000;box-sizing:border-box;padding:4px;overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--gl-border);border-radius:calc(var(--gl-inner) + 4px);background:var(--gl-surface);color:var(--gl-text);box-shadow:var(--gl-shadow);font-family:inherit;opacity:0;transform:scale(.95);transition:opacity 180ms var(--gl-ease),transform 180ms var(--gl-ease);scrollbar-width:thin}
+.glide-select__menu[data-state="open"]{opacity:1;transform:none}
+.glide-select__menu[data-state="closed"]{transition-duration:120ms;pointer-events:none}
+.glide-select__list{position:relative;display:grid;gap:1px}
+.glide-select__option{position:relative;z-index:1;display:flex;align-items:center;gap:8px;min-height:var(--gs-row,30px);padding:0 8px 0 10px;border-radius:var(--gl-inner);color:var(--gl-text);font-size:var(--gs-font,13px);line-height:1.25;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;transition:background-color 150ms ease}
+.glide-select__option[aria-selected="true"]{background:color-mix(in srgb,var(--gl-highlight) 60%,transparent)}
+.glide-select__list[data-glide-live] .glide-select__option[aria-selected="true"]{background:transparent}
+.glide-select__option[aria-disabled="true"]{opacity:.45;cursor:default}
+.glide-select__name{flex:1 1 auto;min-width:0;overflow:hidden;font-weight:500;white-space:nowrap;text-overflow:ellipsis}
+.glide-select__check{display:inline-flex;flex-shrink:0;color:var(--gl-accent);visibility:hidden}
+.glide-select__check[data-on]{visibility:visible}
+select[data-glide-swap]{animation:glide-swap 160ms ease}
+@keyframes glide-swap{from{opacity:.6;filter:blur(2px)}}
+
+@media (prefers-reduced-motion:reduce){
+  .glide-select__menu{transform:none!important;transition:opacity 180ms ease}
+  .glide-pill{transition:opacity 150ms ease}
+  :is(.studio-select-pill.wide > svg:last-child,.photo-picker-trigger > i,.qt-model-trigger > i){transition:none}
+  select[data-glide-swap]{animation:none}
+}

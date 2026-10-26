@@ -1683,20 +1683,6 @@ function selectVisionModelForTextImage() {
   textState.modelId = 'gpt-5.5';
 }
 
-const TEXT_STYLE_OPTIONS = [
-  { id:'neutral', label:'Нейтрально' },
-  { id:'business', label:'Бизнес' },
-  { id:'creative', label:'Креатив' },
-  { id:'technical', label:'Технично' },
-  { id:'telegram', label:'Telegram' },
-];
-
-const TEXT_FORMAT_OPTIONS = [
-  { id:'markdown', label:'Markdown' },
-  { id:'plain', label:'Обычный текст' },
-  { id:'pdf', label:'PDF' },
-];
-
 const GEMINI_TTS_VOICES = [
   ['Zephyr', 'Bright'], ['Puck', 'Upbeat'], ['Charon', 'Informative'],
   ['Kore', 'Firm'], ['Fenrir', 'Excitable'], ['Leda', 'Youthful'],
@@ -2050,6 +2036,20 @@ function isVoicePurposeSupported(purpose, modelId) {
 // БЛОК ОЗВУЧКИ: applyVoiceUploadPurpose
 // Сохраняет выбранную цель загрузки и синхронизирует её с реальными tool-параметрами provider API.
 // =====================================================
+// Upload picks the action by the file: a document is read aloud, a video
+// gets a new voice-over, an audio is turned into the chosen voice.
+const VOICE_FILE_PURPOSES = [
+  { kind:'file', purpose:'document_voiceover', accept:'.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  { kind:'video', purpose:'dub_video', accept:'video/*' },
+  { kind:'audio', purpose:'speech_to_speech', accept:'audio/*' },
+];
+
+function voiceFilePurposes() {
+  // An ElevenLabs speech-to-speech model only takes audio.
+  if (isElevenLabsSTSModel(voiceState.modelId)) return VOICE_FILE_PURPOSES.filter((item) => item.kind === 'audio');
+  return VOICE_FILE_PURPOSES.filter((item) => isVoicePurposeSupported(item.purpose));
+}
+
 function applyVoiceUploadPurpose(purposeId) {
   const meta = voiceUploadPurposeMeta(purposeId);
   if (!isVoicePurposeSupported(meta)) return false;
@@ -2952,12 +2952,6 @@ function musicOptionLabel(items, id, fallback) {
   return item ? (item.label || item.id) : fallback;
 }
 
-function textOptionLabel(items, id, fallback) {
-  const value = String(id || '');
-  const item = (items || []).find((entry) => String(entry.id) === value);
-  return item ? (item.label || item.id) : fallback;
-}
-
 function currentTextModel() {
   return TEXT_MODEL_LIST.find((item) => item.id === textState.modelId) || TEXT_MODEL_LIST.find((item) => item.id === 'gpt-5.5') || null;
 }
@@ -2969,12 +2963,6 @@ function renderTextControls() {
   textState.familyId = familyId;
   normalizeTextToolForModel();
   if (studioMode === 'text' && family) updateComposerModelDisplay(family);
-  const toolVal = document.getElementById('textToolVal');
-  if (toolVal) toolVal.textContent = textOptionLabel(TEXT_TOOL_OPTIONS, textState.tool || 'text', 'Текст');
-  const styleVal = document.getElementById('textStyleVal');
-  if (styleVal) styleVal.textContent = textOptionLabel(TEXT_STYLE_OPTIONS, textState.style || 'neutral', 'Стиль');
-  const formatVal = document.getElementById('textFormatVal');
-  if (formatVal) formatVal.textContent = textOptionLabel(TEXT_FORMAT_OPTIONS, textState.format || 'markdown', 'Markdown');
   const textVersionVal = document.getElementById('textVersionVal');
   if (textVersionVal) textVersionVal.textContent = model ? (model.versionLabel || String(model.label || model.id).replace(/^GPT-/i, '')) : '5.5';
   const recordingBar = document.getElementById('textRecordingBar');
@@ -3847,7 +3835,6 @@ function dismissGenerationInputUi() {
   closeVoiceAddon();
   activeVoicePanelSection = '';
   renderVoiceToolPanel();
-  document.querySelectorAll('.voice-upload-select-wrap.open').forEach((item) => item.classList.remove('open'));
   const modelPop = document.getElementById('modelPop');
   if (modelPop) {
     modelPop.classList.remove('show', 'image-model-floating-pop', 'image-size-floating-pop', 'music-settings-pop', 'video-option-horizontal-pop');
@@ -3881,7 +3868,6 @@ const VOICE_TOOL_GUIDE_TEXT = {
   'Прослушать':'Воспроизводит выбранный голос.',
   'В избранное':'Сохраняет голос для быстрого доступа.',
   'Информация':'Показывает данные голоса и модели.',
-  'Настройки голоса':'Открывает параметры звучания.',
   'Добавить диктора':'Добавляет отдельного участника диалога.',
   'Полный экран':'Разворачивает редактор для удобной работы.',
 };
@@ -3975,16 +3961,6 @@ function openVoiceAddon(event, kind, centeredModal, forceRender) {
   let body = '';
   if (kind === 'info') {
     body = voiceAddonShell('Информация о голосе', '<div class="voice-addon-options"><span>' + S.escapeHtml(currentVoice) + '</span><span>' + S.escapeHtml(VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId)?.label || voiceState.modelId) + '</span></div>');
-  } else if (kind === 'settings') {
-    const settings = voiceState.audioSettings || {};
-    const rows = [
-      ['speed','Скорость',50,200,Math.round(Number(settings.speed || 1) * 100),'%'],
-      ['pitch','Высота',0,100,Number(settings.pitch ?? 50),''],
-      ['expressiveness','Эмоциональность',0,100,Number(settings.expressiveness ?? 50),''],
-      ['stability','Стабильность',0,100,Math.round(Number(settings.stability ?? .5) * 100),'%'],
-      ['similarity_boost','Сходство',0,100,Math.round(Number(settings.similarity_boost ?? .75) * 100),'%'],
-    ];
-    body = voiceAddonShell('Настройки голоса', rows.map((row) => '<label class="voice-addon-setting"><span>' + row[1] + '</span><input type="range" min="' + row[2] + '" max="' + row[3] + '" value="' + row[4] + '" oninput="SYLVEX.setVoiceEditorSetting(event,\'' + row[0] + '\',this.value)"><output>' + row[4] + row[5] + '</output></label>').join(''));
   } else if (kind === 'emotion') {
     const emotions = VOICE_EMOTIONS.concat(voiceCustomOptions.emotion || []);
     body = voiceInlineOptionStrip('emotion', 'Эмоции', emotions, 'insertVoiceEmotion');
@@ -4016,8 +3992,6 @@ function openVoiceAddon(event, kind, centeredModal, forceRender) {
         ? ['Добавить звуковой эффект', 'Название эффекта', 'text']
         : ['Добавить эмоцию', 'Название эмоции', 'text'];
     body = voiceAddonShell(meta[0], voiceCustomOptionForm(customKind, meta[1], meta[2]));
-  } else if (kind === 'templates') {
-    body = voiceAddonShell('Шаблоны текста', '<div class="voice-addon-options voice-template-strip" id="voiceTemplateStrip"><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'ad\')">Реклама</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'tiktok\')">TikTok</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'youtube\')">YouTube</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'podcast\')">Подкаст</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'book\')">Книга</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'news\')">Новости</button></div>');
   }
   drawer.innerHTML = body;
   drawer.hidden = false;
@@ -4046,15 +4020,6 @@ function addVoiceCustomOption(event, kind) {
   try { localStorage.setItem(VOICE_CUSTOM_OPTIONS_KEY, JSON.stringify(voiceCustomOptions)); } catch {}
   closeVoiceAddon();
   renderVoiceSpeakerComposer();
-}
-
-function setVoiceEditorSetting(event, key, rawValue) {
-  if (event) event.stopPropagation();
-  ensureVoiceSettings();
-  const numeric = Number(rawValue);
-  voiceState.audioSettings[key] = key === 'speed' ? numeric / 100 : (key === 'stability' || key === 'similarity_boost' ? numeric / 100 : numeric);
-  const output = event && event.target && event.target.parentElement ? event.target.parentElement.querySelector('output') : null;
-  if (output) output.textContent = numeric + (['speed','stability','similarity_boost'].includes(key) ? '%' : '');
 }
 
 function insertVoiceEmotion(event, emotion) {
@@ -4118,23 +4083,6 @@ async function runVoiceTextTool(event, action) {
     }
   } catch (error) { toast(translateGenerationError(error, 'Не удалось обработать текст')); }
   finally { if (drawer) drawer.classList.remove('voice-text-tool-loading'); }
-}
-
-function applyVoiceTemplate(event, template) {
-  if (event) { event.preventDefault(); event.stopPropagation(); }
-  if (voiceState.editorTemplate === template) {
-    voiceState.editorTemplate = '';
-    voiceState.audioSettings.style = 'auto';
-    voiceState.audioSettings.speed = 1;
-    document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.remove('active'));
-    return;
-  }
-  voiceState.editorTemplate = template;
-  const settings = voiceState.audioSettings || (voiceState.audioSettings = {});
-  const presets = { ad:['energetic',1.08],tiktok:['energetic',1.12],youtube:['friendly',1],podcast:['conversational',.96],book:['narrative',.92],news:['serious',1] };
-  const preset = presets[template] || ['auto',1];
-  settings.style = preset[0]; settings.speed = preset[1];
-  document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.toggle('active', (button.getAttribute('onclick') || '').includes("'" + template + "'")));
 }
 
 function addVoiceSpeaker(event) {
@@ -4266,7 +4214,6 @@ function renderVoiceToolPanel() {
     panel.hidden = true;
     panel.classList.remove('voice-list-open');
     panel.classList.remove('voice-create-open');
-    panel.classList.remove('voice-upload-open');
     panel.onclick = null;
     panel.innerHTML = '';
     return;
@@ -4284,22 +4231,22 @@ function renderVoiceToolPanel() {
     const modelLabel = model.label || model.name || voiceState.modelId || '';
     uploadLabelEl.textContent = uploading ? ('Загрузка · ' + fileName) : (fileName ? [purpose.label, modelLabel, fileName].filter(Boolean).join(' · ') : 'Загрузить');
   }
+  const uploadClear = document.getElementById('voiceUploadClear');
+  if (uploadClear) uploadClear.hidden = !uploads.length || !!voiceState.uploading;
   renderVoiceUploadButtonPreview();
   const active = activeVoicePanelSection || '';
   let body = '';
   if (active === 'voices') body = renderVoiceListPanel();
   if (active === 'create') body = renderVoiceCreatePanel();
-  if (active === 'upload') body = renderVoiceUploadPanel();
   panel.hidden = !body;
   panel.classList.toggle('voice-list-open', active === 'voices');
   panel.classList.toggle('voice-create-open', active === 'create');
-  panel.classList.toggle('voice-upload-open', active === 'upload');
-  panel.onclick = active === 'voices' ? closeVoiceList : ((active === 'create' || active === 'upload') ? closeVoicePanel : null);
+  panel.onclick = active === 'voices' ? closeVoiceList : (active === 'create' ? closeVoicePanel : null);
   panel.innerHTML = body;
   document.querySelectorAll('.vgen-btn, .vgen-upload-row').forEach((item) => item.classList.remove('active'));
   const activeSelector = active === 'create'
     ? '.vgen-btn[onclick*="openVoiceCreate"]'
-    : (active === 'voices' ? '.vgen-btn[onclick*="openVoiceList"]' : (active === 'upload' ? '.vgen-upload-row' : ''));
+    : (active === 'voices' ? '.vgen-btn[onclick*="openVoiceList"]' : '');
   if (activeSelector) {
     const activeEl = document.querySelector(activeSelector);
     if (activeEl) activeEl.classList.add('active');
@@ -4424,46 +4371,15 @@ function closeVoiceCreate(e) {
 
 // =====================================================
 // БЛОК ОЗВУЧКИ: closeVoicePanel
-// Закрывает центрированные окна озвучки: создание голоса и загрузка.
+// Закрывает центрированное окно озвучки: создание голоса.
 // =====================================================
 function closeVoicePanel(e) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
-  if (activeVoicePanelSection === 'create' || activeVoicePanelSection === 'upload') {
+  if (activeVoicePanelSection === 'create') {
     activeVoicePanelSection = '';
-    renderVoiceToolPanel();
-  }
-}
-
-function toggleVoiceUploadDropdown(e, kind) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  const root = e && e.target && e.target.closest ? e.target.closest('.voice-upload-select-wrap') : null;
-  document.querySelectorAll('.voice-upload-select-wrap.open').forEach((item) => {
-    if (item !== root) item.classList.remove('open');
-  });
-  if (root) root.classList.toggle('open');
-}
-
-function selectVoiceUploadOption(e, kind, value) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  if (kind === 'model') {
-    pickVoiceOption(e, 'model', value);
-    activeVoicePanelSection = 'upload';
-    renderVoiceToolPanel();
-    return;
-  }
-  if (kind === 'purpose') {
-    applyVoiceUploadPurpose(value);
-    renderVoiceControls();
-    activeVoicePanelSection = 'upload';
     renderVoiceToolPanel();
   }
 }
@@ -4626,100 +4542,6 @@ function renderVoiceCreatePanel() {
     </div>`;
 }
 
-// =====================================================
-// БЛОК ОЗВУЧКИ: renderVoiceUploadPanel
-// Рисует экран загрузки медиа для дубляжа, speech-to-speech и остальных инструментов ElevenLabs/Runway.
-// =====================================================
-function renderVoiceUploadPanel() {
-  const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
-  const activeUpload = uploads[0] || null;
-  const uploading = voiceState.uploading || null;
-  const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
-  const currentModel = VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId) || VOICE_MODEL_LIST[0] || {};
-  const supportedPurposes = VOICE_UPLOAD_PURPOSES.filter((item) => isVoicePurposeSupported(item, voiceState.modelId));
-  const targetLanguage = voiceState.targetLanguage || voiceState.elevenlabsTargetLanguage || voiceState.runwayTargetLanguage || 'en';
-  const language = RUNWAY_DUBBING_LANGUAGES.find((item) => item.id === targetLanguage) || RUNWAY_DUBBING_LANGUAGES.find((item) => item.id === 'en') || { id:'en', label:'English' };
-  const speakerCount = Math.max(1, Math.min(isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2, Number(voiceState.numSpeakers || 1)));
-  const speakerRows = purpose.speakers ? Array.from({ length: speakerCount }).map((_, index) => {
-    const value = voiceSpeakerVoiceValue(index);
-    return '<button class="voice-upload-speaker-btn" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_speaker_' + (index + 1) + '\')">'
-      + '<span>Диктор ' + (index + 1) + '</span>'
-      + '<b>' + S.escapeHtml(value) + '</b>'
-      + '</button>';
-  }).join('') : '';
-  const languageControls = purpose.languages
-    ? '<button class="voice-upload-chip" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_upload_language\')"><span>Язык</span><b>' + S.escapeHtml(language.label || language.id) + '</b></button>'
-    : '<button class="voice-upload-chip disabled" type="button" disabled><span>Язык</span><b>Не требуется</b></button>';
-  const speakerControls = purpose.speakers
-    ? '<button class="voice-upload-chip" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_speaker_count\')"><span>Дикторы</span><b>' + speakerCount + '</b></button>'
-    : '<button class="voice-upload-chip disabled" type="button" disabled><span>Дикторы</span><b>1</b></button>';
-  const dropdown = (kind, label, selectedLabel, options) => `
-    <div class="voice-upload-select-wrap">
-      <button class="voice-upload-select-btn" type="button" onclick="SYLVEX.toggleVoiceUploadDropdown(event,'${S.escapeHtml(kind)}')">
-        <span>${S.escapeHtml(label)}</span>
-        <b>${S.escapeHtml(selectedLabel)}</b>
-        <i>∨</i>
-      </button>
-      <div class="voice-upload-select-menu">
-        ${options.map((item) => '<button type="button" class="' + (item.active ? 'active' : '') + '" onclick="SYLVEX.selectVoiceUploadOption(event,\'' + S.escapeHtml(kind) + '\',\'' + S.escapeHtml(item.id) + '\')"><b>' + S.escapeHtml(item.label) + '</b>' + (item.desc ? '<small>' + S.escapeHtml(item.desc) + '</small>' : '') + '</button>').join('')}
-      </div>
-    </div>`;
-  const purposeOptions = supportedPurposes.map((item) => ({
-    id: item.id,
-    label: item.label,
-    desc: item.hint || '',
-    active: item.id === purpose.id,
-  }));
-  const canStart = !uploading && (!purpose.needsFile || uploads.length > 0);
-  const previewUrl = S.escapeHtml((activeUpload && (activeUpload.previewUrl || voiceState.uploadPreviewUrl || activeUpload.url)) || (uploading && uploading.previewUrl) || '');
-  const uploadKind = String((activeUpload && activeUpload.kind) || (uploading && uploading.kind) || '').toLowerCase();
-  const uploadName = S.escapeHtml((activeUpload && activeUpload.name) || (uploading && uploading.name) || 'Файл выбран');
-  const uploadSize = Number((activeUpload && activeUpload.size) || (uploading && uploading.size) || 0);
-  const uploadSizeLabel = uploadSize ? (uploadSize >= 1024 * 1024 ? Math.round(uploadSize / 1024 / 1024) + ' MB' : Math.max(1, Math.round(uploadSize / 1024)) + ' KB') : '';
-  const uploadPreview = uploading
-    ? '<div class="voice-upload-preview loading"><div class="voice-upload-loader"></div><b>Загружаем файл</b><small>' + uploadName + (uploadSizeLabel ? ' · ' + S.escapeHtml(uploadSizeLabel) : '') + '</small></div>'
-    : (activeUpload
-        ? '<div class="voice-upload-preview ' + (uploadKind === 'video' ? 'is-video' : (uploadKind === 'file' ? 'is-file' : 'is-audio')) + '">'
-          + (uploadKind === 'video'
-            ? '<video src="' + previewUrl + '" controls playsinline preload="metadata"></video>'
-            : (uploadKind === 'file'
-              ? '<div class="voice-upload-audio-box"><span>▤</span><b>Документ готов к обработке</b></div>'
-              : '<div class="voice-upload-audio-box"><span>♪</span><audio src="' + previewUrl + '" controls preload="metadata"></audio></div>'))
-          + '<div class="voice-upload-preview-meta"><b>' + uploadName + '</b><small>' + S.escapeHtml([purpose.label, uploadSizeLabel].filter(Boolean).join(' · ')) + '</small></div>'
-          + '<button class="voice-upload-replace" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">Заменить</button>'
-          + '</div>'
-        : '<button class="voice-upload-drop" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)"><span>+</span><b>Выбрать файл</b><small>' + S.escapeHtml(purpose.needsFile ? 'Файл обязателен для выбранного режима' : 'Можно загрузить файл или использовать текст промпта') + '</small></button>');
-  return `
-    <div class="voice-workspace-sheet voice-upload-sheet" onclick="event.stopPropagation()">
-      <button class="upload-panel-close voice-upload-close" type="button" onclick="SYLVEX.closeVoicePanel(event)">×</button>
-      <div class="voice-upload-head">
-        <div>
-          <h3>Загрузить</h3>
-          <p>Выберите, для чего нужен файл. Доступность режимов зависит от выбранной модели.</p>
-        </div>
-      </div>
-      <div class="voice-upload-top-grid">
-        ${dropdown('purpose', 'Тип загрузки', purpose.label, purposeOptions)}
-      </div>
-      <div class="voice-upload-controls voice-upload-controls-modern">
-        ${languageControls}
-        ${speakerControls}
-      </div>
-      ${speakerRows ? '<div class="voice-upload-speakers">' + speakerRows + '</div>' : ''}
-      <div class="voice-upload-file-row">
-        ${uploadPreview}
-      </div>
-      <div class="voice-upload-actions">
-        <button class="voice-upload-primary" type="button" onclick="SYLVEX.confirmVoiceUpload(event)" ${canStart ? '' : 'disabled'}>Начать</button>
-        <button class="voice-trash-btn voice-upload-clear" type="button" aria-label="Очистить" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length && !uploading ? '' : 'disabled'}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 15H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button>
-      </div>
-      <div class="voice-upload-note">
-        <b>${S.escapeHtml(purpose.label)}</b>
-        <small>${S.escapeHtml(purpose.needsFile ? 'Файл обязателен для выбранного режима' : 'Можно загрузить файл или использовать текст промпта')}</small>
-      </div>
-    </div>`;
-}
-
 function imageVisualReferenceOptions() {
   const character = selectedImageCharacter();
   const object = selectedImageObject();
@@ -4760,6 +4582,12 @@ function renderMusicControls() {
   const genreVal = document.getElementById('musicGenreVal');
   if (genreVal) genreVal.textContent = musicOptionLabel(MUSIC_GENRES, musicState.genre, 'Auto');
 
+  const vocalVal = document.getElementById('musicVocalVal');
+  if (vocalVal) {
+    const vocal = musicState.settings.vocal || 'auto';
+    vocalVal.textContent = vocal === 'auto' ? 'Вокал' : musicOptionLabel(MUSIC_SETTINGS.vocal.items, vocal, 'Вокал');
+  }
+
   const durationVal = document.getElementById('musicDurationVal');
   if (durationVal) {
     const fixedDuration = Number(model && model.fixedDurationSeconds) || 0;
@@ -4776,7 +4604,7 @@ function renderMusicControls() {
 
   const settingsVal = document.getElementById('musicSettingsVal');
   if (settingsVal) {
-    const selected = ['mood', 'tempo', 'theme', 'vocal']
+    const selected = MUSIC_MODAL_SETTINGS
       .map((key) => musicState.settings[key])
       .filter((value) => value && value !== 'auto').length;
     settingsVal.textContent = selected ? 'Настройки ' + selected : 'Настройки';
@@ -4796,6 +4624,9 @@ function ensureMusicSettingsModal() {
   return modal;
 }
 
+// The Settings modal: everything but Vocal, which has its own pill.
+const MUSIC_MODAL_SETTINGS = Object.keys(MUSIC_SETTINGS).filter((key) => key !== 'vocal');
+
 function renderMusicSettingsModal() {
   const modal = ensureMusicSettingsModal();
   const draft = musicSettingsDraft || Object.assign({}, musicState.settings);
@@ -4803,13 +4634,10 @@ function renderMusicSettingsModal() {
     + '<button class="music-settings-close" type="button" aria-label="Закрыть" onclick="SYLVEX.closeMusicSettingsModal(event)">×</button>'
     + '<header><h3 id="musicSettingsTitle">Настройки музыки</h3><p>Выберите параметры для следующей генерации.</p></header>'
     + '<div class="music-settings-modal-body">'
-    + Object.keys(MUSIC_SETTINGS).map((settingKey) => {
+    + MUSIC_MODAL_SETTINGS.map((settingKey) => {
       const section = MUSIC_SETTINGS[settingKey];
       const active = draft[settingKey] || 'auto';
-      const model = currentMusicModel();
-      const items = settingKey === 'vocal' && model && Array.isArray(model.vocalModes)
-        ? section.items.filter((item) => model.vocalModes.includes(String(item.id)))
-        : section.items;
+      const items = section.items;
       return '<section class="music-modal-section"><h4>' + S.escapeHtml(section.title) + '</h4><div class="music-modal-options">'
         + items.map((item) => '<button class="music-modal-chip ' + (String(active) === String(item.id) ? 'active' : '') + '" type="button" onclick="SYLVEX.selectMusicSettingDraft(event,\'' + S.escapeHtml(settingKey) + '\',\'' + S.escapeHtml(String(item.id)) + '\')">' + S.escapeHtml(item.label || item.id) + '</button>').join('')
         + '</div></section>';
@@ -4852,7 +4680,7 @@ function selectMusicSettingDraft(e, kind, value) {
 function resetMusicSettingsDraft(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   musicSettingsDraft = {};
-  Object.keys(MUSIC_SETTINGS).forEach((key) => { musicSettingsDraft[key] = 'auto'; });
+  MUSIC_MODAL_SETTINGS.forEach((key) => { musicSettingsDraft[key] = 'auto'; });
   renderMusicSettingsModal();
   ensureMusicSettingsModal().classList.add('show');
 }
@@ -14993,247 +14821,8 @@ function imageModelButton(model) {
         S.haptic && S.haptic.impact && S.haptic.impact('light');
       };
 
-      if (kind === 'text_tool') {
-        openTextSheet('Инструмент текста', textToolOptionsForCurrentModel(), 'tool', textState.tool || 'text');
-        return;
-      }
       if (kind === 'text_version') {
         openTextSheet('Версия модели', textVersionsForFamily(textState.familyId || textModelFamilyId(currentTextModel())), 'model_version', textState.modelId || 'gpt-5.5');
-        return;
-      }
-      if (kind === 'text_style') {
-        openTextSheet('Стиль текста', TEXT_STYLE_OPTIONS, 'style', textState.style || 'neutral');
-        return;
-      }
-      if (kind === 'text_format') {
-        openTextSheet('Формат результата', TEXT_FORMAT_OPTIONS, 'format', textState.format || 'markdown');
-        return;
-      }
-      return;
-    }
-
-    if (isVoiceMode()) {
-      const el = document.getElementById('modelPop');
-      if (!el) return;
-      ensureVoiceSettings();
-      el.classList.remove('image-model-floating-pop');
-      el.classList.remove('image-size-floating-pop');
-      el.classList.remove('music-settings-pop');
-      el.classList.remove('voice-general-settings-pop');
-      el.classList.remove('video-option-horizontal-pop');
-      el.style.cssText = '';
-
-      const openVoiceSheet = (title, items, optionKind, activeValue) => {
-        if (el.parentElement !== document.body) document.body.appendChild(el);
-        el.classList.add('image-size-floating-pop');
-        el.classList.add('voice-general-settings-pop');
-        el.style.position = 'fixed';
-        el.style.left = '50%';
-        el.style.right = 'auto';
-        el.style.top = '50%';
-        el.style.bottom = 'auto';
-        el.style.transform = 'translate(-50%,-50%)';
-        el.style.width = 'calc(100vw - 28px)';
-        el.style.maxWidth = '420px';
-        el.style.minWidth = '250px';
-        el.style.maxHeight = '68vh';
-        el.style.overflowY = 'auto';
-        el.style.zIndex = '999999';
-        el.innerHTML = '<div class="image-size-sheet-title">' + S.escapeHtml(title) + '</div>'
-          + '<div class="image-size-sheet-list">'
-          + items.map((item) => {
-            const id = String(item.id || '');
-            const active = String(activeValue || '') === id;
-            const safeId = S.escapeHtml(id);
-            const disabled = !!item.disabled || item.available === false;
-            const isVoiceChoice = ['voice', 'runwayVoice', 'secondVoice', 'elevenlabsVoice', 'elevenlabsSecondVoice', 'voiceSpeaker1', 'voiceSpeaker2', 'voiceSpeaker3', 'voiceSpeaker4', 'voiceSpeaker5', 'voiceSpeaker6', 'voiceSpeaker7'].includes(optionKind);
-            const previewButton = !disabled && isVoiceChoice
-              ? '<button class="voice-preview-play" type="button" aria-label="Прослушать ' + safeId + '" data-voice-id="' + safeId + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
-              : '';
-            const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
-            const avatarUrl = isVoiceChoice ? voiceAvatarUrlFor(item, provider) : '';
-            const avatar = isVoiceChoice ? '<span class="voice-style-row-avatar ' + (avatarUrl ? '' : 'is-generated') + ' voice-sheet-avatar" style="' + S.escapeHtml(voiceAvatarStyle(id || item.label)) + '">' + (avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async">' : '<span class="voice-generated-initials">' + S.escapeHtml(voiceInitials(item.label || id)) + '</span>') + '</span>' : '';
-            const labelContent = isVoiceChoice
-              ? '<span class="voice-style-row-copy"><b>' + S.escapeHtml(item.label || id) + '</b><small>' + S.escapeHtml(voiceDescription(item)) + '</small></span>'
-              : '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>';
-            return '<div class="image-size-row no-ratio-icon voice-preview-row ' + (active ? 'active sel ' : '') + (disabled ? 'disabled ' : '') + '">'
-              + '<button class="voice-preview-pick" type="button" ' + (disabled ? 'disabled aria-disabled="true"' : 'onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')"') + '>'
-              + avatar + labelContent
-              + '<span class="image-size-check">' + (disabled ? '—' : '✓') + '</span>'
-              + '</button>'
-              + previewButton
-              + '</div>';
-          }).join('')
-          + '</div>';
-        el.classList.add('show');
-        const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
-        const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
-        S.haptic && S.haptic.impact && S.haptic.impact('light');
-      };
-
-      if (kind === 'voice_upload_purpose') {
-        const items = VOICE_UPLOAD_PURPOSES.map((item) => {
-          const supported = isVoicePurposeSupported(item);
-          return Object.assign({}, item, {
-            label: item.label + (supported ? '' : ' · недоступно'),
-            disabled: !supported,
-          });
-        });
-        openVoiceSheet('Цель загрузки', items, 'voiceUploadPurpose', voiceState.uploadPurpose || 'voiceover');
-        return;
-      }
-      if (kind === 'voice_upload_language') {
-        openVoiceSheet('Язык перевода', RUNWAY_DUBBING_LANGUAGES, 'voiceTargetLanguage', voiceState.targetLanguage || 'en');
-        return;
-      }
-      if (kind === 'voice_speaker_count') {
-        const maxSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2;
-        const items = VOICE_SPEAKER_COUNT_OPTIONS.map((item) => Object.assign({}, item, { disabled: Number(item.id) > maxSpeakers }));
-        openVoiceSheet('Количество дикторов', items, 'voiceSpeakerCount', String(voiceState.numSpeakers || 1));
-        return;
-      }
-      if (/^voice_speaker_[1-7]$/.test(kind)) {
-        const index = Math.max(0, Number(kind.slice(-1)) - 1);
-        const optionKind = 'voiceSpeaker' + (index + 1);
-        const activeVoice = voiceSpeakerVoiceValue(index);
-        const openSpeakerSheet = () => {
-          const selectedByOtherSpeakers = new Set(Array.from({ length: Number(voiceState.numSpeakers || 1) }, (_, speakerIndex) => speakerIndex === index ? '' : voiceSpeakerVoiceValue(speakerIndex)).filter(Boolean).map(String));
-          const availableVoices = currentVoiceListForPanel().filter((item) => !selectedByOtherSpeakers.has(String(item.id || item.voice_id || '')));
-          openVoiceSheet('Диктор ' + (index + 1) + ' · выберите новый голос', availableVoices, optionKind, activeVoice);
-        };
-        openSpeakerSheet();
-        if (isElevenLabsVoiceModel(voiceState.modelId)) {
-          loadElevenLabsVoices(false).then(() => {
-            if (isVoiceMode() && el.classList.contains('show') && voiceState.activeSpeakerIndex === index) openSpeakerSheet();
-          });
-        } else if (isRunwayVoiceModel(voiceState.modelId)) {
-          loadRunwayVoices(false).then(() => {
-            if (isVoiceMode() && el.classList.contains('show') && voiceState.activeSpeakerIndex === index) openSpeakerSheet();
-          });
-        }
-        return;
-      }
-      if (kind === 'voice') {
-        if (isElevenLabsVoiceModel(voiceState.modelId)) {
-          loadElevenLabsVoices(true).then(() => {
-            if (isVoiceMode() && isElevenLabsVoiceModel(voiceState.modelId)) {
-              openVoiceSheet('Голос ElevenLabs', elevenlabsVoiceList, 'elevenlabsVoice', voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM');
-            }
-          });
-          openVoiceSheet('Голос ElevenLabs', elevenlabsVoiceList, 'elevenlabsVoice', voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM');
-        } else if (isRunwayVoiceModel(voiceState.modelId)) {
-          loadRunwayVoices(true).then(() => {
-            if (isVoiceMode() && isRunwayVoiceModel(voiceState.modelId)) {
-              openVoiceSheet('Голос Runway', runwayVoiceList, 'runwayVoice', voiceState.runwayVoice || 'Maya');
-            }
-          });
-          openVoiceSheet('Голос Runway', runwayVoiceList, 'runwayVoice', voiceState.runwayVoice || 'Maya');
-        } else {
-          openVoiceSheet('Голос озвучки', GEMINI_TTS_VOICES, 'voice', voiceState.voice || 'Kore');
-        }
-        return;
-      }
-      if (kind === 'duration' || kind === 'speaker_mode') {
-        if (isElevenLabsVoiceModel(voiceState.modelId)) {
-          openVoiceSheet('Инструмент ElevenLabs', ELEVENLABS_AUDIO_TOOLS, 'elevenlabsTool', voiceState.elevenlabsTool || 'text_to_speech');
-          return;
-        }
-        if (isRunwayVoiceModel(voiceState.modelId)) {
-          openVoiceSheet('Инструмент Runway', RUNWAY_AUDIO_TOOLS, 'runwayTool', voiceState.runwayTool || 'text_to_speech');
-          return;
-        }
-        openVoiceSheet('Режим озвучки', VOICE_SPEAKER_MODES, 'speakerMode', voiceState.speakerMode || 'single');
-        return;
-      }
-      if (kind === 'settings') {
-        const isElevenLabs = isElevenLabsVoiceModel(voiceState.modelId);
-        const isRunway = isRunwayVoiceModel(voiceState.modelId);
-        const activeVoiceLabel = isElevenLabs ? 'ElevenLabs Voice' : (isRunway ? (voiceState.runwayVoice || 'Maya') : (voiceState.voice || 'Kore'));
-        const elevenlabsTool = voiceState.elevenlabsTool || 'text_to_speech';
-        const elevenlabsToolRow = isElevenLabs
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Инструмент ElevenLabs</span><span class="image-size-check">' + S.escapeHtml(elevenlabsToolLabel(elevenlabsTool)) + '</span></button>'
-          : '';
-        const elevenlabsVoiceRow = isElevenLabs && !['voice_design', 'dubbing'].includes(elevenlabsTool)
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'
-          : '';
-        const elevenlabsSecondVoiceRow = isElevenLabs && elevenlabsTool === 'dialogue'
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;second_voice&quot;)"><span class="image-size-label">Второй голос</span><span class="image-size-check">ElevenLabs Voice</span></button>'
-          : '';
-        const elevenlabsLanguageRow = isElevenLabs && elevenlabsTool === 'dubbing'
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;elevenlabs_language&quot;)"><span class="image-size-label">Язык перевода</span><span class="image-size-check">' + S.escapeHtml(voiceState.elevenlabsTargetLanguage || 'en') + '</span></button>'
-          : '';
-        const runwayTool = voiceState.runwayTool || 'text_to_speech';
-        const runwayToolRow = isRunway
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Инструмент Runway</span><span class="image-size-check">' + S.escapeHtml(runwayToolLabel(runwayTool)) + '</span></button>'
-          : '';
-        const runwayLanguageRow = isRunway && runwayTool === 'voice_dubbing'
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;runway_language&quot;)"><span class="image-size-label">Язык дубляжа</span><span class="image-size-check">' + S.escapeHtml(voiceState.runwayTargetLanguage || 'en') + '</span></button>'
-          : '';
-        const runwayDurationRow = isRunway && ['sound_effect', 'voice_isolation', 'voice_dubbing', 'speech_to_speech'].includes(runwayTool)
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;runway_duration&quot;)"><span class="image-size-label">Длительность материала</span><span class="image-size-check">' + S.escapeHtml(String(voiceState.runwayDuration || 5)) + ' сек</span></button>'
-          : '';
-        const runwayVoiceRow = isRunway && !['voice_dubbing', 'voice_isolation', 'sound_effect'].includes(runwayTool)
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'
-          : '';
-        const secondVoiceRow = (!isRunway && !isElevenLabs && voiceState.speakerMode === 'multi')
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;second_voice&quot;)"><span class="image-size-label">Второй голос</span><span class="image-size-check">' + S.escapeHtml(voiceState.secondVoice || 'Puck') + '</span></button>'
-          : '';
-        const modeRow = (isRunway || isElevenLabs) ? '' : '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Режим</span><span class="image-size-check">' + (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос') + '</span></button>';
-        if (el.parentElement !== document.body) document.body.appendChild(el);
-        el.classList.add('image-size-floating-pop');
-        el.classList.add('music-settings-pop');
-        el.classList.add('voice-general-settings-pop');
-        el.style.position = 'fixed';
-        el.style.left = '50%';
-        el.style.right = 'auto';
-        el.style.top = '50%';
-        el.style.bottom = 'auto';
-        el.style.transform = 'translate(-50%,-50%)';
-        el.style.width = 'calc(100vw - 28px)';
-        el.style.maxWidth = '420px';
-        el.style.minWidth = '275px';
-        el.style.maxHeight = '70vh';
-        el.style.overflowY = 'auto';
-        el.style.zIndex = '999999';
-        el.innerHTML = '<div class="image-size-sheet-title">Настройки озвучки</div>'
-          + '<div class="image-size-sheet-list">'
-          + elevenlabsToolRow
-          + elevenlabsVoiceRow
-          + elevenlabsSecondVoiceRow
-          + elevenlabsLanguageRow
-          + runwayToolRow
-          + (isRunway ? runwayVoiceRow : (isElevenLabs ? '' : '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'))
-          + runwayLanguageRow
-          + runwayDurationRow
-          + modeRow
-          + secondVoiceRow
-          + '</div>';
-        el.classList.add('show');
-        return;
-      }
-      if (kind === 'runway_language') {
-        openVoiceSheet('Язык дубляжа', RUNWAY_DUBBING_LANGUAGES, 'runwayTargetLanguage', voiceState.runwayTargetLanguage || 'en');
-        return;
-      }
-      if (kind === 'elevenlabs_language') {
-        openVoiceSheet('Язык перевода', RUNWAY_DUBBING_LANGUAGES, 'elevenlabsTargetLanguage', voiceState.elevenlabsTargetLanguage || 'en');
-        return;
-      }
-      if (kind === 'runway_duration') {
-        openVoiceSheet('Длительность эффекта', RUNWAY_SOUND_DURATIONS, 'runwayDuration', String(voiceState.runwayDuration || 5));
-        return;
-      }
-      if (kind === 'second_voice') {
-        if (isElevenLabsVoiceModel(voiceState.modelId)) {
-          loadElevenLabsVoices(true).then(() => {
-            if (isVoiceMode() && isElevenLabsVoiceModel(voiceState.modelId)) {
-              openVoiceSheet('Второй голос ElevenLabs', elevenlabsVoiceList, 'elevenlabsSecondVoice', voiceState.elevenlabsSecondVoice || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM');
-            }
-          });
-          openVoiceSheet('Второй голос ElevenLabs', elevenlabsVoiceList, 'elevenlabsSecondVoice', voiceState.elevenlabsSecondVoice || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM');
-        } else {
-          openVoiceSheet('Второй голос', GEMINI_TTS_VOICES, 'secondVoice', voiceState.secondVoice || 'Puck');
-        }
         return;
       }
       return;
@@ -15287,6 +14876,15 @@ function imageModelButton(model) {
 
       if (kind === 'genre') {
         openMusicSheet('Жанр', MUSIC_GENRES, 'genre', musicState.genre || 'auto');
+        return;
+      }
+
+      if (kind === 'vocal') {
+        const model = currentMusicModel();
+        const items = model && Array.isArray(model.vocalModes)
+          ? MUSIC_SETTINGS.vocal.items.filter((item) => model.vocalModes.includes(String(item.id)))
+          : MUSIC_SETTINGS.vocal.items;
+        openMusicSheet('Вокал', items, 'vocal', musicState.settings.vocal || 'auto');
         return;
       }
 
@@ -15690,10 +15288,6 @@ function imageModelButton(model) {
       musicState.duration = value === 'auto' || !Number.isFinite(parsed) || parsed < 1 || parsed > maxSeconds ? 'auto' : parsed;
     } else if (MUSIC_SETTINGS[kind]) {
       musicState.settings[kind] = value || 'auto';
-      renderMusicControls();
-      openImageOptionMenu(e, 'settings');
-      S.haptic && S.haptic.select && S.haptic.select();
-      return;
     }
 
     renderMusicControls();
@@ -15802,8 +15396,6 @@ function imageModelButton(model) {
       const available = textToolOptionsForCurrentModel().some((item) => item.id === value);
       textState.tool = available ? value : 'text';
     }
-    if (kind === 'style') textState.style = value || 'neutral';
-    if (kind === 'format') textState.format = value || 'markdown';
     if (kind === 'model_version') {
       const model = TEXT_MODEL_LIST.find((item) => item.id === value);
       if (model && textModelFamilyId(model) === (textState.familyId || 'gpt')) textState.modelId = model.id;
@@ -15833,37 +15425,8 @@ function imageModelButton(model) {
     } else if (kind === 'elevenlabsVoice') {
       voiceState.elevenlabsVoice = value || '21m00Tcm4TlvDq8ikWAM';
       if (!voiceState.elevenlabsSecondVoice) voiceState.elevenlabsSecondVoice = voiceState.elevenlabsVoice;
-    } else if (kind === 'elevenlabsSecondVoice') {
-      voiceState.elevenlabsSecondVoice = value || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM';
-    } else if (kind === 'elevenlabsTool') {
-      voiceState.elevenlabsTool = value || 'text_to_speech';
-      voiceState.speakerMode = 'single';
-    } else if (kind === 'elevenlabsTargetLanguage') {
-      voiceState.elevenlabsTargetLanguage = value || 'en';
-      voiceState.targetLanguage = voiceState.elevenlabsTargetLanguage;
     } else if (kind === 'runwayVoice') {
       voiceState.runwayVoice = value || 'Maya';
-    } else if (kind === 'runwayTool') {
-      voiceState.runwayTool = value || 'text_to_speech';
-      if (voiceState.runwayTool !== 'text_to_speech') voiceState.speakerMode = 'single';
-    } else if (kind === 'runwayTargetLanguage') {
-      voiceState.runwayTargetLanguage = value || 'en';
-      voiceState.targetLanguage = voiceState.runwayTargetLanguage;
-    } else if (kind === 'runwayDuration') {
-      const duration = Number(value || 5);
-      voiceState.runwayDuration = Number.isFinite(duration) ? Math.max(1, Math.min(30, duration)) : 5;
-    } else if (kind === 'voiceUploadPurpose') {
-      applyVoiceUploadPurpose(value || 'voiceover');
-    } else if (kind === 'voiceTargetLanguage') {
-      voiceState.targetLanguage = value || 'en';
-      voiceState.elevenlabsTargetLanguage = voiceState.targetLanguage;
-      voiceState.runwayTargetLanguage = voiceState.targetLanguage;
-    } else if (kind === 'voiceSpeakerCount') {
-      const maxSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2;
-      const count = Math.max(1, Math.min(maxSpeakers, Number(value || 1)));
-      voiceState.numSpeakers = count;
-      voiceState.speakerMode = count > 1 ? 'multi' : 'single';
-      if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsTool = count > 1 ? 'dialogue' : 'text_to_speech';
     } else if (/^voiceSpeaker[1-7]$/.test(kind)) {
       const index = Math.max(0, Number(kind.slice(-1)) - 1);
       const duplicate = Array.from({ length: Number(voiceState.numSpeakers || 1) }, (_, speakerIndex) => speakerIndex === index ? '' : voiceSpeakerVoiceValue(speakerIndex)).filter(Boolean).some((voiceId) => String(voiceId) === String(value));
@@ -15879,64 +15442,18 @@ function imageModelButton(model) {
         if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsSecondVoice = voiceState.speakerVoices[index];
         else voiceState.secondVoice = voiceState.speakerVoices[index];
       }
-    } else if (kind === 'secondVoice') {
-      voiceState.secondVoice = value || 'Puck';
-    } else if (kind === 'speakerMode') {
-      voiceState.speakerMode = value || 'single';
-      voiceState.numSpeakers = voiceState.speakerMode === 'multi' ? 2 : 1;
-    } else if (kind === 'model') {
-      const model = VOICE_MODEL_LIST.find((item) => item.id === value);
-      if (model) {
-        voiceState.modelId = model.id;
-        if (isElevenLabsVoiceModel(model.id)) {
-          if (!voiceState.elevenlabsVoice) voiceState.elevenlabsVoice = '21m00Tcm4TlvDq8ikWAM';
-          if (!voiceState.elevenlabsSecondVoice) voiceState.elevenlabsSecondVoice = voiceState.elevenlabsVoice;
-          voiceState.speakerMode = 'single';
-          loadElevenLabsVoices();
-          if (isElevenLabsSTSModel(model.id)) {
-            // An STS model only works via speech-to-speech - force the
-            // upload purpose so the tool follows the model and an audio
-            // upload becomes required, instead of silently defaulting to
-            // a text-to-speech request this model can't fulfill.
-            applyVoiceUploadPurpose('speech_to_speech');
-          } else if (voiceState.uploadPurpose === 'speech_to_speech') {
-            applyVoiceUploadPurpose('voiceover');
-          }
-        } else if (isRunwayVoiceModel(model.id)) {
-          if (!voiceState.runwayVoice) voiceState.runwayVoice = 'Maya';
-          voiceState.speakerMode = 'single';
-          loadRunwayVoices();
-        } else if (!voiceState.voice) {
-          voiceState.voice = 'Kore';
-        }
-        if (!isVoicePurposeSupported(voiceState.uploadPurpose, model.id)) {
-          const supportedPurpose = VOICE_UPLOAD_PURPOSES.find((item) => isVoicePurposeSupported(item, model.id)) || VOICE_UPLOAD_PURPOSES[0];
-          voiceState.uploadPurpose = supportedPurpose.id;
-          applyVoiceUploadPurpose(supportedPurpose.id);
-        }
-      }
     }
-    if (['voice', 'elevenlabsVoice', 'elevenlabsSecondVoice', 'runwayVoice'].includes(kind) || /^voiceSpeaker[1-7]$/.test(kind)) {
-      activeVoicePanelSection = '';
-    }
+    activeVoicePanelSection = '';
     renderVoiceControls();
     renderModelPop();
     const el = document.getElementById('modelPop');
-    const keepVoiceSheetOpen = ['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind);
-    const closeVoiceUploadPicker = ['voiceUploadPurpose', 'voiceTargetLanguage', 'voiceSpeakerCount'].includes(kind);
-    if (el && !keepVoiceSheetOpen) {
+    if (el) {
       el.classList.remove('show');
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
       el.classList.remove('music-settings-pop');
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
-    } else if (keepVoiceSheetOpen) {
-      openImageOptionMenu(e, 'settings');
-    }
-    if (closeVoiceUploadPicker) {
-      activeVoicePanelSection = 'upload';
-      renderVoiceToolPanel();
     }
     S.haptic && S.haptic.select && S.haptic.select();
   }
@@ -20744,6 +20261,7 @@ function closeUploadPanel(e) {
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
     else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'voice_upload') { inp.accept = voiceFilePurposes().map((item) => item.accept).join(','); pendingAttachAccept = 'voice_upload'; }
     else if (kind === 'text_image') { inp.accept = 'image/*,.heic,.heif'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_audio') { inp.accept = '.wav,.mp3,.aiff,.aif,.aac,.ogg,.oga,.flac,audio/wav,audio/mpeg,audio/aiff,audio/aac,audio/ogg,audio/flac'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_video') { inp.accept = '.mp4,.mpeg,.mpg,.mov,.avi,.flv,.webm,.wmv,.3gp,video/mp4,video/mpeg,video/quicktime,video/x-msvideo,video/x-flv,video/webm,video/x-ms-wmv,video/3gpp'; pendingAttachAccept = 'text_media'; }
@@ -20885,7 +20403,7 @@ function closeUploadPanel(e) {
     const singleSelection = target === UPLOAD_TARGETS.VIDEO_START
       || target === UPLOAD_TARGETS.VIDEO_END
       || target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT
-      || /^text_|voice_document|text_document|file$/.test(pending);
+      || /^text_|voice_document|voice_upload|text_document|file$/.test(pending);
     const audioUploads = (isVoiceMode() || isMusicMode())
       ? ((currentAudioState().uploads || []).filter(Boolean).length)
       : 0;
@@ -20917,6 +20435,16 @@ function closeUploadPanel(e) {
       pendingKind = isVideoFileLike(f) ? 'video' : 'audio';
     } else if (pendingKind === 'voice_document') {
       pendingKind = 'file';
+    } else if (pendingKind === 'voice_upload') {
+      const fileKind = isVideoFileLike(f) ? 'video' : (isAudioFileLike(f) ? 'audio' : 'file');
+      const match = voiceFilePurposes().find((item) => item.kind === fileKind);
+      if (!match) {
+        toast(fileKind === 'file' ? 'Эта модель не озвучивает документы' : (fileKind === 'video' ? 'Эта модель не озвучивает видео' : 'Эта модель не принимает аудио'));
+        return;
+      }
+      applyVoiceUploadPurpose(match.purpose);
+      renderVoiceControls();
+      pendingKind = fileKind;
     } else if (pendingKind === 'text_media') {
       if (isVideoFileLike(f)) pendingKind = 'text_video';
       else if (isAudioFileLike(f)) pendingKind = 'text_audio';
@@ -21226,49 +20754,6 @@ function closeUploadPanel(e) {
   }
 
   // =====================================================
-  // БЛОК ОЗВУЧКИ: openVoiceMediaPicker
-  // Открывает выбор видео или аудио для инструментов ElevenLabs «Дубляж» и «Копирование голоса».
-  // Загруженный файл сохраняется только в voiceState.uploads.
-  // =====================================================
-  function openVoiceMediaPicker(e) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    if (!isVoiceMode()) return;
-    ensureVoiceSettings();
-    const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
-    if (purpose.accept === 'video/*') openNativeFilePicker('voice_video');
-    else if (purpose.accept === 'audio/*') openNativeFilePicker('voice_audio');
-    else if (String(purpose.accept || '').includes('.pdf')) openNativeFilePicker('voice_document');
-    else openNativeFilePicker('voice_media');
-  }
-
-  // =====================================================
-  // БЛОК ОЗВУЧКИ: confirmVoiceUpload
-  // Фиксирует выбранный режим, модель и файл в кнопке «Загрузить» до отправки промпта.
-  // =====================================================
-  function confirmVoiceUpload(e) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    if (!isVoiceMode()) return;
-    ensureVoiceSettings();
-    const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
-    const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
-    if (purpose.needsFile && !uploads.length) {
-      toast('Сначала выберите файл');
-      return;
-    }
-    activeVoicePanelSection = '';
-    renderVoiceToolPanel();
-    renderVoiceControls();
-    updateSendButton();
-    toast(uploads.length ? 'Загрузка добавлена' : 'Параметры загрузки добавлены');
-  }
-
-  // =====================================================
   // БЛОК ОЗВУЧКИ: openVoicePanelSection
   // Переключает внутренние экраны блока «Озвучка»: список голосов, создание голоса или загрузка.
   // При открытии списка дополнительно подтягивает реальные голоса провайдера.
@@ -21310,10 +20795,20 @@ function closeUploadPanel(e) {
 
   // =====================================================
   // БЛОК ОЗВУЧКИ: openVoiceUpload
-  // Открывает экран загрузки медиа для дубляжа, копирования голоса и обработки аудио.
+  // Сразу открывает выбор файла: только те типы, что принимает модель.
   // =====================================================
   function openVoiceUpload(e) {
-    openVoicePanelSection(e, 'upload');
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!isVoiceMode()) return;
+    ensureVoiceSettings();
+    if (!voiceFilePurposes().length) {
+      toast('Эта модель не принимает файлы');
+      return;
+    }
+    openNativeFilePicker('voice_upload');
   }
 
   // =====================================================
@@ -27141,8 +26636,8 @@ async function waitGeneration(jobId, options) {
     'Стили':'Styles', 'Персонаж':'Character', 'Объект':'Object', 'Модель AI':'AI model',
     'Реклама':'Ad copy', 'Стили текста':'Text styles', 'Настройки':'Settings',
     'Звук выкл':'Sound off', 'Звук вкл':'Sound on', 'Звук OFF':'Sound OFF', 'Звук ON':'Sound ON',
-    'Создать текст с AI':'Create text with AI', 'Общие настройки':'General settings',
-    'Шаблоны текста':'Text templates', 'Сгенерировать':'Generate', 'Отправить':'Send',
+    'Создать текст с AI':'Create text with AI',
+    'Сгенерировать':'Generate', 'Отправить':'Send',
     'Копировать':'Copy', 'Сообщить об ошибке':'Report issue', 'Поделиться генерацией':'Share generation',
     'Поделиться':'Share',
     'Изображение готово':'Image ready',
@@ -27151,11 +26646,11 @@ async function waitGeneration(jobId, options) {
     'Разрешение':'Resolution', 'Режим видео':'Video mode', 'Качество':'Quality', 'Движение':'Motion',
     'Соотношение сторон':'Aspect ratio', 'Функции Recraft':'Recraft tools',
     'Seed недоступен для выбранной модели':'Seed is unavailable for the selected model',
-    'Сбросить настройки':'Reset settings', 'Инструмент текста':'Text tool',
-    'Версия модели':'Model version', 'Стиль текста':'Text style', 'Формат результата':'Output format',
+    'Сбросить настройки':'Reset settings',
+    'Версия модели':'Model version',
     'Файл':'File', 'Загрузка':'Uploading', 'Фото выбрано':'Image selected', 'Видео выбрано':'Video selected',
-    'Аудио выбрано':'Audio selected', 'Файл выбран':'File selected', 'Настройки озвучки':'Voice settings',
-    'Настройки голоса':'Voice settings', 'Один голос':'One voice', 'Два голоса':'Two voices',
+    'Аудио выбрано':'Audio selected', 'Файл выбран':'File selected',
+    'Один голос':'One voice', 'Два голоса':'Two voices',
     'Основной голос':'Primary voice', 'Второй голос':'Second voice', 'Режим':'Mode',
     'Язык перевода':'Translation language', 'Язык дубляжа':'Dubbing language',
     'Количество дикторов':'Speaker count', 'Цель загрузки':'Upload purpose',
@@ -27594,7 +27089,7 @@ async function waitGeneration(jobId, options) {
       'generateEditWorkspace', 'animateGeneratedImage', 'editGeneratedVideo',
       'openImageUpload', 'openVideoStartUpload', 'openVideoEndUpload', 'openVideoReferencesUpload', 'openVideoEditInputUpload',
       'openNativeFilePicker', 'onAttachFile', 'addMediaLink', 'openUploadPanel', 'openUploadImagePreview',
-      'openVoiceMediaPicker', 'confirmVoiceUpload', 'openVoiceUpload', 'openVoiceCreate', 'openVoiceCloneFilePicker',
+      'openVoiceUpload', 'openVoiceCreate', 'openVoiceCloneFilePicker',
       'openVoiceCloneAvatarPicker', 'toggleVoiceCloneRecording', 'sendVoiceCloneRecording', 'deleteUserVoice',
       'openPhotoToolFilePicker', 'onPhotoToolFiles', 'openQuickImageDetailFile', 'onQuickImageDetailFile',
       'onEditWorkspaceFile', 'onEditBackgroundFile', 'openEditSylvexReference', 'onEditSylvexReference',
@@ -30481,11 +29976,11 @@ async function waitGeneration(jobId, options) {
     setStudioLayout, navigateStudioMode, setStudioSidebarActiveMode, cycleStudioTheme, restoreStudioTheme, syncStudioThemeVarsToDocument, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
+    openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, togglePromptFold, newChat,
     openQuickTextChat,
     openConv, deleteConv, expandHistorySection, setConversationHistoryFilter, manageConversationHistory, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -30586,8 +30081,6 @@ async function waitGeneration(jobId, options) {
   window.chooseVideoAddCharacter = chooseVideoAddCharacter;
   window.chooseVideoAddObject = chooseVideoAddObject;
   window.openNativeFilePicker = openNativeFilePicker;
-  window.openVoiceMediaPicker = openVoiceMediaPicker;
-  window.confirmVoiceUpload = confirmVoiceUpload;
   window.openVoicePanelSection = openVoicePanelSection;
   window.openVoiceCreate = openVoiceCreate;
   window.openVoiceList = openVoiceList;
