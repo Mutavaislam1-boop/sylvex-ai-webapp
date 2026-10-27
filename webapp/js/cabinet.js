@@ -24136,8 +24136,8 @@ async function waitGeneration(jobId, options) {
   /* ===== Store: server catalog + purchase orders =====
      The Store cards (js/store-cards.js) sell the catalog served by
      /api/public/shop/catalog. A purchase opens the existing pay screen;
-     payWith() then asks the server for a Stars or Crypto Pay invoice for
-     the product id (plus the USD amount for a custom purchase). The server
+     payWith() then asks the server for a Stars invoice for the product
+     id (plus the credit amount for a custom purchase). The server
      re-derives price, Stars and credits, and grants the order only after
      the provider confirms payment; this screen just waits for it. */
   let storeCatalog = null;
@@ -24291,8 +24291,7 @@ async function waitGeneration(jobId, options) {
       }
     });
   }
-  // Polls the server until the provider-confirmed grant lands (the bot for
-  // Stars, Crypto Pay verification for crypto), then refreshes the user.
+  // Polls until the bot-confirmed Stars grant lands, then refreshes the user.
   function watchStoreOrder(orderId, maxMs) {
     if (!orderId || storeOrderWatchers[orderId]) return;
     const started = Date.now();
@@ -25400,30 +25399,6 @@ async function waitGeneration(jobId, options) {
   // to the Admin Console Inbox - the user never leaves SYLVEX.
   function contactAdmin(topic) {
     openSupport(typeof topic === 'string' ? topic : 'admin');
-  }
-  function isTelegramLink(url) {
-    return /^https:\/\/t\.me\//i.test(url || '') || /^tg:\/\//i.test(url || '');
-  }
-  // =====================================================
-  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openPaymentUrl
-  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
-  // =====================================================
-  function openPaymentUrl(url, method) {
-    if (!url) {
-      toast('Ссылка оплаты не найдена');
-      return;
-    }
-    const tgApp = S.tg;
-    if (method === 'crypto' && isTelegramLink(url) && tgApp && tgApp.openTelegramLink) {
-      tgApp.openTelegramLink(url);
-      return;
-    }
-    if (method === 'paypal') {
-      toast('PayPal больше не используется. Откройте магазин SYLVEX.');
-      return;
-    }
-    if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
-    else window.open(url, '_blank');
   }
   // Inside Telegram the only purchase path is a Telegram catalog product paid
   // with Stars (payStoreProduct); the legacy PayPal/Crypto/pack_id flows that

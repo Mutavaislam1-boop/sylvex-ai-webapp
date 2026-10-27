@@ -1,7 +1,7 @@
 """Store purchase orders against a real PostgreSQL ledger.
 
 Covers every subscription variant, every fixed credit package and custom
-amounts through Telegram Stars and Crypto Pay: the authoritative grant,
+amounts through Telegram Stars and Stripe: the authoritative grant,
 duplicate callbacks, amount/payer/provider mismatches, expired orders and
 rollback on failure. Runs only against a disposable database given by
 SYLVEX_TEST_DATABASE_URL (skipped otherwise)."""
@@ -81,7 +81,7 @@ def pay(connect, product, provider, charge_id, ttl=1800):
         result = orders.finalize_order(connect, order["order_id"], provider, "XTR", product["stars"], charge_id, payer_id=UID,
                                        recurring=recurring)
     else:
-        result = orders.finalize_order(connect, order["order_id"], provider, "USDT", f"{product['usd_cents'] / 100:.2f}", charge_id)
+        result = orders.finalize_order(connect, order["order_id"], provider, "USD", product["usd_cents"], charge_id)
     return order, result
 
 
@@ -220,11 +220,11 @@ def test_every_telegram_credit_package_grants_once(connect, credits):
 
 
 @pytest.mark.parametrize("usd", [5, 10, 20, 30, 40, 50, 100, 200])
-def test_every_website_credit_package_through_crypto(connect, usd):
-    # Crypto stays a Website-side USD method (refused for Telegram requests).
-    provider = catalog.PROVIDER_CRYPTO
+def test_every_website_credit_package_through_stripe(connect, usd):
+    # The Website USD method is Stripe; Crypto is retired.
+    provider = catalog.PROVIDER_STRIPE
     product = catalog.resolve_product(f"pack_{usd * 100}")
-    assert catalog.provider_availability(product)[provider]["available"]
+    assert catalog.PROVIDER_CRYPTO not in catalog.provider_availability(product)
     before = balance(connect)
     _, result = pay(connect, product, provider, f"pack-{usd}-{provider}")
     assert result["status"] == "granted"
@@ -250,7 +250,7 @@ def test_custom_amount_bounds_reject(raw, code):
     assert err.value.code == code
 
 
-def test_custom_amount_stars_ceiling_and_crypto_range():
+def test_custom_amount_stars_ceiling_and_unchanged_usd_range():
     # Telegram: whole credits, within the one-time limit (96,000 credits = 95,808 Stars).
     assert tg.custom_max_credits() == 96000 and tg.public_catalog()["custom"]["max_credits"] == 96000
     assert tg.resolve(tg.CUSTOM_PRODUCT_ID, "96000")["stars"] == 95808
@@ -264,11 +264,11 @@ def test_custom_amount_stars_ceiling_and_crypto_range():
     # Website (USD) custom amounts are unchanged.
     for raw in ("1", "1000"):
         product = catalog.resolve_product(catalog.CUSTOM_PRODUCT_ID, raw)
-        assert catalog.provider_availability(product)[catalog.PROVIDER_CRYPTO]["available"]
+        assert catalog.PROVIDER_CRYPTO not in catalog.provider_availability(product)
 
 
 @pytest.mark.parametrize("raw,provider", [("100", catalog.PROVIDER_STARS), ("10020", catalog.PROVIDER_STARS), ("1234", catalog.PROVIDER_STARS),
-                                          ("1", catalog.PROVIDER_CRYPTO), ("1000", catalog.PROVIDER_CRYPTO), ("12.34", catalog.PROVIDER_CRYPTO)])
+                                          ("1", catalog.PROVIDER_STRIPE), ("1000", catalog.PROVIDER_STRIPE), ("12.34", catalog.PROVIDER_STRIPE)])
 def test_custom_purchases_grant_the_server_computed_credits(connect, raw, provider):
     product = (stars_product(tg.CUSTOM_PRODUCT_ID, raw) if provider == catalog.PROVIDER_STARS
                else catalog.resolve_product(catalog.CUSTOM_PRODUCT_ID, raw))
@@ -287,7 +287,7 @@ def test_amount_currency_payer_and_provider_mismatches_grant_nothing(connect):
         assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_STARS, "XTR", stale_or_wrong) == (False, "amount_mismatch")
     assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_STARS, "USD", 998) == (False, "amount_mismatch")
     assert orders.checkout_check(connect, oid, UID + 1, catalog.PROVIDER_STARS, "XTR", 998) == (False, "payer_mismatch")
-    assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_CRYPTO, "XTR", 998) == (False, "provider_mismatch")
+    assert orders.checkout_check(connect, oid, UID, catalog.PROVIDER_CRYPTO, "XTR", 998) == (False, "crypto_retired")
     assert orders.checkout_check(connect, "0" * 32, UID, catalog.PROVIDER_STARS, "XTR", 998) == (False, "order_not_found")
     for kwargs in ({"amount": 1}, {"currency": "USD"}, {"payer_id": UID + 1}, {"provider": catalog.PROVIDER_CRYPTO}):
         args = {"provider": catalog.PROVIDER_STARS, "currency": "XTR", "amount": 998, "payer_id": UID, **kwargs}
@@ -298,13 +298,14 @@ def test_amount_currency_payer_and_provider_mismatches_grant_nothing(connect):
     assert orders.get_order(connect, oid)["status"] == "pending"
 
 
-def test_crypto_amount_must_match_the_order(connect):
-    product = catalog.resolve_product("pack_2000")
-    order = orders.create_order(connect, UID, product, catalog.PROVIDER_CRYPTO, 1800)
-    for amount, asset in (("19.99", "USDT"), ("20.00", "TON"), ("not-a-number", "USDT")):
-        assert orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_CRYPTO, asset, amount, "c1")["status"] == "rejected"
-    assert orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_CRYPTO, "USDT", "20", "c1")["status"] == "granted"
-    assert balance(connect) == 50 + 2000
+def test_retired_crypto_cannot_create_validate_or_finalize_even_before_db_access():
+    def forbidden():
+        pytest.fail("retired provider must not connect to the ledger")
+    with pytest.raises(ValueError, match="crypto_retired"):
+        orders.create_order(forbidden, UID, catalog.resolve_product("pack_2000"), "crypto_pay", 1800)
+    assert orders.checkout_check(forbidden, "old", UID, "crypto_pay", "USDT", "20") == (False, "crypto_retired")
+    result = orders.finalize_order(forbidden, "old", "crypto_pay", "USDT", "20", "late-charge")
+    assert result == {"status": "rejected", "reason": "crypto_retired", "order": None}
 
 
 def test_second_payment_for_a_paid_order_is_rejected_and_checkout_closes(connect):
@@ -339,9 +340,9 @@ def test_expired_order_cannot_start_checkout_but_a_completed_payment_is_honored(
 
 def test_failed_or_cancelled_attempts_leave_no_trace(connect):
     product = catalog.resolve_product("plan_pro_month")
-    order = orders.create_order(connect, UID, product, catalog.PROVIDER_CRYPTO, 1800)
+    order = orders.create_order(connect, UID, product, catalog.PROVIDER_STRIPE, 1800)
     assert orders.mark_order(connect, order["order_id"], orders.STATUS_FAILED, "cancelled")
-    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_CRYPTO, "USDT", "10.00", "after-fail")
+    result = orders.finalize_order(connect, order["order_id"], catalog.PROVIDER_STRIPE, "USD", 1000, "after-fail")
     assert result["status"] == "rejected" and result["reason"] == "order_not_payable"
     assert balance(connect) == 50
     assert q(connect, "SELECT COUNT(*) FROM subscriptions")[0][0] == 0

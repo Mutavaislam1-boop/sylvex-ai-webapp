@@ -1,5 +1,5 @@
 """Store purchase orders: the server-side record of what a Mini App payment
-buys, shared by the webapp (creates orders, finalizes Crypto Pay and Stripe) and
+buys, shared by the webapp (creates orders, finalizes Stripe) and
 the polling Telegram bot (validates and finalizes Telegram Stars payments).
 
 Keep this file byte-identical in sylvex-ai-webapp/services/shop_orders.py
@@ -232,6 +232,8 @@ def create_order(connect, telegram_id, product, provider, ttl_seconds, change_co
     """Persist a pending order for an already-resolved catalog product.
     change_confirmed: the user confirmed buying this plan while another paid
     plan is valid (checked again at pre-checkout)."""
+    if provider == "crypto_pay":
+        raise ValueError("crypto_retired")
     order_id = uuid.uuid4().hex
     conn = connect()
     try:
@@ -298,12 +300,6 @@ def mark_order(connect, order_id, status, reason=None):
 def _amount_matches(order, currency, amount):
     if order["provider"] == "telegram_stars":
         return currency == "XTR" and order["stars"] is not None and str(amount).isdigit() and int(amount) == int(order["stars"])
-    if order["provider"] == "crypto_pay":
-        try:
-            cents = round(float(str(amount)) * 100)
-        except (TypeError, ValueError):
-            return False
-        return currency == "USDT" and cents == int(order["usd_cents"])
     if order["provider"] == "stripe":
         # Stripe reports amounts as integer minor units (cents).
         return str(currency).upper() == "USD" and str(amount).isdigit() and int(amount) == int(order["usd_cents"])
@@ -493,6 +489,8 @@ def _renewal_checkout_open(cur, order_id):
 def checkout_check(connect, order_id, payer_id, provider, currency, amount):
     """Telegram pre_checkout_query: (ok, reason). Only live pending orders pass,
     plus a renewal charge of a paid recurring order around its renewal date."""
+    if provider == "crypto_pay":
+        return False, "crypto_retired"
     order = get_order(connect, order_id)
     if not order:
         return False, "order_not_found"
@@ -625,7 +623,7 @@ def _grant_one_time(cur, order, provider, currency, amount, charge_id):
                      amount=order["stars"], currency=currency, status="active_annual", reference=charge_id,
                      details=f"order={order['order_id']} credits={order['credits']}")
     elif order["kind"] == "subscription":
-        # Website (Stripe / Crypto Pay) plans keep their existing behavior: the
+        # Website Stripe plans keep their existing behavior: the
         # new plan replaces the active one and continues from its expiry. A
         # renewing Telegram subscription is stopped so it cannot charge too.
         payment_amount = _payment_amount(order, provider)
@@ -815,6 +813,8 @@ def finalize_order(connect, order_id, provider, currency, amount, charge_id, pay
     order expired is still honored: the money was taken against a quote this
     service issued.
     """
+    if provider == "crypto_pay":
+        return {"status": "rejected", "reason": "crypto_retired", "order": None}
     if not charge_id:
         return {"status": "rejected", "reason": "charge_id_required", "order": None}
     recurring = recurring or {}

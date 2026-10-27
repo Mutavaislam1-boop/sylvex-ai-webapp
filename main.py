@@ -1133,10 +1133,6 @@ LEMONSQUEEZY_WEBHOOK_SECRET = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET")
 LEMONSQUEEZY_API_BASE = (os.getenv("LEMONSQUEEZY_API_BASE") or "https://api.lemonsqueezy.com").rstrip("/")
 LEMONSQUEEZY_VARIANT_MONTH = os.getenv("LEMONSQUEEZY_VARIANT_MONTH")
 LEMONSQUEEZY_VARIANT_YEAR = os.getenv("LEMONSQUEEZY_VARIANT_YEAR")
-CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
-# Point at https://testnet-pay.crypt.bot/api with a testnet token to test
-# invoices without real funds.
-CRYPTO_PAY_API_URL = os.getenv("CRYPTO_PAY_API_URL", "https://pay.crypt.bot/api").rstrip("/")
 # Stripe Checkout for Website purchases (services/stripe_billing.py). Both
 # are required before the Website offers Stripe: without the webhook secret
 # a payment could never be verified and granted.
@@ -1385,59 +1381,12 @@ def _restore_active_subscription(telegram_id: int) -> bool:
     return inserted
 
 
-def crypto_pay_request(method: str, payload=None):
-    if not CRYPTO_API_KEY:
-        raise RuntimeError("CRYPTO_API_KEY / CRIPTO_API_KEY is not configured")
-
-    response = requests.post(
-        f"{CRYPTO_PAY_API_URL}/{method}",
-        headers={
-            "Crypto-Pay-API-Token": CRYPTO_API_KEY,
-            "Content-Type": "application/json",
-        },
-        json=payload or {},
-        timeout=30,
-    )
-    data = response.json()
-    if response.status_code >= 400 or not data.get("ok"):
-        raise RuntimeError(str(data))
-    return data.get("result")
 
 
-def crypto_invoice_url(invoice: dict) -> str:
-    return (
-        invoice.get("mini_app_invoice_url")
-        or invoice.get("bot_invoice_url")
-        or invoice.get("web_app_invoice_url")
-        or ""
-    )
 
 
-def create_crypto_invoice(telegram_id: int, pack_id: str, item: dict) -> dict:
-    invoice = crypto_pay_request(
-        "createInvoice",
-        {
-            "asset": "USDT",
-            "amount": f"{item['usd']:.2f}",
-            "description": f"SYLVEX {item['title']}",
-            "payload": shop_payload("crypto", telegram_id, pack_id, item),
-            "expires_in": 1800,
-        },
-    )
-    if not crypto_invoice_url(invoice):
-        raise RuntimeError("Crypto Pay did not return invoice URL")
-    return invoice
 
 
-def get_crypto_invoice(invoice_id: int):
-    result = crypto_pay_request("getInvoices", {"invoice_ids": str(invoice_id)})
-    if isinstance(result, dict):
-        items = result.get("items") or []
-        if items:
-            return items[0]
-        if result.get("invoice_id"):
-            return result
-    return None
 
 
 _USER_EVENTS_SCHEMA_LOCK = threading.Lock()
@@ -2637,49 +2586,7 @@ def reset_developer_subscription(telegram_id: int, reset_credits: bool = False) 
 
 
 # =====================================================
-# POLLING-ПРОЦЕСС: poll_crypto_invoice
-# Проверяет статус внешней задачи у AI-провайдера.
-# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
-async def poll_crypto_invoice(invoice_id: int, telegram_id: int, pack_id: str):
-    item = shop_item(pack_id)
-    if not item:
-        return
-
-    for _ in range(90):
-        await asyncio.sleep(20)
-        try:
-            invoice = get_crypto_invoice(invoice_id)
-        except Exception as exc:
-            print("MINIAPP CRYPTO POLL ERROR:", exc)
-            return
-        if not invoice:
-            return
-        status = invoice.get("status")
-        if status == "paid":
-            finalize_shop_payment(
-                telegram_id=telegram_id,
-                provider="crypto_pay",
-                item=item,
-                amount=int(round(float(invoice.get("amount") or 0) * 100)),
-                currency=invoice.get("asset") or "USDT",
-                payload=invoice.get("payload") or "",
-                charge_id=f"crypto_invoice_{invoice_id}",
-            )
-            # Sync user state after successful crypto payment so frontend/bot read updated state
-            try:
-                sync_user_to_db({
-                    "telegram_id": telegram_id,
-                    "username": None,
-                    "first_name": None,
-                    "status": "free",
-                    "balance": 0,
-                })
-            except Exception as exc:
-                print("CRYPTO POLL: sync failed", exc)
-            return
-        if status == "expired":
-            return
 
 
 def paypal_configured() -> bool:
@@ -13787,7 +13694,6 @@ async def public_lemonsqueezy_webhook(request: Request):
 # own snapshot of credits/subscription exactly once.
 # =====================================================
 SHOP_STARS_ORDER_TTL_SECONDS = 3600
-SHOP_CRYPTO_INVOICE_TTL_SECONDS = 1800
 _SHOP_ORDERS_READY = False
 _SHOP_ORDERS_LOCK = threading.Lock()
 _STORE_EXAMPLES_CACHE = {"value": None, "expires_at": 0.0}
@@ -13814,8 +13720,6 @@ def ensure_shop_orders():
 def shop_provider_configured(provider: str) -> bool:
     if provider == shop_catalog.PROVIDER_STARS:
         return bool(BOT_TOKEN)
-    if provider == shop_catalog.PROVIDER_CRYPTO:
-        return bool(CRYPTO_API_KEY)
     return False
 
 
@@ -14059,53 +13963,10 @@ def finalize_store_order(order_id: str, provider: str, currency: str, amount, ch
     return result
 
 
-def sync_crypto_order(order: dict) -> dict:
-    """Check a pending Crypto Pay order with the provider and settle it."""
-    if not order or order["provider"] != shop_catalog.PROVIDER_CRYPTO or order["status"] != shop_orders.STATUS_PENDING:
-        return order
-    if not order.get("provider_invoice_id"):
-        return order
-    invoice = get_crypto_invoice(int(order["provider_invoice_id"]))
-    if not invoice:
-        return order
-    status = str(invoice.get("status") or "")
-    if status == "paid":
-        if str(invoice.get("payload") or "") != shop_orders.order_payload(order["order_id"]):
-            prostudio_debug("STORE_CRYPTO_PAYLOAD_MISMATCH", order_id=order["order_id"])
-            return order
-        finalize_store_order(order["order_id"], shop_catalog.PROVIDER_CRYPTO, str(invoice.get("asset") or ""),
-                             str(invoice.get("amount") or ""), f"crypto_invoice_{order['provider_invoice_id']}")
-    elif status == "expired":
-        shop_orders.mark_order(shop_db, order["order_id"], shop_orders.STATUS_EXPIRED, "invoice_expired")
-    return shop_orders.get_order(shop_db, order["order_id"])
 
 
-async def poll_crypto_order(order_id: str):
-    for _ in range(SHOP_CRYPTO_INVOICE_TTL_SECONDS // 20 + 6):
-        await asyncio.sleep(20)
-        try:
-            order = await asyncio.to_thread(shop_orders.get_order, shop_db, order_id)
-            if not order or order["status"] != shop_orders.STATUS_PENDING:
-                return
-            order = await asyncio.to_thread(sync_crypto_order, order)
-            if not order or order["status"] != shop_orders.STATUS_PENDING:
-                return
-        except Exception as exc:
-            prostudio_error("STORE_CRYPTO_POLL_ERROR", exc, order_id=order_id)
-            return
 
 
-def _store_product_from_request(data: dict, provider: str):
-    try:
-        product = shop_catalog.resolve_product(data.get("product_id"), data.get("usd"))
-    except shop_catalog.CatalogError as exc:
-        return None, JSONResponse({"ok": False, "error": exc.code}, status_code=400)
-    availability = shop_catalog.provider_availability(product)[provider]
-    if not availability["available"]:
-        return None, JSONResponse({"ok": False, "error": availability["reason"]}, status_code=400)
-    if not shop_provider_configured(provider):
-        return None, JSONResponse({"ok": False, "error": "stars_not_configured" if provider == shop_catalog.PROVIDER_STARS else "crypto_not_configured"}, status_code=503)
-    return product, None
 
 
 def _telegram_product_from_request(data: dict):
@@ -14177,34 +14038,6 @@ async def store_stars_invoice(data: dict, telegram_id: int):
     return {"ok": True, "invoice_url": invoice_url, "order": store_order_public(order), "order_id": order["order_id"]}
 
 
-async def store_crypto_invoice(data: dict, telegram_id: int):
-    product, error = _store_product_from_request(data, shop_catalog.PROVIDER_CRYPTO)
-    if error:
-        return error
-    await asyncio.to_thread(ensure_shop_orders)
-    order = await asyncio.to_thread(shop_orders.create_order, shop_db, telegram_id, product,
-                                    shop_catalog.PROVIDER_CRYPTO, SHOP_CRYPTO_INVOICE_TTL_SECONDS + 300)
-    try:
-        invoice = await asyncio.to_thread(crypto_pay_request, "createInvoice", {
-            "asset": "USDT",
-            "amount": f"{order['usd_cents'] / 100:.2f}",
-            "description": f"SYLVEX {order['title']}",
-            "payload": shop_orders.order_payload(order["order_id"]),
-            "expires_in": SHOP_CRYPTO_INVOICE_TTL_SECONDS,
-        })
-        url = crypto_invoice_url(invoice)
-        if not url or not invoice.get("invoice_id"):
-            raise RuntimeError("Crypto Pay did not return an invoice")
-    except Exception as exc:
-        await asyncio.to_thread(shop_orders.mark_order, shop_db, order["order_id"], shop_orders.STATUS_FAILED, "invoice_failed")
-        prostudio_error("STORE_CRYPTO_INVOICE_ERROR", exc, telegram_id=telegram_id, order_id=order["order_id"])
-        return JSONResponse({"ok": False, "error": "crypto_invoice_failed"}, status_code=502)
-    await asyncio.to_thread(shop_orders.set_provider_invoice, shop_db, order["order_id"], invoice["invoice_id"])
-    asyncio.create_task(poll_crypto_order(order["order_id"]))
-    log_user_event(telegram_id=telegram_id, source="mini_app", event_type="payment_invoice_created",
-                   event_name="crypto_invoice_created", payload={"pack_id": product["product_id"], "order_id": order["order_id"],
-                                                                 "invoice_id": invoice["invoice_id"]})
-    return {"ok": True, "url": url, "invoice_id": invoice["invoice_id"], "order": store_order_public(order), "order_id": order["order_id"]}
 
 
 @app.get("/api/public/shop/catalog")
@@ -14238,11 +14071,6 @@ async def public_store_order_status(request: Request):
     order = await asyncio.to_thread(shop_orders.get_order, shop_db, order_id)
     if not order or int(order["telegram_id"]) != telegram_id:
         return JSONResponse({"ok": False, "error": "order_not_found"}, status_code=404)
-    if order["provider"] == shop_catalog.PROVIDER_CRYPTO and order["status"] == shop_orders.STATUS_PENDING:
-        try:
-            order = await asyncio.to_thread(sync_crypto_order, order)
-        except Exception as exc:
-            prostudio_error("STORE_CRYPTO_STATUS_ERROR", exc, order_id=order_id)
     user = None
     if order and order["status"] == shop_orders.STATUS_PAID:
         user = await asyncio.to_thread(get_user_state, telegram_id)
@@ -15002,50 +14830,8 @@ async def public_dev_reset(request: Request):
 # =====================================================
 @app.post("/api/public/payments/crypto/invoice")
 async def public_crypto_invoice(request: Request):
-    data = await request.json()
-    pack_id = data.get("pack_id") or ""
-    telegram_id = int(data.get("telegram_id") or 0)
-    if data.get("product_id"):
-        if not telegram_id:
-            return telegram_id_required_response()
-        return await store_crypto_invoice(data, telegram_id)
-    item = shop_item(pack_id)
-
-    if not item:
-        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
-    if not telegram_id:
-        return telegram_id_required_response()
-
-    try:
-        invoice = create_crypto_invoice(telegram_id, pack_id, item)
-    except Exception as exc:
-        # Do not return str(exc) here: it can embed provider credentials or
-        # request URLs. Log server-side only, return a generic error code.
-        prostudio_error("CRYPTO_INVOICE_ERROR", exc, telegram_id=telegram_id, pack_id=pack_id)
-        return JSONResponse({"ok": False, "error": "crypto_not_configured"}, status_code=502)
-
-    invoice_id = int(invoice.get("invoice_id"))
-    asyncio.create_task(poll_crypto_invoice(invoice_id, telegram_id, pack_id))
-
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="payment_invoice_created",
-        event_name="crypto_invoice_created",
-        payload={
-            "pack_id": pack_id,
-            "invoice_id": invoice_id,
-            "url": crypto_invoice_url(invoice),
-        },
-    )
-
-    return {
-        "ok": True,
-        "url": crypto_invoice_url(invoice),
-        "invoice_id": invoice_id,
-        "status": invoice.get("status"),
-        "pack_id": pack_id,
-    }
+    # Retained for old clients; never parse, contact a provider or write a payment.
+    return JSONResponse({"ok": False, "error": "crypto_retired"}, status_code=410)
 
 # =====================================================
 # API ENDPOINT: public_telegram_sync

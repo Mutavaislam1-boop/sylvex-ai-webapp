@@ -1,4 +1,4 @@
-"""Server-authoritative USD Store catalog (Website: Stripe; Crypto Pay).
+"""Server-authoritative USD Store catalog (Website: Stripe).
 
 Every purchasable product, its USD price, the credits it grants and (for
 plans) the subscription it activates are defined here. Clients only send a
@@ -11,7 +11,6 @@ from services/telegram_catalog.py, the separate Telegram catalog.
 """
 from __future__ import annotations
 
-import os
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -19,15 +18,11 @@ CREDITS_PER_USD = 100
 CUSTOM_MIN_CENTS = 100
 CUSTOM_MAX_CENTS = 100_000
 
-# Crypto Pay limits are configurable: they are not confirmed per invoice.
-CRYPTO_MIN_CENTS = int(round(float(os.getenv("CRYPTO_MIN_USD", "1")) * 100))
-CRYPTO_MAX_CENTS = int(round(float(os.getenv("CRYPTO_MAX_USD", "1000")) * 100))
-
 # Provider ids as stored on orders and purchases. Stars orders are created
 # only from services/telegram_catalog.py.
 PROVIDER_STARS = "telegram_stars"
-PROVIDER_CRYPTO = "crypto_pay"
-PROVIDERS = (PROVIDER_STARS, PROVIDER_CRYPTO)
+PROVIDER_CRYPTO = "crypto_pay"  # Historical order/provider id; never offered.
+PROVIDERS = (PROVIDER_STARS,)
 # Website-only card payments (services/stripe_billing.py). Not offered in
 # the Telegram Mini App: Telegram requires Stars for digital goods there.
 PROVIDER_STRIPE = "stripe"
@@ -277,10 +272,8 @@ def resolve_product(product_id: str, usd=None) -> dict:
 
 def provider_availability(product: dict) -> dict:
     """Which USD payment methods may sell this product, and why not."""
-    crypto_ok = CRYPTO_MIN_CENTS <= product["usd_cents"] <= CRYPTO_MAX_CENTS
-    return {
-        PROVIDER_CRYPTO: {"available": crypto_ok, "reason": None if crypto_ok else "crypto_amount_out_of_range"},
-    }
+    # USD checkout availability is supplied by the Website Stripe adapter.
+    return {}
 
 
 def plan_label(plan_key: str) -> str:
@@ -321,8 +314,6 @@ def public_catalog() -> dict:
             "product_id": CUSTOM_PRODUCT_ID,
             "min_cents": CUSTOM_MIN_CENTS,
             "max_cents": CUSTOM_MAX_CENTS,
-            "crypto_min_cents": max(CUSTOM_MIN_CENTS, CRYPTO_MIN_CENTS),
-            "crypto_max_cents": min(CUSTOM_MAX_CENTS, CRYPTO_MAX_CENTS),
         },
         "renewal": "manual",
     }

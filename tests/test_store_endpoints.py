@@ -1,5 +1,5 @@
-"""Mini App Store endpoints: catalog, Stars/Crypto order invoices, Crypto
-settlement, order status and the Stars webhook order path.
+"""Mini App Store endpoints: catalog, Stars invoices, retired Crypto paths,
+read-only historical order status and the Stars webhook order path.
 
 Providers are always fakes (no network, no real payments). Ledger tests use
 a disposable PostgreSQL in SYLVEX_TEST_DATABASE_URL (skipped otherwise)."""
@@ -61,6 +61,7 @@ def shop(monkeypatch):
         cur.execute("INSERT INTO users (telegram_id, first_name, balance) VALUES (%s, 'Buyer', 0)", (UID,))
     conn.commit()
     conn.close()
+    orders.ensure_order_tables(connect)
 
     monkeypatch.setattr(main, "shop_db", connect)
     monkeypatch.setattr(main, "ensure_payment_tables", lambda: None)
@@ -70,7 +71,6 @@ def shop(monkeypatch):
     monkeypatch.setattr(main, "send_subscription_congratulations", lambda *args, **kwargs: congrats.append(args))
     monkeypatch.setattr(main, "get_user_state", lambda telegram_id, **kwargs: {"telegram_id": telegram_id})
     monkeypatch.setattr(main, "BOT_TOKEN", "123:TEST")
-    monkeypatch.setattr(main, "CRYPTO_API_KEY", "crypto-test")
     tasks = []
     monkeypatch.setattr(main.asyncio, "create_task", lambda coro: (tasks.append(coro), coro.close()))
 
@@ -166,75 +166,56 @@ def test_stars_unconfigured_is_reported_before_any_order(shop, monkeypatch):
     assert status == 503 and body["error"] == "stars_not_configured"
 
 
-class FakeCryptoPay:
-    def __init__(self):
-        self.created = []
-        self.status = "active"
-        self.amount = None
-        self.asset = "USDT"
-        self.payload = None
-
-    def request(self, method, payload=None):
-        if method == "createInvoice":
-            self.created.append(payload)
-            self.payload = payload["payload"]
-            self.amount = payload["amount"]
-            return {"invoice_id": 4242, "status": "active", "mini_app_invoice_url": "https://t.me/CryptoBot/app?startapp=x"}
-        if method == "getInvoices":
-            return {"items": [{"invoice_id": 4242, "status": self.status, "amount": self.amount, "asset": self.asset, "payload": self.payload}]}
-        raise AssertionError(method)
-
-
-@pytest.mark.parametrize("product_id,usd,credits", [("plan_creator_year", None, 66000), ("pack_10000", None, 10000),
-                                                    ("credits_custom", "1000", 100000), ("credits_custom", "1", 100)])
-def test_crypto_order_is_settled_once_after_the_provider_reports_paid(shop, monkeypatch, product_id, usd, credits):
-    crypto = FakeCryptoPay()
-    monkeypatch.setattr(main, "crypto_pay_request", crypto.request)
-    status, body = body_of(run(main.public_crypto_invoice(FakeRequest({"telegram_id": UID, "product_id": product_id, "usd": usd}))))
-    assert status == 200 and body["url"] and shop.tasks
-    expected = catalog.resolve_product(product_id, usd)
-    assert crypto.created[0]["asset"] == "USDT" and crypto.created[0]["amount"] == f"{expected['usd_cents'] / 100:.2f}"
-    status_req = FakeRequest({"telegram_id": UID, "order_id": body["order_id"]})
-    _, pending = body_of(run(main.public_store_order_status(status_req)))
-    assert pending["order"]["status"] == "pending" and shop.balance() == 0
-    crypto.status = "paid"
-    _, paid = body_of(run(main.public_store_order_status(status_req)))
-    assert paid["order"]["status"] == "paid" and shop.balance() == credits
-    _, again = body_of(run(main.public_store_order_status(status_req)))
-    assert again["order"]["status"] == "paid" and shop.balance() == credits
-    if expected["kind"] == "subscription":
-        assert shop.congrats and shop.congrats[0][1]["plan_key"] == expected["plan_key"]
+@pytest.mark.parametrize("payload", [
+    {"product_id": "plan_creator_year"}, {"product_id": "credits_custom", "usd": "1000"},
+    {"pack_id": "pack_500"}, {"telegram_id": UID, "provider": "crypto_pay"},
+])
+def test_retired_crypto_requests_create_no_orders_or_credits(shop, monkeypatch, payload):
+    def forbidden(*args, **kwargs):
+        pytest.fail("retired provider must not contact HTTP or write a payment")
+    monkeypatch.setattr(main.requests, "post", forbidden)
+    monkeypatch.setattr(main, "finalize_shop_payment", forbidden)
+    monkeypatch.setattr(main, "finalize_store_order", forbidden)
+    status, body = body_of(run(main.public_crypto_invoice(FakeRequest(payload))))
+    assert (status, body) == (410, {"ok": False, "error": "crypto_retired"})
+    assert shop.balance() == 0 and not shop.tasks
+    with shop.connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM shop_orders")
+        assert cur.fetchone()[0] == 0
 
 
-def test_crypto_paid_invoice_with_a_wrong_amount_or_payload_grants_nothing(shop, monkeypatch):
-    crypto = FakeCryptoPay()
-    monkeypatch.setattr(main, "crypto_pay_request", crypto.request)
-    _, body = body_of(run(main.public_crypto_invoice(FakeRequest({"telegram_id": UID, "product_id": "pack_500"}))))
-    crypto.status, crypto.amount = "paid", "1.00"
-    _, result = body_of(run(main.public_store_order_status(FakeRequest({"telegram_id": UID, "order_id": body["order_id"]}))))
-    assert result["order"]["status"] == "pending" and shop.balance() == 0
-    crypto.amount, crypto.payload = "5.00", orders.order_payload("f" * 32)
-    _, result = body_of(run(main.public_store_order_status(FakeRequest({"telegram_id": UID, "order_id": body["order_id"]}))))
-    assert result["order"]["status"] == "pending" and shop.balance() == 0
-
-
-def test_expired_crypto_invoice_closes_the_order(shop, monkeypatch):
-    crypto = FakeCryptoPay()
-    monkeypatch.setattr(main, "crypto_pay_request", crypto.request)
-    _, body = body_of(run(main.public_crypto_invoice(FakeRequest({"telegram_id": UID, "product_id": "pack_500"}))))
-    crypto.status = "expired"
-    _, result = body_of(run(main.public_store_order_status(FakeRequest({"telegram_id": UID, "order_id": body["order_id"]}))))
-    assert result["order"]["status"] == "expired" and shop.balance() == 0
-
-
-def test_order_status_is_private_to_its_buyer(shop, monkeypatch):
-    crypto = FakeCryptoPay()
-    monkeypatch.setattr(main, "crypto_pay_request", crypto.request)
-    _, body = body_of(run(main.public_crypto_invoice(FakeRequest({"telegram_id": UID, "product_id": "pack_500"}))))
-    status, result = body_of(run(main.public_store_order_status(FakeRequest({"telegram_id": UID + 1, "order_id": body["order_id"]}))))
+def test_order_status_is_private_to_its_buyer(shop):
+    order = orders.create_order(shop.connect, UID, tg.resolve("pack_500"), catalog.PROVIDER_STARS, 1800)
+    status, result = body_of(run(main.public_store_order_status(FakeRequest({"telegram_id": UID + 1, "order_id": order["order_id"]}))))
     assert status == 404
     status, result = body_of(run(main.public_store_order_status(FakeRequest({"telegram_id": UID, "order_id": "../etc"}))))
     assert status == 400
+
+
+@pytest.mark.parametrize("legacy_status", ["pending", "paid", "expired", "failed"])
+def test_historical_crypto_status_preserves_all_financial_rows(shop, monkeypatch, legacy_status):
+    # Synthetic historical records, not provider purchases or a migration.
+    order = orders.create_order(shop.connect, UID, tg.resolve("pack_500"), catalog.PROVIDER_STARS, 1800)
+    with shop.connect() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE shop_orders SET provider='crypto_pay', status=%s, provider_invoice_id='4242' WHERE order_id=%s",
+                    (legacy_status, order["order_id"]))
+        for provider in ("crypto_pay", "stripe", "telegram_stars"):
+            cur.execute("INSERT INTO purchases (telegram_id,provider,credits,amount,currency,charge_id) VALUES (%s,%s,100,500,'USD',%s)",
+                        (UID, provider, "old-"+provider))
+            cur.execute("INSERT INTO subscriptions (telegram_id,subscription_type,payment_method,charge_id,status) VALUES (%s,'starter_month',%s,%s,'active')",
+                        (UID, provider, "sub-"+provider))
+        conn.commit()
+    def snapshot():
+        with shop.connect() as conn, conn.cursor() as cur:
+            return [cur.execute("SELECT to_jsonb(t) FROM "+name+" t ORDER BY to_jsonb(t)::text") or cur.fetchall()
+                    for name in ("users", "purchases", "subscriptions", "shop_orders")]
+    before = snapshot()
+    monkeypatch.setattr(main.requests, "post", lambda *a, **k: pytest.fail("no provider lookup"))
+    monkeypatch.setattr(main, "finalize_store_order", lambda *a, **k: pytest.fail("no historical settlement"))
+    status, response = body_of(run(main.public_store_order_status(FakeRequest({"telegram_id": UID, "order_id": order["order_id"]}))))
+    assert status == 200 and response["order"]["status"] == legacy_status
+    assert response["order"]["provider"] == "crypto_pay"
+    assert snapshot() == before
 
 
 @pytest.mark.parametrize("product_id,credits,stars,granted", [
