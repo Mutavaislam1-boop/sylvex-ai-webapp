@@ -1,0 +1,32 @@
+/* Reference panel (js/reference-panel.js): Motion repeat / Photo from
+   reference over the home composer. Colours: --ref-panel-bg and
+   --ref-panel-ink, set by each app per theme. The same file runs in the
+   Mini App and on the website. */
+.ref-panel-shade{position:fixed;inset:0;z-index:2147480000;background:var(--ref-panel-shade,rgba(0,0,0,.28))}
+.ref-panel{position:fixed;z-index:2147480001;display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;border-radius:22px;background:var(--ref-panel-bg,#27272a);color:var(--ref-panel-ink,#f5f5f5);box-shadow:var(--ref-panel-shadow,0 24px 70px rgba(0,0,0,.55));font-family:inherit}
+.ref-panel-head{display:flex;align-items:center;gap:10px;padding:12px 12px 10px 16px}
+.ref-panel-head h3{margin:0;overflow:hidden;font-size:17px;font-weight:700;line-height:1.2;white-space:nowrap;text-overflow:ellipsis;color:inherit}
+.ref-panel-x{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;margin-left:auto;padding:0;border:0;border-radius:9px;background:color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 8%,transparent);color:inherit;cursor:pointer}
+.ref-panel-x svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.ref-panel-grid{flex:1;min-height:0;box-sizing:border-box;padding:0 10px 10px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.ref-panel-grid::-webkit-scrollbar{display:none}
+.ref-panel-grid.is-grid,.ref-panel-grid.is-loading{display:grid;grid-template-columns:repeat(var(--ref-panel-cols,3),minmax(0,1fr));gap:8px;align-content:start}
+.ref-panel-grid.is-masonry{display:flex;align-items:flex-start;gap:8px}
+.ref-panel-col{display:flex;flex:1 1 0;min-width:0;flex-direction:column;gap:8px}
+.ref-panel-card{position:relative;display:block;width:100%;margin:0;padding:0;overflow:hidden;border:0;border-radius:14px;background:color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 8%,#111);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ref-panel-frame{display:block;width:100%;height:100%;overflow:hidden}
+.ref-panel-frame img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .8s cubic-bezier(.2,.8,.2,1)}
+.is-masonry .ref-panel-frame{height:auto}
+@media (hover:hover){.ref-panel-card:hover .ref-panel-frame img{transform:scale(1.07)}}
+.ref-panel-card:focus-visible{outline:2px solid var(--ref-panel-ink,#f5f5f5);outline-offset:-2px}
+.ref-panel-card.is-selected{outline:2.5px solid var(--ref-panel-ink,#f5f5f5);outline-offset:-2.5px}
+.ref-panel-play,.ref-panel-check{position:absolute;top:7px;right:7px;z-index:1;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;pointer-events:none}
+.ref-panel-play:after{content:"";margin-left:2px;border:4px solid transparent;border-left:6px solid #fff;border-right:0}
+.ref-panel-check{display:none;background:var(--ref-panel-ink,#f5f5f5);color:var(--ref-panel-bg,#27272a)}
+.ref-panel-check svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.ref-panel-card.is-selected .ref-panel-check{display:grid}
+.ref-panel-card.is-selected .ref-panel-play{display:none}
+.ref-panel-skeleton{border-radius:14px;background:linear-gradient(100deg,color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 6%,transparent) 30%,color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 12%,transparent) 50%,color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 6%,transparent) 70%);background-size:300% 100%;animation:ref-panel-shimmer 1.4s linear infinite}
+@keyframes ref-panel-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+.ref-panel-empty{margin:24px 8px;color:color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 55%,transparent);font-size:13px;text-align:center}
+@media (prefers-reduced-motion:reduce){.ref-panel-skeleton{animation:none}.ref-panel-frame img{transition:none}}

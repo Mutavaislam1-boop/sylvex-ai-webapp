@@ -202,9 +202,49 @@ body::before{content:none}
 
 /* Home socials row (replaces stats block) */
 .home-socials{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;padding:10px 12px;border-radius:18px;background:var(--surface);border:1px solid var(--border)}
-.home-idea-ai{margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:20px;background:var(--surface);box-shadow:0 14px 38px rgba(0,0,0,.08)}.home-idea-ai>header{display:flex;align-items:center;gap:8px;margin-bottom:10px}.home-idea-ai>header span{display:flex;align-items:center;gap:7px}.home-idea-ai>header img{width:25px;height:25px;object-fit:contain}.home-idea-ai>header b{font-size:12px}.home-idea-ai>header small{margin-left:auto;color:var(--text-dim);font-size:8px}.home-idea-chat{max-height:170px;display:flex;flex-direction:column;gap:7px;overflow-y:auto;margin-bottom:9px}.home-idea-chat p{max-width:88%;margin:0;padding:8px 10px;border-radius:13px;background:var(--surface-2);font-size:10px;line-height:1.4;white-space:pre-wrap}.home-idea-chat p.user{align-self:flex-end;background:var(--primary);color:#fff}.home-idea-attachment{width:54px;height:54px;position:relative;margin-bottom:8px;overflow:hidden;border-radius:12px}.home-idea-attachment img{width:100%;height:100%;object-fit:cover}.home-idea-attachment button{position:absolute;right:2px;top:2px;width:19px;height:19px;border:0;border-radius:50%;background:rgba(0,0,0,.7);color:#fff}.home-idea-ai form{display:flex;align-items:flex-end;gap:8px;padding:7px;border:1px solid var(--border-strong);border-radius:16px;background:var(--bg)}.home-idea-ai textarea{min-width:0;flex:1;min-height:40px;max-height:100px;resize:none;padding:8px;border:0;outline:0;background:transparent;color:var(--text);font:11px/1.4 inherit}.home-idea-ai form>div{display:flex;gap:5px}.home-idea-ai form button{width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:var(--surface-2);color:var(--text);font-size:17px}.home-idea-ai form button.send{border:0;background:var(--primary);color:#fff}.home-idea-ai form button.live{background:#ef4f63;color:#fff;animation:homeIdeaPulse 1.2s infinite}.home-idea-go{width:100%;height:38px;margin-top:8px;border:0;border-radius:12px;background:var(--primary);color:#fff;font-size:10px;font-weight:800}@keyframes homeIdeaPulse{50%{box-shadow:0 0 0 7px rgba(239,79,99,.12)}}@media(max-width:700px){.home-idea-ai>header small{max-width:125px;text-align:right}.home-idea-chat{max-height:145px}}
-.home-idea-ai{position:relative;margin-top:12px;padding:0;border:0;border-radius:999px;background:linear-gradient(145deg,color-mix(in srgb,var(--surface) 96%,var(--text) 4%),color-mix(in srgb,var(--surface-2) 94%,var(--bg) 6%));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 12%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--bg) 35%,transparent),0 8px 18px rgba(0,0,0,.18),0 2px 5px rgba(0,0,0,.12)}.home-idea-ai form{height:50px;display:flex;align-items:center;gap:2px;padding:4px 7px;border:0;border-radius:999px;background:transparent}.home-idea-ai textarea{height:40px;min-height:40px;max-height:40px;flex:1;padding:11px 8px;overflow:hidden;resize:none;border:0;outline:0;background:transparent;color:var(--text);font:500 12px/18px inherit}.home-idea-ai textarea::placeholder{color:var(--text-dim)}.home-idea-ai form button{width:34px;height:34px;flex:0 0 34px;display:grid;place-items:center;padding:0;border:0;border-radius:50%;background:transparent;color:var(--text)}.home-idea-ai form button.attach{font-size:23px;font-weight:300}.home-idea-ai form button.voice svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;filter:drop-shadow(0 1px 2px rgba(0,0,0,.22))}.home-idea-ai form button.send{border:0;background:transparent;color:var(--text);font-size:25px;font-weight:800;text-shadow:0 1px 3px rgba(0,0,0,.24)}.home-idea-ai form button[hidden]{display:none!important}.home-idea-ai form button.live{background:color-mix(in srgb,var(--text) 11%,transparent);color:var(--text);animation:homeIdeaThemePulse 1.1s infinite}.home-idea-ai form button.live svg{fill:none;stroke:currentColor}.home-idea-attachment{position:absolute;z-index:3;left:5px;top:5px;width:40px;height:40px;margin:0;border-radius:50%;box-shadow:0 2px 7px rgba(0,0,0,.28)}.home-idea-attachment button{right:-2px;top:-2px;width:17px;height:17px}.home-idea-ai:has(.home-idea-attachment:not([hidden])) form{padding-left:49px}@keyframes homeIdeaThemePulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--text) 7%,transparent),0 3px 9px rgba(0,0,0,.18)}}
-.home-idea-ai{border:1px solid color-mix(in srgb,var(--text) 28%,var(--border))!important;background:color-mix(in srgb,var(--surface) 91%,var(--text) 9%)!important;box-shadow:0 10px 28px rgba(0,0,0,.24),0 0 0 3px color-mix(in srgb,var(--text) 5%,transparent),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)!important}.home-idea-ai textarea::placeholder{color:color-mix(in srgb,var(--text) 68%,transparent)!important}.home-idea-ai form button{color:var(--text)!important}
+/* Home composer (PromptBar): one layer without outlines - the prompt from
+   the edge, then +, the Video / Photo switch, the mic and send; the picked
+   reference and the user's photo on top; the quick tools as small icons
+   below. The reference panel (js/reference-panel.js) takes its colours. */
+:root{--home-idea-bg:color-mix(in srgb,var(--text) 8%,var(--bg-0));--ref-panel-bg:var(--home-idea-bg);--ref-panel-ink:var(--text);--ref-panel-shade:rgba(0,0,0,.28);--ref-panel-shadow:0 24px 70px rgba(0,0,0,.55)}
+[data-theme="light"]{--home-idea-bg:color-mix(in srgb,var(--text) 5%,var(--bg-0));--ref-panel-shade:rgba(0,0,0,.12);--ref-panel-shadow:0 24px 70px rgba(0,0,0,.18)}
+.home-idea-ai{--home-idea-font:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",system-ui,sans-serif;margin-top:12px;color:var(--text)}
+.home-idea-field{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:16px;background:var(--home-idea-bg);cursor:text}
+.home-idea-field.loading{opacity:.7;pointer-events:none}
+.home-idea-field textarea{display:block;width:100%;min-height:22px;max-height:120px;margin:0;padding:0;border:0;outline:0;resize:none;background:transparent;color:var(--text);font:400 15px/22px var(--home-idea-font)}
+.home-idea-field textarea::placeholder{color:color-mix(in srgb,var(--text) 45%,transparent)}
+.home-idea-bar{display:flex;align-items:center;gap:6px;height:32px}
+.home-idea-bar button{display:grid;place-items:center;flex:0 0 auto;padding:0;border:0;color:var(--text);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.home-idea-bar svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.home-idea-bar .attach{width:32px;height:32px;border-radius:9px;background:color-mix(in srgb,var(--text) 10%,transparent);font-size:20px;line-height:1}
+.home-idea-mode{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:color-mix(in srgb,var(--text) 7%,transparent)}
+.home-idea-mode button{width:28px;height:24px;border-radius:7px;background:transparent;color:color-mix(in srgb,var(--text) 50%,transparent);transition:background-color .2s,color .2s}
+.home-idea-mode button.on{background:var(--text);color:var(--home-idea-bg)}
+.home-idea-mode svg{width:15px;height:15px}
+.home-idea-gap{flex:1}
+.home-idea-bar .voice{width:28px;height:28px;border-radius:8px;background:transparent;color:color-mix(in srgb,var(--text) 60%,transparent)}
+.home-idea-bar .voice svg{width:16px;height:16px}
+.home-idea-bar .voice.live{background:color-mix(in srgb,var(--text) 11%,transparent);color:var(--text);animation:homeIdeaThemePulse 1.1s infinite}
+.home-idea-bar .send{width:28px;height:28px;border-radius:8px;background:color-mix(in srgb,var(--text) 12%,var(--home-idea-bg));color:color-mix(in srgb,var(--text) 55%,var(--home-idea-bg));transition:background-color .2s,color .2s}
+.home-idea-bar .send.armed{background:var(--text);color:var(--home-idea-bg)}
+.home-idea-bar .send svg{width:16px;height:16px;fill:currentColor;stroke:none}
+.home-idea-refs{display:flex;gap:8px;align-items:stretch}
+.home-idea-refs[hidden]{display:none}
+.home-idea-ref{position:relative;flex:0 0 48px;width:48px;height:64px;overflow:hidden;border-radius:10px;background:#111}
+.home-idea-ref img{display:block;width:100%;height:100%;object-fit:cover}
+.home-idea-ref.is-uploading img{opacity:.45}
+.home-idea-ref.is-uploading:after{content:"";position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border:2px solid #fff;border-right-color:transparent;border-radius:50%;animation:homeIdeaSpin .8s linear infinite}
+.home-idea-ref button{position:absolute;top:3px;right:3px;width:16px;height:16px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font:600 11px/16px var(--home-idea-font);text-align:center}
+.home-idea-upload{display:flex;flex:1;align-items:center;justify-content:center;gap:8px;min-height:64px;padding:0 10px;border:1.5px dashed color-mix(in srgb,var(--text) 25%,transparent);border-radius:10px;background:transparent;color:color-mix(in srgb,var(--text) 75%,transparent);font:500 13px/1.2 var(--home-idea-font)}
+.home-idea-upload span{font-size:18px}
+.home-idea-tools{display:grid;grid-auto-flow:column;grid-auto-columns:60px;gap:4px;margin-top:10px;overflow-x:auto;scrollbar-width:none}
+.home-idea-tools::-webkit-scrollbar{display:none}
+.home-idea-tools button{display:flex;flex-direction:column;align-items:center;gap:4px;width:60px;padding:0;border:0;background:none;color:color-mix(in srgb,var(--text) 62%,transparent);font:500 8.5px/1.15 var(--home-idea-font);text-align:center;overflow-wrap:anywhere;cursor:pointer}
+.home-idea-tools button span{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--home-idea-bg);color:var(--text)}
+.home-idea-tools svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.home-idea-tools b{font-weight:500}
+@keyframes homeIdeaThemePulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--text) 7%,transparent)}}
+@keyframes homeIdeaSpin{to{transform:rotate(360deg)}}
 .hsoc{flex:1;display:grid;place-items:center;height:38px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);transition:.2s;text-decoration:none}
 .hsoc svg{width:18px;height:18px}
 .hsoc:active{transform:scale(.92)}
@@ -6871,7 +6911,6 @@ CSS-БЛОК: .generation-info-actions button
 
 @media(max-width:600px){.photo-tool-modal.replace-object-mask-editor-modal{padding:8px}.photo-tool-dialog.replace-object-mask-editor-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);padding:11px;border-radius:18px}.replace-object-mask-editor-dialog .photo-tool-head{margin-bottom:10px}.replace-object-mask-editor-dialog .photo-tool-head h3{font-size:19px}.replace-object-mask-editor-dialog .photo-tool-head p{font-size:11px}.replace-object-mask-toolbar{flex-wrap:wrap;gap:6px;margin-top:9px}.replace-object-brush-size{flex:1 0 100%;min-width:0}.replace-object-mask-toolbar button{flex:1 1 auto;min-height:40px;padding:0 8px;font-size:11px}}
 .photo-catalog-dialog{width:min(1180px,calc(100vw - 24px));background:color-mix(in srgb, var(--st-bg-2, #121218) 55%, transparent);backdrop-filter:blur(18px)}
-.photo-catalog-tabs{display:flex;gap:7px;margin:0 0 12px;overflow-x:auto;scrollbar-width:none}.photo-catalog-tabs::-webkit-scrollbar{display:none}.photo-catalog-tabs button{flex:0 0 auto;padding:8px 12px;border:1px solid var(--st-border, rgba(255,255,255,.1));border-radius:999px;background:var(--st-bg-3, rgba(255,255,255,.06));color:var(--st-dim, rgba(255,255,255,.66));font:700 11px inherit;cursor:pointer}.photo-catalog-tabs button.active{background:var(--st-invert-bg, #f4f5f7);color:var(--st-invert-text, #111318);border-color:var(--st-invert-bg, #f4f5f7)}
 .photo-catalog-grid{
   display:block;column-count:5;column-gap:8px
 }
@@ -6889,7 +6928,15 @@ CSS-БЛОК: .generation-info-actions button
 .photo-catalog-card>span>b{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .photo-catalog-card>span>small{font-size:8px;color:rgba(255,255,255,.68)}
 .photo-catalog-card.no-caption::after{display:none}.photo-catalog-card.minimal-caption::after{background:linear-gradient(180deg,transparent 62%,rgba(0,0,0,.5))}.photo-catalog-card.minimal-caption>span{left:8px;right:8px;bottom:7px;display:block;background:transparent}.photo-catalog-card.minimal-caption>span>b{display:block;color:rgba(255,255,255,.88);font-size:9px;font-weight:650;text-shadow:0 1px 5px rgba(0,0,0,.95)}
-.photo-catalog-tool-card{aspect-ratio:auto;min-height:150px}.photo-catalog-tool-card .photo-tool-demo{height:150px;aspect-ratio:auto;border-radius:inherit}.photo-catalog-tool-card>span{pointer-events:none}.photo-catalog-tool-card::after{pointer-events:none}
+/* Wide screens: the photo and video catalogs in the workspace, from the
+   studio's edge to the right edge and from under its top bar down to the
+   composer (placeCatalogInWorkspace in the JS). Nothing is dimmed and the
+   composer stays usable; the × stays put outside the scrolling list. */
+.catalog-in-workspace:is(.photo-catalog-modal,.video-templates-overlay){background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;pointer-events:none}
+.catalog-in-workspace :is(.photo-catalog-dialog,.video-templates-panel){position:fixed!important;width:auto!important;height:auto!important;max-width:none!important;max-height:none!important;margin:0!important;transform:none!important;overflow-y:auto!important;pointer-events:auto;box-shadow:0 20px 60px rgba(0,0,0,.22)!important}
+.catalog-in-workspace #photoCatalogGrid{column-count:6}
+.catalog-in-workspace:not(.kling-effects-overlay) .video-templates-grid{column-count:7}
+.catalog-in-workspace>.catalog-workspace-close{position:fixed!important;left:auto!important;bottom:auto!important;z-index:3;display:grid;place-items:center;width:36px!important;height:36px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--st-text, #fff)!important;font-size:30px!important;font-weight:300!important;line-height:1!important;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 0 1.5px rgba(255,255,255,.95)) drop-shadow(0 0 4px rgba(255,255,255,.6)) drop-shadow(0 1px 3px rgba(0,0,0,.3))}
 .photo-catalog-empty{
   grid-column:1/-1;min-height:220px;border-radius:18px;border:1px dashed var(--st-border, rgba(255,255,255,.14));
   display:grid;place-items:center;padding:24px;text-align:center;color:var(--st-mute, rgba(255,255,255,.55))
@@ -6977,7 +7024,6 @@ CSS-БЛОК: .generation-info-actions button
   .photo-catalog-card>span{left:5px;right:5px;bottom:5px}
   .photo-catalog-card>span>b{font-size:8px}
   .photo-catalog-card>span>small{display:none}
-  .photo-catalog-tabs{margin-bottom:8px}.photo-catalog-tabs button{padding:7px 10px;font-size:9px}
   
   .photo-tool-head h3{font-size:20px}
   

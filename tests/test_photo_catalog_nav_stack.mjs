@@ -12,17 +12,15 @@
 //     underneath, so closing the detail view later reveals it again.
 //   - selectPhotoCatalogItem(): hides quickImageDetailTitle only for
 //     kind === 'references', keeps it for styles/objects/popular_references.
-//   - openPhotoCatalogTool(): no longer closes the Photo Catalog modal when
-//     opening a tool from the catalog's Tools tab.
 //   - openPhotoToolModal()/closePhotoToolModal(): a tool opened while the
 //     Tools List was already showing closes back to that list one level at
 //     a time, instead of leaving the whole modal; a tool opened directly
 //     (deep link) still closes the whole modal as before.
-//   - openPhotoToolModal()/openPhotoCatalog(): switch the underlying view
-//     into Pro Studio ('tools') when opened from Home, so closing the modal
-//     reveals the Image section instead of jumping back to Home; do NOT
-//     re-switch (and disturb Grid Mode/layout) when already inside Pro
-//     Studio.
+//   - openPhotoToolModal(): a quick tool opens over the screen it was called
+//     from (Home included) and never switches the view to Pro Studio.
+//   - openPhotoCatalog(): switches the underlying view into Pro Studio
+//     ('tools') when opened from Home; does NOT re-switch (and disturb Grid
+//     Mode/layout) when already inside Pro Studio.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -105,6 +103,8 @@ function makeContext({ toolsViewActive } = {}) {
     renderPhotoCatalog: () => { calls.renderPhotoCatalog += 1; },
     renderPhotoToolModal: () => { calls.renderPhotoToolModal += 1; },
     renderQuickImageDetailFields: () => { calls.renderQuickImageDetailFields += 1; },
+    watchCatalogWorkspace: () => {},
+    unwatchCatalogWorkspace: () => {},
     window: { setTimeout, clearTimeout },
     document: {
       getElementById: (id) => dom[id] || null,
@@ -113,7 +113,7 @@ function makeContext({ toolsViewActive } = {}) {
     },
   };
   const context = vm.createContext(sandbox);
-  for (const name of ['ensurePhotoCatalogModal', 'ensureQuickImageDetailModal', 'ensurePhotoToolModal', 'openPhotoCatalog', 'closePhotoCatalog', 'selectPhotoCatalogItem', 'closeQuickImageDetail', 'openPhotoCatalogTool', 'openPhotoToolModal', 'closePhotoToolModal']) {
+  for (const name of ['ensurePhotoCatalogModal', 'ensureQuickImageDetailModal', 'ensurePhotoToolModal', 'openPhotoCatalog', 'closePhotoCatalog', 'selectPhotoCatalogItem', 'closeQuickImageDetail', 'openPhotoToolModal', 'closePhotoToolModal']) {
     vm.runInContext(extractFunction(name), context);
   }
   return { context, sandbox, dom, calls };
@@ -151,21 +151,11 @@ test('selectPhotoCatalogItem: Popular References/Styles/Objects detail keeps the
   }
 });
 
-test('openPhotoCatalogTool: opening a tool from the catalog Tools tab leaves the catalog open underneath', () => {
-  const { context, dom } = makeContext({ toolsViewActive: true });
-  dom.photoCatalogModal.classList.add('show');
-  vm.runInContext("openPhotoCatalogTool(null, 'tattoo')", context);
-  assert.equal(dom.photoCatalogModal.classList.contains('show'), true);
-  assert.equal(dom.photoToolModal.classList.contains('show'), true);
-});
-
-test('openPhotoCatalogTool: closing the tool reveals the catalog again, not Pro Studio/Home', () => {
-  const { context, dom } = makeContext({ toolsViewActive: true });
-  dom.photoCatalogModal.classList.add('show');
-  vm.runInContext("openPhotoCatalogTool(null, 'tattoo')", context);
-  vm.runInContext('closePhotoToolModal(null)', context);
-  assert.equal(dom.photoToolModal.classList.contains('show'), false);
-  assert.equal(dom.photoCatalogModal.classList.contains('show'), true);
+test('selectPhotoCatalogItem: the one-list catalog names the item\'s section', () => {
+  const { context, dom, sandbox } = makeContext({ toolsViewActive: true });
+  vm.runInContext("selectPhotoCatalogItem(null, 'sty1', '', 'styles')", context);
+  assert.equal(sandbox.quickImageCatalogSection, 'styles');
+  assert.equal(dom.quickImageDetailTitle.hidden, false);
 });
 
 test('Tools List -> open a tool -> close returns to the Tools List, not out of the modal', () => {
@@ -195,13 +185,14 @@ test('A tool opened directly (deep link, list never shown) closes the whole moda
   assert.equal(dom.photoToolModal.classList.contains('show'), false);
 });
 
-test('openPhotoToolModal/openPhotoCatalog switch into Pro Studio when opened from Home', () => {
-  const { context, calls } = makeContext({ toolsViewActive: false });
-  vm.runInContext("openPhotoToolModal(null, 'photo_catalog')", context);
-  assert.deepEqual(calls.switchView, ['tools']);
+test('openPhotoToolModal opens over Home without switching to Pro Studio', () => {
+  const { context, calls, dom } = makeContext({ toolsViewActive: false });
+  vm.runInContext("openPhotoToolModal(null, 'tattoo')", context);
+  assert.deepEqual(calls.switchView, []);
+  assert.equal(dom.photoToolModal.classList.contains('show'), true);
 });
 
-test('openPhotoToolModal/openPhotoCatalog do not re-switch view when already inside Pro Studio', () => {
+test('openPhotoToolModal does not re-switch view when already inside Pro Studio', () => {
   const { context, calls } = makeContext({ toolsViewActive: true });
   vm.runInContext("openPhotoToolModal(null, 'photo_catalog')", context);
   assert.deepEqual(calls.switchView, []);

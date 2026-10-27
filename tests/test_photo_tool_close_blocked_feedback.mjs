@@ -69,6 +69,8 @@ function makeContext({activePhotoTool = '', photoToolState = {}, hairBeardState 
     photoToolCameFromList: false,
     photoToolListScrollTop: 0,
     photoToolReturnMode: null,
+    photoToolInPlace: false,
+    photoToolInPlaceResult: null,
     studioMode: 'image',
     toast: (msg) => toastCalls.push(msg),
     document: {getElementById: (id) => (id === 'photoToolModal' ? modal : null)},
