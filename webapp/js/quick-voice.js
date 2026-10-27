@@ -30,6 +30,10 @@
     audioTitle: '',
     aiMode: false,
     speed: '1',
+    collapsed: false,
+    cube: null,
+    zoom: 100,
+    recognition: null,
     seq: 0,
   };
   const ICONS = {
@@ -38,8 +42,18 @@
     emotion: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1.9 2 5.1 2 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg>',
     expand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>',
     collapse: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+    spark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.8L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.7z"/><path d="M18 15l.8 2.2 2.2.8-2.2.8L18 21l-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+    send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="qv-fill" d="M12 4.5 18.5 11h-4.25v8.5h-4.5V11H5.5z"/></svg>',
+    chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h10v8H8l-4 4V5z"/><path d="M14 8h6v9h-3l-3 3"/></svg>',
   };
   const DRAWER_QUERY = '(max-width:900px)';
+  // Wide screens only: the composer folds into a cube and the board zooms.
+  const ZOOM = { min: 70, max: 150, step: 10 };
+  const CUBE = 52;
+  const CUBE_EDGE = 12;
+  const LAYOUT_KEY = 'sylvex-dialogue-layout';
   const colorOf = new Map();
   const preview = new Audio();
 
@@ -96,14 +110,24 @@
       + '<button type="button" class="qv-voices-btn" data-qv-lib-open>Голоса</button>'
       + '<div class="qv-notice" id="qvNotice" role="status" hidden></div>'
       + '<div class="qv-board" id="qvBoard"></div>'
+      + '<div class="qv-zoom" id="qvZoom"><button type="button" data-qv-zoom="-1" aria-label="Уменьшить">−</button>'
+      + '<input id="qvZoomRange" type="range" min="' + ZOOM.min + '" max="' + ZOOM.max + '" step="' + ZOOM.step + '" value="100" aria-label="Масштаб рабочей области">'
+      + '<button type="button" data-qv-zoom="1" aria-label="Увеличить">+</button><output id="qvZoomValue">100%</output></div>'
+      + '<div class="qv-cube" id="qvCube" hidden><button type="button" class="qv-cube-face" data-qv-cube aria-label="Блок ввода (перетащите или нажмите, чтобы раскрыть)">' + ICONS.chat + '<i></i></button>'
+      + '<div class="qv-cube-actions"><button type="button" data-qv-expand-composer>' + ICONS.expand + '<span>Раскрыть</span></button>'
+      + '<button type="button" class="is-main" data-qv-generate>' + ICONS.send + '<span>Сгенерировать</span></button></div></div>'
       + '<div class="qv-bottom">'
-      + '<section class="photo-generator quick-generator qv-composer">'
-      + '<div class="photo-prompt-wrap qv-input"><textarea id="qvAiBrief" rows="2" maxlength="2000" disabled aria-label="Описание диалога для AI"></textarea></div>'
-      + '<div class="qv-controls"><div class="qv-model" id="qvModel"></div>'
-      + '<button type="button" class="qv-ai-btn" data-qv-ai aria-pressed="false" aria-label="Текст с AI"><b>✦</b><span>Текст с AI</span></button></div>'
-      + '<button type="button" class="qv-add" data-qv-add><b>＋</b><span>Добавить блок</span></button>'
-      + '<button type="button" class="qv-generate" data-qv-generate disabled><span>Сгенерировать</span></button>'
-      + '</section>'
+      + '<section class="qv-pb" id="qvComposer"><div class="qv-pb-field">'
+      + '<canvas class="qv-pb-sparks" aria-hidden="true"></canvas>'
+      + '<div class="qv-pb-corner"><button type="button" class="qv-pb-ic qv-pb-add" data-qv-add aria-label="Добавить блок" title="Добавить блок">' + ICONS.plus + '</button>'
+      + '<button type="button" class="qv-pb-ic qv-pb-fold" data-qv-collapse aria-label="Свернуть" title="Свернуть">' + ICONS.collapse + '</button></div>'
+      + '<textarea id="qvAiBrief" rows="2" maxlength="2000" disabled aria-label="Описание диалога для AI" placeholder="Нажмите «Текст с ИИ», чтобы описать диалог"></textarea>'
+      + '<div class="qv-pb-bar"><div class="qv-model" id="qvModel"></div>'
+      + '<button type="button" class="qv-pb-pick qv-ai-btn" data-qv-ai aria-pressed="false">' + ICONS.spark + '<span>Текст с ИИ</span></button>'
+      + '<span class="qv-pb-gap"></span>'
+      + '<button type="button" class="qv-pb-ic" data-qv-mic aria-label="Надиктовать описание">' + ICONS.mic + '</button>'
+      + '<button type="button" class="qv-pb-send" data-qv-generate aria-label="Сгенерировать" disabled>' + ICONS.send + '</button>'
+      + '</div></div></section>'
       + player()
       + '</div>'
       + '</section>'
@@ -122,7 +146,7 @@
   }
 
   function player() {
-    return '<div class="qv-player" id="qvPlayer" data-empty="1">'
+    return '<div class="qv-player" id="qvPlayer" data-empty="1" hidden>'
       + '<button type="button" class="qv-play" data-qv-play aria-label="Воспроизвести">▶</button>'
       + '<time id="qvCurrent">00:00</time>'
       + '<input id="qvSeek" type="range" min="0" max="1000" value="0" step="1" aria-label="Позиция">'
@@ -227,7 +251,7 @@
     const board = $('#qvBoard');
     if (!board) return;
     if (!state.blocks.length) {
-      board.innerHTML = '<div class="qv-empty"><b>Пустой диалог</b><span>Нажмите «Добавить блок», чтобы написать первую реплику, или создайте текст с AI.</span></div>';
+      board.innerHTML = '<div class="qv-empty"><b>Пустой диалог</b><span>Нажмите ＋, чтобы написать первую реплику, или создайте текст с ИИ.</span></div>';
     } else {
       board.innerHTML = state.blocks.map(blockMarkup).join('');
       board.querySelectorAll('textarea[data-qv-text]').forEach(autoGrow);
@@ -248,12 +272,19 @@
   function renderCounter() {
     const chars = state.blocks.reduce((sum, block) => sum + block.text.trim().length, 0);
     const button = $('[data-qv-generate]');
-    if (button) {
-      button.disabled = !canGenerate();
-      button.classList.toggle('is-busy', !!(state.job || state.scriptJob));
-      button.querySelector('span').textContent = state.job ? 'Озвучиваем…' : state.scriptJob ? 'Пишем диалог…' : 'Сгенерировать';
-      button.title = state.aiMode ? '' : chars + ' / ' + MAX_CHARS + ' символов';
-    }
+    const ready = canGenerate();
+    const label = state.job ? 'Озвучиваем…' : state.scriptJob ? 'Пишем диалог…' : 'Сгенерировать';
+    state.root.querySelectorAll('[data-qv-generate]').forEach((node) => {
+      node.disabled = !ready;
+      node.classList.toggle('is-busy', !!(state.job || state.scriptJob));
+      node.classList.toggle('is-armed', ready);
+      node.setAttribute('aria-label', label);
+      node.title = state.aiMode ? label : label + ' · ' + chars + ' / ' + MAX_CHARS + ' символов';
+    });
+    const cubeLabel = $('.qv-cube-actions .is-main span');
+    if (cubeLabel) cubeLabel.textContent = label;
+    const cube = $('#qvCube');
+    if (cube) cube.classList.toggle('is-busy', !!(state.job || state.scriptJob));
   }
 
   function setAiMode(on) {
@@ -263,10 +294,243 @@
     if (button) { button.classList.toggle('is-active', state.aiMode); button.setAttribute('aria-pressed', state.aiMode ? 'true' : 'false'); }
     if (field) {
       field.disabled = !state.aiMode;
-      field.placeholder = state.aiMode ? 'Опишите диалог для AI' : '';
+      field.placeholder = state.aiMode ? 'Опишите диалог для ИИ…' : 'Нажмите «Текст с ИИ», чтобы описать диалог';
       if (state.aiMode) field.focus();
     }
+    const composer = $('#qvComposer');
+    if (composer) composer.toggleAttribute('data-ai', state.aiMode);
+    const cube = $('#qvCube');
+    if (cube) cube.classList.toggle('is-ai', state.aiMode);
+    if (state.aiMode) startSparks(); else stopSparks();
     renderCounter();
+  }
+
+  // ------------------------------------------------- AI text: the sparks
+  // The PromptBar's sparks: while «Текст с ИИ» is on, small glowing dots
+  // rise through the composer; typing speeds them up for a moment.
+  const sparks = { raf: 0, energy: 0, strokes: 0, observer: null };
+
+  function startSparks() {
+    const canvas = $('.qv-pb-sparks');
+    if (!canvas || sparks.raf || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const parts = [];
+    let w = 0;
+    let h = 0;
+    let last = performance.now();
+    let due = 0;
+    let speed = 1;
+    let pulse = 0;
+    const color = getComputedStyle(canvas).color || '#b39dff';
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      w = rect.width;
+      h = rect.height;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    const spawn = (burst) => parts.push({
+      x: Math.random() * w, y: burst ? h * (0.2 + Math.random() * 0.8) : h + 3, r: 0.9 + Math.random() * 1.1,
+      vy: -(7 + Math.random() * 9), sway: (Math.random() - 0.5) * 10, phase: Math.random() * Math.PI * 2,
+      life: burst ? Math.random() * 1.2 : 0, span: 2.4 + Math.random() * 2.4,
+    });
+    const tick = (now) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      sparks.energy *= Math.exp(-dt / 0.8);
+      pulse *= Math.exp(-dt / 0.16);
+      if (sparks.strokes > 0) { sparks.strokes = 0; pulse = 1; }
+      const energy = sparks.energy;
+      speed += (1 + energy * 6 - speed) * (1 - Math.exp(-dt / 0.15));
+      due += dt;
+      while (due > 0.14) { due -= 0.14; if (parts.length < 30) spawn(false); }
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6 + energy * 10 + pulse * 6;
+      for (let i = parts.length - 1; i >= 0; i -= 1) {
+        const p = parts[i];
+        p.life += dt;
+        if (p.life > p.span) { parts.splice(i, 1); continue; }
+        const k = p.life / p.span;
+        const twinkle = 0.7 + 0.3 * Math.sin((now / 160) * (1 + energy) + p.phase);
+        p.y += p.vy * dt * speed;
+        if (p.y < -4) { p.y = h + 3; p.x = Math.random() * w; }
+        const edge = Math.min(1, Math.max(0, p.y / 14), Math.max(0, (h - p.y) / 14));
+        ctx.globalAlpha = Math.min(1, Math.sin(k * Math.PI) * (0.9 + energy * 0.25) * twinkle) * edge;
+        ctx.beginPath();
+        ctx.arc(p.x + Math.sin((now / 900) * (1 + energy * 0.8) + p.phase) * p.sway, p.y, p.r * twinkle * (1 + energy * 0.35), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      sparks.raf = requestAnimationFrame(tick);
+    };
+    resize();
+    for (let i = 0; i < 26; i += 1) spawn(true);
+    sparks.observer = window.ResizeObserver ? new ResizeObserver(resize) : null;
+    if (sparks.observer) sparks.observer.observe(canvas);
+    sparks.clear = () => ctx.clearRect(0, 0, w, h);
+    sparks.raf = requestAnimationFrame(tick);
+  }
+
+  function stopSparks() {
+    if (sparks.raf) cancelAnimationFrame(sparks.raf);
+    sparks.raf = 0;
+    if (sparks.observer) sparks.observer.disconnect();
+    sparks.observer = null;
+    if (sparks.clear) sparks.clear();
+  }
+
+  // ------------------------------------- AI text: dictating the description
+  function toggleDictation() {
+    const button = $('[data-qv-mic]');
+    if (state.recognition) { state.recognition.stop(); return; }
+    if (!state.aiMode) { notice('Включите «Текст с ИИ», чтобы надиктовать описание диалога'); return; }
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) { notice('Голосовой ввод не поддерживается в этом браузере'); return; }
+    const recognition = new Recognition();
+    state.recognition = recognition;
+    recognition.lang = navigator.language || 'ru-RU';
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const field = $('#qvAiBrief');
+      const text = Array.from(event.results).map((result) => (result[0] && result[0].transcript) || '').join(' ').trim();
+      if (field && text) { field.value = (field.value ? field.value + ' ' : '') + text; field.dispatchEvent(new Event('input', { bubbles: true })); }
+    };
+    recognition.onerror = (event) => { if (event.error === 'not-allowed' || event.error === 'service-not-allowed') notice('Разрешите доступ к микрофону'); };
+    recognition.onend = () => { state.recognition = null; if (button) button.classList.remove('is-live'); };
+    try { recognition.start(); if (button) button.classList.add('is-live'); } catch (_) { state.recognition = null; notice('Голосовой ввод сейчас недоступен'); }
+  }
+
+  // ------------------------------- wide screens: the cube and the zoom
+  const wide = () => !window.matchMedia(DRAWER_QUERY).matches;
+
+  function saveLayout() {
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify({ collapsed: state.collapsed, cube: state.cube, zoom: state.zoom })); } catch (_) {}
+  }
+
+  function loadLayout() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
+      if (!saved) return;
+      state.collapsed = !!saved.collapsed;
+      state.cube = saved.cube && Number.isFinite(saved.cube.x) && Number.isFinite(saved.cube.y) ? saved.cube : null;
+      if (Number.isFinite(saved.zoom)) state.zoom = Math.min(ZOOM.max, Math.max(ZOOM.min, saved.zoom));
+    } catch (_) {}
+  }
+
+  function setZoom(value) {
+    state.zoom = Math.min(ZOOM.max, Math.max(ZOOM.min, Math.round(Number(value) / ZOOM.step) * ZOOM.step || 100));
+    const board = $('#qvBoard');
+    if (board) board.style.zoom = wide() ? String(state.zoom / 100) : '';
+    const range = $('#qvZoomRange');
+    if (range) { range.value = String(state.zoom); range.style.setProperty('--qv-zoom-fill', ((state.zoom - ZOOM.min) / (ZOOM.max - ZOOM.min) * 100) + '%'); }
+    const out = $('#qvZoomValue');
+    if (out) out.textContent = state.zoom + '%';
+    saveLayout();
+  }
+
+  // The area the cube moves in: the workspace above the player.
+  function cubeBounds() {
+    const main = $('.qv-main');
+    const player = $('#qvPlayer');
+    const width = main ? main.clientWidth : 0;
+    let height = main ? main.clientHeight : 0;
+    if (player && !player.hidden && main) height = Math.min(height, player.getBoundingClientRect().top - main.getBoundingClientRect().top);
+    return { minX: CUBE_EDGE, minY: CUBE_EDGE, maxX: Math.max(CUBE_EDGE, width - CUBE - CUBE_EDGE), maxY: Math.max(CUBE_EDGE, height - CUBE - CUBE_EDGE) };
+  }
+
+  // A released cube sticks to the nearest edge of the workspace.
+  function snapCube(x, y) {
+    const b = cubeBounds();
+    const cx = Math.min(b.maxX, Math.max(b.minX, x));
+    const cy = Math.min(b.maxY, Math.max(b.minY, y));
+    const gaps = [[cx - b.minX, 'left'], [b.maxX - cx, 'right'], [cy - b.minY, 'top'], [b.maxY - cy, 'bottom']].sort((a, c) => a[0] - c[0]);
+    const side = gaps[0][1];
+    return { x: side === 'left' ? b.minX : side === 'right' ? b.maxX : cx, y: side === 'top' ? b.minY : side === 'bottom' ? b.maxY : cy };
+  }
+
+  function placeCube(animate) {
+    const cube = $('#qvCube');
+    if (!cube) return;
+    const b = cubeBounds();
+    if (!state.cube) state.cube = { x: b.maxX, y: b.maxY };
+    const at = snapCube(state.cube.x, state.cube.y);
+    state.cube = at;
+    cube.classList.toggle('is-animating', !!animate);
+    cube.style.transform = 'translate(' + at.x + 'px,' + at.y + 'px)';
+    const main = $('.qv-main');
+    cube.classList.toggle('opens-right', !!main && at.x < main.clientWidth / 2);
+  }
+
+  function setCollapsed(on) {
+    state.collapsed = !!on && wide();
+    const root = $('#qv');
+    if (root) root.classList.toggle('is-folded', state.collapsed);
+    const cube = $('#qvCube');
+    if (cube) cube.hidden = !state.collapsed;
+    if (state.collapsed) {
+      placeCube(false);
+      if (cube) cube.animate([{ opacity: 0, scale: '0.6' }, { opacity: 1, scale: '1' }], { duration: 260, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' });
+    } else {
+      const composer = $('#qvComposer');
+      if (composer) composer.animate([{ opacity: 0, translate: '0 14px' }, { opacity: 1, translate: '0 0' }], { duration: 280, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' });
+      if (state.aiMode) { stopSparks(); startSparks(); }
+    }
+    saveLayout();
+  }
+
+  // Dragging the cube; a press without a move opens the composer.
+  function bindCube() {
+    const face = $('[data-qv-cube]');
+    const cube = $('#qvCube');
+    if (!face || !cube) return;
+    let drag = null;
+    face.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      drag = { id: event.pointerId, sx: event.clientX, sy: event.clientY, x: state.cube.x, y: state.cube.y, moved: false };
+      face.setPointerCapture(event.pointerId);
+      cube.classList.remove('is-animating');
+    });
+    face.addEventListener('pointermove', (event) => {
+      if (!drag || drag.id !== event.pointerId) return;
+      const dx = event.clientX - drag.sx;
+      const dy = event.clientY - drag.sy;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      drag.moved = true;
+      cube.classList.add('is-dragging');
+      const b = cubeBounds();
+      state.cube = { x: Math.min(b.maxX, Math.max(b.minX, drag.x + dx)), y: Math.min(b.maxY, Math.max(b.minY, drag.y + dy)) };
+      cube.style.transform = 'translate(' + state.cube.x + 'px,' + state.cube.y + 'px)';
+    });
+    const end = (event) => {
+      if (!drag || drag.id !== event.pointerId) return;
+      const moved = drag.moved;
+      drag = null;
+      cube.classList.remove('is-dragging');
+      if (moved) { placeCube(true); saveLayout(); } else setCollapsed(false);
+    };
+    face.addEventListener('pointerup', end);
+    face.addEventListener('pointercancel', end);
+    face.addEventListener('click', (event) => event.preventDefault());
+    window.addEventListener('resize', () => {
+      if (state.collapsed && !wide()) setCollapsed(false);
+      else if (state.collapsed) placeCube(false);
+      setZoom(state.zoom);
+    });
+  }
+
+  // The player shows once a dialogue has been voiced.
+  function resetPlayer() {
+    const audio = $('#qvAudio');
+    if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+    state.audioUrl = '';
+    state.audioTitle = '';
+    const playerNode = $('#qvPlayer');
+    if (playerNode) { playerNode.hidden = true; playerNode.dataset.empty = '1'; }
+    if (state.collapsed) placeCube(true);
   }
 
   function toggleAiMode() {
@@ -554,7 +818,8 @@
     audio.src = src;
     audio.playbackRate = Number(state.speed) || 1;
     const playerNode = $('#qvPlayer');
-    if (playerNode) playerNode.dataset.empty = '0';
+    if (playerNode) { playerNode.dataset.empty = '0'; playerNode.hidden = false; }
+    if (state.collapsed) placeCube(true);
     setPlayerLoading(false);
     if (autoplay) audio.play().catch(() => {});
   }
@@ -650,6 +915,11 @@
       const modelChoice = target.closest('[data-qv-model]');
       if (modelChoice) { state.modelId = modelChoice.dataset.qvModel; renderModel(); renderBoard(); return; }
       if (target.closest('[data-qv-generate]')) { if (state.aiMode) runScript(); else generate(); return; }
+      if (target.closest('[data-qv-collapse]')) { setCollapsed(true); return; }
+      if (target.closest('[data-qv-expand-composer]')) { setCollapsed(false); return; }
+      if (target.closest('[data-qv-mic]')) { toggleDictation(); return; }
+      const zoomStep = target.closest('[data-qv-zoom]');
+      if (zoomStep) { setZoom(state.zoom + Number(zoomStep.dataset.qvZoom) * ZOOM.step); return; }
       if (target.closest('[data-qv-ai]')) { toggleAiMode(); return; }
       if (target.closest('[data-qv-speed-open]')) { if (speedMenu) speedMenu.hidden = !speedMenu.hidden; return; }
       const speedChoice = target.closest('[data-qv-speed]');
@@ -677,6 +947,7 @@
       if (target.closest('[data-qv-new]')) {
         state.blocks = [];
         state.selectedKey = '';
+        resetPlayer();
         renderBoard();
         toggleHistory(false);
         return;
@@ -706,6 +977,8 @@
         const block = blockByKey(field.dataset.qvFullText);
         if (block) block.text = field.value;
       } else if (field.id === 'qvAiBrief') {
+        sparks.energy = Math.min(1.6, sparks.energy + 0.22);
+        sparks.strokes = Math.min(4, sparks.strokes + 1);
         renderCounter();
       } else if (field.id === 'qvSearch') {
         state.query = field.value;
@@ -713,6 +986,8 @@
       } else if (field.id === 'qvSeek') {
         const audio = $('#qvAudio');
         if (audio && audio.duration) audio.currentTime = Number(field.value) / 1000 * audio.duration;
+      } else if (field.id === 'qvZoomRange') {
+        setZoom(field.value);
       } else if (field.id === 'qvVolume') {
         const audio = $('#qvAudio');
         if (audio) audio.volume = Number(field.value);
@@ -876,11 +1151,15 @@
   function mount(root) {
     state.root = root;
     root.innerHTML = shell();
+    loadLayout();
     renderModel();
     renderVoices();
     renderBoard();
     renderHistory();
     bind();
+    bindCube();
+    setZoom(state.zoom);
+    if (state.collapsed) setCollapsed(true);
     post({ action: 'voice-library-request' });
   }
 
