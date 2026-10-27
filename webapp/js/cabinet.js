@@ -403,6 +403,8 @@ let activePhotoTool = '';
 // close so the tool's own forced 'image' mode never bleeds into the next
 // time the user opens Pro Studio normally. null while no tool is open.
 let photoToolReturnMode = null;
+let photoToolInPlace = false;
+let photoToolInPlaceResult = null;
 // True when the currently open specific Photo Tool was reached by tapping
 // a card in the Tools List (not a direct deep link) - closing it should
 // then go back one level to that list instead of leaving the modal.
@@ -6412,7 +6414,6 @@ function ensurePhotoCatalogModal() {
   modal.innerHTML = '<section class="photo-tool-dialog photo-catalog-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
     + '<header class="photo-tool-head"><div><small>Быстрый генератор</small><h3>Каталог изображений</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoCatalog(event)">×</button></header>'
-    + '<nav id="photoCatalogTabs" class="photo-catalog-tabs"></nav>'
     + '<div id="photoCatalogGrid" class="photo-catalog-grid"></div>'
     + '</section>';
   document.body.appendChild(modal);
@@ -6448,40 +6449,102 @@ async function loadPhotoCatalog(force) {
   return quickImageCatalogCache;
 }
 
-function selectPhotoCatalogSection(e, section) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  quickImageCatalogSection = section || 'references';
-  renderPhotoCatalog();
+// One catalog: references, styles, popular references and objects together.
+const PHOTO_CATALOG_SECTIONS = ['references', 'styles', 'popular_references', 'objects'];
+function photoCatalogItems() {
+  const cache = quickImageCatalogCache || {};
+  const hash = (value) => [...String(value)].reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 7), 0);
+  return PHOTO_CATALOG_SECTIONS.flatMap((section) => {
+    const items = (cache[section] || []).slice();
+    if (section === 'styles' || section === 'objects') items.sort((a, b) => (hash(a.id) % 17) - (hash(b.id) % 17) || hash(a.id) - hash(b.id));
+    return items.map((item) => ({ item, section }));
+  });
 }
 
 function renderPhotoCatalog() {
   const grid = document.getElementById('photoCatalogGrid');
   if (!grid) return;
-  const sections = [['references','Референсы'],['styles','Стили'],['popular_references','Популярные'],['objects','Объекты'],['tools','Инструменты']];
-  const tabs = document.getElementById('photoCatalogTabs');
-  if (tabs) tabs.innerHTML = sections.map(([id,label]) => '<button type="button" class="' + (id === quickImageCatalogSection ? 'active' : '') + '" onclick="SYLVEX.selectPhotoCatalogSection(event,\'' + id + '\')">' + label + '</button>').join('');
-  if (quickImageCatalogSection === 'tools') {
-    grid.innerHTML = Object.keys(PHOTO_TOOL_CONFIG).map((id) => {
-      const tool = PHOTO_TOOL_CONFIG[id];
-      return '<button class="photo-catalog-card photo-catalog-tool-card" type="button" onclick="SYLVEX.openPhotoCatalogTool(event,\'' + id + '\')">' + photoToolCatalogPreviewHtml(tool) + '<span><b>' + S.escapeHtml(tool.title || 'Инструмент') + '</b><small>Открыть инструмент</small></span></button>';
-    }).join('');
+  const entries = photoCatalogItems();
+  if (!entries.length) {
+    grid.innerHTML = '<div class="photo-catalog-empty">В каталоге пока нет изображений.</div>';
     return;
   }
-  let items = (quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || [];
-  if (quickImageCatalogSection === 'styles' || quickImageCatalogSection === 'objects') {
-    items = items.slice().sort((a,b) => { const hash=value=>[...String(value)].reduce((sum,char,index)=>sum+char.charCodeAt(0)*(index+7),0); return (hash(a.id)%17)-(hash(b.id)%17) || hash(a.id)-hash(b.id); });
-  }
-  if (!items.length) {
-    grid.innerHTML = '<div class="photo-catalog-empty">В этом разделе пока нет изображений.</div>';
-    return;
-  }
-  grid.innerHTML = items.map((item) => {
-    const hideTitle = quickImageCatalogSection === 'references' || quickImageCatalogSection === 'popular_references';
-    return '<button class="photo-catalog-card square ' + (hideTitle ? 'no-caption' : 'minimal-caption') + '" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.id) + '\')">'
+  grid.innerHTML = entries.map(({ item, section }) => {
+    const hideTitle = section === 'references' || section === 'popular_references';
+    return '<button class="photo-catalog-card square ' + (hideTitle ? 'no-caption' : 'minimal-caption') + '" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.id) + '\',\'\',\'' + section + '\')">'
     + '<img src="' + S.escapeHtml(item.url) + '" alt="' + S.escapeHtml(item.title) + '" loading="lazy" decoding="async" onload="SYLVEX.syncPhotoCatalogCardRatio(event)" />'
     + (hideTitle ? '' : '<span><b>' + S.escapeHtml(item.title) + '</b></span>')
     + '</button>';
   }).join('');
+}
+
+// Wide screens: the photo and video catalogs open in the workspace - from
+// the edge of the studio to the right edge, from under its top bar down to
+// the composer - with nothing dimmed, so the composer below stays usable.
+// The × sits outside the scrolling list and stays put.
+const catalogWorkspaces = new Map();
+function catalogWorkspaceArea() {
+  if (!window.matchMedia('(min-width: 1000px)').matches) return null;
+  const view = document.querySelector('.view[data-view="tools"].active');
+  const composer = document.getElementById('studioComposer');
+  if (!view || !composer) return null;
+  const box = view.getBoundingClientRect();
+  const floor = composer.getBoundingClientRect().top;
+  let top = Math.max(0, box.top) + 12;
+  document.querySelectorAll('.sx-website-studio-toolbar-tabs, .view[data-view="tools"] .studio-bar').forEach((bar) => {
+    const rect = bar.getBoundingClientRect();
+    if (rect.height && rect.bottom < floor) top = Math.max(top, rect.bottom + 10);
+  });
+  if (floor - top < 200) return null;
+  return { left: Math.max(0, box.left) + 12, right: Math.max(0, window.innerWidth - box.right) + 12, top, bottom: window.innerHeight - floor + 10 };
+}
+
+function placeCatalogInWorkspace(host) {
+  const entry = catalogWorkspaces.get(host);
+  if (!entry) return;
+  const area = catalogWorkspaceArea();
+  const { panel, close } = entry;
+  host.classList.toggle('catalog-in-workspace', !!area);
+  ['left', 'right', 'top', 'bottom'].forEach((side) => { panel.style[side] = area ? area[side] + 'px' : ''; });
+  if (!close) return;
+  if (area) {
+    if (close.parentNode !== host) host.appendChild(close);
+    close.classList.add('catalog-workspace-close');
+    close.style.top = (area.top + 10) + 'px';
+    close.style.right = (area.right + 12) + 'px';
+  } else {
+    restoreCatalogClose(host, entry);
+  }
+}
+
+// The × back in its place inside the catalog.
+function restoreCatalogClose(host, entry) {
+  const close = entry.close;
+  if (!close || close.parentNode !== host) return;
+  entry.home.insertBefore(close, entry.next);
+  close.classList.remove('catalog-workspace-close');
+  close.style.top = close.style.right = '';
+}
+
+function watchCatalogWorkspace(host, panel, close) {
+  unwatchCatalogWorkspace(host);
+  const place = () => placeCatalogInWorkspace(host);
+  const observer = window.ResizeObserver ? new ResizeObserver(place) : null;
+  const composer = document.getElementById('studioComposer');
+  if (observer && composer) observer.observe(composer);
+  window.addEventListener('resize', place);
+  catalogWorkspaces.set(host, { panel, close, home: close && close.parentNode, next: close && close.nextSibling, place, observer });
+  place();
+}
+
+function unwatchCatalogWorkspace(host) {
+  const entry = host && catalogWorkspaces.get(host);
+  if (!entry) return;
+  window.removeEventListener('resize', entry.place);
+  if (entry.observer) entry.observer.disconnect();
+  restoreCatalogClose(host, entry);
+  host.classList.remove('catalog-in-workspace');
+  catalogWorkspaces.delete(host);
 }
 
 function syncPhotoCatalogCardRatio(e) {
@@ -6508,6 +6571,7 @@ async function openPhotoCatalog(e) {
   const modal = ensurePhotoCatalogModal();
   document.body.appendChild(modal); // keep on top of any modal stacked under it
   modal.classList.add('show');
+  watchCatalogWorkspace(modal, modal.querySelector('.photo-catalog-dialog'), modal.querySelector('.photo-tool-head button'));
   const grid = document.getElementById('photoCatalogGrid');
   if (grid) grid.innerHTML = '<div class="photo-catalog-empty">Загружаем каталог…</div>';
   await loadPhotoCatalog(false);
@@ -6521,6 +6585,7 @@ function closePhotoCatalog(e) {
   }
   const modal = document.getElementById('photoCatalogModal');
   if (modal) modal.classList.remove('show');
+  unwatchCatalogWorkspace(modal);
 }
 
 function ensureQuickImageDetailModal() {
@@ -6569,11 +6634,12 @@ function renderQuickImageDetailFields(item) {
     : '<label><span>' + field.label + '</span><input type="text" data-quick-image-field="' + field.key + '" placeholder="' + field.label + '" /></label>').join('');
 }
 
-function selectPhotoCatalogItem(e, id, source) {
+function selectPhotoCatalogItem(e, id, source, section) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
+  if (section) quickImageCatalogSection = section;
   const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
   if (!item) return;
   quickImageDetailState = { item, source:source === 'quick' ? 'quick' : 'prostudio', uploadedUrl:'', previewUrl:'', uploading:false, extraUploads:{} };
@@ -6653,10 +6719,6 @@ async function onQuickImageDetailFile(e) {
   }
   finally { quickImageDetailState.uploading = false; }
 }
-
-// Leaves the catalog modal open underneath (see selectPhotoCatalogItem) so
-// closing the opened tool returns to the catalog's Tools tab, not past it.
-function openPhotoCatalogTool(e, id) { if (e) { e.preventDefault(); e.stopPropagation(); } openPhotoToolModal(null, id); }
 
 // Desktop prev/next arrows for the Logo/Tattoo/Hair&Beard preset
 // carousels - the track itself already scrolls natively via touch swipe,
@@ -9988,10 +10050,13 @@ function openPhotoToolModal(e, kind) {
     e.preventDefault();
     e.stopPropagation();
   }
-  // Opening from Home (no Pro Studio view active yet) must land the user
-  // inside the Image section underneath, so closing this modal later
-  // reveals that section - never the Home screen it was opened from.
-  if (!document.querySelector('.view[data-view="tools"].active')) switchView('tools');
+  // The tool opens over whatever screen it was called from and closes back
+  // to it; opened outside Pro Studio, its finished picture opens in the
+  // viewer right there.
+  if (!document.getElementById('photoToolModal')?.classList.contains('show')) {
+    photoToolInPlace = !document.querySelector('.view[data-view="tools"].active');
+    photoToolInPlaceResult = null;
+  }
   // Only remember the mode on the FIRST open of this modal session - if the
   // user switches between tools inside an already-open modal (e.g. catalog
   // fallback -> a specific tool), the return point stays whatever screen
@@ -10105,6 +10170,10 @@ function closePhotoToolModal(e) {
     }
     modal.classList.remove('show');
     if (typeof window !== 'undefined' && window.SYLVEX && window.SYLVEX.browserNav) window.SYLVEX.browserNav.closed(navKey);
+    const inPlaceResult = photoToolInPlace && !document.querySelector('.view[data-view="tools"].active') ? photoToolInPlaceResult : null;
+    photoToolInPlace = false;
+    photoToolInPlaceResult = null;
+    if (inPlaceResult && inPlaceResult.length) openImageViewer(null, inPlaceResult[0], inPlaceResult);
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
     // into image mode even when it was opened from Home or another mode -
     // that switch must not persist after the tool closes, or the next
@@ -17385,6 +17454,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const sg = document.getElementById('shopGrid');
     if (ht) ht.innerHTML = S.toolsData.slice(0, 6).map(S.toolCard).join('');
     if (hh) renderHomeQuickTools();
+    renderHomeIdeaTools();
     if (fh && profileGalleryItems.length) renderProfileGallery();
     if (sg) sg.innerHTML = S.shopData.map(S.shopCard).join('');
     renderModeStrip();
@@ -18643,6 +18713,8 @@ function renderGeneratedTelegramButton(url, kind) {
     });
     generatedImageLibrary = generatedImageLibrary.slice(0, 20);
     renderUploadPanelImages();
+    // A quick tool working over another screen shows its picture there.
+    if (photoToolInPlace && document.getElementById('photoToolModal')?.classList.contains('show')) photoToolInPlaceResult = list.map((item) => item.url);
   }
 
   // =====================================================
@@ -21213,6 +21285,7 @@ function maybeShowVideoTemplateIntro(force) {
   function closeVideoTemplatesCatalog() {
     closeVideoTemplateModal();
     const overlay = document.getElementById('videoTemplatesOverlay');
+    unwatchCatalogWorkspace(overlay);
     if (overlay) overlay.remove();
   }
 
@@ -21361,6 +21434,7 @@ function maybeShowVideoTemplateIntro(force) {
     // =====================================================
     if (closeBtn) closeBtn.addEventListener('click', closeVideoTemplatesCatalog);
     document.body.appendChild(overlay);
+    watchCatalogWorkspace(overlay, overlay.querySelector('.video-templates-panel'), closeBtn);
     hydrateVideoTemplateCardVideos(overlay);
   }
 
@@ -21497,6 +21571,57 @@ function maybeShowVideoTemplateIntro(force) {
     // =====================================================
     if (generate) generate.addEventListener('click', startVideoTemplateGeneration);
     renderVideoTemplateUpload();
+  }
+
+  // =====================================================
+  // HOME COMPOSER: a catalog reference + the user's photo
+  // Generate runs the reference's own Pro Studio flow (its catalog block's
+  // generation), the same way the website's Media page does.
+  // =====================================================
+  function mediaVideoTemplate(request, list) {
+    if (request.kind === 'video_reference') {
+      return { id:request.itemId || '', title:request.title || 'Video reference', description:'', prompt:'',
+        preview_video:request.video || '', reference_video:request.video || '', poster_url:request.image || '',
+        aspect_ratio:request.aspect || '9:16', duration:5, resolution:'720p' };
+    }
+    return (list || []).find((item) => String(item.id) === String(request.itemId)) || null;
+  }
+
+  async function mediaImageItem(request) {
+    if (request.kind === 'image_reference') return { item:null, section:'' };
+    await loadPhotoCatalog(false);
+    const cache = quickImageCatalogCache || {};
+    for (const section of ['styles', 'references', 'popular_references']) {
+      const item = (cache[section] || []).find((entry) => entry.id === request.itemId && entry.source !== 'prostudio_style');
+      if (item) return { item, section };
+    }
+    return { item:null, section:'' };
+  }
+
+  async function runMediaGeneration(request) {
+    const r = request || {};
+    if (!r.upload) return false;
+    if (/^video_/.test(String(r.kind || ''))) {
+      const list = r.kind === 'video_effect' ? await loadKlingEffects() : (r.kind === 'video_template' ? await loadVideoTemplates() : []);
+      const template = mediaVideoTemplate(r, list);
+      if (!template) { toast('Этот шаблон сейчас недоступен', 'error'); return false; }
+      switchView('tools');
+      updateComposerMode('video');
+      activeVideoTemplate = template;
+      videoTemplateUploadUrl = r.upload;
+      // The format the user picked on the Media page, if the template offers it.
+      const ratios = videoTemplateRatios(template);
+      videoTemplateRatio = ratios.includes(r.aspect) ? r.aspect : (ratios.includes(template.aspect_ratio) ? template.aspect_ratio : ratios[0]);
+      await startVideoTemplateGeneration();
+      return true;
+    }
+    const found = await mediaImageItem(r);
+    const item = found.item || { id:r.itemId || '', url:r.image || '', title:r.title || 'Reference', description:'', prompt:r.prompt || '', kind:'references', source:'media' };
+    quickImageDetailState = { item, source:'quick', uploadedUrl:r.upload, previewUrl:'', uploading:false,
+      extraUploads:Object.assign({}, r.extraUploads || {}), fields:Object.assign({}, r.fields || {}) };
+    switchView('tools');
+    await generateQuickImageDetail(null);
+    return true;
   }
 
   async function startVideoTemplateGeneration() {
@@ -25572,7 +25697,214 @@ async function waitGeneration(jobId, options) {
   const AI_ASSISTANT_WELCOME = 'Здравствуйте! Я SYLVEX Ассистент. Напишите, что вы хотите сделать, и я помогу.';
   const homeIdeaMessages=[];let homeIdeaAttachment=null,homeIdeaRoute=null;
   function renderHomeIdeaChat(){const host=document.getElementById('homeIdeaChat');if(!host)return;host.innerHTML=(homeIdeaMessages.length?homeIdeaMessages:[{role:'ai',text:'Опишите свою идею — я уточню детали и подготовлю запрос для нужного генератора.'}]).map(item=>`<p class="${item.role==='user'?'user':'ai'}">${S.escapeHtml(item.text)}</p>`).join('');host.scrollTop=host.scrollHeight}
-  function renderHomeIdeaAttachment(){const host=document.getElementById('homeIdeaAttachment');if(!host)return;host.hidden=!homeIdeaAttachment;host.innerHTML=homeIdeaAttachment?`<img src="${S.escapeHtml(homeIdeaAttachment.url)}" alt=""><button type="button" data-home-idea-remove>×</button>`:''}
+  // Home composer. The Video / Photo switch picks which references the panel
+  // over the composer shows (Motion repeat / Photo from reference); a picked
+  // reference plus the user's photo runs that reference's own Pro Studio
+  // generation. Without a reference the prompt is routed as before.
+  const HOME_IDEA_PANEL_TITLES = { video: 'Повтор движения', photo: 'Фото по референсу' };
+  const homeIdeaRefItems = { video: null, photo: null };
+  let homeIdeaMode = 'video', homeIdeaRef = null, homeIdeaRefPhoto = null;
+
+  async function homeIdeaReferences(mode) {
+    if (homeIdeaRefItems[mode]) return homeIdeaRefItems[mode];
+    const items = [];
+    if (mode === 'video') {
+      (await loadVideoTemplates()).forEach((template) => {
+        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || '') });
+      });
+    } else {
+      // The same sections, in the same order, that mediaImageItem() looks in.
+      const catalog = await loadPhotoCatalog(false), seen = new Set();
+      ['styles', 'references', 'popular_references'].forEach((section) => (catalog[section] || []).forEach((item) => {
+        if (item.source === 'prostudio_style' || seen.has(item.id)) return;
+        seen.add(item.id);
+        items.push({ id: item.id, image: item.url, title: item.title });
+      }));
+    }
+    homeIdeaRefItems[mode] = items.filter((item) => item.id && item.image);
+    return homeIdeaRefItems[mode];
+  }
+
+  function homeIdeaPanelOptions(items) {
+    return {
+      title: HOME_IDEA_PANEL_TITLES[homeIdeaMode], kind: homeIdeaMode, items,
+      selected: homeIdeaRef && homeIdeaRef.kind === homeIdeaMode ? homeIdeaRef.id : null,
+    };
+  }
+
+  async function openHomeIdeaPanel() {
+    const field = document.getElementById('homeIdeaForm');
+    if (!field || !window.SylvexRefPanel) return;
+    const mode = homeIdeaMode;
+    const ready = homeIdeaRefItems[mode];
+    if (!SylvexRefPanel.isOpen()) {
+      SylvexRefPanel.open(Object.assign(homeIdeaPanelOptions(ready), {
+        anchor: field, layout: 'grid', cols: 3, rows: 2, closeLabel: 'Закрыть', emptyText: 'Каталог пока пуст',
+        onPick: pickHomeIdeaRef,
+      }));
+    } else {
+      SylvexRefPanel.update(homeIdeaPanelOptions(ready));
+    }
+    if (ready) return;
+    const items = await homeIdeaReferences(mode);
+    if (SylvexRefPanel.isOpen() && homeIdeaMode === mode) SylvexRefPanel.update(homeIdeaPanelOptions(items));
+  }
+
+  function pickHomeIdeaRef(item) {
+    homeIdeaRef = Object.assign({ kind: homeIdeaMode }, item);
+    // A reference takes the place of a plain attached photo.
+    homeIdeaAttachment = null;
+    renderHomeIdeaRefs();
+  }
+
+  function setHomeIdeaMode(mode) {
+    if (mode !== 'video' && mode !== 'photo') return;
+    homeIdeaMode = mode;
+    document.querySelectorAll('#homeIdeaMode [data-home-idea-mode]').forEach((button) => {
+      const on = button.dataset.homeIdeaMode === mode;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-pressed', String(on));
+    });
+    // A reference of the other kind leaves; the user's photo stays.
+    if (homeIdeaRef && homeIdeaRef.kind !== mode) { homeIdeaRef = null; renderHomeIdeaRefs(); }
+    if (window.SylvexRefPanel && SylvexRefPanel.isOpen()) openHomeIdeaPanel();
+  }
+
+  // The reference and, next to it, the user's photo (or the place for it);
+  // a plain attached photo when there is no reference.
+  function renderHomeIdeaRefs() {
+    const host = document.getElementById('homeIdeaRefs');
+    if (!host) return;
+    const thumb = (url, remove, extra) => '<span class="home-idea-ref' + (extra || '') + '"><img src="' + S.escapeHtml(url) + '" alt=""><button type="button" aria-label="Убрать" ' + remove + '>×</button></span>';
+    let html = '';
+    if (homeIdeaRef) {
+      const photo = homeIdeaRefPhoto;
+      html = thumb(homeIdeaRef.image, 'data-home-idea-remove-ref')
+        + (photo
+          ? thumb(photo.preview || photo.url, 'data-home-idea-remove-photo', photo.uploading ? ' is-uploading' : '')
+          : '<button type="button" class="home-idea-upload" data-home-idea-upload><span>＋</span>Загрузите любое изображение</button>');
+    } else if (homeIdeaAttachment) {
+      html = thumb(homeIdeaAttachment.url, 'data-home-idea-remove');
+    }
+    host.innerHTML = html;
+    host.hidden = !html;
+    syncHomeIdeaSend();
+  }
+
+  function homeIdeaRefReady() {
+    return !!(homeIdeaRef && homeIdeaRefPhoto && homeIdeaRefPhoto.url && !homeIdeaRefPhoto.uploading);
+  }
+
+  function syncHomeIdeaSend() {
+    const input = document.getElementById('homeIdeaInput');
+    const send = document.querySelector('#homeIdeaForm .send');
+    if (send) send.classList.toggle('armed', homeIdeaRefReady() || !!String(input && input.value || '').trim() || (!homeIdeaRef && !!homeIdeaAttachment));
+  }
+
+  async function uploadHomeIdeaRefPhoto(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type || '')) { toast('Выберите изображение'); return; }
+    const preview = URL.createObjectURL(file);
+    const photo = { url: '', preview, uploading: true };
+    homeIdeaRefPhoto = photo;
+    renderHomeIdeaRefs();
+    try {
+      const url = await uploadProStudioMediaFile(file, 'image');
+      if (homeIdeaRefPhoto !== photo) return;
+      if (!url) { homeIdeaRefPhoto = null; return; }
+      photo.url = url;
+      photo.uploading = false;
+    } catch (error) {
+      if (homeIdeaRefPhoto === photo) homeIdeaRefPhoto = null;
+      toast(error && error.message ? error.message : 'Не удалось загрузить фото');
+    } finally {
+      if (homeIdeaRefPhoto === photo || !homeIdeaRefPhoto) renderHomeIdeaRefs();
+    }
+  }
+
+  // Reference + photo: the reference's own generation (video templates make
+  // a video, photo references a photo).
+  async function generateHomeIdeaRef() {
+    if (guestNeedsAccount('create')) return;
+    const form = document.getElementById('homeIdeaForm');
+    if (!homeIdeaRefPhoto) { document.getElementById('homeIdeaFileInput')?.click(); toast('Загрузите изображение'); return; }
+    if (homeIdeaRefPhoto.uploading) { toast('Фото ещё загружается'); return; }
+    if (form?.classList.contains('loading')) return;
+    const ref = homeIdeaRef, upload = homeIdeaRefPhoto.url;
+    const request = ref.kind === 'video'
+      ? { kind: 'video_template', itemId: ref.id, upload, aspect: ref.aspect }
+      : { kind: 'image', itemId: ref.id, upload };
+    form?.classList.add('loading');
+    window.SylvexRefPanel?.close();
+    try {
+      if (!await runMediaGeneration(request)) return;
+      homeIdeaRef = null;
+      homeIdeaRefPhoto = null;
+      renderHomeIdeaRefs();
+    } finally {
+      form?.classList.remove('loading');
+    }
+  }
+
+  // The prompt row's mic: speech to text into the prompt.
+  let homeIdeaRecorder = null;
+  async function toggleHomeIdeaMic() {
+    const button = document.getElementById('homeIdeaVoice');
+    if (homeIdeaRecorder && homeIdeaRecorder.state === 'recording') { homeIdeaRecorder.stop(); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { toast('Микрофон не поддерживается'); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { toast('Нет доступа к микрофону'); return; }
+    const mime = ['audio/webm', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported(type)) || '';
+    const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    const chunks = [];
+    homeIdeaRecorder = recorder;
+    recorder.ondataavailable = (event) => { if (event.data && event.data.size) chunks.push(event.data); };
+    recorder.onstop = async () => {
+      homeIdeaRecorder = null;
+      button?.classList.remove('live');
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      if (blob.size < 800) { toast('Запись слишком короткая'); return; }
+      const input = document.getElementById('homeIdeaInput');
+      try {
+        const body = new FormData();
+        body.append('file', blob, 'voice.' + (blob.type.includes('mp4') ? 'mp4' : 'webm'));
+        const response = await fetch('/api/public/prostudio/transcribe', { method: 'POST', body });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(translateGenerationError(data, 'Не удалось распознать голос. Попробуйте ещё раз.'));
+        if (input) { input.value = (input.value ? input.value + ' ' : '') + (data.text || ''); input.dispatchEvent(new Event('input')); }
+      } catch (error) {
+        toast(translateGenerationError(error, 'Не удалось распознать голос. Попробуйте ещё раз.'));
+      }
+    };
+    recorder.start();
+    button?.classList.add('live');
+  }
+
+  // Under the composer: every quick tool as a small icon with its name.
+  const HOME_IDEA_TOOL_ICON = (d) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg>';
+  const HOME_IDEA_TOOL_ICONS = {
+    edit_workspace: '<path d="m4 16 9.8-9.8a2.8 2.8 0 0 1 4 4L8 20H4v-4Z"/><path d="m13 7 4 4"/>',
+    try_on: '<path d="M8 4 4 7l2 4 2-1v10h8V10l2 1 2-4-4-3a4 4 0 0 1-8 0Z"/>',
+    remove_bg: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 15l4-4 5 5M14 14l2-2 4 4"/><path d="M9 4v16" stroke-dasharray="2 2.5"/>',
+    replace_character: '<circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 7h5l-2-2M21 13h-5l2 2"/>',
+    enhance: '<path d="M12 3l1.8 4.8L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.7z"/><path d="M18 15l.8 2.2 2.2.8-2.2.8L18 21l-.8-2.2-2.2-.8 2.2-.8z"/>',
+    animate_photo: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3V9Z"/>',
+    remove_object: '<path d="m7 21-4-4 10-10 6 6-8 8H7Z"/><path d="M14 21h7M9.5 10.5l6 6"/>',
+    replace_object: '<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/><path d="M15 3h3a3 3 0 0 1 3 3v2M9 21H6a3 3 0 0 1-3-3v-2"/>',
+    tattoo: '<path d="m15 4 5 5-9 9H6v-5l9-9Z"/><path d="M4 21h7"/>',
+    logo: '<circle cx="12" cy="12" r="8"/><path d="M9 12l2 2 4-4"/>',
+    watermark_removal: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/><path d="M4 4l16 16"/>',
+    hair_beard: '<path d="M6 10a6 6 0 0 1 12 0v2c0 4-2.7 7-6 7s-6-3-6-7v-2Z"/><path d="M8 9c2 1 6 1 8 0"/>',
+    face_retouch: '<circle cx="12" cy="12" r="8"/><path d="M9 10h.01M15 10h.01M9 15c1.7 1.3 4.3 1.3 6 0"/>',
+  };
+  const HOME_IDEA_TOOL_FALLBACK = '<path d="M12 3l1.8 4.8L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.7z"/>';
+  function renderHomeIdeaTools() {
+    const host = document.getElementById('homeIdeaTools');
+    if (!host) return;
+    host.innerHTML = homeQuickTools().map((item) => '<button type="button" data-tool="' + S.escapeHtml(item.key) + '"><span>'
+      + HOME_IDEA_TOOL_ICON(HOME_IDEA_TOOL_ICONS[item.key] || HOME_IDEA_TOOL_FALLBACK) + '</span><b>' + S.escapeHtml(item.title) + '</b></button>').join('');
+  }
   // Home input = universal router. A clear request is routed locally (free);
   // anything ambiguous asks the server router. Unclear or failed routing
   // always lands in the full Text chat. The original prompt is passed on
@@ -25667,7 +25999,6 @@ async function waitGeneration(jobId, options) {
     if (guestNeedsAccount('create')) return;
     const input = document.getElementById('homeIdeaInput');
     const form = document.getElementById('homeIdeaForm');
-    const submit = form?.querySelector('.send');
     const message = String(text || input?.value || '').trim();
     if (!message && !homeIdeaAttachment) return;
     if (form?.classList.contains('loading')) return;
@@ -25683,8 +26014,8 @@ async function waitGeneration(jobId, options) {
       }
     }
     homeIdeaRoute = Object.assign({}, route, { prompt: message });
-    if (input) { input.value = ''; input.placeholder = 'Опиши свою идею…'; }
-    if (submit) submit.hidden = true;
+    if (input) { input.value = ''; input.style.height = ''; input.placeholder = 'Опиши свою идею…'; }
+    window.SylvexRefPanel?.close();
     applyHomeIdeaRoute();
   }
 
@@ -25698,7 +26029,7 @@ async function waitGeneration(jobId, options) {
     homeIdeaAttachment = null;
     const fileInput = document.getElementById('homeIdeaFileInput');
     if (fileInput) fileInput.value = '';
-    renderHomeIdeaAttachment();
+    renderHomeIdeaRefs();
     if (route.mode === 'grid') {
       switchView('tools');
       setStudioLayout('grid');
@@ -25709,7 +26040,6 @@ async function waitGeneration(jobId, options) {
       return;
     }
     if (route.mode === 'tool' && route.tool) {
-      switchView('tools');
       openPhotoToolModal(null, route.tool);
       return;
     }
@@ -25833,7 +26163,68 @@ async function waitGeneration(jobId, options) {
     openSylvexChatLink(button);
   });
 
-  function initHomeIdeaAi(){const form=document.getElementById('homeIdeaForm'),ideaInput=document.getElementById('homeIdeaInput'),submit=form?.querySelector('.send'),fileButton=document.getElementById('homeIdeaFile'),fileInput=document.getElementById('homeIdeaFileInput'),attachment=document.getElementById('homeIdeaAttachment');if(!form)return;ideaInput?.addEventListener('input',()=>{if(submit)submit.hidden=!String(ideaInput.value||'').trim()});form.addEventListener('submit',event=>{event.preventDefault();sendHomeIdea()});fileButton?.addEventListener('click',()=>fileInput?.click());fileInput?.addEventListener('change',()=>{const file=fileInput.files?.[0];if(!file)return;if(file.size>8*1024*1024){toast('Фото должно быть меньше 8 МБ');return}const reader=new FileReader();reader.onload=()=>{const url=String(reader.result||''),dataBase64=url.split(',')[1]||'';homeIdeaAttachment={name:file.name,mime:file.type||'image/jpeg',url,dataBase64};renderHomeIdeaAttachment()};reader.readAsDataURL(file)});attachment?.addEventListener('click',event=>{if(event.target.closest('[data-home-idea-remove]')){homeIdeaAttachment=null;if(fileInput)fileInput.value='';renderHomeIdeaAttachment()}});renderHomeIdeaChat()}
+  function initHomeIdeaAi() {
+    const form = document.getElementById('homeIdeaForm');
+    const input = document.getElementById('homeIdeaInput');
+    const fileInput = document.getElementById('homeIdeaFileInput');
+    if (!form) return;
+    input?.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+      syncHomeIdeaSend();
+    });
+    // Tapping into the prompt opens the references; no button does.
+    input?.addEventListener('focus', openHomeIdeaPanel);
+    input?.addEventListener('click', () => { if (!window.SylvexRefPanel?.isOpen()) openHomeIdeaPanel(); });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (homeIdeaRef) generateHomeIdeaRef(); else sendHomeIdea();
+    });
+    form.addEventListener('click', (event) => {
+      const target = event.target;
+      const mode = target.closest('[data-home-idea-mode]');
+      if (mode) { setHomeIdeaMode(mode.dataset.homeIdeaMode); return; }
+      if (target.closest('#homeIdeaFile, [data-home-idea-upload]')) { fileInput?.click(); return; }
+      if (target.closest('#homeIdeaVoice')) { toggleHomeIdeaMic(); return; }
+      if (target.closest('[data-home-idea-remove-ref]')) {
+        homeIdeaRef = null;
+        homeIdeaRefPhoto = null;
+        window.SylvexRefPanel?.select(null);
+      } else if (target.closest('[data-home-idea-remove-photo]')) {
+        homeIdeaRefPhoto = null;
+      } else if (target.closest('[data-home-idea-remove]')) {
+        homeIdeaAttachment = null;
+      } else {
+        if (target === form || target.closest('.home-idea-bar') === target) input?.focus();
+        return;
+      }
+      if (fileInput) fileInput.value = '';
+      renderHomeIdeaRefs();
+    });
+    // With a reference the photo goes with it; otherwise it is attached to
+    // the prompt for the router.
+    fileInput?.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = '';
+      if (!file) return;
+      if (homeIdeaRef) { uploadHomeIdeaRefPhoto(file); return; }
+      if (file.size > 8 * 1024 * 1024) { toast('Фото должно быть меньше 8 МБ'); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result || '');
+        homeIdeaAttachment = { name: file.name, mime: file.type || 'image/jpeg', url, dataBase64: url.split(',')[1] || '' };
+        renderHomeIdeaRefs();
+      };
+      reader.readAsDataURL(file);
+    });
+    document.getElementById('homeIdeaTools')?.addEventListener('click', (event) => {
+      const tool = event.target.closest('[data-tool]');
+      if (tool) openHomeQuickTool(event, tool.dataset.tool);
+    });
+    renderHomeIdeaTools();
+    renderHomeIdeaRefs();
+    renderHomeIdeaChat();
+  }
   const aiAssistantMessages = [{role:'ai',text:AI_ASSISTANT_WELCOME,welcome:true}];
   function renderAiAssistant() {
     const chat = document.getElementById('aiAssistantChat');
@@ -29955,7 +30346,7 @@ async function waitGeneration(jobId, options) {
     pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, togglePromptFold, newChat,
     openQuickTextChat,
     openConv, deleteConv, expandHistorySection, setConversationHistoryFilter, manageConversationHistory, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
