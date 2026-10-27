@@ -72,6 +72,7 @@ function baseImageState(extra) {
 function makeUploadContext(imageState, opts) {
   const logs = [];
   const toasts = [];
+  const draftModes = [];
   const options = opts || {};
   const context = vm.createContext({
     console: { info: (...args) => logs.push(args) },
@@ -85,6 +86,7 @@ function makeUploadContext(imageState, opts) {
     renderUploadedPhotoGrid: () => {},
     renderUploadPreviewForTarget: () => {},
     updateSendButton: () => {},
+    saveCurrentDraftSoon: (mode) => draftModes.push(mode),
     isVideoFileLike: () => false,
     isAudioFileLike: () => false,
     isImageFileLike: (f) => /^image\//i.test(String(f && f.type || '')),
@@ -99,12 +101,12 @@ function makeUploadContext(imageState, opts) {
   });
   vm.runInContext(extractFunction('processAttachFile'), context);
   vm.runInContext(extractFunction('applyUploadToTarget'), context);
-  return { context, logs, toasts };
+  return { context, logs, toasts, draftModes };
 }
 
 test('fresh local photo: uploads eagerly and the server URL becomes the reference (converges with History/Grid representation)', async () => {
   const imageState = baseImageState();
-  const { context, logs, toasts } = makeUploadContext(imageState, {
+  const { context, logs, toasts, draftModes } = makeUploadContext(imageState, {
     uploadProStudioMediaFile: async (file, kind) => {
       assert.equal(kind, 'image');
       return 'https://cdn.sylvex.ai/uploads/real-photo.jpg';
@@ -123,6 +125,7 @@ test('fresh local photo: uploads eagerly and the server URL becomes the referenc
   assert.ok(logs.some((entry) => entry[0] === 'PHOTO_UPLOAD_COMPLETED'));
   assert.ok(logs.some((entry) => entry[0] === 'PHOTO_REFERENCE_SELECTED' && entry[1].reference_count === 1));
   assert.ok(toasts.includes('Фото добавлено'));
+  assert.deepEqual(draftModes,['image'],'the confirmed reference is persisted in its original mode');
 });
 
 test('fresh local photo: imageState.uploading is populated (and Generate-blocking) for the duration of the network call', async () => {
@@ -200,6 +203,7 @@ test('failed upload (e.g. the backend 400s): reference is never added - no silen
 
 test('History-style reselection (selectUploadedPhoto) converges to the identical referenceImageUrls representation as a fresh upload', async () => {
   const imageState = baseImageState({ uploadedImageUrls: ['https://cdn.sylvex.ai/uploads/older.jpg'] });
+  const draftModes = [];
   const context = vm.createContext({
     console: { info: () => {} },
     toast: () => {},
@@ -211,6 +215,7 @@ test('History-style reselection (selectUploadedPhoto) converges to the identical
     renderUploadedPhotoGrid: () => {},
     renderUploadPreviewForTarget: () => {},
     updateSendButton: () => {},
+    saveCurrentDraftSoon: (mode) => draftModes.push(mode),
   });
   vm.runInContext(extractFunction('applyUploadToTarget'), context);
   vm.runInContext(extractFunction('selectUploadedPhoto'), context);
@@ -218,6 +223,7 @@ test('History-style reselection (selectUploadedPhoto) converges to the identical
 
   assert.deepEqual(imageState.referenceImageUrls, ['https://cdn.sylvex.ai/uploads/older.jpg']);
   assert.equal(imageState.referenceImageUrl, 'https://cdn.sylvex.ai/uploads/older.jpg');
+  assert.deepEqual(draftModes,['image']);
 });
 
 test('imageOptionsPayload: internal uploading bookkeeping never leaks into the generation request payload', () => {

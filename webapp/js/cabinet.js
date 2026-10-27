@@ -679,7 +679,6 @@ let serverVisualItems = {
   voices: [],
 };
 let serverDrafts = {};
-let draftSaveTimer = null;
 let restoringDraft = false;
 
 const LOBE_ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons';
@@ -2884,6 +2883,7 @@ function renderVideoControls() {
   renderVideoEditPreview();
   renderVideoReferencesPreview();
   renderVideoReferenceButtons();
+  try { saveComposerDraftIfChanged(); } catch {}
 }
 
 function pickVideoOption(kind, value) {
@@ -3018,6 +3018,7 @@ function renderTextControls() {
       uploadVal.textContent = 'Файл';
     }
   }
+  try { saveComposerDraftIfChanged(); } catch {}
 }
 
 function textOptionsPayload() {
@@ -3230,6 +3231,7 @@ function renderVoiceControls() {
   let favorites = [];
   try { favorites = JSON.parse(localStorage.getItem('sylvex_voice_favorites') || '[]'); } catch {}
   document.getElementById('voiceFavoriteBtn')?.classList.toggle('active', Array.isArray(favorites) && favorites.includes(selectedVoiceIdentity()));
+  try { saveComposerDraftIfChanged(); } catch {}
 }
 
 function renderVoiceSpeakerComposer() {
@@ -4611,6 +4613,7 @@ function renderMusicControls() {
       .filter((value) => value && value !== 'auto').length;
     settingsVal.textContent = selected ? 'Настройки ' + selected : 'Настройки';
   }
+  try { saveComposerDraftIfChanged(); } catch {}
 }
 
 function ensureMusicSettingsModal() {
@@ -4899,6 +4902,7 @@ let styleSheetCssInjected = false;
     chatMessages = [];
     conversationsCache = [];
     serverDrafts = {};
+    resetComposerDraftOwner();
     profileGalleryItems = [];
     generatedImageLibrary = [];
     Object.keys(serverVisualItems || {}).forEach((key) => { serverVisualItems[key] = []; });
@@ -5100,7 +5104,8 @@ function localizedGreeting() {
       serverVisualItems.characters = Array.isArray(resources.characters) ? resources.characters : [];
       serverVisualItems.objects = Array.isArray(resources.objects) ? resources.objects : [];
       serverVisualItems.voices = Array.isArray(resources.voices) ? resources.voices : [];
-      serverDrafts = data.drafts || {};
+      serverDrafts = mergedComposerDrafts(data.drafts,tg);
+      composerDraftOwner = Number(tg);
       conversationsCache = Array.isArray(data.conversations) ? data.conversations : conversationsCache;
       syncChatCollections(conversationsCache);
       restoreActiveGenerationJobs(Array.isArray(data.generation_jobs) ? data.generation_jobs : []);
@@ -5109,6 +5114,7 @@ function localizedGreeting() {
       renderConvList();
     } catch (err) {
       console.warn('[SYLVEX] prostudio sync failed', err);
+      if(Number(getTelegramId())===Number(tg)){serverDrafts=mergedComposerDrafts({},tg);composerDraftOwner=Number(tg);applyCurrentDraft();}
     }
   }
 
@@ -5425,47 +5431,155 @@ function localizedGreeting() {
     toast('Генерация завершена');
   }
 
-  function applyCurrentDraft() {
-    if (activeGenerationLocked()) return;
-    const ta = document.getElementById('chatInput');
-    if (!ta) return;
-    const type = currentChatType();
-    const draft = serverDrafts && serverDrafts[type] ? serverDrafts[type] : null;
-    if (!draft || !draft.draft_text || (ta.value || '').trim()) return;
-    restoringDraft = true;
-    ta.value = draft.draft_text || '';
-    autoGrow(ta);
-    restoringDraft = false;
-    updateSendButton();
-  }
+  const composerDraftInitialStates = JSON.parse(JSON.stringify({image:imageState,video:videoState,music:musicState,voice:voiceState,text:textState}));
+  const composerDraftTimers = new Map(), composerDraftRestored = new Set(), composerDraftFingerprints = new Map();
+  let composerDraftOwner = 0, composerDraftInputMode = "";
+  const composerDraftTransientKeys = new Set(['uploading','editUploading','referenceUploading','file','blob','stream','recorder','generating','busy','uploadVersion','uploadRevision','__proto__','constructor','prototype']);
 
-  function saveCurrentDraftSoon() {
-    if (restoringDraft) return;
-    const tg = getTelegramId();
-    const ta = document.getElementById('chatInput');
-    if (!tg || !ta) return;
-    const type = currentChatType();
-    const text = ta.value || '';
-    serverDrafts[type] = Object.assign({}, serverDrafts[type] || {}, {
-      mode: type,
-      conversation_id: currentConvId || '',
-      draft_text: text,
-      updated_at: new Date().toISOString(),
+  function composerDraftModeState(mode) {
+    return ({image:imageState,video:videoState,music:musicState,voice:voiceState,text:textState})[mode] || null;
+  }
+  function composerDraftKey(owner,mode) { return 'sylvex-composer-draft-v1:'+owner+':'+mode; }
+  function readComposerDraft(owner,mode) {
+    try {
+      const entry=JSON.parse(localStorage.getItem(composerDraftKey(owner,mode)) || 'null');
+      return entry && Number(entry.owner)===Number(owner) && entry.payload?.mode===mode ? entry : null;
+    } catch { return null; }
+  }
+  function encodeComposerDraft(value,key='',depth=0) {
+    if(depth>12 || composerDraftTransientKeys.has(key))return undefined;
+    if(typeof value==='string') {
+      if(/^(?:blob|data):/i.test(value))return '';
+      // The API's existing response signer refreshes every nested `url`.
+      // Wrap media in arrays/fields whose original names it does not know.
+      if(/^(?:https?:\/\/|\/|generated\/)/.test(value) && /(?:^|\/)generated\//.test(value))return {__sylvex_draft_media_v1:true,url:value};
+      return value;
+    }
+    if(value===null || ['number','boolean'].includes(typeof value))return value;
+    if(Array.isArray(value))return value.map(item=>encodeComposerDraft(item,'',depth+1)).filter(item=>item!==undefined);
+    if(!value || Object.prototype.toString.call(value)!=='[object Object]')return undefined;
+    if(key==='attachment' && (value.uploading || !value.url))return null;
+    if(key==='referenceSourceByUrl')return {__sylvex_draft_sources_v1:true,items:Object.entries(value).map(([url,source])=>({url,source}))};
+    const out={};
+    Object.entries(value).forEach(([name,item])=>{const encoded=encodeComposerDraft(item,name,depth+1);if(encoded!==undefined)out[name]=encoded;});
+    return out;
+  }
+  function decodeComposerDraft(value,depth=0) {
+    if(depth>14)return null;
+    if(typeof value==='string' && /^(?:blob|data):/i.test(value))return '';
+    if(Array.isArray(value))return value.map(item=>decodeComposerDraft(item,depth+1));
+    if(!value || typeof value!=='object')return value;
+    if(value.__sylvex_draft_media_v1===true && typeof value.url==='string')return value.url;
+    if(value.__sylvex_draft_sources_v1===true)return Object.fromEntries((value.items||[]).filter(item=>typeof item.url==='string').map(item=>[item.url,item.source]));
+    const out={};Object.entries(value).forEach(([name,item])=>{if(!composerDraftTransientKeys.has(name))out[name]=decodeComposerDraft(item,depth+1);});return out;
+  }
+  function composerDraftAttachment(mode) {
+    const state=composerDraftModeState(mode);
+    if(!state)return {};
+    const legacy=decodeComposerDraft(encodeComposerDraft(state.attachment || {},'attachment')) || {};
+    return Object.assign({},legacy,{composer_draft:{version:1,mode,state:encodeComposerDraft(state),workspace:mode==='voice'?voiceWorkspaceMode:undefined}});
+  }
+  function composerDraftFingerprint(mode,text) {
+    return JSON.stringify({draft_text:text || '',attachment:composerDraftAttachment(mode)});
+  }
+  function resetComposerDraftOwner() {
+    composerDraftTimers.forEach(timer=>clearTimeout(timer));composerDraftTimers.clear();
+    composerDraftRestored.clear();composerDraftFingerprints.clear();composerDraftOwner=0;composerDraftInputMode="";
+    Object.entries(composerDraftInitialStates).forEach(([mode,initial])=>{
+      const state=composerDraftModeState(mode);Object.keys(state).forEach(key=>delete state[key]);Object.assign(state,JSON.parse(JSON.stringify(initial)));
     });
-    if (draftSaveTimer) clearTimeout(draftSaveTimer);
-    draftSaveTimer = setTimeout(() => {
-      fetch('/api/public/prostudio/draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telegram_id: tg,
-          mode: type,
-          conversation_id: currentConvId || '',
-          draft_text: text,
-          attachment: currentModeAttachment() || {},
-        }),
-      }).catch(() => {});
-    }, 450);
+    pendingAttachment=null;
+  }
+  function mergedComposerDrafts(remote,owner) {
+    const drafts=Object.assign({},remote || {});
+    Object.keys(composerDraftInitialStates).forEach(mode=>{
+      const cached=readComposerDraft(owner,mode);if(!cached)return;
+      const updated=String(drafts[mode]?.updated_at || ''),serverTime=updated?Date.parse(/(?:Z|[+-]\d\d:\d\d)$/.test(updated)?updated:updated+'Z'):0;
+      if(!drafts[mode] || (cached.pending && Number(cached.saved_at)>serverTime))drafts[mode]=cached.payload;
+    });
+    return drafts;
+  }
+  function applyCurrentDraft() {
+    if(activeGenerationLocked())return;
+    const owner=Number(getTelegramId()),mode=currentChatType(),key=owner+':'+mode,ta=document.getElementById('chatInput');
+    if(!owner || !ta)return;
+    const draft=serverDrafts?.[mode];
+    if(!draft && composerDraftOwner!==owner)return; // Sync has not arrived yet.
+    const changedMode=!!composerDraftInputMode && composerDraftInputMode!==mode;
+    if(composerDraftRestored.has(key)) {
+      if(changedMode) {
+        ta.value=draft?.draft_text || '';autoGrow(ta);pendingAttachment=currentModeAttachment();
+        composerDraftInputMode=mode;
+        composerDraftFingerprints.set(key,composerDraftFingerprint(mode,ta.value));
+      }
+      return;
+    }
+    restoringDraft=true;
+    try {
+      const snapshot=draft?.attachment?.composer_draft,state=composerDraftModeState(mode);
+      if(snapshot?.version===1 && snapshot.mode===mode && snapshot.state && state) {
+        const restored=decodeComposerDraft(snapshot.state);
+        const catalog=({image:IMAGE_MODEL_LIST,video:VIDEO_MODELS,music:MUSIC_MODEL_LIST,voice:VOICE_MODEL_LIST,text:TEXT_MODEL_LIST})[mode] || [];
+        if(restored && restored.modelId && catalog.length && !catalog.some(model=>model.id===restored.modelId))delete restored.modelId;
+        const initial=encodeComposerDraft(composerDraftInitialStates[mode]),current=encodeComposerDraft(state);
+        if(restored && typeof restored==='object' && !Array.isArray(restored))Object.entries(restored).forEach(([field,value])=>{
+          // A late sync must not overwrite an input/selection made since boot.
+          const baseline=composerDraftInitialStates[mode][field];
+          if(Array.isArray(baseline) && !Array.isArray(value))return;
+          if(baseline!==null && typeof baseline==='string' && typeof value!=='string')return;
+          if(['uploadedImageUrls','referenceImageUrls','characterReferences','objectReferences'].includes(field))value=value.filter(url=>typeof url==='string' && url);
+          if(field==='attachment' && value && (!value.url || /^(?:blob|data):/i.test(value.url)))value=null;
+          if(JSON.stringify(current[field])===JSON.stringify(initial[field]) && !(field==='attachment' && state.attachment?.uploading))state[field]=value;
+        });
+        if(mode==='voice')voiceWorkspaceMode=snapshot.workspace==='dialogue'?'dialogue':'voiceover';
+      } else if(draft?.attachment && state && !state.attachment) {
+        const legacy=Object.assign({},draft.attachment);delete legacy.composer_draft;
+        if(typeof legacy.url==='string' && legacy.url && !legacy.uploading && !/^(?:blob|data):/i.test(legacy.url))state.attachment=legacy;
+      }
+      if(changedMode || (draft?.draft_text && !(ta.value || '').trim())) {ta.value=draft?.draft_text || '';autoGrow(ta);}
+      composerDraftInputMode=mode;
+      pendingAttachment=currentModeAttachment();
+      composerDraftRestored.add(key);
+      if(mode==='image')renderImageControls();
+      else if(mode==='video')renderVideoControls();
+      else if(mode==='music')renderMusicControls();
+      else if(mode==='voice'){applyVoiceWorkspaceMode();renderVoiceControls();}
+      else if(mode==='text')renderTextControls();
+      renderAllUploadPreviews();
+      composerDraftFingerprints.set(key,composerDraftFingerprint(mode,ta.value));
+      updateSendButton();
+    } finally {restoringDraft=false;}
+  }
+  function saveCurrentDraftSoon(modeOverride) {
+    if(restoringDraft)return;
+    const owner=Number(getTelegramId()),ta=document.getElementById('chatInput'),mode=typeof modeOverride==='string'?modeOverride:currentChatType();
+    if(!owner || !ta || !composerDraftModeState(mode))return;
+    if(mode===currentChatType())composerDraftInputMode=mode;
+    const key=owner+':'+mode,text=mode===currentChatType()?(ta.value || ''):(serverDrafts[mode]?.draft_text || '');
+    const conversation=mode===currentChatType()?(currentConvId || ''):(serverDrafts[mode]?.conversation_id || '');
+    const payload={telegram_id:owner,mode,conversation_id:conversation,draft_text:text,attachment:composerDraftAttachment(mode)};
+    const fingerprint=composerDraftFingerprint(mode,text),cached=readComposerDraft(owner,mode);
+    if(composerDraftFingerprints.get(key)===fingerprint && !cached?.pending)return;
+    composerDraftFingerprints.set(key,fingerprint);composerDraftRestored.add(key);
+    serverDrafts[mode]=Object.assign({},payload,{updated_at:new Date().toISOString()});
+    const entry={owner,payload,saved_at:Date.now(),pending:true};
+    try {localStorage.setItem(composerDraftKey(owner,mode),JSON.stringify(entry));} catch {}
+    clearTimeout(composerDraftTimers.get(key));
+    composerDraftTimers.set(key,setTimeout(async()=>{
+      composerDraftTimers.delete(key);
+      if(Number(getTelegramId())!==owner)return;
+      try {
+        const response=await fetch('/api/public/prostudio/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const result=await response.json();if(!response.ok || !result.ok)return;
+        const latest=readComposerDraft(owner,mode);
+        if(latest?.saved_at===entry.saved_at){latest.pending=false;try{localStorage.setItem(composerDraftKey(owner,mode),JSON.stringify(latest));}catch{}}
+      } catch {}
+    },450));
+  }
+  function saveComposerDraftIfChanged() {
+    const owner=Number(getTelegramId()),mode=currentChatType(),ta=document.getElementById('chatInput'),key=owner+':'+mode;
+    if(restoringDraft || composerDraftOwner!==owner || composerDraftInputMode!==mode || !composerDraftRestored.has(key) || !ta || activeGenerationLocked())return;
+    if(composerDraftFingerprints.get(key)!==composerDraftFingerprint(mode,ta.value))saveCurrentDraftSoon();
   }
 
   async function saveVisualItemToBackend(kind, item) {
@@ -6173,12 +6287,14 @@ function applyUploadToTarget(url, targetOverride, sourceOverride) {
     videoState.startImage = url;
     renderVideoStartPreview();
     updateSendButton();
+    saveCurrentDraftSoon(target===UPLOAD_TARGETS.IMAGE_UPLOAD?'image':'video');
     return;
   }
   if (target === UPLOAD_TARGETS.VIDEO_END) {
     videoState.endImage = url;
     renderVideoEndPreview();
     updateSendButton();
+    saveCurrentDraftSoon(target===UPLOAD_TARGETS.IMAGE_UPLOAD?'image':'video');
     return;
   }
   if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
@@ -6188,6 +6304,7 @@ function applyUploadToTarget(url, targetOverride, sourceOverride) {
     renderVideoReferencesPreview();
     renderUploadedPhotoGrid();
     updateSendButton();
+    saveCurrentDraftSoon(target===UPLOAD_TARGETS.IMAGE_UPLOAD?'image':'video');
     return;
   }
   if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
@@ -6206,6 +6323,7 @@ function applyUploadToTarget(url, targetOverride, sourceOverride) {
     renderImageUploadPreview();
     renderUploadedPhotoGrid();
     updateSendButton();
+    saveCurrentDraftSoon(target===UPLOAD_TARGETS.IMAGE_UPLOAD?'image':'video');
   }
 }
 
@@ -6227,6 +6345,7 @@ function applyVideoReferenceToState(url) {
   renderVideoReferencesPreview();
   renderUploadedPhotoGrid();
   updateSendButton();
+  saveCurrentDraftSoon('video');
 }
 
 function applyVideoEditInputToState(url) {
@@ -6244,6 +6363,7 @@ function applyVideoEditInputToState(url) {
   }
   renderVideoEditPreview();
   updateSendButton();
+  saveCurrentDraftSoon('video');
 }
 
 // =====================================================
@@ -6275,6 +6395,7 @@ function setCurrentUploadImages(urls, targetOverride) {
   }
   renderUploadedPhotoGrid();
   updateSendButton();
+  if(target!==UPLOAD_TARGETS.PHOTO_TOOL)saveCurrentDraftSoon(target===UPLOAD_TARGETS.IMAGE_UPLOAD?'image':'video');
 }
 
 // =====================================================
@@ -6695,7 +6816,7 @@ async function onQuickImageExtraFile(e, key) {
   const button = document.querySelector('[data-extra-upload="' + key + '"]'); if (button) button.classList.add('uploading');
   try {
     const url = await uploadProStudioMediaFile(file, 'image'); quickImageDetailState.extraUploads[key] = url;
-    if (button) { button.classList.remove('uploading'); button.classList.add('has-image'); button.style.backgroundImage = 'url("' + URL.createObjectURL(file) + '")'; }
+    if (button) { button.classList.remove('uploading'); button.classList.add('has-image'); button.style.backgroundImage = 'url("' + String(url).replace(/["\\]/g, '\\$&') + '")'; }
   } catch (error) { if (button) button.classList.remove('uploading'); toast((error && error.message) || 'Не удалось загрузить изображение'); }
 }
 async function onQuickImageDetailFile(e) {
@@ -14688,6 +14809,7 @@ function imageModelButton(model) {
     const characterVal = document.getElementById('imageCharacterVal');
     if (characterVal) characterVal.textContent = 'Персонаж';
     renderImageReferenceSections();
+    try { saveComposerDraftIfChanged(); } catch {}
   }
 
   function normalizeImageSeed(value) {
@@ -25558,6 +25680,8 @@ async function waitGeneration(jobId, options) {
   }
 
   function updateSendButton() {
+    // Draft persistence must never block the generation controls.
+    try { saveComposerDraftIfChanged(); } catch {}
     const ta = document.getElementById('chatInput');
     const mic = document.getElementById('micBtn');
     const send = document.getElementById('sendBtn');

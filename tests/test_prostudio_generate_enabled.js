@@ -11,11 +11,14 @@ vm.runInContext(helperMatch[0] + '\nthis.canGenerateImageFromControls = canGener
 const canGenerate = helperContext.canGenerateImageFromControls;
 
 const cases = [
+  ['empty', {}, false],
   ['prompt', { hasPrompt: true }, true],
   ['image', { hasUserImageReference: true }, true],
   ['style', { hasStyle: true }, false],
-  ['character', { hasCharacter: true }, false],
-  ['object', { hasObject: true }, false],
+  // A valid Character/Object is already a generation input in the shipped
+  // controller. Preserve that behavior; these old expectations predated it.
+  ['character', { hasCharacter: true }, true],
+  ['object', { hasObject: true }, true],
   ['style + character', { hasStyle: true, hasCharacter: true }, true],
   ['style + object', { hasStyle: true, hasObject: true }, true],
   ['character + object', { hasCharacter: true, hasObject: true }, true],
@@ -48,6 +51,9 @@ const terminalResults = ['failed', 'timeout'];
       DOMException,
       isActiveGenerationStatus: (value) => ['queued', 'processing', 'running'].includes(String(value).toLowerCase()),
       transitionActiveGeneration: () => true,
+      activeGeneration: {jobId:'job-test',placeholderMessage:null},
+      noteGenerationJob: () => {},
+      bindGenerationThought: () => {},
       patchActiveGenerationDom: () => {},
       translateGenerationError: (_value, fallback) => fallback,
       fetch: async () => {

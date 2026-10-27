@@ -5966,7 +5966,7 @@ def save_prostudio_draft(telegram_id: int, mode: str, draft_text: str = "", conv
     if not DATABASE_URL or not telegram_id:
         return {}
     mode = (mode or "image").strip().lower()
-    if mode not in {"image", "video", "music", "voice"}:
+    if mode not in {"image", "video", "music", "voice", "text"}:
         mode = "image"
     try:
         ensure_prostudio_table()
