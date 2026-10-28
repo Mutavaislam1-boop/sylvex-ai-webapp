@@ -16296,12 +16296,13 @@ function renderGeneratedTelegramButton(url, kind) {
     return String(source.job_id || source.charge_id || (message && message.generationJobId) || '');
   }
 
-  function completedGenerationDownloadUrl(jobId, resultIndex) {
+  function completedGenerationDownloadUrl(jobId, resultIndex, downloadAll) {
     if (!jobId) return '';
     const params = new URLSearchParams();
     params.set('telegram_id', String(getTelegramId() || 0));
     if (S.tg && S.tg.initData) params.set('init_data', S.tg.initData);
     if (Number.isInteger(Number(resultIndex)) && Number(resultIndex) > 0) params.set('result_index', String(Number(resultIndex)));
+    if (downloadAll) params.set('download_all', 'true');
     return '/api/public/prostudio/download/' + encodeURIComponent(jobId) + '?' + params.toString();
   }
 
@@ -16343,12 +16344,14 @@ function renderGeneratedTelegramButton(url, kind) {
     browserDownload(relativeUrl, filename);
   }
 
-  function renderCompletedGenerationDownload(jobId, status, className, kind) {
+  function renderCompletedGenerationDownload(jobId, status, className, kind, resultIndex, downloadAll) {
     if (!jobId || String(status || '').toLowerCase() !== 'completed') return '';
-    const href = completedGenerationDownloadUrl(jobId);
-    const filename = generationDownloadFilename(kind, jobId);
-    return '<button type="button" class="' + S.escapeHtml(className || 'gen-action-btn') + '" data-download-url="' + S.escapeHtml(href) + '" data-file-name="' + S.escapeHtml(filename) + '" onclick="SYLVEX.downloadGeneratedFile(event)">'
-      + generationActionIcon('download') + 'Скачать</button>';
+    const href = completedGenerationDownloadUrl(jobId, resultIndex, downloadAll);
+    const filename = downloadAll ? 'sylvex-images-' + String(jobId).slice(0, 12) + '-all.zip' : generationDownloadFilename(kind, jobId);
+    const selectedImage = kind === 'image' && !downloadAll
+      ? ' data-selected-generation-download="1"' : '';
+    return '<button type="button" class="' + S.escapeHtml(className || 'gen-action-btn') + '" data-download-url="' + S.escapeHtml(href) + '" data-file-name="' + S.escapeHtml(filename) + '"' + selectedImage + ' onclick="SYLVEX.downloadGeneratedFile(event)">'
+      + generationActionIcon('download') + (downloadAll ? 'Скачать все' : 'Скачать') + '</button>';
   }
 
   function renderGeneratedActions(url, kind, jobId, status, options) {
@@ -16716,7 +16719,7 @@ function renderGeneratedTelegramButton(url, kind) {
     // row + one on the second, 4 -> 2x2 - all via the same 2-column grid,
     // which auto-wraps a 3rd item onto its own row with no extra CSS needed.
     const gridHtml = '<span class="generation-result-image-grid">'
-      + imageItems.slice(0, 4).map((item, imageIndex) => '<button class="generation-result-image-thumb" type="button" data-image-url="' + S.escapeHtml(item.url) + '"'
+      + imageItems.slice(0, 4).map((item, imageIndex) => '<button class="generation-result-image-thumb" type="button" data-image-url="' + S.escapeHtml(item.url) + '" data-generation-job-id="' + S.escapeHtml(completedGenerationJobId(m, meta)) + '"'
         + imageViewerSetAttribute(imageItems)
         + ' aria-label="Открыть изображение ' + (imageIndex + 1) + ' из ' + imageItems.length + '" onclick="SYLVEX.openImageViewer(event)">'
         + previewImgHtml(item.thumb, 'generated image ' + (imageIndex + 1), item.url)
@@ -19200,6 +19203,7 @@ function renderImageViewerImage() {
     download.dataset.downloadUrl = imageViewerDownloadJobId ? (imageViewerDownloadProjectId&&imageViewerDownloadNodeId?completedGridDownloadUrl(imageViewerDownloadJobId,imageViewerDownloadProjectId,imageViewerDownloadNodeId,imageViewerIndex):completedGenerationDownloadUrl(imageViewerDownloadJobId, imageViewerIndex)) : '';
     download.dataset.fileName = generationDownloadFilename('image', imageViewerDownloadJobId || 'grid-image');
   }
+  syncGenerationInfoImage(imageViewerUrls[imageViewerIndex], imageViewerDownloadJobId, imageViewerIndex);
 }
 
 // =====================================================
@@ -19323,16 +19327,37 @@ function openImageViewer(e, url, urls, options) {
 // переключает "Открыть"/"Оживить фото" на выбранное изображение, а не на
 // первое из набора (data-tracks-selected-image).
 // =====================================================
+function syncGenerationInfoImage(url, jobId, resultIndex) {
+  const drawer = document.getElementById('generationInfoDrawer');
+  if (!drawer || String(drawer.dataset.generationJobId || '') !== String(jobId || '')) return;
+  drawer.querySelectorAll('[data-tracks-selected-image]').forEach((el) => { el.dataset.imageUrl = url; });
+  const download = drawer.querySelector('[data-selected-generation-download]');
+  if (download && jobId) download.dataset.downloadUrl = completedGenerationDownloadUrl(jobId, resultIndex);
+}
+
 function selectGenerationInfoImage(e) {
   const btn = e && e.currentTarget ? e.currentTarget : null;
-  const url = btn && btn.dataset ? btn.dataset.imageUrl : '';
-  if (url) {
-    const drawer = document.getElementById('generationInfoDrawer');
-    if (drawer) {
-      drawer.querySelectorAll('[data-tracks-selected-image]').forEach((el) => { el.dataset.imageUrl = url; });
-    }
+  if (btn && btn.dataset.imageUrl) {
+    syncGenerationInfoImage(btn.dataset.imageUrl, btn.dataset.generationJobId, Number(btn.dataset.resultIndex || 0));
   }
   openImageViewer(e);
+}
+
+function useGenerationImageAsReference(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const url = String(e && e.currentTarget && e.currentTarget.dataset.imageUrl || '');
+  if (!url) return;
+  if (studioMode !== 'image') updateComposerMode('image');
+  if (studioMode !== 'image') return;
+  const existing = imageState.uploadedImageUrls || [];
+  if (!existing.includes(url) && existing.length >= uploadLimitForTarget(UPLOAD_TARGETS.IMAGE_UPLOAD)) {
+    toast('Достигнут лимит референсов выбранной модели. Сначала удалите один из черновика.');
+    return;
+  }
+  setUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD);
+  selectGeneratedImage(null, url);
+  closeGenerationInfoDrawer();
+  closeImageViewer();
 }
 
 // =====================================================
@@ -20061,6 +20086,7 @@ function openGenerationInfoDrawer(e, index) {
   const svgUrl = meta.photo_tool === 'logo' ? String(meta.svg_url || meta.svg_download_url || '') : '';
   const isLogoResult = meta.photo_tool === 'logo';
   const jobId = completedGenerationJobId(message, meta);
+  drawer.dataset.generationJobId = jobId;
   const generationStatus = String(meta.status || message.generationStatus || (message.imageResultMini ? 'completed' : '')).toLowerCase();
   const previewFallbackUrl = meta.preview_fallback_url || imageUrl || resultUrl || '';
   // Same gap as renderImageResultMiniCard(): fall back to the real result
@@ -20082,7 +20108,7 @@ function openGenerationInfoDrawer(e, index) {
   const videoThumb = imagePreviewUrl(meta, '');
   const previewHtml = type === 'image' && imageItems.length > 1
     ? '<div class="generation-info-image-grid">'
-      + imageItems.map((item, imageIndex) => '<button class="generation-info-image-button" type="button" data-image-url="' + S.escapeHtml(item.url) + '"'
+      + imageItems.map((item, imageIndex) => '<button class="generation-info-image-button" type="button" data-image-url="' + S.escapeHtml(item.url) + '" data-generation-job-id="' + S.escapeHtml(jobId) + '" data-result-index="' + imageIndex + '"'
         + imageViewerSetAttribute(imageItems)
         + ' aria-label="Открыть изображение ' + (imageIndex + 1) + ' из ' + imageItems.length + '" onclick="SYLVEX.selectGenerationInfoImage(event)">'
         + previewImgHtml(item.thumb, 'generated image ' + (imageIndex + 1), item.url)
@@ -20091,7 +20117,7 @@ function openGenerationInfoDrawer(e, index) {
     : type === 'image' && imageUrl
       ? (isLogoResult
         ? '<div class="generation-info-preview generation-info-preview-logo">' + previewImgHtml(previewUrl, 'generated logo', previewFallbackUrl) + '</div>'
-        : '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>')
+        : '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-generation-job-id="' + S.escapeHtml(jobId) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>')
     : type === 'video' && videoUrl
       ? '<video class="generation-info-media-player generation-info-video-player" src="' + S.escapeHtml(videoUrl) + '" controls playsinline preload="metadata"></video>'
       : type === 'music' && audioUrl
@@ -20112,14 +20138,16 @@ function openGenerationInfoDrawer(e, index) {
       actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(videoUrl) + '" data-result-url="' + S.escapeHtml(videoUrl) + '" data-result-kind="video" onclick="SYLVEX.playVideoInGenerationCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     } else if (!isLogoResult) {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '"'
-        + (type === 'image' ? ' data-tracks-selected-image="1"' + imageViewerSetAttribute(imageItems) : '')
+        + (type === 'image' ? ' data-tracks-selected-image="1" data-generation-job-id="' + S.escapeHtml(jobId) + '"' + imageViewerSetAttribute(imageItems) : '')
         + ' data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
     }
     actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type);
+    if (type === 'image' && imageItems.length > 1) actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type, 0, true);
     actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
     actionHtml += renderGeneratedTelegramButton(resultUrl, type);
     if (svgUrl && jobId) actionHtml += '<button type="button" class="generation-info-svg-download" data-download-url="' + S.escapeHtml(completedGenerationDownloadUrl(jobId) + '&asset=svg') + '" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>';
     if (type === 'image') {
+      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(imageUrl) + '" data-tracks-selected-image="1" onclick="SYLVEX.useGenerationImageAsReference(event)">Использовать как референс</button>';
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-tracks-selected-image="1" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     } else if (type === 'video') {
       actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.editGeneratedVideo(event)">' + generationActionIcon('edit') + 'Редактировать видео</button>';
@@ -30628,7 +30656,7 @@ async function waitGeneration(jobId, options) {
     openCreativeCatalog, closeCreativeCatalog, useCreativeCatalogItem,
     openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, navigateImageViewer, selectGenerationInfoImage, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
+    signOut, openImageViewer, closeImageViewer, navigateImageViewer, selectGenerationInfoImage, useGenerationImageAsReference, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
     PromptPlaceholderManager, VoiceDialogueComposer,
     initAudioPlayer,

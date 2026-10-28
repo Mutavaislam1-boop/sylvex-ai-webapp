@@ -13363,15 +13363,20 @@ async def public_prostudio_download(request: Request, job_id: str, telegram_id: 
             if mode != "image":
                 raise HTTPException(status_code=400, detail="download_all_requires_images")
             resolved_keys = []
+            missing_result = False
             for index in range(max(len(project_media_urls), len(job_media_urls))):
                 choices = []
                 if index < len(project_media_urls): choices.append(project_media_urls[index])
                 if index < len(job_media_urls): choices.append(job_media_urls[index])
                 key = next((storage_key_from_url(value) for value in choices if storage_key_from_url(value) and storage_exists(storage_key_from_url(value))), "")
+                if not key:
+                    missing_result = True
                 if key and key not in resolved_keys:
                     resolved_keys.append(key)
             if not resolved_keys:
                 raise HTTPException(status_code=404, detail="r2_result_not_found")
+            if missing_result:
+                raise HTTPException(status_code=409, detail="generation_results_not_ready")
 
             def _build_archive():
                 archive = io.BytesIO()

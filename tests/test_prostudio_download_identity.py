@@ -190,3 +190,20 @@ async def test_grid_download_all_returns_one_zip_with_every_image(monkeypatch):
     with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
         assert archive.namelist() == ["sylvex-image-1.png", "sylvex-image-2.webp"]
         assert archive.read("sylvex-image-1.png") == b"generated/images/first.png"
+
+
+@pytest.mark.asyncio
+async def test_download_all_never_returns_a_silently_incomplete_archive(monkeypatch):
+    owner_id = 9_000_000_000_781
+    result = json.dumps({"ok": True, "type": "image", "images": [
+        "/api/public/storage/generated/images/first.png",
+        "/api/public/storage/generated/images/not-yet-stored.png",
+    ]})
+    monkeypatch.setattr(main, "DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr(main, "db_connect", lambda _url: _Connection((owner_id, "completed", "image", result)))
+    monkeypatch.setattr(main, "storage_exists", lambda key: key == "generated/images/first.png")
+    monkeypatch.setattr(main, "storage_read_bytes", lambda key: key.encode())
+    with pytest.raises(HTTPException) as error:
+        await main.public_prostudio_download(_request(owner_id), "job-1", download_all=True)
+    assert error.value.status_code == 409
+    assert error.value.detail == "generation_results_not_ready"
