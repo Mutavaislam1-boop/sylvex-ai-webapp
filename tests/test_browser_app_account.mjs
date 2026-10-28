@@ -245,7 +245,7 @@ test('browser-only profile changes: no invite or Telegram cards, Delete account 
 test('no Telegram identity in the browser app; Telegram keeps its own', () => {
   assert.match(index, /<title>SYLVEX<\/title>/);
   assert.match(index, /classList\.add\('browser-app', 'browser-auth-pending'\)/);
-  assert.match(extract('renderGeneratedTelegramButton'), /if \(usesWebSessionAuth\(\)\) return '';/);
+  assert.ok(!source.includes('function renderGeneratedTelegramButton'), 'Pro Studio has no Open in Telegram button');
   assert.match(source, /\(usesWebSessionAuth\(\) \? '' : generationInfoRow\('Telegram'/);
   assert.match(source, /const noneLabel = isBrowserApp\(\) \? .* : 'TG';/);
   assert.match(css, /html\.browser-auth-pending \.view\[data-view="home"\] \.user-card \.user-row/);

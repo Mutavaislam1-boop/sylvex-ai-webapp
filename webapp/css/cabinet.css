@@ -3167,14 +3167,6 @@ CSS-БЛОК: .gen-action-btn
   box-shadow:var(--st-depth-1, none);
 }
 .generation-action-icon{width:16px;height:16px;flex:0 0 16px;display:block}
-/* =====================================================
-CSS-БЛОК: .gen-telegram-btn
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-.gen-telegram-btn{
-  background:rgba(47,111,189,.96);
-  color:#fff;
-}
 .gen-action-btn:active{transform:scale(.98)}
 .gen-video,
 .gen-audio{
@@ -6303,16 +6295,7 @@ CSS-БЛОК: .generation-result-mini-card
   width:280px;
   max-width:100%;
 }
-.generation-result-card-shell .generation-result-mini-card{width:100%;padding-right:42px}
-.generation-result-share{
-  position:absolute;right:8px;top:8px;z-index:2;width:30px;height:30px;padding:0;
-  display:grid;place-items:center;border-radius:10px;border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.08);color:#f3f3f3;cursor:pointer
-}
-.view[data-view="tools"].active .generation-result-share{
-  border:1px solid var(--st-border);background:var(--st-bg-3);color:var(--st-text);
-}
-.generation-result-share:active{transform:scale(.94)}
+.generation-result-card-shell .generation-result-mini-card{width:100%}
 
 .generation-result-mini-card:active{transform:scale(.98)}
 
@@ -6379,8 +6362,7 @@ CSS-БЛОК: .generation-result-thumb
   background:#24262b;
   border:1px solid rgba(255,255,255,.08);
 }
-.view[data-view="tools"].active .generation-result-thumb,
-.view[data-view="tools"].active .generation-result-image-thumb{
+.view[data-view="tools"].active .generation-result-thumb{
   background:var(--st-bg-3);border:1px solid var(--st-border);
 }
 
@@ -6448,25 +6430,7 @@ CSS-БЛОК: .generation-result-meta
   background:transparent;
   border:0;
 }
-.generation-result-image-grid{
-  display:grid;
-  grid-template-columns:repeat(2,58px);
-  grid-auto-rows:58px;
-  gap:6px;
-}
-.generation-result-image-thumb{
-  width:58px;
-  height:58px;
-  padding:0;
-  overflow:hidden;
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:12px;
-  background:#24262b;
-  cursor:pointer;
-}
-.generation-result-image-thumb:active{transform:scale(.97)}
-.generation-result-image-thumb img{width:100%;height:100%;display:block;object-fit:cover}
-.generation-result-meta:focus-visible,.generation-result-image-thumb:focus-visible{outline:2px solid #8fc4ff;outline-offset:2px}
+.generation-result-meta:focus-visible{outline:2px solid #8fc4ff;outline-offset:2px}
 
 /* =====================================================
 CSS-БЛОК: .generation-result-title
@@ -6497,7 +6461,6 @@ CSS-БЛОК: .generation-result-sub
 .view[data-view="tools"].active .generation-result-cost{color:var(--st-accent)}
 .view[data-view="tools"].active .generation-result-prompt{color:var(--st-dim)}
 .view[data-view="tools"].active .generation-result-meta:focus-visible,
-.view[data-view="tools"].active .generation-result-image-thumb:focus-visible{outline-color:var(--st-accent)}
 
 /* =====================================================
 CSS-БЛОК: .generation-info-drawer-backdrop
@@ -6754,9 +6717,6 @@ CSS-БЛОК: .generation-info-row
   margin-top:8px;padding:0;border:0;background:transparent;color:#78b7ff;
   font:inherit;font-size:12px;font-weight:750;cursor:pointer
 }
-.generation-info-ref-row{display:flex;gap:8px;overflow-x:auto}
-.generation-info-ref-row img{width:54px;height:54px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,.10)}
-.generation-info-ref-row img{border:1px solid var(--st-border)}
 .generation-info-actions{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
 /* =====================================================
 CSS-БЛОК: .generation-info-actions button
@@ -9928,4 +9888,56 @@ body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
 @media(max-width:680px) and (max-height:620px){
   .ptool-layout{grid-template-rows:56px minmax(0,1fr)}
   .ptool-kicker{font-size:17px}
+}
+
+/* Generation results (stage 2): several photos fanned in one card, the
+   video itself in its card, kind icons instead of words, the actions as
+   small icons with their name on hover, the picker for several photos and,
+   on wide screens, the result card in the centre with the media on the
+   left and the details on the right. */
+.generation-result-thumb.is-video{width:96px;flex-basis:96px;height:64px}
+.generation-result-video{display:block;width:100%;height:100%;object-fit:cover;pointer-events:none}
+.generation-result-fallback .generation-kind-icon{width:22px;height:22px}
+.generation-result-fan{position:relative;display:block;width:84px;height:72px;margin:2px 4px 2px 2px}
+.generation-result-fan-card{position:absolute;top:4px;left:12px;width:58px;height:62px;padding:0;overflow:hidden;border:2px solid var(--st-bg-2,#141518);border-radius:12px;background:var(--st-bg-3,#24262b);box-shadow:0 6px 14px -8px rgba(0,0,0,.6);cursor:pointer;z-index:calc(10 - var(--fan-i));transform:translateX(calc((var(--fan-i) - (var(--fan-count) - 1) / 2) * 7px)) rotate(calc((var(--fan-i) - (var(--fan-count) - 1) / 2) * 8deg));transform-origin:50% 90%;transition:transform .25s cubic-bezier(.22,1,.36,1)}
+.generation-result-fan:hover .generation-result-fan-card{transform:translateX(calc((var(--fan-i) - (var(--fan-count) - 1) / 2) * 12px)) rotate(calc((var(--fan-i) - (var(--fan-count) - 1) / 2) * 13deg))}
+.generation-result-fan-card img{display:block;width:100%;height:100%;object-fit:cover}
+.generation-result-fan-card:focus-visible{outline:2px solid var(--st-accent,#8fc4ff);outline-offset:2px}
+.generation-result-fan-count{position:absolute;right:0;bottom:0;z-index:20;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--st-text,#f3f3f3);color:var(--st-bg,#0b0b0d);font-size:10.5px;font-weight:700;line-height:18px;text-align:center}
+.msg-action-btn[data-tip]{position:relative}
+@media (hover:hover){
+  .msg-action-btn[data-tip]::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 6px);z-index:30;padding:5px 8px;border-radius:8px;background:var(--st-text,#f3f3f3);color:var(--st-bg,#0b0b0d);font-size:11.5px;font-weight:600;line-height:1.2;white-space:nowrap;opacity:0;pointer-events:none;transform:translate(-50%,4px);transition:opacity .15s ease,transform .15s ease}
+  .msg-action-btn[data-tip]:hover::after,.msg-action-btn[data-tip]:focus-visible::after{opacity:1;transform:translate(-50%,0)}
+}
+.gen-picker{position:fixed;z-index:400;width:min(320px,calc(100vw - 16px));box-sizing:border-box;padding:12px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:16px;background:var(--st-bg-2,#141518);color:var(--st-text,#f3f3f3);box-shadow:0 18px 40px -18px rgba(0,0,0,.7);font-family:inherit}
+.gen-picker-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-size:13.5px}
+.gen-picker-all{padding:4px 8px;border:0;border-radius:8px;background:transparent;color:var(--st-dim,rgba(255,255,255,.6));font:600 12px inherit;font-family:inherit;cursor:pointer}
+.gen-picker-all:hover{color:var(--st-text,#f3f3f3)}
+.gen-picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px;max-height:240px;overflow-y:auto}
+.gen-picker-item{position:relative;aspect-ratio:1;padding:0;overflow:hidden;border:2px solid transparent;border-radius:12px;background:var(--st-bg-3,#24262b);cursor:pointer;opacity:.55;transition:opacity .15s ease,border-color .15s ease}
+.gen-picker-item.is-on{border-color:var(--st-text,#f3f3f3);opacity:1}
+.gen-picker-item img{display:block;width:100%;height:100%;object-fit:cover}
+.gen-picker-check{position:absolute;top:5px;right:5px;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--st-text,#f3f3f3);color:var(--st-bg,#0b0b0d);opacity:0;transition:opacity .15s ease}
+.gen-picker-item.is-on .gen-picker-check{opacity:1}
+.gen-picker-check .generation-action-icon{width:12px;height:12px;flex-basis:12px}
+.gen-picker-go{width:100%;height:38px;margin-top:12px;border:0;border-radius:12px;background:var(--st-text,#f3f3f3);color:var(--st-bg,#0b0b0d);font:700 13.5px inherit;font-family:inherit;cursor:pointer}
+.gen-picker-go:disabled{opacity:.4;cursor:default}
+.generation-info-actions button{display:flex;align-items:center;gap:8px}
+.generation-info-used{display:flex;flex-wrap:wrap;gap:8px}
+.generation-info-used img,.generation-info-used video{width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid var(--st-border,rgba(255,255,255,.1))}
+@media (min-width:1000px){
+  .generation-info-drawer-backdrop{justify-content:center;align-items:center;padding:24px}
+  .generation-info-drawer{display:flex;flex-direction:column;width:min(1080px,94vw);height:auto;max-height:min(780px,92vh);padding:18px 20px 20px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:22px}
+  .generation-info-body{display:flex;flex:1;min-height:0}
+  .generation-info-layout{display:grid;flex:1;grid-template-columns:minmax(0,1.3fr) minmax(300px,1fr);gap:22px;min-height:0}
+  .generation-info-media{display:flex;align-items:center;justify-content:center;min-height:0;max-height:min(680px,80vh);overflow:auto;border-radius:16px;background:var(--st-bg-2,#141518)}
+  .generation-info-media>*{margin:0!important}
+  .generation-info-media img,.generation-info-media video{max-width:100%;max-height:min(660px,78vh);object-fit:contain}
+  .generation-info-details{display:flex;flex-direction:column;min-height:0;overflow-y:auto;padding-right:4px}
+  .generation-info-actions{display:flex!important;flex-wrap:wrap;gap:8px}
+  .generation-info-actions button{position:relative;justify-content:center;width:42px;height:42px;padding:0!important}
+  .generation-info-actions .generation-action-icon{width:18px;height:18px;flex-basis:18px}
+  .generation-info-action-label{position:absolute;left:50%;bottom:calc(100% + 6px);z-index:30;padding:5px 8px;border-radius:8px;background:var(--st-text,#f3f3f3);color:var(--st-bg,#0b0b0d);font-size:11.5px;font-weight:600;line-height:1.2;white-space:nowrap;opacity:0;pointer-events:none;transform:translate(-50%,4px);transition:opacity .15s ease,transform .15s ease}
+  .generation-info-actions button:hover .generation-info-action-label,.generation-info-actions button:focus-visible .generation-info-action-label{opacity:1;transform:translate(-50%,0)}
+  .generation-info-used-section{margin-top:auto;padding-top:12px}
 }

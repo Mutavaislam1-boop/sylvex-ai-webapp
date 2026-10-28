@@ -13,7 +13,7 @@ const sendChat = js.slice(js.indexOf('  async function sendChat() {'), js.indexO
 
 test('every generation leaves its prompt in the workspace, images included', () => {
   assert.match(sendChat, /const retryRequest = \{\n      prompt: v,/);
-  assert.match(sendChat, /if \(photoMode\) \{[\s\S]*?chatMessages\.push\(\{\n          role: 'user',\n          text: shownPrompt,\n          referenceImages: pendingRefs\.length \? pendingRefs : null,\n          retryRequest,/);
+  assert.match(sendChat, /if \(photoMode\) \{[\s\S]*?chatMessages\.push\(\{\n          role: 'user',\n          text: shownPrompt,\n          referenceImages: pendingRefs\.length \? pendingRefs\.filter\(\(ref\) => ref\.kind === 'image'\)\.map\(\(ref\) => ref\.src\) : null,\n          displayRefs: pendingRefs\.length \? pendingRefs : null,\n          retryRequest,/);
   assert.match(sendChat, /referenceVideos: referenceVideos\.length \? referenceVideos : null,\n        retryRequest,/);
   assert.doesNotMatch(sendChat, /requestReferences = pendingRefs/);
   assert.doesNotMatch(js, /userPrompt: visibleInputValue/);

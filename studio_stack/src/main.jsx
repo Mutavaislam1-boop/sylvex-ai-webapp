@@ -27,14 +27,26 @@ const STACK_PROPS = {
   pauseOnHover: false
 };
 
-// One card per reference image, in the order the generation used them.
-function props(urls) {
-  const list = Array.isArray(urls) ? urls : [];
+// A video fills its card like an image does (Stack.css styles images only
+// and stays the published file).
+const VIDEO_STYLE = { display: 'block', width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' };
+
+// One card per reference, in the order the generation used them. An item
+// is an image URL or { src, kind }; a video plays muted in its card.
+function card(item, index) {
+  const src = typeof item === 'string' ? item : String((item && item.src) || '');
+  const key = index + ':' + src;
+  if (item && item.kind === 'video') {
+    return createElement('video', { key, src, muted: true, loop: true, autoPlay: true, playsInline: true, preload: 'metadata', draggable: false, style: VIDEO_STYLE });
+  }
+  return createElement('img', { key, src, alt: 'Reference ' + (index + 1), draggable: false });
+}
+
+function props(items) {
+  const list = Array.isArray(items) ? items : [];
   return {
     ...STACK_PROPS,
-    cards: list.map((src, index) =>
-      createElement('img', { key: index + ':' + src, src, alt: 'Reference ' + (index + 1), draggable: false })
-    ),
+    cards: list.map(card),
     visible: list.length
   };
 }

@@ -166,10 +166,10 @@ test('catalog transport strips hidden style and object images while retaining bo
   assert.equal(sandbox.options.catalog_reference_url,catalog.catalogUrl);
   assert.deepEqual([...sandbox.options.reference_roles],['catalog_display','user']);
 
-  vm.runInContext(extractFunction('requestImageReferences')+'\n'+extractFunction('requestImageDisplayReferences'),context);
+  vm.runInContext(extractFunction('requestImageReferences')+'\n'+extractFunction('requestDisplayReferences')+'\nfunction imageStyleSheetItem(){return null}',context);
   sandbox.meta={type:'image',catalog_reference_url:catalog.catalogUrl,image_options:sandbox.options};
   assert.deepEqual([...vm.runInContext('requestImageReferences(meta)',context)],['https://cdn.sylvex.ai/user.jpg']);
-  assert.deepEqual([...vm.runInContext('requestImageDisplayReferences(meta)',context)],[catalog.catalogUrl,'https://cdn.sylvex.ai/user.jpg']);
+  assert.deepEqual([...vm.runInContext('requestDisplayReferences(meta)',context).map((ref) => ref.src)],[catalog.catalogUrl,'https://cdn.sylvex.ai/user.jpg']);
 
   sandbox.options=structuredClone(base);sandbox.catalog={...catalog,kind:'references'};
   vm.runInContext('applyCatalogImageGenerationOptions(options,catalog)',context);

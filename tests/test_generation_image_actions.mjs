@@ -90,7 +90,7 @@ test('reuse adds the selected existing URL to the image draft without uploading 
     selectGeneratedImage:(event,url)=>calls.push(['reference',url]),
     closeGenerationInfoDrawer:()=>calls.push(['close']),closeImageViewer:()=>{},
     updateComposerMode:()=>assert.fail('existing model/settings must remain'),
-    fetch:()=>assert.fail('no provider call or upload'),toast:()=>{}}), 'useGenerationImageAsReference');
+    fetch:()=>assert.fail('no provider call or upload'),toast:()=>{}}), 'useGenerationImageAsReference', 'addGenerationImageReference');
   ctx.useGenerationImageAsReference({preventDefault(){},stopPropagation(){},currentTarget:{dataset:{imageUrl:'/api/public/storage/generated/third.png'}}});
   assert.deepEqual(calls,[['target','image'],['reference','/api/public/storage/generated/third.png'],['close']]);
 });
@@ -98,6 +98,6 @@ test('reuse adds the selected existing URL to the image draft without uploading 
 test('reuse respects a locked non-image generation instead of attaching to the wrong mode', () => {
   const ctx=load(context({studioMode:'video',updateComposerMode:()=>{},toast:()=>{},
     setUploadTarget:()=>assert.fail('mode switch was blocked'),selectGeneratedImage:()=>assert.fail('must not alter video draft')}),
-    'useGenerationImageAsReference');
+    'useGenerationImageAsReference', 'addGenerationImageReference');
   ctx.useGenerationImageAsReference({preventDefault(){},stopPropagation(){},currentTarget:{dataset:{imageUrl:'third'}}});
 });
