@@ -15966,24 +15966,6 @@ async def web_auth_logout(request: Request):
     return response
 
 
-@app.post("/api/web/auth/register")
-async def web_auth_register(request: Request):
-    payload = await request.json()
-    if not DATABASE_URL:
-        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
-    try:
-        account_id = await asyncio.to_thread(
-            account_identity_service.register_email_account,
-            DATABASE_URL, payload.get("email"), payload.get("password"), payload.get("display_name"),
-        )
-    except AccountError as exc:
-        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    body = await asyncio.to_thread(_web_session_payload, account_id)
-    response = JSONResponse({"ok": True, **body})
-    await _set_web_session_cookie(response, account_id)
-    return response
-
-
 def _registration_error_response(exc: AccountError) -> JSONResponse:
     details = getattr(exc, "details", None) or {}
     headers = {"Retry-After": str(details["retry_after"])} if details.get("retry_after") else None
@@ -16206,12 +16188,42 @@ async def web_account_password_change(request: Request):
     return response
 
 
+# Deleting the account is confirmed by a code emailed to the account's
+# address: /start sends it, /verify checks it and returns a confirm token,
+# /delete takes that token (see account_identity.start_account_deletion).
+@app.post("/api/web/account/delete/start")
+async def web_account_delete_start(request: Request):
+    account_id = await _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    try:
+        result = await asyncio.to_thread(account_identity_service.start_account_deletion, DATABASE_URL, account_id)
+    except AccountError as exc:
+        return _registration_error_response(exc)
+    return {"ok": True, **result}
+
+
+@app.post("/api/web/account/delete/verify")
+async def web_account_delete_verify(request: Request):
+    account_id = await _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        token = await asyncio.to_thread(account_identity_service.verify_account_deletion, DATABASE_URL, account_id,
+                                        payload.get("code"))
+    except AccountError as exc:
+        return _registration_error_response(exc)
+    return {"ok": True, "confirm_token": token}
+
+
 @app.post("/api/web/account/delete")
 async def web_account_delete(request: Request):
     # Deletes this website identity (email/Google/Apple/Telegram-login),
     # freeing the email and any linked Google/Apple accounts to register
     # again - see account_identity.delete_account for exactly what is and
-    # isn't removed. Requires the account's own password when one is set.
+    # isn't removed. Needs the confirm token from /delete/verify when the
+    # account has an email.
     account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
@@ -16219,7 +16231,7 @@ async def web_account_delete(request: Request):
     try:
         await asyncio.to_thread(
             account_identity_service.delete_account,
-            DATABASE_URL, account_id, payload.get("password"),
+            DATABASE_URL, account_id, payload.get("confirm_token"),
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)

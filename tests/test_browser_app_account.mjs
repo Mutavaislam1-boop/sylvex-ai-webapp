@@ -235,9 +235,11 @@ test('browser-only profile changes: no invite or Telegram cards, Delete account 
   assert.match(html, /class="row profile-invite-row"/);
   assert.match(css, /\.ep-danger\{display:none\}\s*html\.browser-app \.ep-danger\{display:block/);
   const del = extract('openDeleteAccount');
-  assert.match(del, /\$\('#daConfirm'\)\.value\.trim\(\) !== 'DELETE'/);
-  assert.match(del, /'\/api\/web\/account\/delete'/);
-  assert.ok(del.indexOf("clearBrowserAccountState('guest')") > del.indexOf("'/api/web/account/delete'"));
+  assert.match(del, /post\('\/api\/web\/account\/delete\/start'\)/);
+  assert.match(del, /post\('\/api\/web\/account\/delete\/verify', \{ code \}\)/);
+  assert.match(del, /post\('\/api\/web\/account\/delete', confirmToken \? \{ confirm_token: confirmToken \} : \{\}\)/);
+  assert.ok(del.indexOf("clearBrowserAccountState('guest')") > del.indexOf("'/api/web/account/delete',"));
+  assert.doesNotMatch(del, /daPassword|daConfirm/);
 });
 
 test('no Telegram identity in the browser app; Telegram keeps its own', () => {

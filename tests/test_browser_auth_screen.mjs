@@ -86,7 +86,10 @@ test('sign-up goes through the emailed code, never straight to an account', () =
     assert.ok(screen.includes(`'${path}'`), path);
   }
   assert.ok(!screen.includes("'/api/web/auth/register'"));
-  assert.ok(screen.includes('autocomplete="one-time-code"'));
+  assert.ok(screen.includes("codeSlots = mountCodeEntry($('#sxaCode'), { light: true, onCode: (code) => { if (!state.busy) submitCode(code); } });"));
+  assert.ok(!source.includes("'/api/web/auth/register'"), 'the website-embed window registers through the code too');
+  assert.match(source, /isLogin \? '\/api\/web\/auth\/login' : '\/api\/web\/auth\/register\/start'/);
+  assert.match(html, /<script src="js\/code-slots\.js\?v=email-code-20261028"><\/script>/);
 });
 
 test('only the standalone browser gets the full-screen page; the footer links to the website', () => {

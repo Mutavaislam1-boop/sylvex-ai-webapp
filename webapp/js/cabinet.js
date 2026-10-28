@@ -25352,18 +25352,22 @@ async function waitGeneration(jobId, options) {
     }
   }
 
-  // Browser app: Edit Profile -> Delete account. Its own confirmation dialog:
-  // the user types DELETE (and the password, when the account has one)
-  // before /api/web/account/delete is called. Afterwards this browser's
-  // local account data is removed and the app reloads signed out.
-  async function openDeleteAccount() {
+  // Browser app: Edit Profile -> Delete account. A 6-digit code goes to the
+  // account's email (code slots, js/code-slots.js); once it is accepted,
+  // holding the button (js/hold-button.js) calls /api/web/account/delete
+  // with the confirm token. An account with no email skips the code.
+  // Afterwards this browser's local account data is removed and the app
+  // reloads signed out.
+  const DELETE_ACCOUNT_ERRORS = {
+    invalid_code: (d) => d.attempts_left ? `Неверный код. Осталось попыток: ${d.attempts_left}.` : 'Неверный код.',
+    too_many_attempts: () => 'Слишком много неверных попыток. Отправьте новый код.',
+    code_expired: () => 'Срок действия кода истёк. Отправьте новый код.',
+    code_recently_sent: (d) => `Код уже отправлен. Новый можно запросить через ${d.retry_after || 60} с.`,
+    too_many_codes: () => 'Слишком много кодов за час. Попробуйте позже.',
+    deletion_not_confirmed: () => 'Подтверждение истекло. Начните заново.',
+  };
+  function openDeleteAccount() {
     if (!isBrowserApp() || guestNeedsAccount('account')) return;
-    let hasPassword = true;
-    try {
-      const session = await fetch('/api/web/session/me', { credentials: 'include' }).then((r) => r.json());
-      if (!session || !session.authenticated) { guestNeedsAccount('account'); return; }
-      hasPassword = !!session.has_password;
-    } catch {}
     let modal = document.getElementById('deleteAccountModal');
     if (modal) modal.remove();
     modal = document.createElement('div');
@@ -25371,50 +25375,123 @@ async function waitGeneration(jobId, options) {
     modal.id = 'deleteAccountModal';
     modal.innerHTML = '<div class="sheet delete-account-sheet" style="padding:18px 20px 22px">'
       + '<div class="sheet-grab"></div>'
-      + '<h3 style="margin:6px 0 10px;font-size:17px">Delete your SYLVEX account?</h3>'
-      + '<p>Your SYLVEX login (email and Google sign-in) will be deleted and you will be signed out here and on sylvex.ai. This cannot be undone.</p>'
-      + (hasPassword ? '<input class="ep-input" type="password" id="daPassword" placeholder="Current password" autocomplete="current-password">' : '')
-      + '<p style="margin-bottom:6px">Type <b>DELETE</b> to confirm.</p>'
-      + '<input class="ep-input" type="text" id="daConfirm" placeholder="DELETE" autocomplete="off" autocapitalize="characters" spellcheck="false">'
-      + '<p class="ep-error" id="daError" role="alert" hidden></p>'
-      + '<div class="ep-actions"><button class="btn-ghost" type="button" id="daCancel">Cancel</button>'
-      + '<button class="ep-danger-btn solid" type="button" id="daSubmit" disabled>Delete account</button></div>'
+      + '<h3 style="margin:6px 0 10px;font-size:17px">Удалить аккаунт SYLVEX?</h3>'
+      + '<div class="da-step" id="daStep"></div>'
       + '</div>';
     document.body.appendChild(modal);
     const $ = (sel) => modal.querySelector(sel);
-    const close = () => modal.remove();
+    const step = $('#daStep');
+    let ticker = 0;
+    const close = () => { clearInterval(ticker); modal.remove(); };
     modal.addEventListener('click', (event) => { if (event.target === modal) close(); });
     $('.sheet').addEventListener('click', (event) => event.stopPropagation());
-    $('#daCancel').onclick = close;
-    const update = () => { $('#daSubmit').disabled = $('#daConfirm').value.trim() !== 'DELETE' || (hasPassword && !$('#daPassword').value); };
-    $('#daConfirm').addEventListener('input', update);
-    if (hasPassword) $('#daPassword').addEventListener('input', update);
-    $('#daSubmit').onclick = async () => {
-      const button = $('#daSubmit');
-      const error = $('#daError');
-      button.disabled = true;
-      button.textContent = 'Deleting…';
-      error.hidden = true;
-      let response = null, data = {};
+    const post = async (path, body) => {
       try {
-        response = await fetch('/api/web/account/delete', {
-          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: hasPassword ? $('#daPassword').value : undefined }),
+        const response = await fetch(path, {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
         });
-        data = await response.json().catch(() => ({}));
-      } catch {}
-      if (response && response.ok && data.ok) {
-        clearBrowserAccountState('guest');
-        window.location.reload();
-        return;
-      }
-      error.textContent = data && data.error === 'incorrect_current_password' ? 'Incorrect password.' : 'Couldn’t delete the account. Please try again.';
-      error.hidden = false;
-      button.textContent = 'Delete account';
-      update();
+        return { ok: response.ok, data: await response.json().catch(() => ({})) };
+      } catch { return { ok: false, data: { error: 'network_error' } }; }
     };
+    const showError = (data) => {
+      const box = $('#daError');
+      const text = data ? (DELETE_ACCOUNT_ERRORS[data.error] || (() => 'Не удалось. Попробуйте ещё раз.'))(data) : '';
+      box.textContent = text;
+      box.hidden = !text;
+    };
+    const cancelButton = '<button class="btn-ghost" type="button" data-da-cancel>Отмена</button>';
+    const bindCancel = () => { $('[data-da-cancel]').onclick = close; };
+    const clock = (ms) => { const t = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+
+    function intro() {
+      step.innerHTML = '<p>Вход в SYLVEX (email и Google) будет удалён, вы выйдете здесь и на sylvex.ai. Это нельзя отменить.</p>'
+        + '<p>Для подтверждения мы отправим 6-значный код на почту аккаунта.</p>'
+        + '<p class="ep-error" id="daError" role="alert" hidden></p>'
+        + '<button class="da-send" type="button" id="daSend">Отправить код</button>' + cancelButton;
+      bindCancel();
+      $('#daSend').onclick = sendCode;
+    }
+    async function sendCode() {
+      const button = $('#daSend');
+      if (button) { button.disabled = true; button.textContent = 'Отправляем…'; }
+      const res = await post('/api/web/account/delete/start');
+      if (!modal.isConnected) return;
+      if (res.ok && res.data.code_required === false) { holdStep(null); return; }
+      if (res.ok) { codeStep(res.data); return; }
+      if (button) { button.disabled = false; button.textContent = 'Отправить код'; }
+      showError(res.data);
+    }
+    function codeStep(info) {
+      clearInterval(ticker);
+      const expiresAt = Date.now() + (Number(info.expires_in) || 600) * 1000;
+      let resendAt = Date.now() + (Number(info.resend_in) || 60) * 1000;
+      step.innerHTML = `<p>Введите 6-значный код из письма, отправленного на <b>${S.escapeHtml(info.email || '')}</b>.</p>`
+        + '<div class="da-code" id="daCode"></div>'
+        + '<p class="da-meta" id="daMeta"></p>'
+        + '<p class="ep-error" id="daError" role="alert" hidden></p>'
+        + '<div id="daHold"></div>' + cancelButton;
+      bindCancel();
+      const slots = window.SylvexCodeSlots.mount($('#daCode'), {
+        length: 6, autoFocus: true, ariaLabel: 'Код из письма', acceptedLabel: 'Код подтверждён',
+        onComplete: async (code) => {
+          showError(null);
+          const res = await post('/api/web/account/delete/verify', { code });
+          if (!modal.isConnected) return;
+          if (!res.ok) { slots.setStatus('error'); showError(res.data); return; }
+          clearInterval(ticker);
+          slots.setStatus('success');
+          $('#daMeta').textContent = 'Код подтверждён. Удерживайте кнопку, чтобы удалить аккаунт.';
+          holdStep(res.data.confirm_token);
+        },
+      });
+      if (document.documentElement.getAttribute('data-theme') === 'light') slots.el.classList.add('light');
+      const tick = () => {
+        const meta = $('#daMeta');
+        if (!meta) return;
+        const now = Date.now();
+        const left = expiresAt - now;
+        const wait = resendAt - now;
+        meta.innerHTML = (left > 0 ? `Код действует ${clock(left)}` : 'Срок действия кода истёк')
+          + ' · ' + (wait > 0 ? `отправить ещё раз через ${clock(wait)}` : '<button type="button" class="da-link" id="daResend">отправить ещё раз</button>');
+        const resend = $('#daResend');
+        if (resend) resend.onclick = async () => {
+          resend.disabled = true;
+          const res = await post('/api/web/account/delete/start');
+          if (!modal.isConnected) return;
+          if (res.ok) { codeStep(res.data); return; }
+          if (res.data.retry_after) resendAt = Date.now() + Number(res.data.retry_after) * 1000;
+          showError(res.data);
+          tick();
+        };
+      };
+      tick();
+      ticker = setInterval(tick, 1000);
+    }
+    function holdStep(confirmToken) {
+      if (confirmToken === null) {
+        step.innerHTML = '<p>Вход в SYLVEX будет удалён, вы выйдете здесь и на sylvex.ai. Это нельзя отменить.</p>'
+          + '<p class="ep-error" id="daError" role="alert" hidden></p><div id="daHold"></div>' + cancelButton;
+        bindCancel();
+      }
+      const hold = window.SylvexHoldButton.create({
+        label: 'Удерживайте, чтобы удалить', doneLabel: 'Аккаунт удалён', hint: 'Нажмите и удерживайте 2 секунды, чтобы удалить аккаунт',
+        size: 'lg', block: true, backgroundColor: '#27272a', fillColor: '#f60303', textColor: '#f5f5f5', fillTextColor: '#ffffff',
+        radius: 14, holdTime: 2000, releaseTime: 200, pressScale: 0.97, waveAmplitude: 6,
+        onHold: async () => {
+          const res = await post('/api/web/account/delete', confirmToken ? { confirm_token: confirmToken } : {});
+          if (res.ok && res.data.ok) {
+            setTimeout(() => { clearBrowserAccountState('guest'); window.location.reload(); }, 900);
+            return;
+          }
+          hold.reset();
+          showError(res.data);
+        },
+      });
+      $('#daHold').appendChild(hold.el);
+    }
+
+    intro();
     requestAnimationFrame(() => modal.classList.add('show'));
-    (hasPassword ? $('#daPassword') : $('#daConfirm')).focus();
   }
 
   /* ===== Theme picker ===== */
