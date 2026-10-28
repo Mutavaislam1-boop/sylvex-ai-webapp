@@ -88,6 +88,9 @@ from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, billing_scope, require_billing_scope, assert_reserved
+from services.generation_media_state import merge_generation_result_fields, history_generation_id, overlay_stored_history_media
+from services import generation_storage
+from services.storage import find_generated_object, put_generated_file_once
 from services.price_engine import PRICE_VERSION, apply_snapshot_to_estimate, settle_media_price_snapshot, sylvex_credits
 from decimal import Decimal
 from services import edit_workspace as edit_workspace_service
@@ -4656,6 +4659,7 @@ def ensure_prostudio_table():
             CREATE INDEX IF NOT EXISTS idx_prostudio_character_history_lookup
             ON prostudio_character_history (character_id, telegram_id, created_at DESC)
             """)
+            generation_storage.ensure_table(cursor)
             conn.commit()
             _PROSTUDIO_SCHEMA_READY = True
         except Exception:
@@ -5428,7 +5432,7 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         ensure_reservations(lambda: db_connect(DATABASE_URL))
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
-        cursor.execute("SELECT status FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+        cursor.execute("SELECT status, result_json FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
         current = cursor.fetchone()
         if not current:
             conn.rollback()
@@ -5442,6 +5446,11 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         if current[0] in {"completed", "failed"} and status != current[0]:
             conn.rollback()
             return False
+        if current[0] == "completed" and status == "completed":
+            # History finishes independently of R2/thumbnail tasks. Its stale
+            # provider URLs must never replace media those tasks committed.
+            previous_result = _json_obj(current[1]) if len(current) > 1 else {}
+            result = merge_generation_result_fields(previous_result, result or {}, preserve_existing_media=True)
         if status in {"failed", "cancelled", "canceled"}:
             release_generation(cursor, job_id)
         cursor.execute("""
@@ -5467,6 +5476,9 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
             job_id,
         ))
         rowcount = cursor.rowcount
+        if (current[0] != "completed" and status == "completed" and isinstance(result, dict)
+                and result.get("storage_status") == "pending"):
+            generation_storage.enqueue(cursor, job_id, str(result.get("type") or ""), result)
         conn.commit()
         prostudio_debug("JOB_UPDATE_DONE", job_id=job_id, status=status, rowcount=rowcount)
         return rowcount > 0
@@ -6679,7 +6691,7 @@ def _merge_prostudio_result_fields(job_id: str, fields: dict) -> None:
             conn.rollback()
             return
         current_result = _json_obj(row[1])
-        current_result.update(fields)
+        current_result = merge_generation_result_fields(current_result, fields)
         cursor.execute(
             "UPDATE prostudio_generation_jobs SET result_json = %s::jsonb WHERE id=%s",
             (
@@ -6748,26 +6760,92 @@ def _build_image_result_without_thumbnails(image_urls: list) -> dict:
     }
 
 
-async def finalize_prostudio_media_storage_background(job_id: str, mode: str, provider_result: dict) -> None:
-    """Persist already-delivered generation media to R2 in the background.
+def _persist_outbox_media(entry: dict, verify_only: bool = False) -> str:
+    source = entry["source"]
+    existing = find_generated_object(entry["key"], entry["fingerprint"])
+    if existing:
+        return existing
+    local_key = storage_key_from_url(source)
+    if local_key and storage_exists(local_key):
+        return storage_object_url(local_key)
+    if verify_only:
+        raise RuntimeError("generation_storage_download_attempts_exhausted")
+    with tempfile.TemporaryDirectory(prefix="sylvex-result-") as directory:
+        destination = pathlib.Path(directory) / pathlib.Path(entry["key"]).name
+        content_type = ""
+        if source.startswith("data:"):
+            head, encoded = source.split(",", 1)
+            if ";base64" not in head or len(encoded) > 280 * 1024 * 1024:
+                raise RuntimeError("generation_storage_data_invalid")
+            data = base64.b64decode(encoded, validate=True)
+            if len(data) > 200 * 1024 * 1024:
+                raise RuntimeError("generation_storage_data_too_large")
+            destination.write_bytes(data)
+            content_type = head[5:].split(";", 1)[0]
+        elif local_key and (WEBAPP_DIR.parent / local_key).is_file():
+            return put_generated_file_once(WEBAPP_DIR.parent / local_key,
+                entry["key"], entry["fingerprint"])
+        else:
+            download = safe_download_to_file(source, destination, timeout=240)
+            content_type = (download.get("headers", {}).get("content-type") or "").split(";", 1)[0]
+        return put_generated_file_once(destination, entry["key"], entry["fingerprint"], content_type)
 
-    Runs after the job is already committed as completed and the user/
-    Telegram already have the provider's own (possibly temporary) result
-    URLs. A storage failure here only ever flips storage_status to failed -
-    it must never resurrect, fail, or duplicate the generation itself.
-    """
-    started_at = time.monotonic()
+
+def _media_outbox():
+    return generation_storage.MediaOutbox(lambda: db_connect(DATABASE_URL))
+
+
+async def _run_media_outbox_claim(queue, job):
+    # Heartbeats use short independent transactions; never hold a DB connection
+    # over a remote download. On graceful shutdown drain just this claimed file
+    # set; after a hard exit another worker recovers the expired lease.
+    work = asyncio.create_task(asyncio.to_thread(queue.process, job,
+        _persist_outbox_media, verify_persisted_generation_media))
+
+    async def heartbeat():
+        while not work.done():
+            await asyncio.sleep(30)
+            if not work.done():
+                await asyncio.to_thread(queue.renew, job)
+
+    lease = asyncio.create_task(heartbeat())
     try:
-        persisted = await asyncio.to_thread(persist_generation_media, dict(provider_result), mode)
-        await asyncio.to_thread(verify_persisted_generation_media, persisted, mode)
-        _merge_prostudio_storage_result(job_id, persisted, "completed")
-        prostudio_debug(
-            "JOB_BACKGROUND_STORAGE_COMPLETED", job_id=job_id, mode=mode,
-            elapsed_ms=round((time.monotonic() - started_at) * 1000),
-        )
-    except Exception as exc:
-        prostudio_error("JOB_BACKGROUND_STORAGE_FAILED", exc, job_id=job_id, mode=mode)
-        _merge_prostudio_storage_result(job_id, {}, "failed")
+        try:
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:
+            await asyncio.shield(work)
+            raise
+    finally:
+        lease.cancel()
+        await asyncio.gather(lease, return_exceptions=True)
+
+
+async def finalize_prostudio_media_storage_background(job_id: str, mode: str = "", provider_result=None) -> None:
+    # Compatibility entry point. The source of truth is the committed outbox,
+    # never the lifetime of the caller's detached coroutine or in-memory result.
+    queue = _media_outbox()
+    job = await asyncio.to_thread(queue.claim, job_id)
+    if job:
+        await _run_media_outbox_claim(queue, job)
+
+
+async def prostudio_media_storage_worker_loop():
+    await asyncio.to_thread(ensure_prostudio_table)
+    print("MEDIA STORAGE WORKER STARTED")
+    queue = _media_outbox()
+    while True:
+        try:
+            job = await asyncio.to_thread(queue.claim)
+            if job:
+                await _run_media_outbox_claim(queue, job)
+            else:
+                await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Log neither exception text nor signed source URLs.
+            prostudio_debug("MEDIA_STORAGE_RETRY", error_type=type(exc).__name__)
+            await asyncio.sleep(5)
 
 
 def build_completed_job_result(result: dict, mode: str) -> dict:
@@ -7435,6 +7513,27 @@ async def public_grid_montage(request: Request):
     return {"ok": True, "job_id": job_id, "generation_id": job_id, "status": status}
 
 
+def _load_history_stored_media(telegram_id: int, rows: list, metadata_index: int, response_index: int) -> dict:
+    """One owner-scoped batch lookup; history rows and financial fields stay untouched."""
+    job_ids = list(dict.fromkeys(
+        job_id for row in rows
+        if (job_id := history_generation_id(_json_obj(row[metadata_index]), _json_obj(row[response_index])))
+    ))
+    if not DATABASE_URL or not telegram_id or not job_ids:
+        return {}
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""SELECT id, result_json FROM prostudio_generation_jobs
+                    WHERE telegram_id=%s AND id=ANY(%s) AND status='completed'
+                      AND (result_json->>'storage_status'='completed'
+                           OR result_json->>'storage_recovery_version'='1')""", (telegram_id, job_ids))
+                return {str(row[0]): _json_obj(row[1]) for row in cursor.fetchall()}
+    except Exception as exc:
+        prostudio_error("HISTORY_STORED_MEDIA_LOOKUP_FAILED", exc)
+        return {}
+
+
 @app.get("/api/public/prostudio/conversations")
 async def public_prostudio_conversations(
     telegram_id: int = 0,
@@ -7471,6 +7570,7 @@ async def public_prostudio_conversations(
                     cursor.close()
                 return rows
             rows = await asyncio.to_thread(_fetch_conversation_messages)
+            stored_media = await asyncio.to_thread(_load_history_stored_media, telegram_id, rows, 10, 16)
             messages = []
             for (
                 prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
@@ -7483,6 +7583,7 @@ async def public_prostudio_conversations(
                 audios = _json_list(audios_json) or ([audio_url] if audio_url else [])
                 created_value = created_at.isoformat() if hasattr(created_at, "isoformat") else created_at
                 metadata = _json_obj(metadata_json)
+                response_data = _json_obj(response_json)
                 if images:
                     if not metadata:
                         metadata = {
@@ -7505,6 +7606,16 @@ async def public_prostudio_conversations(
                     response_data = _json_obj(response_json)
                     if response_data.get("job_id") and not metadata.get("job_id"):
                         metadata["job_id"] = response_data.get("job_id")
+                committed = stored_media.get(history_generation_id(metadata, response_data))
+                if committed:
+                    media = overlay_stored_history_media({"type": mode or metadata.get("type"),
+                        "images": images, "image_url": images[0] if images else "",
+                        "videos": videos, "video_url": videos[0] if videos else "",
+                        "audios": audios, "audio_url": audios[0] if audios else "",
+                        "thumbnails": thumbs, "thumbnail_url": thumbs[0] if thumbs else "", "metadata": metadata}, committed)
+                    images, videos, audios, thumbs, metadata = (
+                        media.get("images") or images, media.get("videos") or videos,
+                        media.get("audios") or audios, media.get("thumbnails") or thumbs, media.get("metadata") or metadata)
                 input_images = [url for url in _json_list(metadata.get("input_images")) if isinstance(url, str)] if metadata else []
                 if prompt or input_images:
                     user_message = {
@@ -7713,6 +7824,7 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
 
     try:
         rows = await asyncio.to_thread(_fetch_gallery_rows)
+        stored_media = await asyncio.to_thread(_load_history_stored_media, telegram_id, rows, 13, 18)
         print("GALLERY_TIMING:", {"stage": "total", "ms": round((time.monotonic() - request_started) * 1000), "telegram_id": telegram_id, "row_count": len(rows)})
         items = []
         for row in rows:
@@ -7725,6 +7837,16 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
             audios = _json_list(audios_json) or ([audio_url] if audio_url else [])
             metadata = _json_obj(metadata_json)
             response_data = _json_obj(response_json)
+            committed = stored_media.get(history_generation_id(metadata, response_data))
+            if committed:
+                media = overlay_stored_history_media({"type": mode or metadata.get("type"),
+                    "images": images, "image_url": images[0] if images else "",
+                    "videos": videos, "video_url": videos[0] if videos else "",
+                    "audios": audios, "audio_url": audios[0] if audios else "",
+                    "thumbnails": thumbs, "thumbnail_url": thumbs[0] if thumbs else "", "metadata": metadata}, committed)
+                images, videos, audios, thumbs, metadata = (
+                    media.get("images") or images, media.get("videos") or videos,
+                    media.get("audios") or audios, media.get("thumbnails") or thumbs, media.get("metadata") or metadata)
             kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
             media_url = (videos[0] if videos else audios[0] if audios else images[0] if images else "")
             # Third instance of the "images[0]-only" truncation bug class
@@ -26761,14 +26883,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             # provider dominates total latency for this job.
             total_pipeline_ms=round((time.monotonic() - pipeline_started_at) * 1000),
         )
-        # Fire-and-forget: durable R2 persistence runs after the job is
-        # already visible to the user. It can only enrich result_json with
-        # permanent URLs later (see _merge_prostudio_storage_result) - it
-        # never touches generation_status, so a storage outage cannot turn
-        # this already-successful generation into a failure.
-        asyncio.create_task(
-            finalize_prostudio_media_storage_background(job_id, mode, dict(result))
-        )
+        # The completion transaction already recorded the media outbox. Existing
+        # workers claim it independently, including after a process restart.
 
         # History enriches an already completed job and is intentionally not
         # allowed to roll its terminal status back on failure.
@@ -27498,6 +27614,8 @@ async def start_prostudio_generation_worker():
         db_pool_status()
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
+        if DATABASE_URL:
+            app.state.background_tasks.append(asyncio.create_task(prostudio_media_storage_worker_loop()))
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
     if SUBSCRIPTION_EVENTS_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:

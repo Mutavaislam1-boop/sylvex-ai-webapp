@@ -304,6 +304,77 @@ def put_file(path: pathlib.Path | str, key: str, content_type: str = "", remove_
             source.unlink(missing_ok=True)
 
 
+def find_generated_object(key: str, fingerprint: str) -> str:
+    """Adopt only an object created for this exact generation/source pair."""
+    clean = normalize_key(key)
+    if not r2_enabled():
+        target = safe_local_path(LOCAL_GENERATED_DIR.parent, clean)
+        return object_url(clean) if target.is_file() and target.stat().st_size else ""
+    try:
+        head = r2_client().head_object(Bucket=R2_BUCKET, Key=clean)
+    except Exception as exc:
+        response = getattr(exc, "response", {})
+        code = str(response.get("Error", {}).get("Code") or "")
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return ""
+        raise
+    if head.get("Metadata", {}).get("sylvex-generation-source") != fingerprint or int(head.get("ContentLength") or 0) <= 0:
+        raise RuntimeError("generation_storage_identity_mismatch")
+    return register_existing_object(clean, head.get("ContentType") or "application/octet-stream", head["ContentLength"])
+
+
+def put_generated_file_once(path: pathlib.Path | str, key: str, fingerprint: str, content_type: str = "") -> str:
+    """Conditional PUT: an interrupted upload can be retried without overwrite.
+
+    This separate path is used only by the generation outbox. Ordinary user
+    uploads retain their existing behavior. Remote downloads are bounded at
+    200 MiB, well below the single-PUT limit; no multipart upload is required.
+    """
+    source = pathlib.Path(path)
+    clean = normalize_key(key)
+    existing = find_generated_object(clean, fingerprint)
+    if existing:
+        return existing
+    size = source.stat().st_size
+    if not 0 < size <= 200 * 1024 * 1024:
+        raise RuntimeError("generation_storage_size_invalid")
+    mime = content_type or mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+    if r2_enabled():
+        try:
+            with source.open("rb") as handle:
+                r2_client().put_object(Bucket=R2_BUCKET, Key=clean, Body=handle,
+                    ContentLength=size, ContentType=mime, IfNoneMatch="*",
+                    CacheControl="public, max-age=31536000, immutable",
+                    Metadata={"sylvex-generation-source": fingerprint})
+        except Exception as exc:
+            response = getattr(exc, "response", {})
+            if str(response.get("Error", {}).get("Code")) not in {"PreconditionFailed", "412"}:
+                raise
+        # Also verifies the winning object after a competing conditional PUT.
+        url = find_generated_object(clean, fingerprint)
+        if not url:
+            raise RuntimeError("generation_storage_confirmation_missing")
+        return url
+    target = safe_local_path(LOCAL_GENERATED_DIR.parent, clean)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    import shutil
+    with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".media-", delete=False) as destination:
+        temporary = pathlib.Path(destination.name)
+        try:
+            with source.open("rb") as handle:
+                shutil.copyfileobj(handle, destination)
+            destination.flush()
+            os.fsync(destination.fileno())
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                if not target.stat().st_size:
+                    raise RuntimeError("generation_storage_incomplete_local_object")
+        finally:
+            temporary.unlink(missing_ok=True)
+    return register_existing_object(clean, mime, size)
+
+
 def get_object(key: str) -> tuple[BinaryIO, str, Optional[int]]:
     clean = key_from_url(key) or normalize_key(key)
     if r2_enabled():

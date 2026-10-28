@@ -19,6 +19,7 @@ from main import (  # noqa: E402
     PROSTUDIO_WORKER_ENABLED,
     SUBSCRIPTION_REMINDER_WORKER_ENABLED,
     prostudio_generation_worker_loop,
+    prostudio_media_storage_worker_loop,
     subscription_reminder_worker_loop,
 )
 
@@ -42,6 +43,8 @@ async def run_worker() -> None:
                 name="prostudio-generation-worker",
             )
         )
+        tasks.append(asyncio.create_task(
+            prostudio_media_storage_worker_loop(), name="prostudio-media-storage-worker"))
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED:
         tasks.append(
             asyncio.create_task(

@@ -110,22 +110,13 @@ async def test_r2_failure_after_provider_success_still_completes_the_job(app, mo
     # nothing waits for R2 before this commit happens.
     assert "ideogram.ai" in completed_updates[0]["result"]["image_url"]
 
-    assert len(background_tasks) == 1, "R2 persistence must be scheduled as a background task, not awaited inline"
-
-    # Running the background task to completion must not raise, and must
-    # only ever touch storage_status via the safe merge helper - never the
-    # job's terminal status.
-    merge_calls = []
-    monkeypatch.setattr(
-        app, "_merge_prostudio_storage_result",
-        lambda job_id, fields, status: merge_calls.append((job_id, fields, status)),
-    )
-    await background_tasks[0]
-    assert merge_calls == [("job-r2-fail", {}, "failed")]
+    assert background_tasks == [], "Persistence must survive independently of detached in-memory tasks"
+    # The actual PostgreSQL outbox transaction, retries and separate storage
+    # failures are exercised in test_generation_storage_recovery.py.
 
 
 @pytest.mark.asyncio
-async def test_r2_success_marks_storage_completed_via_background_merge(app, monkeypatch):
+async def test_provider_success_does_not_wait_for_the_storage_consumer(app, monkeypatch):
     background_tasks = _capture_background_tasks(monkeypatch, app)
     _track_job_updates(monkeypatch, app)
 
@@ -153,16 +144,6 @@ async def test_r2_success_marks_storage_completed_via_background_merge(app, monk
         "price_snapshot": {"final_credits": 10},
     }
     await app.process_prostudio_generation("job-r2-ok", payload)
-    assert len(background_tasks) == 1
-
-    merge_calls = []
-    monkeypatch.setattr(
-        app, "_merge_prostudio_storage_result",
-        lambda job_id, fields, status: merge_calls.append((job_id, fields, status)),
-    )
-    await background_tasks[0]
-    assert len(merge_calls) == 1
-    job_id, fields, status = merge_calls[0]
-    assert job_id == "job-r2-ok"
-    assert status == "completed"
-    assert fields["image_url"] == "https://r2.example/permanent.png"
+    assert background_tasks == []
+    # Provider success is visible before any storage consumer runs. The
+    # canonical URLs are subsequently committed by the durable consumer.

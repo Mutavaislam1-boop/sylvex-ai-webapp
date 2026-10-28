@@ -59,12 +59,15 @@ def result_database(monkeypatch):
             thumb_url TEXT, video_url TEXT, videos_json JSONB, audio_url TEXT, audios_json JSONB,
             metadata_json JSONB, status TEXT, model TEXT, provider TEXT, cost INTEGER,
             request_json JSONB, response_json JSONB, updated_at TIMESTAMPTZ, completed_at TIMESTAMPTZ)''')
+        with transaction() as conn:
+            with conn.cursor() as cursor:
+                main.generation_storage.ensure_table(cursor)
         monkeypatch.setattr(main,'DATABASE_URL',dsn)
         monkeypatch.setattr(main,'db_connect',connect)
         monkeypatch.setattr(main,'db_connection',transaction)
         monkeypatch.setattr(main,'ensure_prostudio_table',lambda:None)
         monkeypatch.setattr(main,'ensure_reservations',lambda *a:None)
-        yield SimpleNamespace(query=query)
+        yield SimpleNamespace(query=query, connect=connect, transaction=transaction)
     finally:
         with admin.cursor() as cur:
             cur.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
@@ -84,7 +87,12 @@ def test_real_postgres_job_and_background_merge_preserve_all_outputs(result_data
     main._merge_prostudio_result_fields('long-job',{'thumbnail_status':'completed'})
     status,saved,cost=db.query('SELECT status,result_json,cost FROM prostudio_generation_jobs')[0]
     assert status=='completed' and cost==19
-    assert saved=={**result,'thumbnail_status':'completed'}
+    assert saved['thumbnail_status']=='completed'
+    for key,value in result.items():
+        if key=='metadata':
+            assert all(saved['metadata'][name]==item for name,item in value.items())
+        else:assert saved[key]==value
+    assert saved['metadata']['result_images']==images
 
 
 def test_real_postgres_history_insert_and_regenerate_preserve_full_text_and_refs(result_database):

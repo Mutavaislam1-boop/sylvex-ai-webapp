@@ -9,7 +9,7 @@ import main
 
 class Cursor:
     rowcount=1
-    def __init__(self,initial):self.initial=initial;self.saved=None;self.saved_response=None;self.saved_request=None;self.sql=[]
+    def __init__(self,initial,status='completed'):self.initial=initial;self.status=status;self.saved=None;self.saved_response=None;self.saved_request=None;self.sql=[]
     def execute(self,sql,params=None):
         self.sql.append(sql)
         if 'SET status = %s' in sql:
@@ -19,7 +19,7 @@ class Cursor:
             self.saved_request=json.loads(params[18]);self.saved=json.loads(params[19])
         elif 'UPDATE prostudio_messages' in sql:self.saved=json.loads(params[6])
     def fetchone(self):
-        if 'result_json FROM' in self.sql[-1]:return ('completed',self.initial)
+        if 'result_json FROM' in self.sql[-1]:return (self.status,self.initial)
         if 'prostudio_messages' in self.sql[-1]:return (501,)
         return ('processing',)
     def close(self):pass
@@ -40,7 +40,7 @@ class Connection:
 def test_result_roundtrip_is_lossless(writer,kind,monkeypatch):
     value=('https://provider.example.test/result.png?test_signature='+('x'*1800)) if kind=='signed_url' else ('Строка результата.\n'*180)
     result={'ok':True,'image_url':value,'images':[value],'metadata':{'image_url':value}} if kind=='signed_url' else {'ok':True,'type':'text','text':value}
-    cursor=Cursor(result);conn=Connection(cursor)
+    cursor=Cursor(result,status='processing' if writer=='job' else 'completed');conn=Connection(cursor)
     monkeypatch.setattr(main,'DATABASE_URL','fake://captured-result-only')
     monkeypatch.setattr(main,'db_connect',lambda *a:conn)
     monkeypatch.setattr(main,'db_connection',lambda *a:conn)
