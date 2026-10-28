@@ -9,6 +9,7 @@ import Generations from "./pages/Generations";
 import Payments from "./pages/Payments";
 import Broadcast from "./pages/Broadcast";
 import Inbox from "./pages/Inbox";
+import Reviews from "./pages/Reviews";
 import Content from "./pages/Content";
 import Errors from "./pages/Errors";
 import Admins from "./pages/Admins";
@@ -25,6 +26,7 @@ export const NAV: NavItem[] = [
   { key: "payments", label: "Payments", icon: "◈", permission: "payments.view" },
   { key: "broadcast", label: "Messages", icon: "✉", anyOf: ["broadcast.send", "messages.send"] },
   { key: "inbox", label: "Inbox", icon: "✆", permission: "messages.send" },
+  { key: "reviews", label: "Reviews", icon: "★", permission: "users.view" },
   { key: "content", label: "Content", icon: "▤", permission: "content.references.manage" },
   { key: "errors", label: "Errors", icon: "⚠", permission: "errors.view" },
   { key: "admins", label: "Admins", icon: "⛨", permission: "admins.view" },
@@ -80,6 +82,7 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
       case "payments": return <Payments />;
       case "broadcast": return <Broadcast to={params.get("to") || ""} />;
       case "inbox": return <Inbox />;
+      case "reviews": return <Reviews />;
       case "content": return <Content />;
       case "errors": return <Errors />;
       case "admins": return <Admins />;

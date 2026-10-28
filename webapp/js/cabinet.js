@@ -30364,6 +30364,48 @@ async function waitGeneration(jobId, options) {
     });
   }
 
+  // =====================================================
+  // ОТЗЫВ О ПРОЕКТЕ: «Как вам SYLVEX?»
+  // Пора ли спросить, решает сервер по числу успешных генераций (см.
+  // services/reviews.py); окно появляется только на главном экране.
+  // =====================================================
+  let feedbackChecking = false;
+  let feedbackCheckedAt = 0;
+  async function sendFeedback(action, payload) {
+    const res = await fetch('/api/public/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...(payload || {}), surface: 'miniapp' }),
+    });
+    if (!res.ok) throw new Error('feedback_failed');
+    if (action === 'send') S.haptic.notify('success');
+  }
+  async function checkFeedbackPrompt() {
+    const prompt = window.SylvexFeedbackPrompt;
+    if (!prompt || prompt.isOpen() || feedbackChecking || document.hidden) return;
+    if (isWebEmbed() || (isBrowserApp() ? isBrowserGuest() : !currentTelegramInitData())) return;
+    const home = document.querySelector('.view[data-view="home"]');
+    if (!home || !home.classList.contains('active') || Date.now() - feedbackCheckedAt < 20000) return;
+    feedbackChecking = true;
+    feedbackCheckedAt = Date.now();
+    try {
+      const res = await fetch('/api/public/feedback/state');
+      const data = res.ok ? await res.json() : {};
+      if (!data.show || prompt.isOpen() || !home.classList.contains('active')) return;
+      prompt.open({
+        lang: 'ru',
+        theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+        onAnswer: sendFeedback,
+      });
+      sendFeedback('shown').catch(() => {});
+    } catch (_) {} finally { feedbackChecking = false; }
+  }
+  function initFeedbackPrompt() {
+    const home = document.querySelector('.view[data-view="home"]');
+    if (home && window.MutationObserver) new MutationObserver(checkFeedbackPrompt).observe(home, { attributes: true, attributeFilter: ['class'] });
+    document.addEventListener('visibilitychange', checkFeedbackPrompt);
+    setTimeout(checkFeedbackPrompt, 4000);
+  }
+
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
   function restoreAppTheme() {
@@ -30398,6 +30440,7 @@ async function waitGeneration(jobId, options) {
     bindEvents();
     initPresence();
     initNotifications();
+    initFeedbackPrompt();
     initStoreCardCentering();
     initNavAutoHide();
     initHomeIdeaAi();

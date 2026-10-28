@@ -24,7 +24,7 @@ test('the Mini App loads the reference panel with fresh pins', () => {
   assert.match(index, /<link rel="stylesheet" href="css\/reference-panel\.css\?v=ref-panel-20261027" \/>/);
   assert.match(index, /<script src="js\/reference-panel\.js\?v=ref-panel-20261027"><\/script>/);
   assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=ref-panel-20261027" \/>/);
-  assert.match(index, /<script src="js\/cabinet\.js\?v=sales-request-20261028"><\/script>/);
+  assert.match(index, /<script src="js\/cabinet\.js\?v=reviews-20261028"><\/script>/);
 });
 
 test('the composer: prompt first, then +, Video / Photo (video by default), mic, send; tools below', () => {

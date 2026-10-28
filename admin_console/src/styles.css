@@ -208,3 +208,5 @@ tr.clickable:hover td { background: var(--surface-2); }
 .kv{display:grid;gap:6px}
 .kv-row{display:grid;grid-template-columns:minmax(120px,170px) 1fr;gap:10px;align-items:baseline}
 .kv-row>span:last-child{overflow-wrap:anywhere}
+.review-stars { color: #f5b301; letter-spacing: 1px; white-space: nowrap; }
+.bar-row.review-bar { grid-template-columns: 200px 1fr 50px; }

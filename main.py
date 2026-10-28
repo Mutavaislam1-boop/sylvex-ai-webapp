@@ -51,6 +51,7 @@ from services import admin_identity
 from services import admin_auth
 from services import admin_rbac
 from services import notifications as notifications_service
+from services import reviews as reviews_service
 from services import video_probe
 from services import video_editor as video_editor_service
 from services.media_access import sign_media_url as media_sign_url
@@ -12392,6 +12393,7 @@ def ensure_notification_tables():
     cursor = conn.cursor()
     try:
         notifications_service.ensure_tables(cursor)
+        reviews_service.ensure_tables(cursor)
         conn.commit()
         NOTIFICATIONS_SCHEMA_READY = True
     finally:
@@ -12633,6 +12635,44 @@ async def public_visitor_contact(request: Request):
     return {"ok": True, "thread_id": thread_id}
 
 
+# ---------- users: How do you like SYLVEX? ----------
+
+def _reviews_run(work):
+    def guarded(cursor):
+        try:
+            return work(cursor)
+        except reviews_service.ReviewError as exc:
+            raise notifications_service.NotificationError(exc.code, exc.status)
+    return _notifications_run(guarded)
+
+
+@app.get("/api/public/feedback/state")
+async def public_feedback_state(request: Request):
+    """Whether the review prompt is due for the signed-in caller (counted in
+    successful generations, see services/reviews.py)."""
+    def work(cursor):
+        person = _request_person(cursor, request)
+        return reviews_service.is_due(cursor, person, person["user_key"])
+
+    show = await asyncio.to_thread(_reviews_run, work)
+    return {"ok": True, "show": bool(show)}
+
+
+@app.post("/api/public/feedback")
+async def public_feedback(request: Request):
+    """One answer to the prompt: shown, close (×), later, never or send."""
+    body = await request.json()
+
+    def work(cursor):
+        person = _request_person(cursor, request)
+        return reviews_service.record(cursor, person, person["user_key"], str(body.get("action") or ""),
+                                      rating=body.get("rating"), text=body.get("text") or "",
+                                      surface=str(body.get("surface") or ""))
+
+    review_id = await asyncio.to_thread(_reviews_run, work)
+    return {"ok": True, "review_id": review_id}
+
+
 # ---------- admins: audience, messages, inbox ----------
 
 def _admin_identity_for(cursor, rows, actor):
@@ -12785,6 +12825,27 @@ async def admin_inbox_list(request: Request):
 
     items, total, unread = await asyncio.to_thread(_notifications_run, work)
     return {"ok": True, "items": items, "total": total, "unread": unread}
+
+
+@app.post("/api/admin/reviews/list")
+async def admin_reviews_list(request: Request):
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "users.view")
+        items, total, summary = reviews_service.admin_list(cursor, rating=payload.get("rating") or 0,
+                                                           limit=payload.get("limit") or 50,
+                                                           offset=payload.get("offset") or 0)
+        _admin_identity_for(cursor, items, actor)
+        for item in items:
+            item["sylvex_user_id"] = str(item.pop("account_id")) if item.get("account_id") else None
+            item["telegram_id"] = account_identity_service.real_telegram_id(item.get("user_key"))
+            item.pop("account_id", None)
+            item.pop("user_key", None)
+        return items, total, summary
+
+    items, total, summary = await asyncio.to_thread(_reviews_run, work)
+    return {"ok": True, "items": items, "total": total, "summary": summary}
 
 
 @app.post("/api/admin/inbox/thread")
