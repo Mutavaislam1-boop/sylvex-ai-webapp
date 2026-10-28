@@ -3255,6 +3255,10 @@ CSS-БЛОК: .hd-more
 .sb-val{font-size:26px;font-weight:700;letter-spacing:-.5px;color:var(--text);display:flex;align-items:baseline;gap:6px}
 .sb-bolt{font-size:18px}
 .sb-usd{font-size:12px;color:var(--text-mute)}
+.sb-plan{display:flex;align-items:center;gap:8px;min-width:0;margin-top:10px;font-size:12px;color:var(--text-dim)}
+.sb-plan[hidden]{display:none}
+.sb-plan .sx-plan{flex:none;padding:4px 10px 4px 7px;font-size:13px}
+.sb-plan span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-rate{font-size:11px;color:var(--text-mute);padding:5px 9px;border:1px solid var(--bd);border-radius:999px;background:rgba(255,255,255,.03)}
 
 .sub-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:8px 0 18px}

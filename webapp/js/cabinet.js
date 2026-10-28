@@ -24925,6 +24925,15 @@ async function waitGeneration(jobId, options) {
         }
       }
     });
+    // Store balance block: the active plan as its badge and period.
+    const shopPlan = document.getElementById('shopPlan');
+    const planBadge = active && window.SylvexPlanBadge ? window.SylvexPlanBadge.html(plan) : '';
+    if (shopPlan) {
+      shopPlan.hidden = !planBadge;
+      shopPlan.innerHTML = planBadge
+        ? planBadge + '<span>' + S.escapeHtml(window.SylvexPlanBadge.periodLabel(plan, 'ru') + (expIso ? ' · до ' + fmtDate(expIso) : '')) + '</span>'
+        : '';
+    }
     // Manage-subscription row subtitle
     const ms = document.getElementById('manageSubSub');
     const details = subDetails();

@@ -23,7 +23,7 @@ const index = read('webapp/index.html');
 test('the Mini App loads the reference panel with fresh pins', () => {
   assert.match(index, /<link rel="stylesheet" href="css\/reference-panel\.css\?v=ref-panel-20261027" \/>/);
   assert.match(index, /<script src="js\/reference-panel\.js\?v=ref-panel-20261027"><\/script>/);
-  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=email-code-20261028" \/>/);
+  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=tz1-20261028" \/>/);
   assert.match(index, /<script src="js\/cabinet\.js\?v=generation-image-actions-20261028"><\/script>/);
 });
 

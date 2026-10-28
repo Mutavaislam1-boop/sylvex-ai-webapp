@@ -15153,6 +15153,7 @@ def _web_session_payload(account_id: int) -> dict:
         "avatar_url": state.get("custom_avatar_url"),
         "balance": state.get("balance", 0),
         "subscription_plan": state.get("subscription_plan"),
+        "subscription_expires_at": state.get("subscription_expires_at"),
         "generations_count": state.get("generations_count", 0),
         "member_since": member_since,
         "email": summary.get("email"),

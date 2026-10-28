@@ -29,7 +29,7 @@ test('nothing hides with reduced motion or without the browser features', () => 
 test('the Mini App loads it in <head>, before the home is drawn', () => {
   const head = index.slice(0, index.indexOf('</head>'));
   assert.match(head, /<script src="js\/animated-content\.js\?v=animated-content-20261027"><\/script>/);
-  assert.match(index, /fetch\('cabinet\.html\?v=ref-panel-20261027'\)/);
+  assert.match(index, /fetch\('cabinet\.html\?v=tz1-20261028'\)/);
 });
 
 test('the home blocks are marked; card rows and the FAQ come in turn', () => {

@@ -1,0 +1,9 @@
+/* Plan badge (js/plan-badge.js): one colour per plan, white name, never
+   wider than its block. */
+.sx-plan{--plan-bg:#3f3f46;--plan-glow:rgba(0,0,0,.3);display:inline-flex;align-items:center;gap:6px;max-width:100%;box-sizing:border-box;padding:5px 12px 5px 8px;border-radius:999px;background:var(--plan-bg);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 8px 18px -10px var(--plan-glow);color:#fff;-webkit-text-fill-color:#fff;-webkit-background-clip:border-box;background-clip:border-box;font-size:14px;font-weight:700;line-height:1.1;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.sx-plan svg{flex:none;width:14px;height:14px;fill:#fff}
+.sx-plan--starter{--plan-bg:linear-gradient(135deg,#475569,#94a3b8);--plan-glow:#64748b}
+.sx-plan--pro{--plan-bg:linear-gradient(135deg,#047857,#34d399);--plan-glow:#10b981}
+.sx-plan--max{--plan-bg:linear-gradient(135deg,#1d4ed8,#60a5fa);--plan-glow:#3b82f6}
+.sx-plan--ultra{--plan-bg:linear-gradient(135deg,#6d28d9,#d946ef);--plan-glow:#a855f7}
+.sx-plan--creator{--plan-bg:linear-gradient(135deg,#b45309,#fbbf24);--plan-glow:#f59e0b}
