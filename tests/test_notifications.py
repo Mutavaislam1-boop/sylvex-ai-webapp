@@ -151,6 +151,27 @@ async def test_mini_app_contact_reply_goes_to_bell_and_telegram(world):
 
 
 @pytest.mark.asyncio
+async def test_sales_request_reaches_the_inbox_with_its_fields(world):
+    env = world
+    visitor = (await call(env, "POST", "/api/public/visitor/ping", origin=None, json_body={"path": "/store.html"})).json()["visitor_id"]
+    sales = {"kind": "organization", "company": "Northwind Studio", "team_size": "11–50", "website": "https://northwind.studio",
+             "needs": ["video", "api", "unknown"], "budget": "500-2000", "comment": "30 launches a month",
+             "name": "Anna", "email": "Anna@Northwind.Studio", "phone": "@anna_nw"}
+    r = await call(env, "POST", "/api/public/visitor/contact", origin=None, json_body={"visitor_id": visitor, "sales": sales})
+    assert r.status_code == 200, r.text
+    thread_id = r.json()["thread_id"]
+    item = (await admin(env, "/api/admin/inbox/list", {})).json()["items"][0]
+    assert item["topic"] == "sales" and item["email"] == "anna@northwind.studio"
+    message = (await admin(env, "/api/admin/inbox/thread", {"thread_id": thread_id})).json()["messages"][0]
+    assert message["sales"]["needs"] == ["video", "api"] and message["sales"]["company"] == "Northwind Studio"
+    assert message["text"].startswith("Заявка в отдел продаж") and "Организация: Northwind Studio" in message["text"]
+    # A signed-in Mini App user sends the same form; a broken one is refused.
+    r = await user_post(env, "/api/public/contact", {"surface": "miniapp", "sales": dict(sales, kind="private", company="")})
+    assert r.status_code == 200, r.text
+    assert (await user_post(env, "/api/public/contact", {"sales": dict(sales, email="nope")})).status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_contact_is_rate_limited_and_validated(world):
     env = world
     assert (await user_post(env, "/api/public/contact", {"message": "   "})).status_code == 400

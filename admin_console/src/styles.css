@@ -204,3 +204,9 @@ tr.clickable:hover td { background: var(--surface-2); }
 .bubble.in { align-self: flex-start; border-top-left-radius: 4px; }
 .bubble.out { align-self: flex-end; border-top-right-radius: 4px; background: var(--accent-soft); }
 .bubble-head { font-size: 11.5px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+/* Inbox: a sales request's fields. */
+.kv{display:grid;gap:6px}
+.kv-row{display:grid;grid-template-columns:minmax(120px,170px) 1fr;gap:10px;align-items:baseline}
+.kv-row>span:last-child{overflow-wrap:anywhere}
+.review-stars { color: #f5b301; letter-spacing: 1px; white-space: nowrap; }
+.bar-row.review-bar { grid-template-columns: 200px 1fr 50px; }

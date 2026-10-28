@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { errorText, post } from "../api";
 import { useApp } from "../state";
 import { t } from "../i18n";
@@ -14,7 +14,11 @@ type Thread = {
   status: string; admin_unread: boolean; created_at: string; last_message_at: string; last_message: string; last_direction: string;
   messages: number; sylvex_user_id: string | null; telegram_id: number | null; identity: Identity | null;
 };
-type Message = { id: number; direction: "in" | "out"; text: string; image_url: string | null; links: { url: string; label: string }[]; admin_id: number | null; created_at: string };
+type Sales = {
+  kind: string; company: string; team_size: string; website: string; needs: string[]; budget: string; comment: string;
+  name: string; email: string; phone: string;
+};
+type Message = { id: number; direction: "in" | "out"; text: string; image_url: string | null; links: { url: string; label: string }[]; admin_id: number | null; created_at: string; sales?: Sales | null };
 type Detail = {
   thread: Thread & { person: { key: string; sylvex_user_id: string | null; telegram_id: number | null; visitor_id: string | null; identity: Identity | null } };
   messages: Message[];
@@ -23,6 +27,31 @@ type Detail = {
 const TOPIC: Record<string, string> = { support: "Support", sales: "Sales", admin: "Administrator", general: "General" };
 const SURFACE: Record<string, string> = { miniapp: "Mini App", website: "Website", telegram: "Telegram" };
 const PAGE = 30;
+// A request from Store -> Contact sales arrives as its fields.
+const SALES_KIND: Record<string, string> = { organization: "Organization", private: "Private person" };
+const SALES_NEED: Record<string, string> = { images: "Images", video: "Video", voice: "Voice & music", text: "Text", api: "API & integration", team: "Team access" };
+const SALES_BUDGET: Record<string, string> = { lt100: "Under $100", "100-500": "$100–500", "500-2000": "$500–2,000", "2000+": "Over $2,000", unknown: "Not sure yet" };
+
+function SalesCard({ s }: { s: Sales }) {
+  const rows: [string, React.ReactNode][] = [
+    [t("Applicant"), t(SALES_KIND[s.kind] || s.kind)],
+    ...(s.company ? [[t("Organization"), s.company]] as [string, React.ReactNode][] : []),
+    ...(s.team_size ? [[t("Team size"), s.team_size]] as [string, React.ReactNode][] : []),
+    ...(s.website ? [[t("Website"), <a href={s.website} target="_blank" rel="noopener noreferrer">{s.website}</a>]] as [string, React.ReactNode][] : []),
+    [t("Interested in"), s.needs.map((n) => t(SALES_NEED[n] || n)).join(", ")],
+    ...(s.budget ? [[t("Monthly budget"), t(SALES_BUDGET[s.budget] || s.budget)]] as [string, React.ReactNode][] : []),
+    [t("Contact name"), s.name],
+    [t("E-mail"), <a href={`mailto:${s.email}`}>{s.email}</a>],
+    ...(s.phone ? [[t("Phone or Telegram"), s.phone]] as [string, React.ReactNode][] : []),
+  ];
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <b>{t("Sales request")}</b>
+      <div className="kv">{rows.map(([k, v]) => <div key={k} className="kv-row"><span className="muted small">{k}</span><span>{v}</span></div>)}</div>
+      {s.comment && <div style={{ whiteSpace: "pre-wrap" }}>{s.comment}</div>}
+    </div>
+  );
+}
 
 function who(th: { identity: Identity | null; email: string | null; sylvex_user_id: string | null; visitor_id: string | null }) {
   return th.identity?.display_name || th.identity?.username || th.identity?.email || th.email
@@ -91,7 +120,7 @@ function ThreadView({ id, onBack }: { id: number; onBack: () => void }) {
         {data.messages.map((m) => (
           <div key={m.id} className={`bubble ${m.direction}`}>
             <div className="bubble-head">{m.direction === "out" ? `SYLVEX Team${m.admin_id ? ` · ${t("admin")} #${m.admin_id}` : ""}` : who({ ...person, email: th.email })} · {fmtDate(m.created_at)}</div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+            {m.sales ? <SalesCard s={m.sales} /> : <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>}
             {m.image_url && <img src={m.image_url} alt="" style={{ maxWidth: 240, borderRadius: 8, marginTop: 6 }} />}
             {m.links.map((l, i) => <div key={i} className="small"><a href={l.url} target="_blank" rel="noopener noreferrer">🔗 {l.label || l.url}</a></div>)}
           </div>

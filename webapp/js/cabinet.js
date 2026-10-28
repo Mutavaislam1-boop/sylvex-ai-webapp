@@ -25754,6 +25754,8 @@ async function waitGeneration(jobId, options) {
     // Website Pro Studio: the website's own Contact SYLVEX popup.
     const site = window.SYLVEX_SITE;
     if (isWebEmbed() && site && typeof site.openContact === 'function') { site.openContact(supportTopic); return; }
+    // Contact sales: the sales request in steps (js/sales-request.js).
+    if (supportTopic === 'sales' && window.SylvexSalesRequest) { openSalesRequest(); return; }
     const m = document.getElementById('supportModal');
     const title = document.getElementById('supportTitle');
     const sub = document.getElementById('supportSub');
@@ -25763,6 +25765,25 @@ async function waitGeneration(jobId, options) {
     const email = document.getElementById('supportEmail');
     if (email && !email.value && S.user && S.user.email) email.value = S.user.email;
     setTimeout(() => { const ta = document.getElementById('supportMsg'); ta && ta.focus(); }, 250);
+    S.haptic.impact('light');
+  }
+  function openSalesRequest() {
+    const user = S.user || {};
+    window.SylvexSalesRequest.open({
+      lang: 'ru',
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+      name: user.display_name || user.first_name || '',
+      email: user.email || '',
+      submit: async (request) => {
+        const res = await fetch('/api/public/contact', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sales: request, surface: 'miniapp' }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw Object.assign(new Error('sales_request_failed'), { code: data.error || data.detail || '' });
+        S.haptic.notify('success');
+      },
+    });
     S.haptic.impact('light');
   }
   // =====================================================
@@ -30343,6 +30364,48 @@ async function waitGeneration(jobId, options) {
     });
   }
 
+  // =====================================================
+  // ОТЗЫВ О ПРОЕКТЕ: «Как вам SYLVEX?»
+  // Пора ли спросить, решает сервер по числу успешных генераций (см.
+  // services/reviews.py); окно появляется только на главном экране.
+  // =====================================================
+  let feedbackChecking = false;
+  let feedbackCheckedAt = 0;
+  async function sendFeedback(action, payload) {
+    const res = await fetch('/api/public/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...(payload || {}), surface: 'miniapp' }),
+    });
+    if (!res.ok) throw new Error('feedback_failed');
+    if (action === 'send') S.haptic.notify('success');
+  }
+  async function checkFeedbackPrompt() {
+    const prompt = window.SylvexFeedbackPrompt;
+    if (!prompt || prompt.isOpen() || feedbackChecking || document.hidden) return;
+    if (isWebEmbed() || (isBrowserApp() ? isBrowserGuest() : !currentTelegramInitData())) return;
+    const home = document.querySelector('.view[data-view="home"]');
+    if (!home || !home.classList.contains('active') || Date.now() - feedbackCheckedAt < 20000) return;
+    feedbackChecking = true;
+    feedbackCheckedAt = Date.now();
+    try {
+      const res = await fetch('/api/public/feedback/state');
+      const data = res.ok ? await res.json() : {};
+      if (!data.show || prompt.isOpen() || !home.classList.contains('active')) return;
+      prompt.open({
+        lang: 'ru',
+        theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+        onAnswer: sendFeedback,
+      });
+      sendFeedback('shown').catch(() => {});
+    } catch (_) {} finally { feedbackChecking = false; }
+  }
+  function initFeedbackPrompt() {
+    const home = document.querySelector('.view[data-view="home"]');
+    if (home && window.MutationObserver) new MutationObserver(checkFeedbackPrompt).observe(home, { attributes: true, attributeFilter: ['class'] });
+    document.addEventListener('visibilitychange', checkFeedbackPrompt);
+    setTimeout(checkFeedbackPrompt, 4000);
+  }
+
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
   function restoreAppTheme() {
@@ -30377,6 +30440,7 @@ async function waitGeneration(jobId, options) {
     bindEvents();
     initPresence();
     initNotifications();
+    initFeedbackPrompt();
     initStoreCardCentering();
     initNavAutoHide();
     initHomeIdeaAi();
