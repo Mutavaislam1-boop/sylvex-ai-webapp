@@ -54,7 +54,8 @@ from db_pool import db_connect
 from services.password_auth import (
     hash_password, verify_password, new_token, is_valid_email, normalize_email, password_strength_error,
 )
-from services.account_email import send_verification_email, send_password_reset_email, send_merge_code_email, send_registration_code_email
+from services.account_email import send_verification_email, send_password_reset_email, send_merge_code_email, send_registration_code_email, \
+    send_account_deletion_code_email
 from services import oauth_verify
 from services.login_rate_limit import check_lockout as _check_rate_limit_lockout, record_failure as _record_rate_limit_failure, record_success as _record_rate_limit_success
 
@@ -279,6 +280,23 @@ def ensure_account_tables(database_url, connect=None):
                     expires_at TIMESTAMP NOT NULL,
                     consumed_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            # Deleting an account: a 6-digit code emailed to the account's
+            # address; once it is entered, a short-lived confirm token is
+            # what /api/web/account/delete takes. One row per account.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS account_deletion_codes (
+                    account_id BIGINT PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    code_hash TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    code_expires_at TIMESTAMP NOT NULL,
+                    last_sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    send_count INTEGER NOT NULL DEFAULT 1,
+                    send_window_started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    confirm_hash TEXT,
+                    confirm_expires_at TIMESTAMP
                 )
             """)
             # A registration waiting for its emailed code. Not an account:
@@ -1164,12 +1182,130 @@ def change_password(database_url, account_id, current_password, new_password, go
         conn.close()
 
 
-def delete_account(database_url, account_id, password=None):
+# ---------------------------------------------------------------------------
+# Deleting an account: confirmed by a code sent to the account's email.
+#
+# start -> a 6-digit code is emailed -> verify returns a confirm token valid
+# for DELETION_CONFIRM_TTL_SECONDS -> delete takes that token. Same limits as
+# registration codes: a new code at most every
+# REGISTRATION_RESEND_COOLDOWN_SECONDS, REGISTRATION_MAX_CODES_PER_HOUR per
+# hour, REGISTRATION_CODE_MAX_ATTEMPTS wrong guesses per code. An account
+# with no email anywhere (no email login, no Google/Apple email) has nowhere
+# to send a code; holding the signed-in session is all it can prove.
+# ---------------------------------------------------------------------------
+DELETION_CONFIRM_TTL_SECONDS = 600
+
+
+def mask_email(email):
+    name, _, domain = (email or "").partition("@")
+    return (name[:1] + "\u2022\u2022\u2022@" + domain) if domain else ""
+
+
+def _deletion_email(cur, account_id):
+    cur.execute("SELECT email FROM account_emails WHERE account_id = %s", (account_id,))
+    row = cur.fetchone()
+    if row and row[0]:
+        return row[0]
+    cur.execute("SELECT email FROM account_oauth WHERE account_id = %s AND email IS NOT NULL ORDER BY created_at LIMIT 1",
+                (account_id,))
+    row = cur.fetchone()
+    return normalize_email(row[0]) if row and row[0] else None
+
+
+def start_account_deletion(database_url, account_id):
+    """Emails a deletion code. Returns the masked address and the timers,
+    or {"code_required": False} for an account with no email."""
+    ensure_account_tables(database_url)
+    code = _new_registration_code()
+    conn = db_connect(database_url)
+    cur = conn.cursor()
+    try:
+        email = _deletion_email(cur, account_id)
+        if not email:
+            return {"code_required": False}
+        cur.execute(
+            "SELECT GREATEST(0, %s - EXTRACT(EPOCH FROM (NOW() - last_sent_at))), send_count, "
+            "EXTRACT(EPOCH FROM (NOW() - send_window_started_at)) FROM account_deletion_codes WHERE account_id = %s FOR UPDATE",
+            (REGISTRATION_RESEND_COOLDOWN_SECONDS, account_id),
+        )
+        row = cur.fetchone()
+        send_count, new_window = 1, True
+        if row:
+            wait, count, window_age = float(row[0] or 0), int(row[1] or 0), float(row[2] or 0)
+            if wait > 0:
+                raise RegistrationError("code_recently_sent", 429, retry_after=int(wait + 0.999))
+            if window_age < 3600:
+                if count >= REGISTRATION_MAX_CODES_PER_HOUR:
+                    raise RegistrationError("too_many_codes", 429, retry_after=int(3600 - window_age + 0.999))
+                send_count, new_window = count + 1, False
+        cur.execute(
+            "INSERT INTO account_deletion_codes (account_id, email, code_hash, attempts, code_expires_at, last_sent_at, send_count, send_window_started_at) "
+            "VALUES (%s, %s, %s, 0, NOW() + (%s * INTERVAL '1 second'), NOW(), %s, NOW()) "
+            "ON CONFLICT (account_id) DO UPDATE SET email = EXCLUDED.email, code_hash = EXCLUDED.code_hash, attempts = 0, "
+            "code_expires_at = EXCLUDED.code_expires_at, last_sent_at = NOW(), send_count = EXCLUDED.send_count, "
+            "send_window_started_at = CASE WHEN %s THEN NOW() ELSE account_deletion_codes.send_window_started_at END, "
+            "confirm_hash = NULL, confirm_expires_at = NULL",
+            (account_id, email, _code_hash(code), REGISTRATION_CODE_TTL_SECONDS, send_count, new_window),
+        )
+        conn.commit()
+    except AccountError:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    send_account_deletion_code_email(email, code)
+    return {"code_required": True, "email": mask_email(email), **_registration_timers()}
+
+
+def verify_account_deletion(database_url, account_id, code):
+    """Checks the emailed deletion code; returns the confirm token."""
+    code = "".join(ch for ch in str(code or "") if ch.isdigit())
+    ensure_account_tables(database_url)
+    conn = db_connect(database_url)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT code_hash, attempts, code_expires_at > NOW() FROM account_deletion_codes WHERE account_id = %s FOR UPDATE",
+            (account_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RegistrationError("code_expired", 400)
+        code_hash, attempts, live = row
+        if not live:
+            raise RegistrationError("code_expired", 400)
+        if attempts >= REGISTRATION_CODE_MAX_ATTEMPTS:
+            raise RegistrationError("too_many_attempts", 429)
+        if len(code) != 6 or not hmac.compare_digest(_code_hash(code), code_hash):
+            cur.execute("UPDATE account_deletion_codes SET attempts = attempts + 1 WHERE account_id = %s", (account_id,))
+            conn.commit()
+            left = REGISTRATION_CODE_MAX_ATTEMPTS - attempts - 1
+            if left <= 0:
+                raise RegistrationError("too_many_attempts", 429)
+            raise RegistrationError("invalid_code", 400, attempts_left=left)
+        token = secrets.token_urlsafe(24)
+        cur.execute(
+            "UPDATE account_deletion_codes SET confirm_hash = %s, confirm_expires_at = NOW() + (%s * INTERVAL '1 second'), "
+            "code_expires_at = NOW() WHERE account_id = %s",
+            (_code_hash(token), DELETION_CONFIRM_TTL_SECONDS, account_id),
+        )
+        conn.commit()
+    except AccountError:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    return token
+
+
+def delete_account(database_url, account_id, confirm_token=None):
     """Deletes the website identity (email/Google/Apple/Telegram-login) for
     account_id, freeing its email and any linked Google/Apple identities to
-    register again. Requires the account's own password when one is set
-    (mirrors change_password); an OAuth-only account with no password has
-    nothing to check beyond the caller already holding a valid session.
+    register again. An account with an email needs the confirm token from
+    verify_account_deletion (the code emailed to that address); one with no
+    email has nothing to check beyond the caller holding a valid session.
 
     Deliberately does NOT touch the underlying business data (balance,
     generations, purchases, subscriptions) or the `users` row it lives
@@ -1177,16 +1313,23 @@ def delete_account(database_url, account_id, password=None):
     and its SYLVEX ID stay exactly as they are (invariant 3) - only the
     website logins go. An account with no Telegram identity has nothing
     left after this, so its row is removed; its ID is never reissued."""
+    ensure_account_tables(database_url)
     conn = db_connect(database_url)
     cur = conn.cursor()
     try:
-        cur.execute("SELECT password_hash FROM account_emails WHERE account_id = %s", (account_id,))
-        row = cur.fetchone()
-        if row and row[0] and not verify_password(password or "", row[0]):
-            raise AccountError("incorrect_current_password", 401)
+        if _deletion_email(cur, account_id):
+            cur.execute(
+                "SELECT confirm_hash FROM account_deletion_codes WHERE account_id = %s "
+                "AND confirm_hash IS NOT NULL AND confirm_expires_at > NOW() FOR UPDATE",
+                (account_id,),
+            )
+            row = cur.fetchone()
+            if not row or not hmac.compare_digest(_code_hash(confirm_token or ""), row[0]):
+                raise AccountError("deletion_not_confirmed", 403)
         cur.execute("SELECT active_telegram_id FROM sylvex_accounts WHERE account_id = %s FOR UPDATE", (account_id,))
         active_row = cur.fetchone()
         still_used_by_telegram = bool(active_row) and real_telegram_id(active_row[0]) is not None
+        cur.execute("DELETE FROM account_deletion_codes WHERE account_id = %s", (account_id,))
         cur.execute("DELETE FROM account_link_codes WHERE account_id = %s", (account_id,))
         cur.execute("DELETE FROM account_oauth WHERE account_id = %s", (account_id,))
         cur.execute("DELETE FROM account_emails WHERE account_id = %s", (account_id,))

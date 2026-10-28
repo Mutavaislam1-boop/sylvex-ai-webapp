@@ -93,3 +93,4 @@ html.sxAuth-open,html.sxAuth-open body{overflow:hidden}
   .sxAuth-btn,.sxAuth-close,.sxAuth-input{transition:none}
   .sxAuth-btn.is-busy span::after{animation:none}
 }
+.sxAuth-codehost{display:flex;justify-content:center;margin:4px 0 6px}

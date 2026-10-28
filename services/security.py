@@ -59,11 +59,12 @@ PUBLIC_GETS = frozenset({
 # Every other /api/ POST still requires Telegram initData, exactly as before.
 PUBLIC_POSTS = frozenset({
  '/api/web/auth/telegram', '/api/web/auth/google', '/api/web/auth/apple', '/api/web/auth/logout',
- '/api/web/auth/register', '/api/web/auth/login',
+ '/api/web/auth/login',
  '/api/web/auth/register/start', '/api/web/auth/register/resend', '/api/web/auth/register/verify',
  '/api/web/auth/forgot-password', '/api/web/auth/reset-password',
  '/api/web/auth/resend-verification',
  '/api/web/account/password/change', '/api/web/account/email/set', '/api/web/account/delete',
+ '/api/web/account/delete/start', '/api/web/account/delete/verify',
  '/api/web/account/profile',
  '/api/web/account/telegram/preview', '/api/web/account/telegram/confirm',
  # Guide Mode must work for a guest with no SYLVEX account - see

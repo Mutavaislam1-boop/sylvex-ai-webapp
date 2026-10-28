@@ -41,6 +41,7 @@
       .sylvexAuth-btn[disabled]{opacity:.5;cursor:not-allowed;}
       .sylvexAuth-link{display:block;text-align:center;font-size:13px;color:var(--st-accent,#5b8dff);cursor:pointer;margin-top:2px;padding:6px 0;}
       .sylvexAuth-guest{color:var(--st-dim,#9a9aa2);margin-top:6px;}
+      .sylvexAuth-code{display:flex;justify-content:center;margin:4px 0 14px;}
       .sylvexAuth-error{font-size:13px;color:#ff6b6b;margin:-4px 0 10px;min-height:1em;}
       .sylvexAuth-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--st-line,rgba(255,255,255,.08));font-size:14px;}
       .sylvexAuth-row:last-child{border-bottom:none;}
@@ -93,6 +94,16 @@
       return { ok: false, status: 0, json: { error: 'network_error' } };
     }
     return { ok: res.ok, status: res.status, json };
+  }
+
+  // The emailed code is typed into code slots (js/code-slots.js): a wrong
+  // code drains them red, the right one washes them and shows a tick, which
+  // stays CODE_ACCEPTED_MS before the next screen.
+  const CODE_ACCEPTED_MS = 800;
+  function mountCodeEntry(host, { light, onCode }) {
+    const slots = window.SylvexCodeSlots.mount(host, { length: 6, autoFocus: true, ariaLabel: 'Verification code', onComplete: onCode });
+    if (light) slots.el.classList.add('light');
+    return slots;
   }
 
   function telegramInitData() { return (S.tg && S.tg.initData) || ''; }
@@ -283,12 +294,45 @@
       if (!isLogin && password !== q(overlay, '#saConfirm').value) { showErr('Passwords do not match.'); return; }
       const btn = q(overlay, '#saSubmit'); btn.disabled = true;
       const body = isLogin ? { email, password } : { email, password, display_name: q(overlay, '#saName').value.trim() };
-      const res = await apiFetch(isLogin ? '/api/web/auth/login' : '/api/web/auth/register', {
+      const res = await apiFetch(isLogin ? '/api/web/auth/login' : '/api/web/auth/register/start', {
         method: 'POST', body: JSON.stringify(body),
       });
       btn.disabled = false;
-      if (!res.ok) { showErr(friendlyAuthError(res.json.error, res.status)); return; }
-      await onAuthenticated();
+      if (!res.ok) { showErr(friendlyAuthError(res.json.error, res.status, res.json)); return; }
+      if (isLogin) await onAuthenticated();
+      else renderCode({ email: res.json.email || email, token: res.json.registration_token });
+    }
+
+    // Creating an account: the 6-digit code emailed by register/start.
+    function renderCode(pending) {
+      setBody(overlay,
+        `<div class="sylvexAuth-title">Check your email</div>
+         <div class="sylvexAuth-sub">We sent a 6-digit code to <b>${esc(pending.email)}</b>. Enter it to finish creating your account.</div>
+         <div class="sylvexAuth-code" id="saCode"></div>
+         <div class="sylvexAuth-error" id="saErr"></div>
+         <div class="sylvexAuth-link" id="saResend">Resend code</div>
+         <div class="sylvexAuth-link" id="saBack">Use a different email</div>`
+      );
+      const slots = mountCodeEntry(q(overlay, '#saCode'), {
+        light: document.documentElement.getAttribute('data-theme') === 'light',
+        onCode: async (code) => {
+          showErr('');
+          const res = await apiFetch('/api/web/auth/register/verify', {
+            method: 'POST', body: JSON.stringify({ email: pending.email, registration_token: pending.token, code }),
+          });
+          if (res.ok) { slots.setStatus('success'); setTimeout(onAuthenticated, CODE_ACCEPTED_MS); return; }
+          slots.setStatus('error');
+          showErr(friendlyAuthError(res.json.error, res.status, res.json));
+        },
+      });
+      q(overlay, '#saResend').onclick = async () => {
+        const res = await apiFetch('/api/web/auth/register/resend', {
+          method: 'POST', body: JSON.stringify({ email: pending.email, registration_token: pending.token }),
+        });
+        slots.clear();
+        showErr(res.ok ? 'We sent a new code. Codes from earlier emails no longer work.' : friendlyAuthError(res.json.error, res.status, res.json));
+      };
+      q(overlay, '#saBack').onclick = () => { mode = 'register'; render(); };
     }
 
     async function onAuthenticated() {
@@ -447,6 +491,7 @@
     mountRoot().appendChild(root);
     const stopVideo = runIntroVideo($('.sxAuth-video'));
     let ticker = 0;
+    let codeSlots = null;
 
     function close(dismissed) {
       if (!root.isConnected) return;
@@ -651,21 +696,14 @@
         `<h1 class="sxAuth-title" id="sxaTitle">Check your email</h1>
          <p class="sxAuth-sub">We sent a 6-digit code to <b>${esc(p.email)}</b>. Enter it to finish creating your account.</p>`;
       $('#sxaBody').innerHTML =
-        `<form class="sxAuth-form" id="sxaForm" novalidate>
-          <input class="sxAuth-input sxAuth-code" id="sxaCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="000000" aria-label="Verification code" data-autofocus>
+        `<div class="sxAuth-form">
+          <div class="sxAuth-codehost" id="sxaCode"></div>
           <p class="sxAuth-meta" id="sxaExpiry"></p>
           <p class="sxAuth-error" id="sxaErr" role="alert" aria-live="polite"></p>
-          <button type="submit" class="sxAuth-btn sxAuth-primary" id="sxaSubmit"><span>Verify and create account</span></button>
-        </form>
+        </div>
         <p class="sxAuth-switch">Didn’t get it? <button type="button" class="sxAuth-link is-strong" id="sxaResend"></button></p>
         <button type="button" class="sxAuth-link" id="sxaBack">Use a different email</button>`;
-      const input = $('#sxaCode');
-      input.addEventListener('input', () => {
-        const digits = input.value.replace(/\D/g, '').slice(0, 6);
-        if (digits !== input.value) input.value = digits;
-        if (digits.length === 6 && !state.busy) submitCode();
-      });
-      $('#sxaForm').onsubmit = (e) => { e.preventDefault(); if (!state.busy) submitCode(); };
+      codeSlots = mountCodeEntry($('#sxaCode'), { light: true, onCode: (code) => { if (!state.busy) submitCode(code); } });
       $('#sxaResend').onclick = () => resendCode();
       $('#sxaBack').onclick = () => { writePendingRegistration(null); state.pending = null; state.mode = 'register'; render(); };
       tickCode();
@@ -686,19 +724,21 @@
       resend.textContent = wait > 0 ? `Resend code in ${clock(wait)}` : 'Resend code';
     }
 
-    async function submitCode() {
+    async function submitCode(code) {
       showErr('');
       const p = state.pending;
-      const code = $('#sxaCode').value.replace(/\D/g, '');
-      if (code.length !== 6) { showErr('Enter the 6-digit code from the email.'); return; }
-      const btn = $('#sxaSubmit');
-      setBusy(btn, true, 'Verifying…');
+      const slots = codeSlots;
+      state.busy = true;
       const res = await apiFetch('/api/web/auth/register/verify', {
         method: 'POST', body: JSON.stringify({ email: p.email, registration_token: p.token, code }),
       });
+      state.busy = false;
       if (!root.isConnected) return;
-      setBusy(btn, false, 'Verify and create account');
-      if (res.ok) { await finish(); return; }
+      if (res.ok) {
+        slots.setStatus('success');
+        setTimeout(() => { if (root.isConnected) finish(); }, CODE_ACCEPTED_MS);
+        return;
+      }
       const error = res.json.error;
       if (error === 'registration_expired' || error === 'email_already_registered') {
         writePendingRegistration(null);
@@ -709,10 +749,10 @@
         return;
       }
       if (error === 'code_expired') { p.expiresAt = 0; tickCode(); }
+      slots.setStatus('error');
       showErr(error === 'too_many_attempts'
         ? 'Too many incorrect codes. Tap “Resend code” to get a new one.'
         : friendlyAuthError(error, res.status, res.json));
-      $('#sxaCode').select();
     }
 
     async function resendCode() {
@@ -731,7 +771,7 @@
         p.expiresAt = now + (Number(res.json.expires_in) || 600) * 1000;
         p.resendAt = now + (Number(res.json.resend_in) || 60) * 1000;
         writePendingRegistration(p);
-        $('#sxaCode').value = '';
+        codeSlots.clear();
         showErr('We sent a new code. Codes from earlier emails no longer work.', 'info');
       } else if (res.json.error === 'registration_expired') {
         writePendingRegistration(null);

@@ -116,6 +116,14 @@ def new_website_account(database, ai, email):
 
 # --- allocation and the users trigger ------------------------------------
 
+def confirmed_delete(ai, account_id, monkeypatch):
+    """delete_account needs the code emailed to the account: send it, enter it."""
+    sent = []
+    monkeypatch.setattr(ai, "send_account_deletion_code_email", lambda to, code: sent.append(code))
+    ai.start_account_deletion("pglite://test", account_id)
+    ai.delete_account("pglite://test", account_id, ai.verify_account_deletion("pglite://test", account_id, sent[-1]))
+
+
 def test_new_telegram_users_get_cc99_ids_in_order(ai, database):
     add_user(database, 7000000001)
     add_user(database, 7000000002)
@@ -301,7 +309,7 @@ def test_search_by_retired_alias_resolves_to_the_same_final_user(ai, database):
 
 
 @pytest.mark.parametrize("telegram_is_older", [True, False])
-def test_deleting_the_website_login_never_changes_the_canonical_id(ai, database, telegram_is_older):
+def test_deleting_the_website_login_never_changes_the_canonical_id(ai, database, telegram_is_older, monkeypatch):
     add_user(database, 7000000001)
     tg_id = account_of(database, 7000000001)[0]
     web_id, _ = new_website_account(database, ai, "zed@test.com")
@@ -311,7 +319,7 @@ def test_deleting_the_website_login_never_changes_the_canonical_id(ai, database,
     canonical, alias = (tg_id, web_id) if telegram_is_older else (web_id, tg_id)
     assert account_of(database, 7000000001)[0] == canonical
 
-    ai.delete_account("pglite://test", canonical)
+    confirmed_delete(ai, canonical, monkeypatch)
     # Website login gone; the same ID keeps serving Telegram; alias stays retired.
     assert account_of(database, 7000000001)[0] == canonical
     assert q(database, "SELECT COUNT(*) FROM account_emails") == [[0]]
@@ -363,9 +371,9 @@ def test_telegram_user_with_a_website_login_conflicts_with_another_website_accou
     assert exc.value.code == "telegram_already_linked"
 
 
-def test_deleting_unlinked_website_account_creates_nothing(ai, database):
+def test_deleting_unlinked_website_account_creates_nothing(ai, database, monkeypatch):
     web_account, _ = new_website_account(database, ai, "zed@test.com")
-    ai.delete_account("pglite://test", web_account)
+    confirmed_delete(ai, web_account, monkeypatch)
     assert q(database, "SELECT COUNT(*) FROM sylvex_accounts")[0][0] == 0
 
 

@@ -469,7 +469,7 @@ async def test_account_delete_revokes_the_session(monkeypatch, account_routes_ap
     token = create_web_session_token(42)
     async with _client(account_routes_app) as client:
         r = await client.post(
-            '/api/web/account/delete', json={'password': 'whatever'},
+            '/api/web/account/delete', json={'confirm_token': 'whatever'},
             headers={'Cookie': f'sylvex_web_session={token}'},
         )
         assert r.status_code == 200, r.text

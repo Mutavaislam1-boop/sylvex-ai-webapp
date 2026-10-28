@@ -9547,12 +9547,15 @@ html.browser-app .ep-danger{display:block;margin-top:22px}
 .ep-danger-text{margin:-4px 0 12px;color:var(--text-dim);font-size:13px;line-height:1.45}
 .ep-danger-btn{width:100%;padding:11px;border:1px solid rgba(229,72,77,.55);border-radius:12px;background:transparent;color:#e5484d;font:inherit;font-weight:650;cursor:pointer}
 .ep-danger-btn:hover{background:rgba(229,72,77,.08)}
-.ep-danger-btn.solid{border-color:#e5484d;background:#e5484d;color:#fff}
-.ep-danger-btn[disabled]{opacity:.45;cursor:default}
-.delete-account-sheet p{margin:0 0 12px;color:var(--text-dim);font-size:13.5px;line-height:1.5}
-.delete-account-sheet .ep-input{margin-bottom:10px}
-.delete-account-sheet .ep-actions{display:flex;gap:8px;margin-top:6px}
-.delete-account-sheet .ep-actions>*{flex:1}
+.delete-account-sheet p{margin:0;color:var(--text-dim);font-size:13.5px;line-height:1.5}
+.delete-account-sheet p b{color:var(--text)}
+.da-step{display:flex;flex-direction:column;gap:12px}
+.da-code{display:flex;justify-content:center;margin:4px 0}
+.da-step .da-meta{text-align:center;font-size:12.5px}
+.da-link{padding:0;border:0;background:none;color:var(--text);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer}
+.da-send{width:100%;padding:13px;border:0;border-radius:14px;background:#e5484d;color:#fff;font:inherit;font-size:14px;font-weight:650;cursor:pointer}
+.da-send[disabled]{opacity:.6;cursor:default}
+.da-step .btn-ghost{flex:none;width:100%}
 
 /* Grid nodes as the React Bits ProfileCard: a frame (.studio-grid-node-card)
    holding a tile (header, settings, references, prompt, result) and a
