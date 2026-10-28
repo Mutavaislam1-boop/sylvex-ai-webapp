@@ -129,6 +129,8 @@ def ensure_tables(cur):
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_support_messages_thread ON support_messages(thread_id, id)")
+    # A structured request (Store -> Contact sales) keeps its fields next to the text.
+    cur.execute("ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS details JSONB")
 
 
 def _iso(value):
@@ -142,6 +144,15 @@ def _json_list(value):
         except ValueError:
             return []
     return list(value or [])
+
+
+def _json_dict(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, dict) else None
 
 
 # --------------------------------------------------------------------------
@@ -479,8 +490,79 @@ def _thread_where(person, alias=""):
     return f"{a}account_id IS NULL AND {a}user_key IS NULL AND {a}visitor_id = %s", person["visitor_id"]
 
 
-def submit_contact(cur, person, *, message, topic="support", email="", surface="", ip_hash=None):
-    """Stores a user's message; continues their latest unclosed thread."""
+# --------------------------------------------------------------------------
+# Sales request (Store -> Contact sales): a short form in steps. Only the
+# listed choices are kept; the text an admin reads is built from the fields.
+# --------------------------------------------------------------------------
+
+SALES_KINDS = {"organization": "Организация", "private": "Частное лицо"}
+SALES_TEAM = ("1–10", "11–50", "51–200", "200+")
+SALES_NEEDS = {"images": "Изображения", "video": "Видео", "voice": "Голос и музыка", "text": "Тексты",
+               "api": "API и интеграция", "team": "Доступ для команды"}
+SALES_BUDGETS = {"lt100": "До $100", "100-500": "$100–500", "500-2000": "$500–2000", "2000+": "Больше $2000",
+                 "unknown": "Пока не знает"}
+
+
+def _short(value, limit):
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
+
+
+def clean_sales_request(raw):
+    """The sales request as the form sends it -> the fields kept, or an error."""
+    if not isinstance(raw, dict):
+        raise NotificationError("invalid_sales_request")
+    kind = str(raw.get("kind") or "")
+    if kind not in SALES_KINDS:
+        raise NotificationError("invalid_sales_request")
+    organization = kind == "organization"
+    company = _short(raw.get("company"), 120) if organization else ""
+    if organization and not company:
+        raise NotificationError("invalid_sales_request")
+    team = str(raw.get("team_size") or "") if organization else ""
+    website = _short(raw.get("website"), 200) if organization else ""
+    if website and not URL_RE.match(website):
+        website = ""
+    needs = [need for need in SALES_NEEDS if need in (raw.get("needs") or [])]
+    if not needs:
+        raise NotificationError("invalid_sales_request")
+    budget = str(raw.get("budget") or "")
+    name = _short(raw.get("name"), 80)
+    email = str(raw.get("email") or "").strip().lower()[:254]
+    if not name or not EMAIL_RE.match(email):
+        raise NotificationError("invalid_sales_request")
+    comment = clean_text(raw.get("comment") or "")[:1500] if str(raw.get("comment") or "").strip() else ""
+    return {
+        "kind": kind, "company": company, "team_size": team if team in SALES_TEAM else "", "website": website,
+        "needs": needs, "budget": budget if budget in SALES_BUDGETS else "", "comment": comment,
+        "name": name, "email": email, "phone": _short(raw.get("phone"), 60),
+    }
+
+
+def sales_request_text(details):
+    """The request as the message text (previews, Telegram, the thread)."""
+    lines = ["Заявка в отдел продаж", "Заявитель: " + SALES_KINDS[details["kind"]]]
+    if details["company"]:
+        lines.append("Организация: " + details["company"])
+    if details["team_size"]:
+        lines.append("Команда: " + details["team_size"])
+    if details["website"]:
+        lines.append("Сайт: " + details["website"])
+    lines.append("Интересует: " + ", ".join(SALES_NEEDS[need] for need in details["needs"]))
+    if details["budget"]:
+        lines.append("Бюджет в месяц: " + SALES_BUDGETS[details["budget"]])
+    lines.append("Контакт: " + details["name"] + " · " + details["email"] + (" · " + details["phone"] if details["phone"] else ""))
+    if details["comment"]:
+        lines += ["", details["comment"]]
+    return "\n".join(lines)
+
+
+def submit_contact(cur, person, *, message, topic="support", email="", surface="", ip_hash=None, sales=None):
+    """Stores a user's message; continues their latest unclosed thread. A
+    sales request (Store -> Contact sales) comes as its fields instead."""
+    details = None
+    if sales is not None:
+        details = clean_sales_request(sales)
+        message, topic, email = sales_request_text(details), "sales", details["email"]
     message = clean_text(message)
     topic = topic if topic in TOPICS else "support"
     surface = surface if surface in ("miniapp", "website", "telegram") else None
@@ -519,8 +601,8 @@ def submit_contact(cur, person, *, message, topic="support", email="", surface="
         """, (person.get("account_id"), person.get("user_key"), person.get("visitor_id"), email, topic, surface,
               ip_hash))
         thread_id = int(cur.fetchone()[0])
-    cur.execute("INSERT INTO support_messages (thread_id, direction, body) VALUES (%s, 'in', %s) RETURNING id",
-                (thread_id, message))
+    cur.execute("INSERT INTO support_messages (thread_id, direction, body, details) VALUES (%s, 'in', %s, %s::jsonb) RETURNING id",
+                (thread_id, message, json.dumps(details, ensure_ascii=False) if details else None))
     return thread_id, int(cur.fetchone()[0])
 
 
@@ -578,12 +660,12 @@ def thread_detail(cur, thread_id, *, image_url=None):
               "topic": r[5], "surface": r[6], "status": r[7], "admin_unread": bool(r[8]),
               "created_at": _iso(r[9]), "last_message_at": _iso(r[10])}
     cur.execute("""
-        SELECT id, direction, body, image_key, links, admin_id, created_at FROM support_messages
+        SELECT id, direction, body, image_key, links, admin_id, created_at, details FROM support_messages
         WHERE thread_id = %s ORDER BY id
     """, (int(thread_id),))
     messages = [{"id": int(m[0]), "direction": m[1], "text": m[2],
                  "image_url": image_url(m[3]) if (m[3] and image_url) else None, "links": _json_list(m[4]),
-                 "admin_id": m[5], "created_at": _iso(m[6])} for m in cur.fetchall()]
+                 "admin_id": m[5], "created_at": _iso(m[6]), "sales": _json_dict(m[7])} for m in cur.fetchall()]
     cur.execute("UPDATE support_threads SET admin_unread = FALSE WHERE id = %s", (int(thread_id),))
     thread["admin_unread"] = False  # opening the thread reads it
     return thread, messages

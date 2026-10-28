@@ -12607,7 +12607,7 @@ async def public_contact(request: Request):
         person = _request_person(cursor, request)
         return notifications_service.submit_contact(cursor, person, message=body.get("message"),
                                                     topic=body.get("topic"), email=body.get("email"),
-                                                    surface=body.get("surface"), ip_hash=ip_hash)
+                                                    surface=body.get("surface"), ip_hash=ip_hash, sales=body.get("sales"))
 
     thread_id, _ = await asyncio.to_thread(_notifications_run, work)
     return {"ok": True, "thread_id": thread_id}
@@ -12627,7 +12627,7 @@ async def public_visitor_contact(request: Request):
         person = notifications_service.resolve_person(cursor, f"v:{visitor_id}")
         return notifications_service.submit_contact(cursor, person, message=body.get("message"),
                                                     topic=body.get("topic"), email=body.get("email"),
-                                                    surface="website", ip_hash=ip_hash)
+                                                    surface="website", ip_hash=ip_hash, sales=body.get("sales"))
 
     thread_id, _ = await asyncio.to_thread(_notifications_run, work)
     return {"ok": True, "thread_id": thread_id}

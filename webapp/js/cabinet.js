@@ -25754,6 +25754,8 @@ async function waitGeneration(jobId, options) {
     // Website Pro Studio: the website's own Contact SYLVEX popup.
     const site = window.SYLVEX_SITE;
     if (isWebEmbed() && site && typeof site.openContact === 'function') { site.openContact(supportTopic); return; }
+    // Contact sales: the sales request in steps (js/sales-request.js).
+    if (supportTopic === 'sales' && window.SylvexSalesRequest) { openSalesRequest(); return; }
     const m = document.getElementById('supportModal');
     const title = document.getElementById('supportTitle');
     const sub = document.getElementById('supportSub');
@@ -25763,6 +25765,25 @@ async function waitGeneration(jobId, options) {
     const email = document.getElementById('supportEmail');
     if (email && !email.value && S.user && S.user.email) email.value = S.user.email;
     setTimeout(() => { const ta = document.getElementById('supportMsg'); ta && ta.focus(); }, 250);
+    S.haptic.impact('light');
+  }
+  function openSalesRequest() {
+    const user = S.user || {};
+    window.SylvexSalesRequest.open({
+      lang: 'ru',
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+      name: user.display_name || user.first_name || '',
+      email: user.email || '',
+      submit: async (request) => {
+        const res = await fetch('/api/public/contact', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sales: request, surface: 'miniapp' }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw Object.assign(new Error('sales_request_failed'), { code: data.error || data.detail || '' });
+        S.haptic.notify('success');
+      },
+    });
     S.haptic.impact('light');
   }
   // =====================================================
