@@ -103,7 +103,7 @@ test('Grid media blocks expose durable direct downloads and a multi-image choose
   assert.match(cabinet, /parsed\.origin===window\.location\.origin\?parsed\.pathname\+parsed\.search:parsed\.toString\(\)/);
   assert.match(cabinet, /data-grid-download-result/);
   assert.match(cabinet, /data-grid-download-index/);
-  assert.match(cabinet, /data-grid-download-all/);
+  assert.doesNotMatch(cabinet, /data-grid-download-all/);
   assert.match(main, /grid_project_id: str = ""/);
   assert.match(main, /download_all: bool = False/);
   assert.match(main, /application\/zip/);

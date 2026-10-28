@@ -78,7 +78,7 @@ test('result card and drawer wire real job identity into image previews', () => 
   assert.match(fn('renderImageResultMiniCard'), /data-generation-job-id/);
   const drawer = fn('openGenerationInfoDrawer');
   assert.match(drawer,/data-generation-job-id/);
-  assert.match(drawer,/renderCompletedGenerationDownload\(jobId, generationStatus, '', type, 0, true\)/);
+  assert.doesNotMatch(drawer,/renderCompletedGenerationDownload\(jobId, generationStatus, '', type, 0, true\)/);
   assert.match(drawer,/useGenerationImageAsReference/);
   assert.doesNotMatch(drawer,/restoreImageStateFromGenerationMetadata\(/);
 });
@@ -100,4 +100,38 @@ test('reuse respects a locked non-image generation instead of attaching to the w
     setUploadTarget:()=>assert.fail('mode switch was blocked'),selectGeneratedImage:()=>assert.fail('must not alter video draft')}),
     'useGenerationImageAsReference');
   ctx.useGenerationImageAsReference({preventDefault(){},stopPropagation(){},currentTarget:{dataset:{imageUrl:'third'}}});
+});
+
+
+test('each chosen photo has its own single-file route, including the first and last result', () => {
+  const ctx = load(context(), 'completedGenerationDownloadUrl', 'generationDownloadFilename', 'renderCompletedGenerationDownload');
+  const urls = new Set();
+  for (let index = 0; index < 4; index++) {
+    const url = new URL(ctx.completedGenerationDownloadUrl('job-four', index), 'https://api.example.test');
+    assert.equal(Number(url.searchParams.get('result_index') || 0), index);
+    assert.equal(url.searchParams.has('download_all'), false);
+    urls.add(url.toString());
+    assert.doesNotMatch(ctx.renderCompletedGenerationDownload('job-four', 'completed', '', 'image', index), /\.zip|download_all/);
+  }
+  assert.equal(urls.size, 4);
+});
+
+test('Grid offers four individual choices and the chosen image never becomes an archive', () => {
+  const node = {id:'node-four', generation_id:'job-four', output:{type:'image', items:['one','two','three','four'].map(url=>({url}))}};
+  const calls = [], listeners = {};
+  const menu = {dataset:{}, style:{}, offsetHeight:200, addEventListener:(name, fn)=>{listeners[name]=fn;}};
+  const doc = {getElementById:()=>null, createElement:()=>menu, addEventListener(){}, querySelector:()=>({appendChild(){}})};
+  const ctx = load(context({document:doc, window:{innerWidth:1200,innerHeight:800},
+    loadStudioGridState:()=>({nodes:[node]}), gridRenderableMediaUrl:url=>url, gridEscape:escapeHtml,
+    triggerStudioGridDownload:(...args)=>calls.push(args), closeStudioGridDownloadMenu(){}}),
+    'ensureStudioGridDownloadMenu','downloadStudioGridNode');
+  ctx.downloadStudioGridNode('node-four', {getBoundingClientRect:()=>({left:100,bottom:150,width:30})});
+  assert.equal((menu.innerHTML.match(/data-grid-download-index=/g)||[]).length, 4);
+  assert.doesNotMatch(menu.innerHTML, /data-grid-download-all|\.zip|Download all/);
+  const button = {dataset:{gridDownloadIndex:'3'}, hasAttribute:()=>false};
+  listeners.click({target:{closest:()=>button}, preventDefault(){},stopPropagation(){}});
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], node);
+  assert.equal(calls[0][1], 3);
+  assert.ok(!calls[0][2], 'the click must select one image');
 });
