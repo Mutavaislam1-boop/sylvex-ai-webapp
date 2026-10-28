@@ -20142,7 +20142,6 @@ function openGenerationInfoDrawer(e, index) {
         + ' data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
     }
     actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type);
-    if (type === 'image' && imageItems.length > 1) actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type, 0, true);
     actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
     actionHtml += renderGeneratedTelegramButton(resultUrl, type);
     if (svgUrl && jobId) actionHtml += '<button type="button" class="generation-info-svg-download" data-download-url="' + S.escapeHtml(completedGenerationDownloadUrl(jobId) + '&asset=svg') + '" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>';
@@ -29396,7 +29395,7 @@ async function waitGeneration(jobId, options) {
   function ensureStudioGridDownloadMenu(){
     let menu=document.getElementById('studioGridDownloadMenu');if(menu)return menu;
     menu=document.createElement('div');menu.id='studioGridDownloadMenu';menu.className='studio-grid-download-menu';menu.hidden=true;
-    menu.addEventListener('click',event=>{const button=event.target.closest('[data-grid-download-index],[data-grid-download-all]');if(!button)return;event.preventDefault();event.stopPropagation();const node=loadStudioGridState().nodes.find(item=>item.id===menu.dataset.nodeId);if(!node)return;triggerStudioGridDownload(node,Number(button.dataset.gridDownloadIndex||0),button.hasAttribute('data-grid-download-all'));closeStudioGridDownloadMenu()});
+    menu.addEventListener('click',event=>{const button=event.target.closest('[data-grid-download-index]');if(!button)return;event.preventDefault();event.stopPropagation();const node=loadStudioGridState().nodes.find(item=>item.id===menu.dataset.nodeId);if(!node)return;triggerStudioGridDownload(node,Number(button.dataset.gridDownloadIndex||0));closeStudioGridDownloadMenu()});
     document.addEventListener('pointerdown',event=>{if(!menu.hidden&&!event.target.closest('#studioGridDownloadMenu,[data-grid-download-result]'))closeStudioGridDownloadMenu()});
     (document.querySelector('.studio')||document.body).appendChild(menu);return menu;
   }
@@ -29404,7 +29403,7 @@ async function waitGeneration(jobId, options) {
     const node=loadStudioGridState().nodes.find(item=>item.id===nodeId),items=node?.output?.type==='image'&&Array.isArray(node.output.items)?node.output.items:[];
     if(!node?.generation_id)return toast('File is not available for download');
     if(items.length<=1){triggerStudioGridDownload(node,Number(node.output?.selected_index||0));return}
-    const menu=ensureStudioGridDownloadMenu(),rect=anchor?.getBoundingClientRect?.()||{left:20,bottom:20};menu.dataset.nodeId=node.id;menu.innerHTML=`<strong>Download images</strong><div>${items.map((item,index)=>{const url=gridRenderableMediaUrl(item.preview_url||item.url);return `<button type="button" data-grid-download-index="${index}" aria-label="Download image ${index+1}">${url?`<img src="${gridEscape(url)}" alt="">`:`<span>${index+1}</span>`}</button>`}).join('')}</div><button type="button" class="studio-grid-download-all" data-grid-download-all>${generationActionIcon('download')}<span>Download all</span></button>`;menu.hidden=false;const width=220;menu.style.left=`${Math.max(8,Math.min(window.innerWidth-width-8,rect.left-width+rect.width))}px`;menu.style.top=`${Math.max(8,Math.min(window.innerHeight-menu.offsetHeight-8,rect.bottom+7))}px`;
+    const menu=ensureStudioGridDownloadMenu(),rect=anchor?.getBoundingClientRect?.()||{left:20,bottom:20};menu.dataset.nodeId=node.id;menu.innerHTML=`<strong>Download images</strong><div>${items.map((item,index)=>{const url=gridRenderableMediaUrl(item.preview_url||item.url);return `<button type="button" data-grid-download-index="${index}" aria-label="Download image ${index+1}">${url?`<img src="${gridEscape(url)}" alt="">`:`<span>${index+1}</span>`}</button>`}).join('')}</div>`;menu.hidden=false;const width=220;menu.style.left=`${Math.max(8,Math.min(window.innerWidth-width-8,rect.left-width+rect.width))}px`;menu.style.top=`${Math.max(8,Math.min(window.innerHeight-menu.offsetHeight-8,rect.bottom+7))}px`;
   }
 
   function loadStudioGridState() {
