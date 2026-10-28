@@ -5458,8 +5458,8 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         """, (
             status,
             conversation_id or "",
-            _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
-            _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
+            _safe_json_dumps(result or {}),
+            _safe_json_dumps(result or {}),
             _safe_json_dumps(_sanitize_event_payload(error or {}, max_text=1200, max_items=50, depth=5)),
             status,
             int((result or {}).get("cost_credits") or (result or {}).get("cost") or (result or {}).get("price") or 0),
@@ -6683,7 +6683,7 @@ def _merge_prostudio_result_fields(job_id: str, fields: dict) -> None:
         cursor.execute(
             "UPDATE prostudio_generation_jobs SET result_json = %s::jsonb WHERE id=%s",
             (
-                _safe_json_dumps(_sanitize_event_payload(current_result, max_text=1200, max_items=50, depth=5)),
+                _safe_json_dumps(current_result),
                 job_id,
             ),
         )
@@ -7119,7 +7119,7 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                     payload.get("model") or "",
                     payload.get("provider") or "",
                     int(result.get("cost") or result.get("price") or 0),
-                    _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
+                    _safe_json_dumps(result),
                     replace_id, telegram_id, conversation_id,
                 ))
                 replaced = cursor.fetchone()
@@ -7173,8 +7173,8 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                 payload.get("model") or "",
                 payload.get("provider") or "",
                 int(result.get("cost") or result.get("price") or 0),
-                _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
-                _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
+                _safe_json_dumps(payload),
+                _safe_json_dumps(result),
             ))
             inserted = cursor.fetchone()
             if inserted:
