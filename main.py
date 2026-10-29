@@ -13309,7 +13309,7 @@ def _grid_project_node_media_urls(owner_id: int, project_id: str, node_id: str) 
 
 
 @app.get("/api/public/prostudio/download/{job_id}")
-async def public_prostudio_download(request: Request, job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = "", result_index: int = 0, grid_project_id: str = "", grid_node_id: str = "", download_all: bool = False):
+async def public_prostudio_download(request: Request, job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = "", result_index: int = 0, grid_project_id: str = "", grid_node_id: str = "", download_all: bool = False, stream_image: bool = False):
     """Stream a completed job's durable R2 result without mutating the job."""
     # SecurityMiddleware has already authenticated either Telegram initData or
     # the Website/Browser Mini App's signed web-session and exposed the
@@ -13408,7 +13408,7 @@ async def public_prostudio_download(request: Request, job_id: str, telegram_id: 
     if not object_key or not storage_exists(object_key):
         raise HTTPException(status_code=404, detail="r2_result_not_found")
 
-    if storage_direct_delivery_enabled():
+    if storage_direct_delivery_enabled() and not (stream_image and mode == "image"):
         guessed_type = mimetypes.guess_type(object_key)[0] or "application/octet-stream"
         filename = _prostudio_download_filename(mode, job_id, guessed_type, object_key)
         direct_url = storage_presigned_get_url(object_key, download_filename=filename)

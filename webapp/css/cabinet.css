@@ -10037,3 +10037,18 @@ press anywhere in Edit.
 .edit-workspace :focus{outline:none}
 .edit-workspace button:focus-visible{outline:1px solid color-mix(in srgb,var(--edit-muted) 70%,transparent);outline-offset:2px}
 .edit-chain-node[data-active="true"] .edit-workspace-frame{outline:2px solid color-mix(in srgb,var(--edit-muted) 75%,transparent)}
+/* Individual photo selection, using the existing Studio download popover. */
+.generation-image-download-picker{position:fixed!important;inset:0;margin:auto;width:280px;height:fit-content;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain}
+.generation-image-download-picker>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px}
+.generation-image-download-picker>header button{border:0;background:transparent;color:inherit;font:inherit;font-size:20px;cursor:pointer}
+.generation-image-download-picker>div{grid-template-columns:repeat(2,minmax(0,1fr));max-height:280px;overflow:auto}
+.generation-image-download-picker>div button{position:relative;height:96px}
+.generation-image-download-picker>div button.is-selected{border-color:var(--st-text,#f5f5f7);box-shadow:inset 0 0 0 2px var(--st-text,#f5f5f7)}
+.generation-image-download-picker>div button>span{position:absolute;left:4px;bottom:4px;padding:1px 5px;border-radius:5px;background:rgba(0,0,0,.65);color:#fff;font:inherit;font-size:10px;font-weight:700;line-height:16px}
+.generation-image-download-picker>div button>i{position:absolute;right:4px;top:4px;display:none;width:20px;height:20px;border-radius:50%;background:var(--st-text,#f5f5f7);color:var(--st-bg,#111);font:inherit;font-size:12px;font-weight:700;line-height:20px}
+.generation-image-download-picker>div button.is-selected>i{display:block}
+.generation-image-download-picker>footer{display:grid;gap:6px;margin-top:8px}
+.generation-image-download-picker>footer button{height:34px;border:1px solid var(--st-border,rgba(255,255,255,.12));border-radius:9px;background:var(--st-bg-3,#15161a);color:inherit;font:inherit;font-size:11px;cursor:pointer}
+.generation-image-download-picker>footer button[data-generation-picker-download]{background:var(--st-text,#f5f5f7);color:var(--st-bg,#111);font-weight:700}
+.generation-image-download-picker button:disabled{opacity:.5;cursor:default}
+.generation-image-download-picker>p{margin:8px 0 0;font-size:10px;line-height:1.4;opacity:.7}

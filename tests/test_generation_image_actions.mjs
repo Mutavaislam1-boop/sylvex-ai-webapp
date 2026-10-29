@@ -78,7 +78,7 @@ test('result card and drawer wire real job identity into image previews', () => 
   assert.match(fn('renderImageResultMiniCard'), /data-generation-job-id/);
   const drawer = fn('openGenerationInfoDrawer');
   assert.match(drawer,/data-generation-job-id/);
-  assert.match(drawer,/renderCompletedGenerationDownload\(jobId, generationStatus, '', type, 0, true\)/);
+  assert.doesNotMatch(drawer,/renderCompletedGenerationDownload\(jobId, generationStatus, '', type, 0, true\)/);
   assert.match(drawer,/useGenerationImageAsReference/);
   assert.doesNotMatch(drawer,/restoreImageStateFromGenerationMetadata\(/);
 });
@@ -100,4 +100,25 @@ test('reuse respects a locked non-image generation instead of attaching to the w
     setUploadTarget:()=>assert.fail('mode switch was blocked'),selectGeneratedImage:()=>assert.fail('must not alter video draft')}),
     'useGenerationImageAsReference', 'addGenerationImageReference');
   ctx.useGenerationImageAsReference({preventDefault(){},stopPropagation(){},currentTarget:{dataset:{imageUrl:'third'}}});
+});
+
+
+test('each chosen photo has its own single-file route, including the first and last result', () => {
+  const ctx = load(context(), 'completedGenerationDownloadUrl', 'generationDownloadFilename', 'renderCompletedGenerationDownload');
+  const urls = new Set();
+  for (let index = 0; index < 4; index++) {
+    const url = new URL(ctx.completedGenerationDownloadUrl('job-four', index), 'https://api.example.test');
+    assert.equal(Number(url.searchParams.get('result_index') || 0), index);
+    assert.equal(url.searchParams.has('download_all'), false);
+    urls.add(url.toString());
+    assert.doesNotMatch(ctx.renderCompletedGenerationDownload('job-four', 'completed', '', 'image', index), /\.zip|download_all/);
+  }
+  assert.equal(urls.size, 4);
+});
+
+test('Grid with one result retains the direct individual download', () => {
+  const node={id:'one',generation_id:'job-one',output:{type:'image',items:[{url:'one.png'}],selected_index:0}},calls=[];
+  const ctx=load(context({loadStudioGridState:()=>({nodes:[node]}),triggerStudioGridDownload:(...args)=>calls.push(args),
+    openGenerationImageDownloadPicker:()=>assert.fail('one image needs no chooser')}),'downloadStudioGridNode');
+  ctx.downloadStudioGridNode('one');assert.equal(calls.length,1);assert.equal(calls[0][0],node);assert.equal(calls[0][1],0);
 });
