@@ -16426,11 +16426,7 @@ function renderGeneratedTelegramButton(url, kind) {
       nodeId: String(details.nodeId || ''), images, owner, selected: new Set(), busy: false, completed: 0, total: 0, message: ''};
     renderGenerationImageDownloadPicker(picker);
     picker.hidden = false;
-    const rect = details.anchor?.getBoundingClientRect?.() || {left: 8, top: 8, right: 300};
-    const width = picker.offsetWidth || 280;
-    picker.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width)) + 'px';
-    picker.style.top = Math.max(8, Math.min(window.innerHeight - picker.offsetHeight - 8, rect.top - picker.offsetHeight - 8)) + 'px';
-    picker.querySelector('[data-generation-image-index]')?.focus();
+    picker.querySelector('[data-generation-image-index]')?.focus({preventScroll: true});
   }
 
   function generationImageDownloadName(jobId, index, mime, sourceUrl) {

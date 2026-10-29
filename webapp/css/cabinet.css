@@ -9927,7 +9927,7 @@ body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
 }
 
 /* Individual photo selection, using the existing Studio download popover. */
-.generation-image-download-picker{width:280px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto}
+.generation-image-download-picker{position:fixed!important;inset:0;margin:auto;width:280px;height:fit-content;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain}
 .generation-image-download-picker>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px}
 .generation-image-download-picker>header button{border:0;background:transparent;color:inherit;font:inherit;font-size:20px;cursor:pointer}
 .generation-image-download-picker>div{grid-template-columns:repeat(2,minmax(0,1fr));max-height:280px;overflow:auto}
