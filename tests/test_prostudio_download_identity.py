@@ -207,3 +207,42 @@ async def test_download_all_never_returns_a_silently_incomplete_archive(monkeypa
         await main.public_prostudio_download(_request(owner_id), "job-1", download_all=True)
     assert error.value.status_code == 409
     assert error.value.detail == "generation_results_not_ready"
+
+
+@pytest.mark.asyncio
+async def test_image_stream_keeps_authentication_and_skips_only_the_browser_redirect(monkeypatch):
+    _download_mocks(monkeypatch, owner_id=777)
+    monkeypatch.setattr(main, 'storage_direct_delivery_enabled', lambda: True)
+    redirects = []
+    monkeypatch.setattr(main, 'storage_presigned_get_url', lambda *args, **kwargs: redirects.append(True) or 'https://media.example.test/result.png')
+    response = await main.public_prostudio_download(_request(777), 'job-1', stream_image=True)
+    assert response.status_code == 200
+    assert await _response_bytes(response) == b'png-result'
+    assert not redirects
+    with pytest.raises(HTTPException) as denied:
+        await main.public_prostudio_download(_request(888), 'job-1', telegram_id=777, stream_image=True)
+    assert denied.value.status_code == 403
+    assert not redirects
+
+
+@pytest.mark.asyncio
+async def test_existing_single_image_download_still_uses_direct_delivery_by_default(monkeypatch):
+    _download_mocks(monkeypatch, owner_id=777)
+    monkeypatch.setattr(main, 'storage_direct_delivery_enabled', lambda: True)
+    monkeypatch.setattr(main, 'storage_presigned_get_url', lambda *args, **kwargs: 'https://media.example.test/result.png')
+    response = await main.public_prostudio_download(_request(777), 'job-1')
+    assert response.status_code == 307
+    assert response.headers['location'] == 'https://media.example.test/result.png'
+
+
+@pytest.mark.asyncio
+async def test_image_stream_flag_does_not_change_video_delivery(monkeypatch):
+    _download_mocks(monkeypatch, owner_id=777)
+    row = (777, 'completed', 'video', json.dumps({'videos':['/api/public/storage/generated/video/result.mp4']}))
+    monkeypatch.setattr(main, 'db_connect', lambda _url: _Connection(row))
+    monkeypatch.setattr(main, 'storage_exists', lambda _key: True)
+    monkeypatch.setattr(main, 'storage_direct_delivery_enabled', lambda: True)
+    monkeypatch.setattr(main, 'storage_presigned_get_url', lambda *args, **kwargs: 'https://media.example.test/result.mp4')
+    response = await main.public_prostudio_download(_request(777), 'job-video', stream_image=True)
+    assert response.status_code == 307
+    assert response.headers['location'].endswith('result.mp4')
