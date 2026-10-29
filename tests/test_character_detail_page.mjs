@@ -83,6 +83,7 @@ function makeContext(imageState, opts) {
     visualPickerRedirectTarget: null,
     photoToolState: {},
     getModelCapabilities: options.getModelCapabilities || (() => ({ maxReferences: null })),
+    isVideoMode: options.isVideoMode || (() => false),
     toast: (msg) => toasts.push(msg),
     sendVisualInteraction: () => {},
     renderImageReferenceSections: () => {},
@@ -105,6 +106,7 @@ function makeContext(imageState, opts) {
   };
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('characterReferenceCap'), context);
+  vm.runInContext(extractFunction('characterDetailCap'), context);
   vm.runInContext(extractFunction('characterReferenceLibraryFor'), context);
   vm.runInContext(extractFunction('defaultCharacterReferenceIds'), context);
   vm.runInContext(extractFunction('syncCharacterReferencesFromIds'), context);

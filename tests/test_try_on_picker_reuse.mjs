@@ -75,6 +75,7 @@ function makeContext() {
   };
   const dom = { imageStylePanel: fakeElement({}) };
   const sandbox = {
+    isVideoMode: () => false,
     activePhotoTool: 'try_on',
     visualPickerRedirectTarget: null,
     activeCharacterDetailId: '',

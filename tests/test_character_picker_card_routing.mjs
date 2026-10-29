@@ -53,6 +53,7 @@ function makeContext({ videoMode, characters, objects }) {
   };
   const sandbox = {
     imageState: { style: 'auto', characterId: null, objectId: null },
+    videoState: { characterVisual: null, objectVisual: null },
     activeImageStylePanelKind: 'character',
     IMAGE_STYLE_SHEET_ITEMS: [],
     isVideoMode: () => !!videoMode,
@@ -89,14 +90,14 @@ test('Image mode: clicking a Character card opens its own page, not an immediate
   assert.doesNotMatch(grid.innerHTML, /SYLVEX\.pickVisualReference\(event, 'character', 'char_1'\)/);
 });
 
-test('Video mode: clicking a Character card still selects it directly (unchanged Batch 2-5 behavior)', () => {
+test('Video mode: a Character card opens the same page with its references as Photo', () => {
   const { context, grid } = makeContext({
     videoMode: true,
     characters: [{ id: 'char_1', name: 'Islam', previewUrl: 'https://cdn.sylvex.ai/a.png' }],
   });
   vm.runInContext('renderImageStylePanel()', context);
-  assert.match(grid.innerHTML, /SYLVEX\.pickVisualReference\(event, 'character', 'char_1'\)/);
-  assert.doesNotMatch(grid.innerHTML, /SYLVEX\.openCharacterDetail/);
+  assert.match(grid.innerHTML, /SYLVEX\.openCharacterDetail\(event, 'char_1'\)/);
+  assert.doesNotMatch(grid.innerHTML, /SYLVEX\.pickVisualReference\(event, 'character', 'char_1'\)/);
 });
 
 test('Object cards are unaffected: still select directly in both modes', () => {

@@ -3206,10 +3206,6 @@ function renderVoiceControls() {
     voiceListButtonLabel.textContent = activeSpeakerIndex !== null ? ('Диктор ' + (activeSpeakerIndex + 1) + ' · ' + label) : label;
     voiceListButton.classList.toggle('has-selected-voice', Boolean(selectedItem));
     voiceListButton.classList.toggle('has-selected-voice-image', Boolean(selectedItem && avatarUrl));
-    voiceListButton.setAttribute('style', selectedItem ? voiceAvatarStyle(selectedItem.id || selectedItem.voice_id || label) : '');
-    voiceListButton.style.backgroundImage = avatarUrl
-      ? 'linear-gradient(180deg,rgba(0,0,0,.06),rgba(0,0,0,.68)),url("' + String(avatarUrl).replace(/["\\]/g, '') + '")'
-      : '';
     if (icon && selectedItem) {
       icon.className = 'vgen-btn-ico voice-list-button-avatar ' + (avatarUrl ? '' : 'is-generated');
       icon.setAttribute('style', voiceAvatarStyle(selectedItem.id || selectedItem.voice_id || label));
@@ -6017,7 +6013,10 @@ function setFramePreview(card, url, label) {
 // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
 // =====================================================
 function renderImageUploadPreview() {
-  renderUploadPreviewOnButton(document.getElementById('imageUploadButton'), imageState.uploadedImageUrls || []);
+  const button = document.getElementById('imageUploadButton');
+  const uploading = (imageState.uploading || []).map((item) => item && item.previewUrl).filter(Boolean);
+  renderUploadPreviewOnButton(button, (imageState.uploadedImageUrls || []).concat(uploading));
+  if (button) button.classList.toggle('is-uploading', uploading.length > 0);
 }
 
 // =====================================================
@@ -6123,6 +6122,21 @@ function renderVideoReferencesPreview() {
     document.getElementById('videoCharacterButton'),
     characterThumb ? [characterThumb] : []
   );
+  const uploadsBlock = button.closest('.video-uploads-block');
+  if (uploadsBlock) {
+    const character = videoState.characterVisual;
+    uploadsBlock.classList.toggle('has-character', !!(character && characterThumb));
+    if (character && characterThumb) uploadsBlock.style.setProperty('--video-character-bg', 'url("' + String(characterThumb).replace(/["\\]/g, '') + '")');
+    else uploadsBlock.style.removeProperty('--video-character-bg');
+    const blockLabel = uploadsBlock.querySelector('.video-uploads-block-label');
+    if (blockLabel) {
+      if (!blockLabel.dataset.label) blockLabel.dataset.label = blockLabel.textContent;
+      blockLabel.textContent = character ? (character.name || 'Персонаж') : blockLabel.dataset.label;
+    }
+    button.classList.toggle('is-locked', !!character);
+    const characterButton = document.getElementById('videoCharacterButton');
+    if (characterButton) characterButton.classList.toggle('is-locked', !character && videoHasUploadedReference());
+  }
   renderUploadPreviewOnButton(
     document.getElementById('videoObjectButton'),
     objectThumb ? [objectThumb] : []
@@ -7415,14 +7429,16 @@ function loadModeSegmentBundle() {
   if(window.SylvexModeSegment)return Promise.resolve(window.SylvexModeSegment);
   if(modeSegmentBundle)return modeSegmentBundle;
   modeSegmentBundle=new Promise((resolve,reject)=>{
-    const link=document.createElement('link');link.rel='stylesheet';link.href=EDIT_PIXEL_BASE+'js/vendor/mode-segment/mode-segment.css?v='+MODE_SEGMENT_VERSION;document.head.appendChild(link);
+    const link=document.createElement('link');link.rel='stylesheet';const styled=new Promise(done=>{link.onload=done;link.onerror=done;});link.href=EDIT_PIXEL_BASE+'js/vendor/mode-segment/mode-segment.css?v='+MODE_SEGMENT_VERSION;document.head.appendChild(link);
     const script=document.createElement('script');script.src=EDIT_PIXEL_BASE+'js/vendor/mode-segment/mode-segment.js?v='+MODE_SEGMENT_VERSION;script.async=true;
-    script.onload=()=>window.SylvexModeSegment?resolve(window.SylvexModeSegment):reject(new Error('mode_segment_empty'));
+    script.onload=()=>window.SylvexModeSegment?styled.then(()=>resolve(window.SylvexModeSegment)):reject(new Error('mode_segment_empty'));
     script.onerror=()=>reject(new Error('mode_segment_failed'));
     document.head.appendChild(script);
   }).catch(error=>{modeSegmentBundle=null;throw error;});
   return modeSegmentBundle;
 }
+// Loaded with the page, so the switch is ready together with the composer.
+if(typeof window!=='undefined'&&typeof document!=='undefined'&&document.head)loadModeSegmentBundle().catch(()=>{});
 // The task's dark segment on dark Pro Studio themes; on the white theme the
 // same segment inverted (light track, dark thumb).
 const MODE_SEGMENT_LIGHT={trackColor:'#e4e4e7',thumbColor:'#18181b',textColor:'#18181b',activeTextColor:'#ffffff'};
@@ -7444,7 +7460,7 @@ function mountModeSegment() {
     const mount=document.createElement('div');mount.className='mode-segment-root';host.appendChild(mount);
     const items=tabs.map((tab,index)=>({value:String(index),label:tab.getAttribute('aria-label')||'',html:tab.querySelector('svg')?.outerHTML||''}));
     const active=String(Math.max(0,tabs.findIndex(tab=>tab.classList.contains('active'))));
-    host._modeSegment=api.mount(mount,items,{value:active,...modeSegmentColors(host),onChange:next=>tabs[Number(next)]?.click()});
+    host._modeSegment=api.mount(mount,items,{value:active,radius:999,...modeSegmentColors(host),onChange:next=>tabs[Number(next)]?.click()});
     host.dataset.segment='';
   }).catch(()=>{host._modeSegmentPending=false;host.dataset.segmentFailed='';});
 }
@@ -11620,7 +11636,7 @@ function refreshCharacterDetailSelectionUI() {
   const countEl = document.getElementById('characterDetailSelectedCount');
   if (countEl) countEl.textContent = '(' + selectedIds.length + ')';
 
-  const allIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  const allIds = defaultCharacterReferenceIds(library, characterDetailCap());
   const isAllSelected = allIds.length > 0
     && selectedIds.length === allIds.length
     && allIds.every((refId) => selectedIds.includes(refId));
@@ -11642,7 +11658,7 @@ function toggleCharacterDetailReferenceId(e, refId) {
   if (index >= 0) {
     ids.splice(index, 1);
   } else {
-    const cap = characterReferenceCap(imageState.modelId);
+    const cap = characterDetailCap();
     if (typeof cap === 'number' && ids.length >= cap) {
       toast('Эта модель поддерживает не более ' + cap + ' референсов персонажа');
       return;
@@ -11661,7 +11677,7 @@ function toggleCharacterDetailSelectAll(e) {
   const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
   if (!item) return;
   const library = characterReferenceLibraryFor(item);
-  const allIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  const allIds = defaultCharacterReferenceIds(library, characterDetailCap());
   const isAllSelected = allIds.length > 0
     && characterDetailPendingIds.length === allIds.length
     && allIds.every((refId) => characterDetailPendingIds.includes(refId));
@@ -11677,7 +11693,7 @@ function visualCharacterDetailHtml(rawItem) {
   const view = characterDetailView === 'history' ? 'history' : 'references';
   const library = characterReferenceLibraryFor(item);
   const selectedCount = (characterDetailPendingIds || []).length;
-  const allIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  const allIds = defaultCharacterReferenceIds(library, characterDetailCap());
   const isAllSelected = allIds.length > 0
     && selectedCount === allIds.length
     && allIds.every((refId) => characterDetailPendingIds.includes(refId));
@@ -11835,6 +11851,18 @@ function confirmCharacterDetailSelection(e) {
     closeCharacterDetail(e);
     closeImageStylePanel(e);
     renderPhotoToolModal();
+    return;
+  }
+  if (item && isVideoMode()) {
+    const library = characterReferenceLibraryFor(item);
+    const urls = characterDetailPendingIds
+      .map((id) => { const entry = library.find((ref) => ref.id === id); return entry ? entry.url : ''; })
+      .filter(Boolean);
+    applyVisualReferenceToVideo(item, 'character', urls);
+    sendVisualInteraction('character', item.id, 'select');
+    updateSendButton();
+    closeCharacterDetail(e);
+    closeImageStylePanel(e);
     return;
   }
   if (item) {
@@ -13097,15 +13125,16 @@ async function startObjectCreationFromDraft(e, name, photos) {
   startObjectCreationCardPoll(jobId);
 }
 
-function applyVisualReferenceToVideo(item, kind) {
+function applyVisualReferenceToVideo(item, kind, chosenRefs) {
   if (!item) return;
-  const refs = visualGenerationReferences(item, kind);
+  const refs = Array.isArray(chosenRefs) && chosenRefs.length ? chosenRefs.slice(0, 4) : visualGenerationReferences(item, kind);
   const url = refs[0] || '';
   if (!url) return;
   videoState.characterImage = kind === 'character' ? url : videoState.characterImage;
   const visual = Object.assign(visualReferencePayload(item, kind), {
     kind: kind === 'object' ? 'object' : 'character',
     previewUrl: item.previewUrl || item.avatarUrl || url,
+    references: refs,
   });
   if (kind === 'object') {
     videoState.objectVisual = visual;
@@ -13182,6 +13211,10 @@ async function deleteVisualReference(e, kind, id) {
 // enforces server-side. null means "no known per-model cap" - fail open
 // (library size is the only limit), same convention as every other
 // capability read in this file.
+function characterDetailCap() {
+  return isVideoMode() ? 4 : characterReferenceCap(imageState.modelId);
+}
+
 function characterReferenceCap(modelId) {
   const caps = getModelCapabilities(modelId);
   return typeof caps.maxReferences === 'number' ? caps.maxReferences : null;
@@ -13279,6 +13312,8 @@ function pickVisualReference(e, kind, id) {
   const item = list.find((entry) => entry.id === id);
   if (!item) return;
   if (isVideoMode()) {
+    const current = kind === 'object' ? videoState.objectVisual : videoState.characterVisual;
+    if (current && current.id === item.id) return clearVisualSelection(e, kind);
     applyVisualReferenceToVideo(item, kind);
     if (kind === 'character') sendVisualInteraction('character', item.id, 'select');
     closeVisualPicker(e);
@@ -13347,6 +13382,11 @@ function openVideoEndUpload(e) {
 // =====================================================
 function openVideoReferencesUpload(e) {
   closeVideoAddMenu();
+  if (videoState.characterVisual) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    toast('Уберите персонажа, чтобы загрузить файл');
+    return;
+  }
   // Generate section only takes reference images here; a model whose
   // adapter forwards none (registry image_slots === 0) says so up front.
   const models = fetchedModelCapabilities && fetchedModelCapabilities.models;
@@ -13376,8 +13416,16 @@ function closeVideoAddMenu() {
   if (button) button.classList.remove('is-add-menu-open');
 }
 
+function videoHasUploadedReference() {
+  return !!(currentVideoReferenceImages().length || currentVideoReferenceUrl() || videoState.referenceUploading);
+}
+
 function chooseVideoAddCharacter(e) {
   closeVideoAddMenu();
+  if (videoHasUploadedReference() && !videoState.characterVisual) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    return toast('Уберите загруженный файл, чтобы выбрать персонажа');
+  }
   if (!getVideoModelCapabilities(videoState.modelId).character.selectable) {
     return videoFeatureUnavailableToast('character');
   }
@@ -14431,6 +14479,28 @@ function objectCreationPendingCardHtml(item, id, label, preview, status) {
 // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageStylePanel
 // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
 // =====================================================
+// The cross on the selected Character or Object: cancels the choice.
+function visualDeselectButtonHtml(kind) {
+  const label = kind === 'object' ? 'Отменить выбор объекта' : 'Отменить выбор персонажа';
+  return '<button class="visual-deselect-btn" type="button" aria-label="' + label + '" data-tip="' + label + '" onclick="SYLVEX.clearVisualSelection(event,\'' + kind + '\')">×</button>';
+}
+
+function clearVisualSelection(e, kind) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const isObject = kind === 'object';
+  if (isVideoMode()) {
+    if (isObject) videoState.objectVisual = null;
+    else { videoState.characterVisual = null; videoState.characterImage = ''; }
+    videoState.referenceVisual = videoState.characterVisual || videoState.objectVisual || null;
+    renderVideoReferencesPreview();
+  } else {
+    if (isObject) clearSelectedObject(); else clearSelectedCharacter();
+    renderImageReferenceSections();
+  }
+  renderImageStylePanel();
+  updateSendButton();
+}
+
 function renderImageStylePanel() {
   const grid = document.getElementById('imageStylePanelGrid');
   if (!grid) return;
@@ -14446,8 +14516,8 @@ function renderImageStylePanel() {
   if (info) info.hidden = kind !== 'style';
 
   const selectedStyle = String(imageState.style || 'auto');
-  const selectedCharacter = String(imageState.characterId || '');
-  const selectedObject = String(imageState.objectId || '');
+  const selectedCharacter = String((isVideoMode() ? (videoState.characterVisual && videoState.characterVisual.id) : imageState.characterId) || '');
+  const selectedObject = String((isVideoMode() ? (videoState.objectVisual && videoState.objectVisual.id) : imageState.objectId) || '');
 
   if (kind === 'style') {
     grid.classList.remove('visual-character-grid');
@@ -14492,9 +14562,7 @@ function renderImageStylePanel() {
     // mechanism - see Batch 2-5). In Image mode, clicking a Character opens
     // its own page inside this same picker instead of selecting+closing
     // immediately, so reference selection and history live there.
-    const cardClick = isVideoMode()
-      ? (id) => `SYLVEX.pickVisualReference(event, 'character', '${S.escapeHtml(id)}')`
-      : (id) => `SYLVEX.openCharacterDetail(event, '${S.escapeHtml(id)}')`;
+    const cardClick = (id) => `SYLVEX.openCharacterDetail(event, '${S.escapeHtml(id)}')`;
     grid.innerHTML = createCard + items.map((rawItem) => {
       const item = normalizeVisualItem(rawItem) || {};
       const id = String(item.id || '');
@@ -14516,7 +14584,7 @@ function renderImageStylePanel() {
           </span>
           <span class="image-style-label">${S.escapeHtml(label)}</span>
           <span class="image-style-check">✓</span>
-          ${canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">×</button>` : ''}
+          ${selected ? visualDeselectButtonHtml(createKind) : (canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">×</button>` : '')}
         </div>
       `;
     }).join('');
@@ -14545,7 +14613,7 @@ function renderImageStylePanel() {
         </span>
         <span class="image-style-label">${S.escapeHtml(label)}</span>
         <span class="image-style-check">✓</span>
-        ${canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">×</button>` : ''}
+        ${selected ? visualDeselectButtonHtml(createKind) : (canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">×</button>` : '')}
       </div>
     `;
   }).join('');
@@ -20603,6 +20671,9 @@ function closeUploadPanel(e) {
       toast('Можно выбрать не больше ' + (singleSelection ? 1 : targetLimit) + ' файлов одновременно');
     }
     const readRevision = imageReadRevisionByTarget[target] || 0;
+    // The upload window closes the moment the files are picked; each upload
+    // goes on in its tile (a local preview with the uploading ring).
+    if (target !== UPLOAD_TARGETS.PHOTO_TOOL && document.getElementById('uploadPanel')?.classList.contains('show')) closeUploadPanel();
     for (const file of files.slice(0, remaining)) await processAttachFile(file, pending, target, readRevision);
   }
 
@@ -30752,7 +30823,7 @@ async function waitGeneration(jobId, options) {
     openCreativeCatalog, closeCreativeCatalog, useCreativeCatalogItem,
     openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, navigateImageViewer, selectGenerationInfoImage, useGenerationImageAsReference, openGenerationPicker, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
+    signOut, openImageViewer, closeImageViewer, navigateImageViewer, selectGenerationInfoImage, useGenerationImageAsReference, openGenerationPicker, clearVisualSelection, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
     PromptPlaceholderManager, VoiceDialogueComposer,
     initAudioPlayer,

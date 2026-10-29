@@ -1037,25 +1037,17 @@ CSS-БЛОК: .studio-mode-tab
 .voice-list-button-avatar.is-generated{background:linear-gradient(135deg,var(--voice-c1),var(--voice-c2) 52%,var(--voice-c3))}
 .voice-list-button-avatar span{font-size:10px;font-weight:600;letter-spacing:.4px}
 #voiceListButton .vgen-btn-lbl{max-width:100%;font-weight:400;overflow-wrap:anywhere;white-space:normal}
-#voiceListButton.has-selected-voice{
-  position:relative;isolation:isolate;overflow:hidden;background-size:cover;background-position:center;
-}
-#voiceListButton.has-selected-voice:not(.has-selected-voice-image){
-  background:linear-gradient(145deg,var(--voice-c1),var(--voice-c2) 52%,var(--voice-c3));
-}
-#voiceListButton.has-selected-voice::after{
-  content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,transparent 25%,rgba(0,0,0,.68));pointer-events:none;
-}
+/* The chosen voice keeps the interface colours; only its small avatar shows it. */
+#voiceListButton.has-selected-voice{position:relative;isolation:isolate;overflow:hidden}
 #voiceListButton.has-selected-voice .voice-list-button-avatar{
   position:absolute;left:9px;top:9px;width:34px;height:34px;border:2px solid rgba(255,255,255,.82);box-shadow:0 4px 14px rgba(0,0,0,.38);
 }
-#voiceListButton.has-selected-voice .vgen-btn-lbl{color:#fff;text-shadow:0 1px 5px rgba(0,0,0,.75);z-index:1}
+#voiceListButton.has-selected-voice .vgen-btn-lbl{z-index:1}
 .voice-list-card-play{display:none}
 #voiceListButton.has-selected-voice .voice-list-card-play{
   display:grid;place-items:center;position:absolute;right:9px;top:9px;z-index:3;
-  width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.62);
-  background:rgba(12,12,12,.62);color:#fff;font-size:11px;font-weight:800;
-  box-shadow:0 4px 14px rgba(0,0,0,.34);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  width:34px;height:34px;border-radius:50%;border:1px solid var(--st-line-2,rgba(255,255,255,.14));
+  background:var(--st-bg-4,rgba(255,255,255,.08));color:var(--st-text,#fff);font-size:11px;font-weight:800;
 }
 #voiceListButton.has-selected-voice .voice-list-card-play:active{transform:scale(.92)}
 #voiceListButton.has-selected-voice .voice-list-card-play.is-loading{pointer-events:none}
@@ -9610,12 +9602,10 @@ html.browser-app .ep-danger{display:block;margin-top:22px}
 .studio-video-composer.is-compact .studio-music-player{gap:3px;padding:8px 12px}
 .studio-video-composer.is-compact .studio-music-player .smp-cover{width:46px;height:46px}
 
-/* The mode switch and the Grid side panel are the React Bits RubberSegment
-   and Dock. Their original markup stays only as hidden click targets, so it
-   never flashes before them on load; it shows again only if a bundle
-   cannot load (data-segment-failed / data-dock-failed). */
-.studio-mini-tabs:not([data-segment-failed])>.studio-mini-tab{visibility:hidden}
-.studio-mini-tabs:not([data-segment-failed]){background:transparent!important;border-color:transparent!important;box-shadow:none!important}
+/* The mode switch is the React Bits RubberSegment. Its plain tabs, the same
+   size, show from the first paint and give way to it once it mounts
+   (data-segment, see mode_segment/src/host.css). The Grid side panel is the
+   Dock; its markup stays hidden unless the bundle cannot load. */
 .studio-grid-node-tools:not([data-dock-failed]){visibility:hidden}
 
 /* Text mode: one upload tile - a big "upload a file" button and, under it,
@@ -9941,3 +9931,67 @@ body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
   .generation-info-actions button:hover .generation-info-action-label,.generation-info-actions button:focus-visible .generation-info-action-label{opacity:1;transform:translate(-50%,0)}
   .generation-info-used-section{margin-top:auto;padding-top:12px}
 }
+
+/* =====================================================
+CSS-БЛОК: нижняя панель Pro Studio (компьютер)
+One look for every left-hand control in every mode: tiles (styles,
+character, upload, object, start and end image, voices, text file) and the
+upload rows with their round buttons share colour, radius, padding, gaps
+and type. Voice input sits with Generate at the right edge in every mode.
+Phones keep their own panel for now.
+===================================================== */
+@media (min-width:901px){
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.studio-image-tool,.studio-frame-card,.vgen-btn,.vgen-upload-row,.video-uploads-block,.text-upload-tile){
+    border:0;border-radius:14px;background:var(--st-bg-3);color:var(--st-dim);box-shadow:var(--st-depth-1);padding:12px;gap:8px;
+  }
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.studio-image-tool,.studio-frame-card)>span:last-child,
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.vgen-btn-lbl,.vgen-upload-lbl,.video-uploads-block-label){
+    align-self:flex-start;text-align:left;font-size:12px;font-weight:500;line-height:1.2;color:var(--st-dim);
+  }
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.studio-image-tool,.studio-frame-card,.vgen-btn){align-items:flex-start;text-align:left}
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.vgen-upload-lbl,.video-uploads-block-label){align-self:center}
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.studio-frame-ico,.vgen-btn-ico) svg{width:20px;height:20px}
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.video-add-icon-row,.vgen-upload-icons,.text-upload-actions){gap:8px}
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.video-add-icon-btn,.vgen-uico,.text-upload-actions button){
+    width:36px;height:36px;flex:0 0 36px;margin:0;border:0;border-radius:50%;background:var(--st-bg-4);color:var(--st-text);box-shadow:none;
+  }
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.video-add-icon-btn,.vgen-uico,.text-upload-actions button) svg{width:17px;height:17px}
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.studio-media-column,.image-visual-grid,.vgen-actions){gap:8px}
+  body:not(.device-mobile):not(.device-tablet) .view[data-view="tools"].active .studio-video-composer :is(.video-uploads-block,.vgen-upload-row){min-height:60px;height:auto;margin-top:0}
+
+  /* Voice input and Generate together at the right edge, in every mode. */
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer:not([data-composer-mode="text"]) .studio-control-row #micBtn{
+    position:sticky;top:auto;bottom:auto;left:auto;right:168px;flex:0 0 48px;width:48px;height:48px;margin-left:auto;border-radius:50%;
+    border:1px solid var(--st-line-2,rgba(255,255,255,.13));background:var(--st-bg-3,#202020);color:var(--st-text,#eee);box-shadow:var(--st-depth-1,none);
+  }
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer:not([data-composer-mode="text"]) .studio-control-row #micBtn.rec{background:#1687ff;border-color:#46a1ff;color:#fff}
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer:not([data-composer-mode="text"]) .studio-control-row #sendBtn{margin-left:0;width:160px;min-width:160px}
+  /* A row wider than the panel scrolls under them; they stay in view. */
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer .studio-control-row #sendBtn{position:sticky;right:0;z-index:3;box-shadow:-8px 0 0 0 var(--st-bg-2,#1c1c1c)}
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer .studio-control-row #micBtn{position:sticky;right:168px;z-index:3;box-shadow:-16px 0 14px -6px var(--st-bg-2,#1c1c1c)!important}
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer[data-composer-mode="text"] .studio-control-row #micBtn{right:48px}
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer .studio-control-row #sendBtn:disabled{opacity:1}
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer:not([data-composer-mode="text"]) .text-recording-bar{right:0;background:var(--st-bg-2,#202020)}
+  body:not(.device-mobile):not(.device-tablet) .studio-video-composer[data-composer-mode="text"] .studio-control-row #micBtn{margin-left:auto}
+}
+:is(body.device-mobile,body.device-tablet) .studio-video-composer:not([data-composer-mode="text"]) #micBtn{display:none!important}
+@media (max-width:900px){.studio-video-composer:not([data-composer-mode="text"]) #micBtn{display:none!important}}
+
+/* Video: a chosen Character fills the whole Uploads block; an uploaded
+   file and a Character exclude each other, so the other button dims. */
+.video-uploads-block.has-character{
+  position:relative;overflow:hidden;
+  background-image:linear-gradient(90deg,rgba(0,0,0,.74),rgba(0,0,0,.22)),var(--video-character-bg)!important;
+  background-size:cover!important;background-position:center 28%!important;
+}
+.video-uploads-block.has-character .video-uploads-block-label{color:#fff!important;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+.video-uploads-block.has-character .video-add-icon-btn{background:rgba(12,12,12,.55)!important;color:#fff!important;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.video-add-icon-btn.is-locked{opacity:.38}
+
+/* The cross on the chosen Character or Object cancels the choice. */
+.visual-deselect-btn{position:absolute;top:8px;left:8px;z-index:5;width:26px;height:26px;padding:0;border:0;border-radius:50%;display:grid;place-items:center;background:rgba(12,12,12,.76);color:#fff;font:700 17px/1 inherit;cursor:pointer}
+.visual-deselect-btn:hover{background:rgba(12,12,12,.92)}
+
+/* A photo still uploading shows in its tile at once. */
+.studio-image-tool.is-uploading{position:relative;overflow:hidden}
+.studio-image-tool.is-uploading::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(47,111,189,.12),rgba(47,111,189,.42),rgba(47,111,189,.12));transform:translateX(-100%);animation:sylvexUploadSweep 1.4s ease-in-out infinite;pointer-events:none}
