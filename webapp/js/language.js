@@ -209,6 +209,10 @@
     support_too_many: 'You have sent several messages already. Please wait for the reply.',
     support_failed: 'Could not send the message. Please try again.',
     support_sent: 'Message sent. The reply will appear in the notification bell.',
+    support_attach: 'Attach a file',
+    support_attach_hint: 'Images or PDF, up to 10 MB, up to 5 files.',
+    support_attach_failed: 'Could not upload the file. Use an image or a PDF up to 10 MB.',
+    support_attach_remove: 'Remove file',
   });
   Object.assign(I18N.ru, {
     notif_title: 'Уведомления',
@@ -224,6 +228,10 @@
     support_too_many: 'Вы уже отправили несколько сообщений. Пожалуйста, дождитесь ответа.',
     support_failed: 'Не удалось отправить сообщение. Попробуйте ещё раз.',
     support_sent: 'Сообщение отправлено. Ответ придёт в колокольчик уведомлений.',
+    support_attach: 'Прикрепить файл',
+    support_attach_hint: 'Изображения или PDF, до 10 МБ, не больше 5 файлов.',
+    support_attach_failed: 'Не удалось загрузить файл. Подойдёт изображение или PDF до 10 МБ.',
+    support_attach_remove: 'Убрать файл',
   });
 
   // Browser Mini App guest block (home user card).

@@ -130,6 +130,15 @@ const MESSAGES: Record<string, string> = {
   invalid_image: "The image was not uploaded through the console.",
   unsupported_image: "Use a PNG, JPG, WebP or GIF image.",
   thread_not_found: "Conversation not found.",
+  no_delivery_channel: "This person cannot be reached on the chosen channels.",
+  owner_cannot_be_blocked: "The owner cannot be blocked.",
+  already_blocked: "This user is already blocked.",
+  not_blocked: "This user is not blocked.",
+  owner_role_not_assignable: "The owner role cannot be assigned from the console.",
+  empty_segment: "Choose at least one platform or plan.",
+  assignee_not_allowed: "This admin cannot answer conversations.",
+  review_not_found: "Review not found.",
+  invalid_base64: "The file could not be read.",
 };
 
 export function errorText(err: unknown): string {

@@ -26224,6 +26224,7 @@ async function waitGeneration(jobId, options) {
     if (title) title.textContent = t(supportTopic === 'sales' ? 'contact_title_sales' : 'contact_title');
     if (sub) sub.textContent = t('contact_sub_' + supportTopic);
     m.classList.add('show');
+    refreshSupportAttachments();
     const email = document.getElementById('supportEmail');
     if (email && !email.value && S.user && S.user.email) email.value = S.user.email;
     setTimeout(() => { const ta = document.getElementById('supportMsg'); ta && ta.focus(); }, 250);
@@ -26260,6 +26261,63 @@ async function waitGeneration(jobId, options) {
   // Отправляет сообщение в Admin Console (раздел «Входящие»). Ответ придёт
   // от SYLVEX Team в колокольчик уведомлений (и сообщением бота в Telegram).
   // =====================================================
+  // Вложения к сообщению: администратор разрешает их в конкретном обращении
+  // (Сообщения → обращение → «Вложения»); файлы загружаются сразу при выборе.
+  let supportFiles = [];
+  function renderSupportFiles() {
+    const list = document.getElementById('supportFilesList');
+    if (!list) return;
+    list.innerHTML = supportFiles.map((f, i) => `<span class="support-file">${S.escapeHtml(f.name)}
+      <button type="button" data-remove-file="${i}" aria-label="${S.escapeHtml(t('support_attach_remove'))}">×</button></span>`).join('');
+  }
+  async function refreshSupportAttachments() {
+    const box = document.getElementById('supportFiles');
+    if (!box) return;
+    box.hidden = true;
+    if (isBrowserApp() ? isBrowserGuest() : !currentTelegramInitData()) return;
+    try {
+      const res = await fetch('/api/public/contact/state');
+      const data = res.ok ? await res.json() : {};
+      box.hidden = !data.attachments_allowed;
+    } catch (_) {}
+  }
+  function readFileBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',', 2)[1] || '');
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  async function addSupportFiles(files) {
+    for (const file of [...files].slice(0, Math.max(0, 5 - supportFiles.length))) {
+      if (file.size > 10 * 1024 * 1024) { toast(t('support_attach_failed')); continue; }
+      try {
+        const res = await fetch('/api/public/contact/upload', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content_base64: await readFileBase64(file), name: file.name }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.attachment) throw new Error(data.error || data.detail || 'upload_failed');
+        supportFiles.push(data.attachment);
+        renderSupportFiles();
+      } catch (_) {
+        toast(t('support_attach_failed'));
+      }
+    }
+  }
+  function initSupportAttachments() {
+    const input = document.getElementById('supportFileInput');
+    if (input) input.addEventListener('change', () => { addSupportFiles(input.files || []); input.value = ''; });
+    const list = document.getElementById('supportFilesList');
+    if (list) list.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-remove-file]');
+      if (!btn) return;
+      supportFiles.splice(Number(btn.dataset.removeFile), 1);
+      renderSupportFiles();
+    });
+  }
+
   let supportSending = false;
   async function sendSupport() {
     if (guestNeedsAccount('contact')) return;
@@ -26282,7 +26340,8 @@ async function waitGeneration(jobId, options) {
     try {
       const res = await fetch('/api/public/contact', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: v, email, topic: supportTopic, surface: 'miniapp' }),
+        body: JSON.stringify({ message: v, email, topic: supportTopic, surface: 'miniapp',
+          attachments: supportFiles.length ? supportFiles : undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -26291,6 +26350,8 @@ async function waitGeneration(jobId, options) {
         return;
       }
       ta.value = '';
+      supportFiles = [];
+      renderSupportFiles();
       closeSupport();
       S.haptic.notify('success');
     } catch (_) {
@@ -30781,7 +30842,9 @@ async function waitGeneration(jobId, options) {
   // На сайте (Pro Studio внутри сайта) показывается колокольчик сайта.
   // =====================================================
   let notifItems = [], notifUnread = 0, notifTimer = 0, notifLoading = false;
-  function notifEnabled() { return !isWebEmbed() && !!currentTelegramInitData(); }
+  // Telegram Mini App and the Browser Mini App of a signed-in account; on the
+  // website (Pro Studio inside it) the website's own bell shows instead.
+  function notifEnabled() { return !isWebEmbed() && (isBrowserApp() ? !isBrowserGuest() : !!currentTelegramInitData()); }
   function notifTime(iso) {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
@@ -31029,6 +31092,7 @@ async function waitGeneration(jobId, options) {
     initNotifications();
     initFeedbackPrompt();
     initAccountNotices();
+    initSupportAttachments();
     initStoreCardCentering();
     initNavAutoHide();
     initHomeIdeaAi();

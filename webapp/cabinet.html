@@ -1672,6 +1672,15 @@ CSS-класс задаёт внешний вид и расположение: m
     <input class="support-email" id="supportEmail" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" aria-describedby="supportEmailError">
     <small class="support-field-error" id="supportEmailError" aria-live="polite"></small>
     <textarea id="supportMsg" data-i18n-ph="support_ph" placeholder="Describe your issue or question…"></textarea>
+    <!-- Вложения: только когда администратор разрешил их в этом обращении. -->
+    <div class="support-files" id="supportFiles" hidden>
+      <div class="support-files-list" id="supportFilesList"></div>
+      <label class="support-attach">
+        <input type="file" id="supportFileInput" accept="image/png,image/jpeg,image/webp,application/pdf" multiple hidden>
+        <span aria-hidden="true">📎</span> <span data-i18n="support_attach">Attach a file</span>
+      </label>
+      <small class="support-files-hint" data-i18n="support_attach_hint">Images or PDF, up to 10 MB, up to 5 files.</small>
+    </div>
     <!-- ==================================================
     HTML-ЭЛЕМЕНТ: modal-actions
     CSS-класс задаёт внешний вид и расположение: modal-actions

@@ -231,3 +231,20 @@ tr.clickable:hover td { background: var(--surface-2); }
 .bar-row.review-bar { grid-template-columns: 200px 1fr 50px; }
 .convo { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; padding: 2px; }
 .bubble-foot { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.section-tabs { margin-bottom: 18px; }
+.section-tabs .nav-count { margin-left: 6px; }
+.tab-count { color: var(--muted); font-weight: 500; margin-left: 2px; }
+.thread-controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; align-items: end; }
+.thread-controls .chip { justify-self: start; }
+.attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.attachments img { width: 120px; height: 90px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.attachments .file { display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; }
+.review-reply { margin-top: 8px; padding: 8px 10px; border-radius: 9px; background: var(--accent-soft); font-size: 12.5px; }
+.review-reply b { font-size: 11.5px; }
+.preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.preview-card { display: flex; flex-direction: column; gap: 6px; }
+.preview-label { font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+.preview-bell, .preview-tg { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; font-size: 13.5px; background: var(--surface-2); border: 1px solid var(--border); }
+.preview-tg { background: color-mix(in srgb, #2aabee 12%, var(--surface)); border-color: color-mix(in srgb, #2aabee 30%, var(--border)); }
+.preview-bell img, .preview-tg img { max-width: 100%; max-height: 160px; object-fit: cover; border-radius: 10px; }
+.preview-link { align-self: stretch; text-align: center; padding: 6px 10px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; font-weight: 600; color: var(--accent); }

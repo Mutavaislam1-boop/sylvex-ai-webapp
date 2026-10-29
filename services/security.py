@@ -677,7 +677,7 @@ class LocalLimiter:
   return count<limit
 
 class SecurityMiddleware:
- def __init__(self,app,quota_check=None,access_check=None): self.app=app;self.limiter=LocalLimiter();self.quota_check=quota_check;self.access_check=access_check
+ def __init__(self,app,quota_check=None,access_check=None,seen_hook=None): self.app=app;self.limiter=LocalLimiter();self.quota_check=quota_check;self.access_check=access_check;self.seen_hook=seen_hook
  async def __call__(self,scope,receive,send):
   if scope['type']!='http':return await self.app(scope,receive,send)
   path=scope['path'];method=scope['method'];raw_headers=scope.get('headers',[]);headers=dict(raw_headers);cookie_header=combined_cookie_header(raw_headers)
@@ -887,6 +887,11 @@ class SecurityMiddleware:
     if self.access_check and uid and not admin and auth_kind!='service':
      from services.user_access import ALLOWED_WHEN_BLOCKED
      if path not in ALLOWED_WHEN_BLOCKED and await self.access_check(uid):raise SecurityError('account_blocked',403)
+    # Which surface the person uses (website, Browser or Telegram Mini App),
+    # for announcements by platform and analytics (services/platform_usage.py).
+    if self.seen_hook and uid and not admin and auth_kind in ('telegram','web'):
+     from services.platform_usage import surface_of
+     await self.seen_hook(uid,surface_of(auth_kind,headers.get(b'origin',b'').decode(),headers.get(b'referer',b'').decode(),website_origins()))
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)
   except SecurityError as exc:

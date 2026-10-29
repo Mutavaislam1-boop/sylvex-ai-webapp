@@ -99,6 +99,7 @@ from services import assistant_store
 from services.assistant_intents import route_intent, intent_by_id as assistant_intent_by_id
 from services.assistant_openai import stream_assistant_reply, mint_realtime_session
 from services import user_access as user_access_service
+from services import platform_usage as platform_usage_service
 
 # Admin blocks (services/user_access.py), checked by SecurityMiddleware for
 # every protected request. A short per-process cache keeps this off the
@@ -139,8 +140,43 @@ async def check_account_access(uid):
     return blocked
 
 
+_SURFACE_SEEN: dict = {}
+_SURFACE_SEEN_TTL = 600.0
+
+
+def _record_surface_sync(uid, surface):
+    ensure_notification_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        platform_usage_service.record(cursor, uid, surface)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+async def note_request_surface(uid, surface):
+    """Awaited by SecurityMiddleware for every authenticated request: records
+    which surface the person uses, at most once per person and surface every
+    few minutes (one small write; failures never affect the request)."""
+    if not surface or not DATABASE_URL:
+        return
+    key, now = (int(uid), surface), time.monotonic()
+    if _SURFACE_SEEN.get(key, 0) > now:
+        return
+    if len(_SURFACE_SEEN) > 50000:
+        _SURFACE_SEEN.clear()
+    _SURFACE_SEEN[key] = now + _SURFACE_SEEN_TTL
+    try:
+        await asyncio.to_thread(_record_surface_sync, uid, surface)
+    except Exception as exc:
+        print("SURFACE_USAGE_RECORD_FAILED:", type(exc).__name__)
+
+
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-app.add_middleware(SecurityMiddleware, quota_check=check_request_quota, access_check=check_account_access)
+app.add_middleware(SecurityMiddleware, quota_check=check_request_quota, access_check=check_account_access,
+                   seen_hook=note_request_surface)
 # Lets the SYLVEX website (a different origin) call the public API and the
 # new /api/web/* session endpoints. Closed by default - only the origins
 # listed in WEBSITE_ORIGINS are allowed - and additive: it changes nothing
@@ -11045,6 +11081,8 @@ _V1_AUDIT_RISK = {
     "broadcast_sent": "critical", "prostudio_job_recovered": "medium", "admin_access_changed": "critical",
     "reference_created": "medium", "reference_updated": "medium", "reference_published": "medium",
     "reference_unpublished": "medium", "reference_deleted": "medium", "support_reply_sent": "medium",
+    "support_status_changed": "low", "support_assigned": "low", "support_attachments_changed": "medium",
+    "review_replied": "medium",
 }
 
 
@@ -12500,6 +12538,7 @@ def ensure_notification_tables():
     try:
         notifications_service.ensure_tables(cursor)
         reviews_service.ensure_tables(cursor)
+        platform_usage_service.ensure_table(cursor)
         conn.commit()
         NOTIFICATIONS_SCHEMA_READY = True
     finally:
@@ -12603,20 +12642,42 @@ def _telegram_deliver(chat_id, text, image_url=None, links=None):
     return _telegram_deliver_status(chat_id, text, image_url, links)["ok"]
 
 
+def _telegram_error_reason(error):
+    """A short, stable reason for the delivery log ("blocked", ...)."""
+    e = str(error or "").lower()
+    if "blocked by the user" in e:
+        return "blocked"
+    if "chat not found" in e or "can't initiate" in e:
+        return "not_started"
+    if "deactivated" in e:
+        return "deactivated"
+    if "too many requests" in e or "retry after" in e:
+        return "rate_limited"
+    if e.startswith("network_"):
+        return "network"
+    return "other"
+
+
 async def _telegram_deliver_many(notification_id, chats, text, image_url, links):
     semaphore = asyncio.Semaphore(20)
-    sent = 0
+    sent, failed, errors = 0, 0, {}
 
     async def one(chat):
-        nonlocal sent
+        nonlocal sent, failed
         async with semaphore:
-            if await asyncio.to_thread(_telegram_deliver, chat, text, image_url, links):
+            status = await asyncio.to_thread(_telegram_deliver_status, chat, text, image_url, links)
+            if status["ok"]:
                 sent += 1
+            else:
+                failed += 1
+                reason = _telegram_error_reason(status.get("error"))
+                errors[reason] = errors.get(reason, 0) + 1
 
     await asyncio.gather(*(one(c) for c in chats))
     if notification_id:
         def _save(cursor):
-            notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=sent)
+            notifications_service.record_telegram_result(cursor, notification_id, sent=sent, failed=failed,
+                                                         errors=errors)
         try:
             await asyncio.to_thread(_notifications_run, _save)
         except Exception as exc:
@@ -12725,10 +12786,69 @@ async def public_contact(request: Request):
         person = _request_person(cursor, request)
         return notifications_service.submit_contact(cursor, person, message=body.get("message"),
                                                     topic=body.get("topic"), email=body.get("email"),
-                                                    surface=body.get("surface"), ip_hash=ip_hash, sales=body.get("sales"))
+                                                    surface=body.get("surface"), ip_hash=ip_hash, sales=body.get("sales"),
+                                                    attachments=body.get("attachments"))
 
     thread_id, _ = await asyncio.to_thread(_notifications_run, work)
     return {"ok": True, "thread_id": thread_id}
+
+
+@app.get("/api/public/contact/state")
+async def public_contact_state(request: Request):
+    """What the caller's Contact window offers (attachments, when an admin
+    allowed them on their current conversation)."""
+    def work(cursor):
+        return notifications_service.contact_state(cursor, _request_person(cursor, request))
+
+    state = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "attachments_allowed": state["attachments_allowed"]}
+
+
+CONTACT_UPLOAD_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "pdf": "application/pdf"}
+
+
+def _contact_file_kind(content):
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return "webp"
+    if content.startswith(b"%PDF-"):
+        return "pdf"
+    return None
+
+
+@app.post("/api/public/contact/upload")
+async def public_contact_upload(request: Request):
+    """One file for a Contact message (PNG, JPG, WebP or PDF, up to 10 MB),
+    only on a conversation an admin allowed attachments on. It is stored
+    under the caller's own folder and named back by an id only."""
+    body = await request.json()
+
+    def check(cursor):
+        person = _request_person(cursor, request)
+        if not notifications_service.contact_state(cursor, person)["attachments_allowed"]:
+            raise notifications_service.NotificationError("attachments_not_allowed", 403)
+        return notifications_service.attachment_owner_prefix(person)
+
+    prefix = await asyncio.to_thread(_notifications_run, check)
+    try:
+        content = base64.b64decode(str(body.get("content_base64") or ""), validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_base64")
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="invalid_content_size")
+    kind = _contact_file_kind(content)
+    if not kind:
+        raise HTTPException(status_code=400, detail="unsupported_file")
+    file_id = f"{uuid4().hex}.{kind}"
+    key = prefix + file_id
+    url = await asyncio.to_thread(storage_put_bytes, content, key, CONTACT_UPLOAD_TYPES[kind])
+    if not url:
+        raise HTTPException(status_code=502, detail="upload_failed")
+    name = re.sub(r"[^\w .()-]", "", str(body.get("name") or ""))[:120] or f"file.{kind}"
+    return {"ok": True, "attachment": {"id": file_id, "name": name, "mime": CONTACT_UPLOAD_TYPES[kind], "size": len(content)}}
 
 
 @app.post("/api/public/visitor/contact")
@@ -12841,54 +12961,107 @@ async def admin_messages_upload_image(request: Request):
     return {"ok": True, "image_key": key, "url": _notification_image_url(key)}
 
 
+def _announcement_targets(cursor, payload, keys, audience):
+    """(people or None for everyone, channels, segment, Telegram chats) of an
+    announcement: everyone, selected people, or a segment by surface and
+    plan (services/notifications.py segment_people)."""
+    segment = None
+    channels = notifications_service.clean_channels(payload.get("channels"))
+    if audience == "segment":
+        segment = notifications_service.clean_segment(payload.get("segment"))
+        if not payload.get("channels"):
+            channels = notifications_service.segment_channels(segment)
+        people = notifications_service.segment_people(cursor, segment)
+        if not people:
+            raise notifications_service.NotificationError("no_recipients")
+    elif audience == "selected":
+        people, seen = [], set()
+        for key in keys:
+            person = notifications_service.resolve_person(cursor, key)
+            if person and person["key"] not in seen:
+                seen.add(person["key"])
+                people.append(person)
+        if not people:
+            raise notifications_service.NotificationError("no_recipients")
+    else:
+        people = None
+    if "telegram" not in channels:
+        chats = []
+    elif people is None:
+        chats = notifications_service.telegram_chats_for_everyone(cursor)
+    else:
+        chats = sorted({p["telegram_chat"] for p in people if p.get("telegram_chat")})
+    return people, channels, segment, chats
+
+
+def _announcement_audience(payload):
+    audience = str(payload.get("audience") or "selected")
+    return audience if audience in ("all", "selected", "segment") else "selected"
+
+
+@app.post("/api/admin/messages/preview")
+async def admin_messages_preview(request: Request):
+    """How many people an announcement reaches, before it is sent: bell rows
+    and Telegram chats for the chosen audience and channels."""
+    payload = await request.json()
+    audience = _announcement_audience(payload)
+    keys = [str(k) for k in (payload.get("recipients") or [])][:5000]
+
+    def work(cursor):
+        _admin_actor(payload, request, "broadcast.create" if audience != "selected" else "messages.send")
+        people, channels, segment, chats = _announcement_targets(cursor, payload, keys, audience)
+        surfaces = [c for c in channels if c in notifications_service.SURFACES]
+        if not surfaces:
+            bell = 0
+        elif people is None:
+            bell = notifications_service.count_everyone(cursor, surfaces)
+        else:
+            bell = len([p for p in people if p.get("account_id") or p.get("user_key")
+                        or ("website" in surfaces and p.get("visitor_id"))])
+        return {"ok": True, "channels": channels, "segment": segment, "people": len(people) if people is not None else bell,
+                "bell_recipients": bell, "telegram_recipients": len(chats)}
+
+    return await asyncio.to_thread(_notifications_run, work)
+
+
 @app.post("/api/admin/messages/send")
 async def admin_messages_send(request: Request):
-    """Admin Console -> everyone or selected people -> Telegram (bot message,
-    as the existing broadcast does) + Mini App bell + website bell. No
-    channel selected means everywhere."""
+    """Admin Console -> everyone, selected people or a segment (by surface
+    and plan) -> Telegram (bot message) + Mini App bell + website bell. No
+    channel selected means everywhere (for a segment: its surfaces)."""
     payload = await request.json()
-    audience = "all" if payload.get("audience") == "all" else "selected"
+    audience = _announcement_audience(payload)
     keys = [str(k) for k in (payload.get("recipients") or [])][:5000]
-    permission = "broadcast.send" if audience == "all" or len(keys) > 1 else "messages.send"
+    permission = "broadcast.send" if audience != "selected" or len(keys) > 1 else "messages.send"
 
     def work(cursor):
         actor = _admin_actor(payload, request, permission)
         text = notifications_service.clean_text(payload.get("text") or payload.get("message"))
         links = notifications_service.clean_links(payload.get("links"))
         image_key = notifications_service.clean_image_key(payload.get("image_key"))
-        channels = notifications_service.clean_channels(payload.get("channels"))
+        people, channels, segment, chats = _announcement_targets(cursor, payload, keys, audience)
         surfaces = [c for c in channels if c in notifications_service.SURFACES]
-        if audience == "selected":
-            people, seen = [], set()
-            for key in keys:
-                person = notifications_service.resolve_person(cursor, key)
-                if person and person["key"] not in seen:
-                    seen.add(person["key"])
-                    people.append(person)
-            if not people:
-                raise notifications_service.NotificationError("no_recipients")
-            chats = sorted({p["telegram_chat"] for p in people if p.get("telegram_chat")})
-        else:
-            people = None
-            chats = notifications_service.telegram_chats_for_everyone(cursor) if "telegram" in channels else []
-        if "telegram" not in channels:
-            chats = []
         notification_id = notifications_service.create_notification(
             cursor, text=text, links=links, image_key=image_key, surfaces=surfaces, channels=channels,
-            audience=audience, admin_id=actor.get("admin_id"))
+            audience=audience, admin_id=actor.get("admin_id"), segment=segment)
         recipients = 0
         if surfaces:
-            recipients = (notifications_service.add_everyone(cursor, notification_id, surfaces) if people is None
-                          else notifications_service.add_recipients(
-                              cursor, notification_id,
-                              [p for p in people if p.get("account_id") or p.get("user_key")
-                               or ("website" in surfaces and p.get("visitor_id"))]))
+            if people is None:
+                recipients = notifications_service.add_everyone(cursor, notification_id, surfaces)
+            elif audience == "segment":
+                recipients = notifications_service.add_recipients_bulk(cursor, notification_id, people)
+            else:
+                recipients = notifications_service.add_recipients(
+                    cursor, notification_id,
+                    [p for p in people if p.get("account_id") or p.get("user_key")
+                     or ("website" in surfaces and p.get("visitor_id"))])
         notifications_service.set_delivery_counts(cursor, notification_id, recipients=recipients,
                                                   telegram_targets=len(chats))
         _admin_audit(cursor, actor, "broadcast_sent" if permission == "broadcast.send" else "message_sent", 0, {},
-                     {"notification_id": notification_id, "audience": audience, "channels": channels,
-                      "recipients": recipients, "telegram_targets": len(chats), "length": len(text),
-                      "links": len(links), "image": bool(image_key)}, str(payload.get("reason") or ""))
+                     {"notification_id": notification_id, "audience": audience, "segment": segment,
+                      "channels": channels, "recipients": recipients, "telegram_targets": len(chats),
+                      "length": len(text), "links": len(links), "image": bool(image_key)},
+                     str(payload.get("reason") or ""))
         return notification_id, recipients, chats, text, links, image_key, channels
 
     notification_id, recipients, chats, text, links, image_key, channels = await asyncio.to_thread(
@@ -12908,7 +13081,11 @@ async def admin_messages_history(request: Request):
 
     def work(cursor):
         _admin_actor(payload, request, "messages.send")
-        return notifications_service.history(cursor, payload.get("limit") or 30, payload.get("offset") or 0)
+        items, total = notifications_service.history(cursor, payload.get("limit") or 30, payload.get("offset") or 0)
+        names = _admin_names(cursor, [i.get("admin_id") for i in items])
+        for item in items:
+            item["admin_name"] = names.get(item.get("admin_id"))
+        return items, total
 
     items, total = await asyncio.to_thread(_notifications_run, work)
     return {"ok": True, "items": items, "total": total}
@@ -12923,24 +13100,58 @@ def _thread_person_view(cursor, thread, actor):
             "identity": row["identity"]}
 
 
+def _bool_or_none(value):
+    return True if value in (True, "yes", "true", 1) else False if value in (False, "no", "false", 0) else None
+
+
 @app.post("/api/admin/inbox/list")
 async def admin_inbox_list(request: Request):
+    """Conversations with the inbox filters: status (open = new,
+    in_progress, answered = waiting for the person, closed), topic (or all
+    but sales), assignee, unread, surface and search; plus counts per
+    status for the tabs."""
     payload = await request.json()
 
     def work(cursor):
         actor = _admin_actor(payload, request, "messages.send")
-        items, total, unread = notifications_service.list_threads(cursor, status=str(payload.get("status") or ""),
-                                                                   limit=payload.get("limit") or 50,
-                                                                   offset=payload.get("offset") or 0)
+        items, total, counts = notifications_service.list_threads(
+            cursor, status=str(payload.get("status") or ""), topic=str(payload.get("topic") or ""),
+            exclude_topic=str(payload.get("exclude_topic") or ""), assignee=str(payload.get("assignee") or ""),
+            actor_admin_id=actor.get("admin_id"), unread=bool(payload.get("unread")), query=payload.get("query") or "",
+            surface=str(payload.get("surface") or ""), limit=payload.get("limit") or 50,
+            offset=payload.get("offset") or 0)
         _admin_identity_for(cursor, items, actor)
+        names = _admin_names(cursor, [i.get("assignee_admin_id") for i in items])
         for item in items:
             item["sylvex_user_id"] = str(item["account_id"]) if item.get("account_id") else None
             item["telegram_id"] = account_identity_service.real_telegram_id(item.get("user_key"))
+            item["assignee_name"] = names.get(item.get("assignee_admin_id"))
             item.pop("user_key", None)
-        return items, total, unread
+        cursor.execute("SELECT COUNT(*) FILTER (WHERE topic = 'sales') AS sales, "
+                       "COUNT(*) FILTER (WHERE topic <> 'sales') AS others FROM support_threads WHERE admin_unread = TRUE")
+        sales_unread, other_unread = (int(v or 0) for v in cursor.fetchone())
+        return items, total, counts, {"sales": sales_unread, "conversations": other_unread}
 
-    items, total, unread = await asyncio.to_thread(_notifications_run, work)
-    return {"ok": True, "items": items, "total": total, "unread": unread}
+    items, total, counts, unread_by = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items, "total": total, "counts": counts,
+            "unread": unread_by["sales"] + unread_by["conversations"], "unread_by": unread_by}
+
+
+@app.post("/api/admin/inbox/assignees")
+async def admin_inbox_assignees(request: Request):
+    """Admins a conversation can be given to: active, allowed to answer."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        admins = [a for a in admin_auth.list_admins(cursor)
+                  if a["status"] == "active" and "messages.send" in a["permissions_set"]]
+        names = _admin_names(cursor, [a["admin_id"] for a in admins])
+        return [{"admin_id": a["admin_id"], "name": names.get(a["admin_id"]) or f"SYLVEX {a['account_id']}",
+                 "role": a["role"], "me": a["admin_id"] == actor.get("admin_id")} for a in admins]
+
+    items = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/reviews/list")
@@ -12949,10 +13160,14 @@ async def admin_reviews_list(request: Request):
 
     def work(cursor):
         actor = _admin_actor(payload, request, "users.view")
-        items, total, summary = reviews_service.admin_list(cursor, rating=payload.get("rating") or 0,
-                                                           limit=payload.get("limit") or 50,
-                                                           offset=payload.get("offset") or 0)
+        items, total, summary = reviews_service.admin_list(
+            cursor, rating=payload.get("rating") or 0, surface=str(payload.get("surface") or ""),
+            with_text=_bool_or_none(payload.get("with_text")), replied=_bool_or_none(payload.get("replied")),
+            days=payload.get("days") or 0, limit=payload.get("limit") or 50, offset=payload.get("offset") or 0)
         _admin_identity_for(cursor, items, actor)
+        names = _admin_names(cursor, [i.get("replied_by") for i in items])
+        for item in items:
+            item["replied_by_name"] = names.get(item.get("replied_by"))
         for item in items:
             item["sylvex_user_id"] = str(item.pop("account_id")) if item.get("account_id") else None
             item["telegram_id"] = account_identity_service.real_telegram_id(item.get("user_key"))
@@ -12962,6 +13177,35 @@ async def admin_reviews_list(request: Request):
 
     items, total, summary = await asyncio.to_thread(_reviews_run, work)
     return {"ok": True, "items": items, "total": total, "summary": summary}
+
+
+@app.post("/api/admin/reviews/reply")
+async def admin_reviews_reply(request: Request):
+    """Answer to a review: reaches the person like any SYLVEX message (bell
+    on their surfaces, the bot, and their conversation in Messages)."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        review_id = int(payload.get("review_id") or 0)
+        owner = reviews_service.review_owner(cursor, review_id)
+        if not owner["user_key"]:
+            raise notifications_service.NotificationError("user_not_found", 404)
+        person = _person_for_key(cursor, owner["user_key"])
+        text = notifications_service.clean_text(payload.get("text"))
+        thread_id = notifications_service.admin_thread_for(cursor, person, topic="general")
+        notification_id, message_id, chat, delivery = _admin_write_to_person(
+            cursor, actor, person, thread_id, text=text, links=[], image_key=None, channels=payload.get("channels"))
+        reviews_service.record_reply(cursor, review_id, text, actor.get("admin_id"))
+        _admin_audit(cursor, actor, "review_replied", owner["user_key"], {},
+                     {"review_id": review_id, "rating": owner["rating"], "thread_id": thread_id,
+                      "channels": delivery["channels"], "length": len(text)}, "")
+        return notification_id, message_id, chat, delivery, text
+
+    notification_id, message_id, chat, delivery, text = await asyncio.to_thread(_reviews_run, work)
+    if chat:
+        delivery = await _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, None, [])
+    return {"ok": True, "delivery": delivery}
 
 
 @app.post("/api/admin/inbox/thread")
@@ -12974,6 +13218,10 @@ async def admin_inbox_thread(request: Request):
                                                                image_url=_notification_image_url)
         thread["person"] = _thread_person_view(cursor, thread, actor)
         thread.pop("user_key", None)
+        names = _admin_names(cursor, [thread.get("assignee_admin_id")] + [m.get("admin_id") for m in messages])
+        thread["assignee_name"] = names.get(thread.get("assignee_admin_id"))
+        for m in messages:
+            m["author"] = names.get(m.get("admin_id")) if m["direction"] == "out" else None
         return thread, messages
 
     thread, messages = await asyncio.to_thread(_notifications_run, work)
@@ -13010,17 +13258,72 @@ async def admin_inbox_reply(request: Request):
             "telegram": bool(chat), "telegram_sent": delivery.get("telegram") == "sent"}
 
 
+def _inbox_change(payload, request, permission, change):
+    """One change to a conversation, audited against its person."""
+    def work(cursor):
+        actor = _admin_actor(payload, request, permission)
+        thread_id = int(payload.get("thread_id") or 0)
+        person = notifications_service.thread_person(cursor, thread_id)
+        action, after = change(cursor, actor, thread_id)
+        _admin_audit(cursor, actor, action, person.get("user_key") or 0, {}, dict(after, thread_id=thread_id), "")
+        return after
+    return work
+
+
 @app.post("/api/admin/inbox/status")
 async def admin_inbox_status(request: Request):
     payload = await request.json()
 
-    def work(cursor):
-        _admin_actor(payload, request, "messages.send")
-        notifications_service.set_thread_status(cursor, int(payload.get("thread_id") or 0),
-                                                str(payload.get("status") or ""))
+    def change(cursor, actor, thread_id):
+        status = str(payload.get("status") or "")
+        notifications_service.set_thread_status(cursor, thread_id, status)
+        return "support_status_changed", {"status": status}
 
-    await asyncio.to_thread(_notifications_run, work)
-    return {"ok": True}
+    result = await asyncio.to_thread(_notifications_run, _inbox_change(payload, request, "messages.send", change))
+    return {"ok": True, **result}
+
+
+@app.post("/api/admin/inbox/assign")
+async def admin_inbox_assign(request: Request):
+    """Gives the conversation to an admin ("me", an admin id, or nobody)."""
+    payload = await request.json()
+
+    def change(cursor, actor, thread_id):
+        raw = payload.get("admin_id")
+        if raw == "me":
+            admin_id = actor.get("admin_id")
+        elif raw in (None, "", 0, "none"):
+            admin_id = None
+        else:
+            target = admin_auth.load_admin(cursor, admin_id=int(raw))
+            if not target or target["status"] != "active" or "messages.send" not in target["permissions_set"]:
+                raise notifications_service.NotificationError("assignee_not_allowed")
+            admin_id = target["admin_id"]
+        # Taking it yourself needs only the right to answer; giving it to
+        # someone else is managing the inbox.
+        if admin_id not in (None, actor.get("admin_id")) and "support.manage" not in actor.get("permissions_set", set()) \
+                and actor.get("role") != admin_rbac.OWNER:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        status = notifications_service.assign_thread(cursor, thread_id, admin_id)
+        return "support_assigned", {"assignee_admin_id": admin_id, "status": status}
+
+    result = await asyncio.to_thread(_notifications_run, _inbox_change(payload, request, "messages.send", change))
+    return {"ok": True, **result}
+
+
+@app.post("/api/admin/inbox/attachments")
+async def admin_inbox_attachments(request: Request):
+    """Lets the person attach files (images, PDF) in this conversation."""
+    payload = await request.json()
+
+    def change(cursor, actor, thread_id):
+        allowed = bool(payload.get("allowed"))
+        notifications_service.set_attachments_allowed(cursor, thread_id, allowed)
+        return "support_attachments_changed", {"attachments_allowed": allowed}
+
+    result = await asyncio.to_thread(_notifications_run, _inbox_change(payload, request, "support.manage", change))
+    return {"ok": True, **result}
+
 
 
 

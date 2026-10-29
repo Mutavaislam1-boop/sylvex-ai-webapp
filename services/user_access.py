@@ -27,6 +27,8 @@ ALLOWED_WHEN_BLOCKED = frozenset({
     "/api/public/notifications/read",
     "/api/public/notifications/awards",
     "/api/public/contact",
+    "/api/public/contact/state",
+    "/api/public/contact/upload",
     "/api/web/auth/logout",
 })
 
