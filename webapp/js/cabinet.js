@@ -6872,7 +6872,7 @@ function createEditWorkspaceState() {
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:0,right:0,top:0,bottom:0},
     backgroundMode:'transparent',background:{color:'#ffffff',url:'',name:''},translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
-    upscaleEstimate:null,sketch:null,
+    upscaleEstimate:null,sketch:null,extraReferences:[],
     upscale:{model:'topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0,sylvex:{sourceUrl:'',resultUrl:'',imageWidth:0,imageHeight:0,regions:[],selectedRegionId:'',addingRegion:false,absorbing:false,guidesHidden:false,finalEnhance:{apply_global_enhance:true,upscale_factor:2,denoise_strength:.2,sharpen_strength:.2}}}};
 }
 function createEditSylvexRestoreState() {
@@ -7776,7 +7776,7 @@ function syncEditWorkspaceChain(root) {
       preview=document.createElement('div');preview.className='edit-expand-preview';preview.setAttribute('aria-hidden','true');
       preview.innerHTML=['left','right','top','bottom'].map(side=>'<div class="edit-expand-margin" data-expand-margin="'+side+'"></div>').join('');frame.prepend(preview);
       handles=document.createElement('div');handles.className='edit-expand-handles';
-      handles.innerHTML=[['left','слева','←'],['right','справа','→'],['top','сверху','↑'],['bottom','снизу','↓']].map(([side,label,arrow])=>'<button type="button" data-expand-handle="'+side+'" aria-label="Расширить '+label+'" title="Потяните, чтобы расширить '+label+'" aria-describedby="editExpandHint">'+arrow+'</button>').join('');card.appendChild(handles);
+      handles.innerHTML=[['left','слева','←'],['right','справа','→'],['top','сверху','↑'],['bottom','снизу','↓']].map(([side,label,arrow])=>'<button type="button" data-expand-handle="'+side+'" aria-label="Расширить '+label+'" title="Потяните, чтобы расширить '+label+'">'+arrow+'</button>').join('');card.appendChild(handles);
     }
     if(!needsExpansion){preview?.remove();handles?.remove();}
     card.classList.toggle('is-expanding',needsExpansion);
@@ -8160,12 +8160,11 @@ function refreshEditExpandPreview(){
     input.min=key==='width'||key==='height'?s[key]:0;
     input.max=key==='width'||key==='height'?editExpandAxisLimit(key):editExpandMarginLimit(key);
   });
-  const output=root.querySelector('[data-expand-size]');if(output)output.textContent=size.width+' × '+size.height+' px';
 }
 function editExpandPanel(generate){
   const s=editWorkspaceState,size=editExpandSize(s),safe=v=>S.escapeHtml(String(v));
   const field=(key,label,value)=>'<label>'+label+' <input data-expand-field="'+key+'" aria-label="Expand '+key+'" type="number" step="1" min="'+(key==='width'||key==='height'?s[key]:0)+'" max="'+(key==='width'||key==='height'?editExpandAxisLimit(key):editExpandMarginLimit(key))+'" value="'+value+'" '+(!s.width||s.showBefore?'disabled':'')+' oninput="SYLVEX.updateEditExpandField(event,\''+key+'\')" onchange="SYLVEX.updateEditExpandField(event,\''+key+'\')"> px</label>';
-  return '<div class="edit-expand-heading"><b>Расширение фото</b><output data-expand-size>'+size.width+' × '+size.height+' px</output></div><p id="editExpandHint" class="edit-expand-help">Потяните стрелки по краям или задайте размер. Исходное фото остаётся без изменений.</p><div class="edit-workspace-action-row edit-expand-dimensions">'+field('width','Ширина',size.width)+field('height','Высота',size.height)+'<button type="button" onclick="SYLVEX.resetEditExpand(event)">Сбросить поля</button></div><details class="edit-expand-offsets"><summary>Поля по сторонам</summary><div class="edit-workspace-action-row">'+[['left','Слева'],['right','Справа'],['top','Сверху'],['bottom','Снизу']].map(([key,label])=>field(key,label,s.expand[key])).join('')+'</div></details><textarea maxlength="8000" placeholder="Что добавить вокруг фото? (необязательно)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea><div class="edit-workspace-action-row"><span class="edit-expand-help">До 8192 px по стороне · 16 Мп</span>'+generate+'</div>';
+  return '<div class="edit-workspace-action-row edit-expand-dimensions">'+field('width','Ширина',size.width)+field('height','Высота',size.height)+'<button type="button" onclick="SYLVEX.resetEditExpand(event)">Сбросить поля</button></div><details class="edit-expand-offsets"><summary>Поля по сторонам</summary><div class="edit-workspace-action-row">'+[['left','Слева'],['right','Справа'],['top','Сверху'],['bottom','Снизу']].map(([key,label])=>field(key,label,s.expand[key])).join('')+'</div></details><textarea maxlength="8000" placeholder="Что добавить вокруг фото? (необязательно)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(s.prompt)+'</textarea><div class="edit-workspace-action-row">'+generate+'</div>';
 }
 function initEditExpandHandles(root){
   let drag=null;
@@ -8620,7 +8619,7 @@ function renderEditWorkspace() {
     const languages=['German · Deutsch','Filipino · Filipino','Ukrainian · Українська','Bulgarian · Български','Indonesian · Bahasa Indonesia','Czech · Čeština','Romanian · Română','English','French · Français','Spanish · Español','Russian · Русский','Turkish · Türkçe','Arabic · العربية','Italian · Italiano','Portuguese · Português','Japanese · 日本語','Korean · 한국어','Chinese · 中文'];
     panel='<h3>Translate Image</h3><label class="edit-workspace-translate-search">Translate to <input placeholder="⌕  Search language" oninput="SYLVEX.filterEditLanguages(event)"></label><div class="edit-workspace-language-list">'+languages.map((name,index)=>'<button type="button" data-language="'+safe(name.toLowerCase())+'" class="'+(state.translateLanguage===name?'active':'')+'" onclick="SYLVEX.selectEditLanguage(event,\''+safe(name)+'\')"><span>'+name.split(' · ')[0]+'<small>'+(name.split(' · ')[1]||name)+'</small></span><b>'+(state.translateLanguage===name?'●':'○')+'</b></button>').join('')+'</div>'+generate;
   }
-  if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button title="Attach image" onclick="document.getElementById(\'editWorkspaceFile\').click()">⌁</button><label class="edit-workspace-model-picker"><span>Model</span><select aria-label="Edit image model" onchange="SYLVEX.setEditWorkspaceModel(event)">'+editWorkspaceModelOptions(editWorkspaceImageModel(state.editModel).id)+'</select></label>'+generate+'</div>';
+  if(mode==='edit')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="What do you want to change?" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row">'+editModelPickerHtml(state)+'<button type="button" class="edit-extra-ref-add" title="Добавить референс" aria-label="Добавить референс" onclick="SYLVEX.openEditExtraReference(event)">+</button>'+editExtraReferencesHtml(state)+generate+'</div>';
   if(mode==='retouch')action='<textarea maxlength="8000" id="editWorkspacePrompt" placeholder="Draw a selection and describe what you want to change" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row"><button class="'+(state.brushMode==='replace'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'replace\')">Replace</button><button class="'+(state.brushMode==='erase'?'active':'')+'" onclick="SYLVEX.setEditBrushMode(event,\'erase\')">Erase</button><span>✎</span><input type="range" min="4" max="80" value="'+state.brushSize+'" oninput="SYLVEX.updateEditBrushSize(event)"><output id="editBrushSizeOutput">'+state.brushSize+'</output><button data-mask-action="undo" title="Undo stroke" aria-label="Undo stroke" onclick="SYLVEX.clearEditWorkspaceMask(event,true)">↶</button><button data-mask-action="redo" title="Redo stroke" aria-label="Redo stroke" onclick="SYLVEX.redoEditWorkspaceMask(event)">↷</button><button data-mask-action="clear" onclick="SYLVEX.clearEditWorkspaceMask(event)">Clear selection</button>'+generate+'</div>';
   if(mode==='background')action=editBackgroundPanel(generate);
   if(mode==='sketch'){
@@ -8632,7 +8631,7 @@ function renderEditWorkspace() {
   if(mode==='expand')action=editExpandPanel(generate);
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(selectedNode?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
   const surface='<section class="edit-workspace-stage"><div class="edit-workspace-grid"></div><div class="edit-workspace-world"></div></section>';
-  const controls=editWorkspaceSidebar()+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Reset images to their default display size" onclick="SYLVEX.resetEditWorkspaceSize(event)">Default size</button><button title="Zoom out" aria-label="Zoom out" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Fit images to canvas (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Zoom in" aria-label="Zoom in" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download selected image" '+(!selectedNode?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
+  const controls=editWorkspaceSidebar()+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Reset images to their default display size" onclick="SYLVEX.resetEditWorkspaceSize(event)">Default size</button><button title="Zoom out" aria-label="Zoom out" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Fit images to canvas (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Zoom in" aria-label="Zoom in" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download selected image" '+(!selectedNode?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)"><input id="editWorkspaceRefFile" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onchange="SYLVEX.onEditExtraReferenceFile(event)">';
   const main=root.querySelector('.edit-workspace-main');
   if(main){
     // Keep the stage, its images and the pending card mounted throughout a job.
@@ -8688,15 +8687,63 @@ function setEditWorkspaceMode(e,mode){
 function editWorkspaceImageModel(modelId){
   return EDIT_WORKSPACE_IMAGE_MODELS.find(item=>item.id===modelId)||EDIT_WORKSPACE_IMAGE_MODELS[0];
 }
-function editWorkspaceModelOptions(selectedId){
-  const providers=[];
+// The Edit model choice: plain text with a small arrow and each model's
+// Pro Studio icon; the list opens above it.
+function editModelIconHtml(model){
+  const proStudio=(typeof IMAGE_MODEL_LIST!=='undefined'?IMAGE_MODEL_LIST:[]).find(item=>item.id===model.id);
+  return imageModelIconHtml(proStudio||model);
+}
+function editModelPickerHtml(state){
+  const current=editWorkspaceImageModel(state.editModel),safe=value=>S.escapeHtml(String(value||'')),groups=[];
   for(const model of EDIT_WORKSPACE_IMAGE_MODELS){
-    let group=providers.find(item=>item.provider===model.provider);
-    if(!group){group={provider:model.provider,models:[]};providers.push(group)}
+    let group=groups.find(item=>item.provider===model.provider);
+    if(!group){group={provider:model.provider,models:[]};groups.push(group)}
     group.models.push(model);
   }
+  return '<div class="edit-model-picker"><button type="button" class="edit-model-current" aria-haspopup="listbox" aria-expanded="false" aria-label="Edit image model" onclick="SYLVEX.toggleEditModelMenu(event)"><span class="edit-model-icon">'+editModelIconHtml(current)+'</span><span>'+safe(current.label)+'</span><svg class="edit-model-chevron" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg></button>'
+    +'<div class="edit-model-menu" role="listbox" hidden>'+groups.map(group=>'<div class="edit-model-group"><small>'+safe(group.provider)+'</small>'+group.models.map(model=>'<button type="button" role="option" aria-selected="'+(model.id===current.id)+'" class="'+(model.id===current.id?'active':'')+'" onclick="SYLVEX.pickEditWorkspaceModel(event,\''+safe(model.id)+'\')"><span class="edit-model-icon">'+editModelIconHtml(model)+'</span><span>'+safe(model.label)+'</span></button>').join('')+'</div>').join('')+'</div></div>';
+}
+function toggleEditModelMenu(e){
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  const button=e&&e.currentTarget,menu=button&&button.parentElement&&button.parentElement.querySelector('.edit-model-menu');if(!menu)return;
+  const open=menu.hidden;menu.hidden=!open;button.setAttribute('aria-expanded',String(open));
+  if(open){const close=event=>{if(event.target.closest&&event.target.closest('.edit-model-picker'))return;menu.hidden=true;button.setAttribute('aria-expanded','false');document.removeEventListener('pointerdown',close,true)};document.addEventListener('pointerdown',close,true)}
+}
+function pickEditWorkspaceModel(e,id){
+  if(e){e.preventDefault();e.stopPropagation()}
+  setEditWorkspaceModel({currentTarget:{value:id}});
+}
+// The + next to the model adds a reference that goes with the main photo;
+// it never replaces it.
+const EDIT_EXTRA_REFERENCE_LIMIT=3;
+function editExtraReferencesHtml(state){
   const safe=value=>S.escapeHtml(String(value||''));
-  return providers.map(group=>'<optgroup label="'+safe(group.provider)+'">'+group.models.map(model=>'<option value="'+safe(model.id)+'" '+(model.id===selectedId?'selected':'')+'>'+safe(model.label)+'</option>').join('')+'</optgroup>').join('');
+  return (state.extraReferences||[]).map((ref,index)=>'<span class="edit-extra-ref"><img src="'+safe(ref.preview||ref.url)+'" alt=""><button type="button" aria-label="Убрать референс" onclick="SYLVEX.removeEditExtraReference(event,'+index+')">×</button></span>').join('');
+}
+function openEditExtraReference(e){
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  if((editWorkspaceState.extraReferences||[]).length>=EDIT_EXTRA_REFERENCE_LIMIT)return editWorkspaceToast('Можно добавить до '+EDIT_EXTRA_REFERENCE_LIMIT+' референсов.');
+  document.getElementById('editWorkspaceRefFile')?.click();
+}
+async function onEditExtraReferenceFile(e){
+  const input=e&&e.target,files=Array.from((input&&input.files)||[]);if(input)input.value='';
+  const s=editWorkspaceState;if(!files.length||editWorkspaceLocked())return;
+  s.extraReferences=Array.isArray(s.extraReferences)?s.extraReferences:[];
+  s.uploading=true;renderEditWorkspace();
+  try{
+    for(const file of files.slice(0,Math.max(0,EDIT_EXTRA_REFERENCE_LIMIT-s.extraReferences.length))){
+      if(!['image/jpeg','image/png','image/webp'].includes(file.type)){editWorkspaceToast('Choose a JPEG, PNG or WebP image.');continue}
+      const url=await uploadProStudioMediaFile(file,'image');
+      if(url)s.extraReferences.push({url,preview:URL.createObjectURL(file),name:file.name});
+    }
+  }catch(error){editWorkspaceToast(error.message||'Could not upload the image.')}
+  finally{s.uploading=false;renderEditWorkspace();}
+}
+function removeEditExtraReference(e,index){
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  const s=editWorkspaceState,[removed]=(s.extraReferences||[]).splice(Number(index),1);
+  if(removed&&String(removed.preview||'').startsWith('blob:'))URL.revokeObjectURL(removed.preview);
+  renderEditWorkspace();
 }
 function setEditWorkspaceModel(e){
   if(editWorkspaceLocked())return;
@@ -8931,15 +8978,15 @@ function resetEditResize(e){if(e){e.preventDefault();e.stopPropagation()}if(edit
 function cycleEditWorkspaceZoom(e){fitEditWorkspace(e);}
 function adjustEditWorkspaceZoom(e,delta){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceSetViewZoom(editWorkspaceState.zoom+delta);}
 
-async function downloadEditWorkspaceResult(e){
+function downloadEditWorkspaceResult(e){
   if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState,node=s.chain.find(item=>item.id===s.activeNodeId&&item.status==='ready'&&item.url);if(!node)return;
   const index=Math.max(0,s.chain.indexOf(node)),name=node.parentId?'sylvex-edit-'+index+'.png':(s.sourceName||'sylvex-edit-source.png');
-  if(node.jobId)return downloadGeneratedFile({currentTarget:{dataset:{downloadUrl:completedGenerationDownloadUrl(node.jobId),fileName:name}}});
-  if(typeof S!=='undefined'&&S.tg&&typeof S.tg.downloadFile==='function'){
-    try{S.tg.downloadFile({url:new URL(node.url,window.location.origin).toString(),file_name:name},accepted=>{if(accepted===false)editWorkspaceToast('The device did not allow the download.');});return;}catch(_){}
-  }
-  try{const response=await fetch(node.url);if(!response.ok)throw new Error('Download failed');const blob=await response.blob(),url=URL.createObjectURL(blob);browserDownload(url,name);setTimeout(()=>URL.revokeObjectURL(url),30000);}
-  catch(error){editWorkspaceToast('Could not download the image. Please try again.');}
+  // A generated result comes from its job; the uploaded source through the
+  // download proxy. Both answer as an attachment, so the browser saves the
+  // file instead of opening it or being blocked by the storage origin.
+  if(node.jobId)return startGenerationDownload(completedGenerationDownloadUrl(node.jobId),name);
+  const relative='/api/public/prostudio/download-image?url='+encodeURIComponent(new URL(node.url,window.location.origin).toString());
+  startGenerationDownload(typeof window.__sylvexWebsiteApiUrl==='function'?window.__sylvexWebsiteApiUrl(relative):relative,name);
 }
 async function onEditWorkspaceFile(e){const input=e&&e.target,file=input&&input.files&&input.files[0];if(!file)return;input.value='';await loadEditWorkspaceImage(file)}
 function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);if(state.mode==='upscale'&&state.upscale.model==='sylvex_sr')return 'Sylvex Restore';const prompt=editBackgroundPrompt(state).trim();if(state.mode==='background')return 'Edit · Background · '+({transparent:'Remove background',replace:prompt,color:'Color '+state.background.color,image:'Custom photo'}[state.backgroundMode]);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(prompt?': '+prompt:'')}
@@ -8986,7 +9033,7 @@ async function generateEditWorkspace(e){
   state.busy=true;const chainResult=mode==='sketch'?beginEditSketchResult():beginEditWorkspaceChainResult();renderEditWorkspace();void saveEditWorkspaceSession();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
   const refs=[sketchReferenceUrl||state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
-  const selectedEditModel=editWorkspaceImageModel(state.editModel),imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspaceModel:selectedEditModel.id,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:refs[0],editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
+  const selectedEditModel=editWorkspaceImageModel(state.editModel),imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspaceModel:selectedEditModel.id,editWorkspacePrompt:editBackgroundPrompt(state),editWorkspaceSourceUrl:refs[0],editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale,{sylvex:undefined}),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceBackground:editBackgroundOptions(state),editWorkspaceTranslateLanguage:state.translateLanguage,editWorkspaceExtraReferenceUrls:mode==='edit'?(state.extraReferences||[]).map(ref=>ref.url).filter(Boolean):[],photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
   if(mode==='edit')Object.assign(imageOptions,{modelId:selectedEditModel.id,quality:'high',count:1});
   if(isSylvex)Object.assign(imageOptions,{enhancePhotoModel:'sylvex_sr',sylvexRestoreRegions:serializeSylvexRestoreRegions(restore.regions),sylvexRestoreFinalEnhance:{...restore.finalEnhance}});
   if(isSylvex)chainResult.restoreModel='sylvex_sr';
@@ -30010,7 +30057,62 @@ async function waitGeneration(jobId, options) {
   }
   function closeStudioGridTextEditor(){const modal=document.getElementById('studioGridTextEditor');if(modal)modal.hidden=true;document.body.classList.remove('studio-grid-editor-open');studioGridTextEditorNodeId=''}
   function saveStudioGridTextEditor(){const node=loadStudioGridState().nodes.find(item=>item.id===studioGridTextEditorNodeId),input=document.getElementById('studioGridTextEditorInput');if(!node||!input){closeStudioGridTextEditor();return}const changed=node.prompt!==input.value;node.prompt=input.value;if(changed){node.status=node.type==='task'?'IDLE':'READY';node.output=node.type==='task'?null:node.output;markStudioGridDownstreamStale(node.id)}saveStudioGridState();renderStudioGrid();closeStudioGridTextEditor()}
-  function openStudioGridMediaPicker(id,referenceId=''){studioGridMediaNodeId=id;studioGridMediaReferenceId=String(referenceId||'');const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.multiple=!studioGridMediaReferenceId;input.accept=studioGridMediaReferenceId?'image/*':'image/*,video/*,audio/*,.pdf,.txt,.doc,.docx';input.click()}}
+  // "+ Референс" in a Grid block opens a window like the Pro Studio upload
+  // one: History (the user's generations), Characters and Objects as tabs in
+  // the same area, and the upload of a new file under them.
+  let studioGridReferenceTab='history';
+  function openStudioGridMediaPicker(id,referenceId=''){studioGridMediaNodeId=id;studioGridMediaReferenceId=String(referenceId||'');studioGridReferenceTab='history';const panel=ensureStudioGridReferencePanel();renderStudioGridReferencePanel();panel.classList.add('show')}
+  function ensureStudioGridReferencePanel(){
+    let panel=document.getElementById('studioGridReferencePanel');if(panel)return panel;
+    panel=document.createElement('div');panel.id='studioGridReferencePanel';panel.className='upload-panel-backdrop grid-ref-panel';
+    panel.addEventListener('click',event=>{if(event.target===panel)closeStudioGridReferencePanel()});
+    panel.innerHTML=`<div class="upload-panel-card grid-ref-card" onclick="event.stopPropagation()">
+        <button class="upload-panel-close" type="button" aria-label="Закрыть" onclick="SYLVEX.closeStudioGridReferencePanel(event)">×</button>
+        <div class="grid-ref-tabs" role="tablist" aria-label="Референсы"></div>
+        <div class="upload-panel-body">
+          <div class="upload-panel-half upload-panel-generated"><div id="studioGridReferenceGrid" class="upload-generated-grid grid-ref-grid"></div></div>
+          <div class="upload-panel-half upload-panel-actions"><div class="upload-photo-grid empty">
+            <button class="upload-photo-center-btn" type="button" onclick="SYLVEX.uploadStudioGridReferenceFile(event)">
+              <span class="upload-photo-center-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4M7 9l5-5 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+              <span class="upload-photo-center-title">Загрузить файл</span>
+              <span class="upload-photo-center-sub" id="studioGridReferenceUploadHint"></span>
+            </button>
+          </div></div>
+        </div>
+      </div>`;
+    document.body.appendChild(panel);return panel;
+  }
+  function renderStudioGridReferencePanel(){
+    const panel=document.getElementById('studioGridReferencePanel');if(!panel)return;
+    const tabs=[['history','История'],['character','Персонажи'],['object','Объекты']];
+    panel.querySelector('.grid-ref-tabs').innerHTML=tabs.map(([key,label])=>`<button type="button" role="tab" aria-selected="${studioGridReferenceTab===key}" class="${studioGridReferenceTab===key?'active':''}" onclick="SYLVEX.setStudioGridReferenceTab(event,'${key}')">${label}</button>`).join('');
+    const hint=document.getElementById('studioGridReferenceUploadHint');if(hint)hint.textContent=studioGridMediaReferenceId?'Фото с устройства':'Фото, видео, аудио или документ';
+    const grid=document.getElementById('studioGridReferenceGrid');if(!grid)return;
+    if(studioGridReferenceTab==='history'){
+      const items=getGeneratedPhotoHistoryItems().map(entry=>normalizeGeneratedImageItem(entry)).filter(item=>item&&item.url);
+      grid.innerHTML=items.length?items.map(item=>`<button class="upload-generated-thumb" type="button" onclick="SYLVEX.pickStudioGridReference(event,'history','${S.escapeHtml(item.url)}')"><img src="${S.escapeHtml(item.thumb||item.url)}" alt="" loading="lazy" decoding="async"></button>`).join(''):'<div class="upload-panel-empty">Пока нет сгенерированных фото</div>';
+      return;
+    }
+    const isCharacter=studioGridReferenceTab==='character';
+    const items=(isCharacter?imageCharacters():imageObjects()).map(normalizeVisualItem).filter(Boolean);
+    const create=`<button class="upload-generated-thumb grid-ref-create" type="button" onclick="SYLVEX.openVisualCreateModal(event,'${isCharacter?'character':'object'}')"><span aria-hidden="true">+</span><b>${isCharacter?'Новый персонаж':'Новый объект'}</b></button>`;
+    grid.innerHTML=create+items.map(item=>{const preview=visualPreviewUrl(item);const pending=isCharacter?characterCardPendingStatus(item):objectCardPendingStatus(item);return `<button class="upload-generated-thumb grid-ref-visual" type="button" ${pending||!preview?'disabled':''} onclick="SYLVEX.pickStudioGridReference(event,'${isCharacter?'character':'object'}','${S.escapeHtml(item.id)}')">${preview?`<img src="${S.escapeHtml(preview)}" alt="" loading="lazy" decoding="async">`:''}<b>${S.escapeHtml(item.name||item.label||'')}</b></button>`}).join('');
+  }
+  function setStudioGridReferenceTab(e,tab){if(e){e.preventDefault();e.stopPropagation()}studioGridReferenceTab=['history','character','object'].includes(tab)?tab:'history';renderStudioGridReferencePanel()}
+  function closeStudioGridReferencePanel(e){if(e){e.preventDefault();e.stopPropagation()}const panel=document.getElementById('studioGridReferencePanel');if(panel)panel.classList.remove('show')}
+  function pickStudioGridReference(e,kind,value){
+    if(e){e.preventDefault();e.stopPropagation()}
+    let item=null;
+    if(kind==='history')item={url:String(value||''),kind:'image',name:'Из истории',mime:'image/*'};
+    else{const visual=(kind==='character'?imageCharacters():imageObjects()).map(normalizeVisualItem).find(entry=>entry&&entry.id===value);const url=visual?(visualGenerationReferences(visual,kind)[0]||visualPreviewUrl(visual)):'';if(url)item={url,kind:'image',name:visual.name||visual.label||'',mime:'image/*',[kind==='character'?'character_id':'object_id']:visual.id}}
+    const node=loadStudioGridState().nodes.find(entry=>entry.id===studioGridMediaNodeId),referenceId=studioGridMediaReferenceId;
+    if(!node||!item||!item.url)return;
+    closeStudioGridReferencePanel();
+    if(referenceId){setStudioGridReferenceAttachment(node,referenceId,item)}
+    else{node.attachments=Array.isArray(node.attachments)?node.attachments:[];if(node.type==='task')item.reference_id=`task_upload_${node.attachments.length+1}`;node.attachments.push(item);node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid()}
+    studioGridMediaNodeId='';studioGridMediaReferenceId='';toast('Референс добавлен');
+  }
+  function uploadStudioGridReferenceFile(e){if(e){e.preventDefault();e.stopPropagation()}closeStudioGridReferencePanel();const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.multiple=!studioGridMediaReferenceId;input.accept=studioGridMediaReferenceId?'image/*':'image/*,video/*,audio/*,.pdf,.txt,.doc,.docx';input.click()}}
   function setStudioGridReferenceAttachment(node,referenceId,item){
     if(!node||!referenceId||!item?.url)return;
     node.attachments=(Array.isArray(node.attachments)?node.attachments:[]).filter(existing=>existing.reference_id!==referenceId);
@@ -30070,7 +30172,11 @@ async function waitGeneration(jobId, options) {
     saveStudioGridState(); applyStudioGridTransform();
   }
 
-  function showStudioGridContext(clientX,clientY,position){const menu=document.getElementById('studioGridContext');if(!menu)return;const entries=['task','text','image','video','music','voice','montage'];menu.innerHTML=entries.map(type=>`<button type="button" data-grid-add-type="${type}"><i>${GRID_TYPES[type].icon}</i><span>${GRID_TYPES[type].title}</span></button>`).join('');menu.style.left=`${clientX}px`;menu.style.top=`${clientY}px`;menu.hidden=false;menu._gridPosition=position}
+  function showStudioGridContext(clientX,clientY,position){const menu=document.getElementById('studioGridContext');if(!menu)return;const entries=['task','text','image','video','music','voice','montage'];menu.innerHTML=entries.map(type=>`<button type="button" data-grid-add-type="${type}"><i>${GRID_TYPES[type].icon}</i><span>${GRID_TYPES[type].title}</span></button>`).join('');menu.hidden=false;placeStudioGridContext(menu,clientX,clientY);menu._gridPosition=position}
+  // position:fixed is relative to the nearest transformed ancestor, not always the
+  // viewport (the Website's studio column is one), so the menu is placed by where
+  // it actually lands, and kept inside the screen.
+  function placeStudioGridContext(menu,clientX,clientY,anchorTop){menu.style.left=`${clientX}px`;menu.style.top=`${clientY}px`;const placed=menu.getBoundingClientRect(),dx=placed.left-clientX,dy=placed.top-clientY;let x=clientX,y=clientY;if(x+placed.width>innerWidth-8)x=Math.max(8,innerWidth-8-placed.width);if(y+placed.height>innerHeight-8)y=Math.max(8,(typeof anchorTop==='number'?anchorTop-5:clientY)-placed.height);menu.style.left=`${x-dx}px`;menu.style.top=`${y-dy}px`}
   function hideStudioGridContext(){const menu=document.getElementById('studioGridContext');if(menu)menu.hidden=true}
 
   function clearStudioGridConnectionMode() {
@@ -30462,7 +30568,7 @@ async function waitGeneration(jobId, options) {
         if(event.target.closest('[data-grid-pick-version]')){selectStudioGridResultVersion(id,event.target.closest('[data-grid-pick-version]').dataset.gridPickVersion);return}
         if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){const item=node.output.items[index],urls=node.output.items.map(result=>result.url||result.preview_url).filter(Boolean);node.output.selected_index=index;const selected=node.result_versions?.[Number(node.selectedResultVersion)];if(selected?.type==='image')selected.selected_index=index;markStudioGridDownstreamStale(id);saveStudioGridState();openImageViewer(event,item.url||item.preview_url,urls,{jobId:node.generation_id||item.generation_id||'',gridProjectId:loadStudioGridState().projectId,gridNodeId:node.id});renderStudioGrid()}return}
         if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)openStudioGridVideoViewer(node.output.url,node.generation_id||node.output.generation_id||'',node.id);return}
-        if (event.target.closest('[data-grid-more]')) { const rect=event.target.getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.position_locked?'Разблокировать позицию':'Закрепить позицию'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;return}
+        if (event.target.closest('[data-grid-more]')) { const rect=event.target.closest('[data-grid-more]').getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.position_locked?'Разблокировать позицию':'Закрепить позицию'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;placeStudioGridContext(menu,Math.round(rect.right-168),rect.bottom+5,rect.top);return}
         if(event.shiftKey){if(studioGridSelectedIds.has(id))studioGridSelectedIds.delete(id);else studioGridSelectedIds.add(id)}else if(!studioGridSelectedIds.has(id))studioGridSelectedIds=new Set([id]);
         host.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.toggle('selected',studioGridSelectedIds.has(item.dataset.gridId)));
       });
@@ -30823,7 +30929,7 @@ async function waitGeneration(jobId, options) {
     openCreativeCatalog, closeCreativeCatalog, useCreativeCatalogItem,
     openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, navigateImageViewer, selectGenerationInfoImage, useGenerationImageAsReference, openGenerationPicker, clearVisualSelection, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
+    signOut, openImageViewer, closeImageViewer, navigateImageViewer, selectGenerationInfoImage, useGenerationImageAsReference, openGenerationPicker, clearVisualSelection, closeStudioGridReferencePanel, setStudioGridReferenceTab, pickStudioGridReference, uploadStudioGridReferenceFile, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
     PromptPlaceholderManager, VoiceDialogueComposer,
     initAudioPlayer,
@@ -30835,7 +30941,7 @@ async function waitGeneration(jobId, options) {
 
   S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;S.selectEditWorkspaceNode=selectEditWorkspaceNode;
   S.setEditLightPreset=setEditLightPreset;
-  S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode; S.setEditWorkspaceModel=setEditWorkspaceModel;
+  S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode; S.setEditWorkspaceModel=setEditWorkspaceModel; S.toggleEditModelMenu=toggleEditModelMenu; S.pickEditWorkspaceModel=pickEditWorkspaceModel; S.openEditExtraReference=openEditExtraReference; S.onEditExtraReferenceFile=onEditExtraReferenceFile; S.removeEditExtraReference=removeEditExtraReference;
   S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.updateEditBackgroundColor=updateEditBackgroundColor; S.onEditBackgroundFile=onEditBackgroundFile; S.clearEditBackgroundImage=clearEditBackgroundImage; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
   S.updateEditExpandField=updateEditExpandField; S.resetEditExpand=resetEditExpand;
   S.setEditUpscaleModel=setEditUpscaleModel;S.resetEditSylvexRestore=resetEditSylvexRestore;S.selectEditSylvexRegion=selectEditSylvexRegion;S.startEditSylvexRegion=startEditSylvexRegion;S.updateEditSylvexRegion=updateEditSylvexRegion;S.deleteEditSylvexRegion=deleteEditSylvexRegion;S.openEditSylvexReference=openEditSylvexReference;S.onEditSylvexReference=onEditSylvexReference;S.removeEditSylvexReference=removeEditSylvexReference;

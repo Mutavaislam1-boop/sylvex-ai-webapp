@@ -105,6 +105,46 @@ def test_selected_edit_model_uses_generic_image_adapter_with_only_the_workspace_
     assert 'Make it blue' in captured['prompt'] and 'IGNORE COMPOSER' not in captured['prompt']
 
 
+def test_extra_references_follow_the_photo_into_the_selected_model(monkeypatch):
+    captured = {}
+    async def generate(request):
+        captured.update(request)
+        return {'ok': True, 'type': 'image', 'images': ['https://cdn.example.com/out.png'],
+                'image_url': 'https://cdn.example.com/out.png', 'provider': 'qwen', 'model': request['model']}
+    monkeypatch.setattr(main, 'image_generation', generate)
+    extras = ['https://cdn.example.com/ref-1.png', 'https://cdn.example.com/ref-2.png', 'https://cdn.example.com/ref-1.png',
+              'javascript:alert(1)', 'https://cdn.example.com/ref-3.png', 'https://cdn.example.com/ref-4.png']
+    request = payload('edit', editWorkspaceModel='qwen_image_2_pro', modelId='qwen_image_2_pro', editWorkspaceExtraReferenceUrls=extras)
+    request.update(model='qwen_image_2_pro', provider='qwen')
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    source = request['image_options']['editWorkspaceSourceUrl']
+    expected = [source, 'https://cdn.example.com/ref-1.png', 'https://cdn.example.com/ref-2.png', 'https://cdn.example.com/ref-3.png']
+    assert captured['image_options']['referenceImageUrls'] == expected
+    assert result['reference_images'] == expected
+    assert 'The first image is the photo to edit' in captured['prompt']
+
+
+def test_extra_references_go_to_the_edit_api_after_the_photo(provider, monkeypatch):
+    original = main._read_image_bytes_for_generation
+    monkeypatch.setattr(main, '_read_image_bytes_for_generation',
+                        lambda url: image_bytes(color=(9, 9, 9, 255)) if str(url).startswith('https://cdn.example.com/ref') else original(url))
+    result = asyncio.run(main.generate_edit_workspace_image(payload('edit', editWorkspaceExtraReferenceUrls=['https://cdn.example.com/ref-1.png'])))
+    assert result['ok']
+    call = provider[0][0][1]
+    names = [(field, item[0]) for field, item in call['files']]
+    assert names == [('image[]', 'source.png'), ('image[]', 'reference_1.png')]
+    assert 'The first image is the photo to edit' in call['data']['prompt']
+
+
+def test_extra_references_are_ignored_outside_the_edit_tool(provider):
+    result = asyncio.run(main.generate_edit_workspace_image(payload('translate', editWorkspaceTranslateLanguage='Turkish',
+                                                                    editWorkspaceExtraReferenceUrls=['https://cdn.example.com/ref-1.png'])))
+    assert result['ok']
+    call = provider[0][0][1]
+    assert [field for field, _ in call['files']] == ['image']
+    assert 'The first image is the photo to edit' not in call['data']['prompt']
+
+
 def test_edit_model_price_is_not_overridden_by_sunburst():
     request = payload('edit', editWorkspaceModel='qwen_image_2_pro', modelId='qwen_image_2_pro', quality='high', count=1)
     request.update(model='qwen_image_2_pro', provider='qwen')
