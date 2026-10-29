@@ -116,22 +116,9 @@ test('each chosen photo has its own single-file route, including the first and l
   assert.equal(urls.size, 4);
 });
 
-test('Grid offers four individual choices and the chosen image never becomes an archive', () => {
-  const node = {id:'node-four', generation_id:'job-four', output:{type:'image', items:['one','two','three','four'].map(url=>({url}))}};
-  const calls = [], listeners = {};
-  const menu = {dataset:{}, style:{}, offsetHeight:200, addEventListener:(name, fn)=>{listeners[name]=fn;}};
-  const doc = {getElementById:()=>null, createElement:()=>menu, addEventListener(){}, querySelector:()=>({appendChild(){}})};
-  const ctx = load(context({document:doc, window:{innerWidth:1200,innerHeight:800},
-    loadStudioGridState:()=>({nodes:[node]}), gridRenderableMediaUrl:url=>url, gridEscape:escapeHtml,
-    triggerStudioGridDownload:(...args)=>calls.push(args), closeStudioGridDownloadMenu(){}}),
-    'ensureStudioGridDownloadMenu','downloadStudioGridNode');
-  ctx.downloadStudioGridNode('node-four', {getBoundingClientRect:()=>({left:100,bottom:150,width:30})});
-  assert.equal((menu.innerHTML.match(/data-grid-download-index=/g)||[]).length, 4);
-  assert.doesNotMatch(menu.innerHTML, /data-grid-download-all|\.zip|Download all/);
-  const button = {dataset:{gridDownloadIndex:'3'}, hasAttribute:()=>false};
-  listeners.click({target:{closest:()=>button}, preventDefault(){},stopPropagation(){}});
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], node);
-  assert.equal(calls[0][1], 3);
-  assert.ok(!calls[0][2], 'the click must select one image');
+test('Grid with one result retains the direct individual download', () => {
+  const node={id:'one',generation_id:'job-one',output:{type:'image',items:[{url:'one.png'}],selected_index:0}},calls=[];
+  const ctx=load(context({loadStudioGridState:()=>({nodes:[node]}),triggerStudioGridDownload:(...args)=>calls.push(args),
+    openGenerationImageDownloadPicker:()=>assert.fail('one image needs no chooser')}),'downloadStudioGridNode');
+  ctx.downloadStudioGridNode('one');assert.equal(calls.length,1);assert.equal(calls[0][0],node);assert.equal(calls[0][1],0);
 });
