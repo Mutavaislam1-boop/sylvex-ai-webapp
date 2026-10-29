@@ -45,16 +45,21 @@ test('RubberSegment.jsx / .css: the published files, unmodified; the task settin
 });
 
 test('the segment clicks the existing tabs and follows updateComposerMode()', () => {
-  assert.ok(cabinet.includes("host._modeSegment=api.mount(mount,items,{value:active,...modeSegmentColors(host),onChange:next=>tabs[Number(next)]?.click()});"));
+  // A pill like the buttons beside it.
+  assert.ok(cabinet.includes("host._modeSegment=api.mount(mount,items,{value:active,radius:999,...modeSegmentColors(host),onChange:next=>tabs[Number(next)]?.click()});"));
   assert.ok(cabinet.includes("    if (minis[miniIndex]) minis[miniIndex].classList.add('active');\n    mountModeSegment();"));
   assert.ok(cabinet.includes("EDIT_PIXEL_BASE+'js/vendor/mode-segment/mode-segment.js?v='+MODE_SEGMENT_VERSION"));
   assert.ok(read('mode_segment/src/host.css').includes('.studio-mini-tabs[data-segment] > .studio-mini-tab {\n  display: none !important;'));
 });
 
-test('light theme segment colours; old tabs and Dock panel never flash before the components', () => {
+test('light theme segment colours; the switch shows from the first paint, the Dock never flashes', () => {
   assert.ok(cabinet.includes("const MODE_SEGMENT_LIGHT={trackColor:'#e4e4e7',thumbColor:'#18181b',textColor:'#18181b',activeTextColor:'#ffffff'};"));
   assert.ok(cabinet.includes("if (document.querySelector('#studioComposer .studio-mini-tabs')?._modeSegment) mountModeSegment();"));
-  assert.ok(css.includes('.studio-mini-tabs:not([data-segment-failed])>.studio-mini-tab{visibility:hidden}'));
+  // The plain tabs, the same size, stand in its place until it mounts;
+  // the bundle loads with the page and waits for its CSS.
+  assert.ok(!css.includes('.studio-mini-tabs:not([data-segment-failed])>.studio-mini-tab{visibility:hidden}'));
+  assert.ok(cabinet.includes("styled.then(()=>resolve(window.SylvexModeSegment))"));
+  assert.ok(cabinet.includes("document.head)loadModeSegmentBundle().catch(()=>{});"));
   assert.ok(css.includes('.studio-grid-node-tools:not([data-dock-failed]){visibility:hidden}'));
   assert.ok(cabinet.includes("host.dataset.segmentFailed='';") && cabinet.includes("panel.dataset.dockFailed='';"));
 });

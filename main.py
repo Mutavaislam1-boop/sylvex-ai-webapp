@@ -15153,6 +15153,7 @@ def _web_session_payload(account_id: int) -> dict:
         "avatar_url": state.get("custom_avatar_url"),
         "balance": state.get("balance", 0),
         "subscription_plan": state.get("subscription_plan"),
+        "subscription_expires_at": state.get("subscription_expires_at"),
         "generations_count": state.get("generations_count", 0),
         "member_since": member_since,
         "email": summary.get("email"),
@@ -16956,6 +16957,26 @@ EDIT_WORKSPACE_IMAGE_MODEL_IDS = frozenset({
     "grok_pro", "grok",
 })
 EDIT_WORKSPACE_DEFAULT_IMAGE_MODEL = "gpt_image_2_5_sunburst"
+EDIT_WORKSPACE_EXTRA_REFERENCE_LIMIT = 3
+EDIT_WORKSPACE_EXTRA_REFERENCE_NOTE = (
+    "\nThe first image is the photo to edit. The other images are references for the requested change "
+    "(what to add, match or borrow); use them only as guidance and keep the first image's composition."
+)
+
+
+def edit_workspace_extra_references(opts: dict, source_url: str) -> list[str]:
+    """References the Edit tool sends with its main photo; the photo itself stays first."""
+    raw = opts.get("editWorkspaceExtraReferenceUrls")
+    if str(opts.get("editWorkspaceMode") or "edit") != "edit" or not isinstance(raw, list):
+        return []
+    refs: list[str] = []
+    for value in raw:
+        url = str(value or "").strip()
+        if url.startswith(("https://", "http://")) and url != source_url and url not in refs:
+            refs.append(url)
+        if len(refs) >= EDIT_WORKSPACE_EXTRA_REFERENCE_LIMIT:
+            break
+    return refs
 
 
 def edit_workspace_image_model(payload: dict) -> str:
@@ -19784,6 +19805,7 @@ async def generate_edit_workspace_model_image(payload: dict, source_url: str, so
         return unknown_image_model_mapping_response(selected_model, str(payload.get("provider") or ""))
 
     original_options = payload.get("image_options") or {}
+    references = [source_url, *edit_workspace_extra_references(original_options, source_url)]
     model_options = dict(original_options)
     # Bypass only the workspace dispatcher while retaining the normal tested
     # provider adapters, pricing metadata and media persistence lifecycle.
@@ -19795,14 +19817,16 @@ async def generate_edit_workspace_model_image(payload: dict, source_url: str, so
         "count": 1,
         "quality": "high",
         "size": edit_workspace_model_size(selected_model, source_size),
-        "referenceImageUrls": [source_url],
-        "referenceImages": [source_url],
-        "uploadedImageUrls": [source_url],
+        "referenceImageUrls": references,
+        "referenceImages": references,
+        "uploadedImageUrls": references,
         "characterReferences": [],
         "objectReferences": [],
         "style": "auto",
     })
     prompt = edit_workspace_service.instruction({**original_options, "editWorkspaceMode": "edit"})
+    if len(references) > 1:
+        prompt += EDIT_WORKSPACE_EXTRA_REFERENCE_NOTE
     if edit_workspace_service.has_transparency(source_png):
         prompt += (
             "\nThe source has a transparent background. Keep the edited subject isolated on true alpha transparency. "
@@ -19830,7 +19854,7 @@ async def generate_edit_workspace_model_image(payload: dict, source_url: str, so
             "edit_mode": "edit",
             "edit_model": selected_model,
             "source_image_url": source_url,
-            "reference_images": [source_url],
+            "reference_images": references,
             "canvas_width": source_size[0],
             "canvas_height": source_size[1],
         })
@@ -19943,6 +19967,21 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     except (ValueError, OSError) as exc:
         return {"ok": False, "type": "image", "error": str(exc)}
     files = [("image", ("source.png", edit_source, "image/png"))]
+    extra_references = edit_workspace_extra_references(opts, source_url) if mode == "edit" else []
+    extra_files = []
+    for index, ref_url in enumerate(extra_references):
+        ref_raw = _read_image_bytes_for_generation(ref_url)
+        if not ref_raw:
+            continue
+        try:
+            ref_png, _ = edit_workspace_service.normalize_source(ref_raw)
+        except Exception:
+            continue
+        extra_files.append(("image[]", (f"reference_{index + 1}.png", ref_png, "image/png")))
+    if extra_files:
+        # Several images go to the edit API as image[]; the photo stays first.
+        files = [("image[]", ("source.png", edit_source, "image/png")), *extra_files]
+        prompt += EDIT_WORKSPACE_EXTRA_REFERENCE_NOTE
     if api_mask:
         files.append(("mask", ("mask.png", api_mask, "image/png")))
     request_data = {"model": model, "prompt": prompt, "size": edit_workspace_service.output_size(output_dimensions),

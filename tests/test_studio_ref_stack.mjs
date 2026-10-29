@@ -40,7 +40,8 @@ test('the stack runs with the settings from the task (radius 16 as agreed); card
     layout: 'fan', sendToBackOnClick: true, spread: 0.8, depth: 0.5, radius: 16, frame: 0, frameColor: '#ffffff',
     shadow: true, tilt: 30, threshold: 90, speed: 1, autoplay: false, autoplayDelay: 3000, pauseOnHover: false,
   });
-  assert.ok(main.includes('cards: list.map((src, index) =>'));
+  assert.ok(main.includes('cards: list.map(card),'));
+  assert.ok(main.includes("if (item && item.kind === 'video') {"), 'a video reference plays in its card');
   assert.ok(main.includes('visible: list.length'));
 });
 
@@ -57,34 +58,38 @@ function extract(name) {
 
 test('one card per reference the request used, in its order, no duplicates or extras', () => {
   const context = vm.createContext({S: {escapeHtml: (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}});
-  vm.runInContext('const REF_STACK_ENABLED = true;' + ['requestImageReferences', 'requestImageDisplayReferences', 'renderReferencePile', 'renderReferenceStack'].map(extract).join('\n')
-    + ';globalThis.api = {requestImageDisplayReferences, renderReferenceStack};', context);
-  const {requestImageDisplayReferences, renderReferenceStack} = context.api;
+  vm.runInContext('const REF_STACK_ENABLED = true;function imageStyleSheetItem(){return null}' + ['requestImageReferences', 'requestDisplayReferences', 'referenceItem', 'renderReferencePile', 'renderReferenceStack'].map(extract).join('\n')
+    + ';globalThis.api = {requestDisplayReferences, renderReferenceStack};', context);
+  const {requestDisplayReferences, renderReferenceStack} = context.api;
   const urls = (n) => Array.from({length: n}, (_, i) => `https://cdn.example/r${i + 1}.jpg`);
   for (const n of [1, 2, 5, 10]) {
     const all = urls(n);
     const meta = {type: 'image', image_options: {referenceImageUrls: all.slice(0, Math.ceil(n / 2)), characterReferences: all.slice(Math.ceil(n / 2), n - (n > 2 ? 1 : 0)), objectReferences: n > 2 ? all.slice(n - 1) : []}};
-    const refs = requestImageDisplayReferences(meta);
-    assert.deepEqual(Array.from(refs), all, `${n} references, request order`);
+    const refs = requestDisplayReferences(meta);
+    assert.deepEqual([...refs.map((ref) => ref.src)], all, `${n} references, request order`);
     const html = renderReferenceStack(refs, 'r7');
     const slot = /data-ref-urls="([^"]*)"/.exec(html);
-    assert.deepEqual(JSON.parse(slot[1].replace(/&quot;/g, '"')), all);
+    assert.deepEqual(JSON.parse(slot[1].replace(/&quot;/g, '"')).map((ref) => ref.src), all);
     assert.ok(html.includes('data-ref-stack="r7"'));
     assert.equal((html.match(/class="msg-ref-img"/g) || []).length, n, 'fallback pile inside');
   }
   assert.equal(renderReferenceStack([], 'r1'), '', 'no references, no stack');
+  // A video sent with the prompt lies in the same stack and plays there.
+  const mixed = renderReferenceStack([{src: 'https://cdn.example/a.jpg', kind: 'image'}, {src: 'https://cdn.example/b.mp4', kind: 'video'}], 'u3');
+  assert.ok(mixed.includes('<video src="https://cdn.example/b.mp4" muted loop autoplay playsinline'), 'the video in the pile');
 });
 
 test('the stack replaces the reference group in the workspace, and shows from the moment Generate is pressed', () => {
   assert.ok(cabinet.includes("renderReferenceRequest(refs, userPrompt, 'r' + i, i)"));
   assert.ok(cabinet.includes("renderReferenceRequest(resultRefs, !m.retryRequest && requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''), 'r' + (i + 1), i)"));
   assert.ok(cabinet.includes("renderReferenceRequest(pendingRefs, '', 'r' + i)"), 'while generating, keyed like its result');
-  assert.ok(cabinet.includes("? renderReferenceStack(m.referenceImages, 'u' + i)"));
+  assert.ok(cabinet.includes("if (sentRefs.length) inner += renderReferenceStack(sentRefs, 'u' + i);"));
+  assert.ok(!cabinet.includes('msg-ref-video-row'), 'no separate row of videos under the photos');
   const send = cabinet.slice(cabinet.indexOf("    if (photoMode) {\n      // The prompt with this request's references"), cabinet.indexOf('    } else if (!uploadOnlyVoice) {'));
-  assert.ok(send.includes("requestImageDisplayReferences({ type: 'image', image_options: imageOptionsSnapshot })"));
+  assert.ok(send.includes("requestDisplayReferences({ type: 'image', image_options: imageOptionsSnapshot })"));
   // While it generates, the references sit with the prompt message,
   // keyed like its result.
-  assert.ok(send.includes('referenceImages: pendingRefs.length ? pendingRefs : null,'));
+  assert.ok(send.includes('displayRefs: pendingRefs.length ? pendingRefs : null,'));
   assert.ok(cabinet.includes("else if (promptRefs.length) inner += renderReferenceRequest(promptRefs, String(m.text || ''), 'r' + (i + 1), i);"));
   assert.ok(cabinet.includes('    mountReferenceStacks(el);\n    foldLongPrompts(el);\n    el.scrollTop = el.scrollHeight;'));
 });

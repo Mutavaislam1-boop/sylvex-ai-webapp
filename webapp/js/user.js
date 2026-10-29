@@ -438,6 +438,7 @@
       // generation. Carry its authoritative credits into Browser Mini App UI.
       if (json.balance !== undefined && json.balance !== null) identity.balance = json.balance;
       if (json.subscription_plan !== undefined) identity.subscription_plan = json.subscription_plan;
+      if (json.subscription_expires_at !== undefined) identity.subscription_expires_at = json.subscription_expires_at;
       if (json.generations_count !== undefined) identity.generations_count = json.generations_count;
       renderUserState(identity);
       renderIdentity(identity);

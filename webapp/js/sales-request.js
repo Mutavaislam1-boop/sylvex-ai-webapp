@@ -2,9 +2,11 @@
  * Sales request (Store → Contact sales): a short form in steps - who is
  * asking (an organisation or a private person), what they need, and where
  * to answer. Built on the Stepper look: a framed card, the steps on a rail
- * with a gliding tile, the content sliding between steps and the height
- * following it. Send hands the request to the page (opts.submit); when it
- * is through, the card closes and a small "Request sent" window shows.
+ * with a gliding tile, the content sliding between steps. The card keeps
+ * one size on every step: the extra fields scroll inside it, the rail and
+ * the Back / Continue buttons never move. Send hands the request to the
+ * page (opts.submit); when it is through, the card closes by itself and a
+ * small "Sent" tick shows.
  * The same file runs in the Mini App (Russian) and on the website
  * (English).
  *
@@ -23,7 +25,7 @@
 
   var TEXT = {
     ru: {
-      title: 'Заявка в отдел продаж', close: 'Закрыть', back: 'Назад', next: 'Далее', send: 'Отправить', sending: 'Отправляем…',
+      title: 'Связаться с отделом продаж', close: 'Закрыть', back: 'Назад', next: 'Далее', send: 'Отправить', sending: 'Отправляем…',
       steps: [['Заявитель', 'Организация или частное лицо'], ['Запрос', 'Что нужно и в каком объёме'], ['Контакты', 'Куда ответить']],
       who: 'Кто обращается', org: 'Организация', orgNote: 'Компания, студия, команда', person: 'Частное лицо', personNote: 'Для себя или своего проекта',
       company: 'Название организации', companyPh: 'ООО «Пример» или название студии', team: 'Размер команды', site: 'Сайт', optional: 'необязательно',
@@ -34,7 +36,7 @@
       reply: 'Ответ придёт на e-mail и в уведомления SYLVEX.',
       needWho: 'Выберите, кто обращается', needCompany: 'Укажите название организации', needAny: 'Выберите хотя бы одно направление',
       needName: 'Укажите имя', needEmail: 'Укажите корректный e-mail', failed: 'Не удалось отправить заявку. Попробуйте ещё раз.', tooMany: 'Вы уже отправили несколько сообщений. Дождитесь ответа.',
-      sent: 'Запрос отправлен', sentNote: 'Отдел продаж свяжется с вами в ближайшее время.', ok: 'Хорошо',
+      sent: 'Отправлено',
     },
     en: {
       title: 'Contact sales', close: 'Close', back: 'Back', next: 'Continue', send: 'Send', sending: 'Sending…',
@@ -48,7 +50,7 @@
       reply: 'The reply comes to your e-mail and to SYLVEX notifications.',
       needWho: 'Choose who is asking', needCompany: 'Enter the organization name', needAny: 'Choose at least one area',
       needName: 'Enter your name', needEmail: 'Enter a valid e-mail', failed: 'Could not send the request. Please try again.', tooMany: 'You have sent several messages already. Please wait for the reply.',
-      sent: 'Request sent', sentNote: 'Our sales team will contact you shortly.', ok: 'OK',
+      sent: 'Sent',
     },
   };
   var TEAM = ['1–10', '11–50', '51–200', '200+'];
@@ -86,6 +88,11 @@
     return '<label class="sxr-field"><span>' + esc(label) + (o.optional ? ' <small>' + esc(state.t.optional) + '</small>' : '') + '</span>' + input + '</label>';
   }
 
+  // Each step opens with its heading and the rail's line under it, centred.
+  function lead(title, index) {
+    return '<h3>' + esc(title) + '</h3><p class="sxr-lead">' + esc(state.t.steps[index][1]) + '</p>';
+  }
+
   function stepHtml(n) {
     var t = state.t, d = state.data;
     if (n === 1) {
@@ -93,19 +100,19 @@
         var on = d.kind === kind;
         return '<button type="button" class="sxr-kind' + (on ? ' is-on' : '') + '" data-sxr-kind="' + kind + '" aria-pressed="' + on + '"><i>' + icon + '</i><b>' + esc(title) + '</b><small>' + esc(note) + '</small></button>';
       };
-      return '<h3>' + esc(t.who) + '</h3><div class="sxr-kinds">' + tile('organization', ICON.org, t.org, t.orgNote) + tile('private', ICON.person, t.person, t.personNote) + '</div>'
+      return lead(t.who, 0) + '<div class="sxr-kinds">' + tile('organization', ICON.org, t.org, t.orgNote) + tile('private', ICON.person, t.person, t.personNote) + '</div>'
         + (d.kind === 'organization'
-          ? field(t.company, 'company', d.company, { ph: t.companyPh, auto: 'organization' })
+          ? '<div class="sxr-extra">' + field(t.company, 'company', d.company, { ph: t.companyPh, auto: 'organization' })
             + '<div class="sxr-field"><span>' + esc(t.team) + '</span>' + chips('team', TEAM.map(function (v) { return [v, v]; }), d.team, false) + '</div>'
-            + field(t.site, 'website', d.website, { ph: 'https://', optional: true, auto: 'url' })
+            + field(t.site, 'website', d.website, { ph: 'https://', optional: true, auto: 'url' }) + '</div>'
           : '');
     }
     if (n === 2) {
-      return '<h3>' + esc(t.need) + '</h3>' + chips('needs', t.needs, d.needs, true)
+      return lead(t.need, 1) + chips('needs', t.needs, d.needs, true)
         + '<div class="sxr-field"><span>' + esc(t.volume) + '</span>' + chips('budget', t.volumes, d.budget, false) + '</div>'
         + field(t.comment, 'comment', d.comment, { area: true, ph: t.commentPh, optional: true });
     }
-    return '<h3>' + esc(t.steps[2][0]) + '</h3>'
+    return lead(t.steps[2][0], 2)
       + field(t.name, 'name', d.name, { ph: t.namePh, auto: 'name' })
       + field(t.email, 'email', d.email, { type: 'email', ph: 'name@example.com', auto: 'email', max: 254 })
       + field(t.phone, 'phone', d.phone, { ph: t.phonePh, optional: true, auto: 'tel' })
@@ -186,7 +193,6 @@
   function showStep(n, direction) {
     var viewport = state.root.querySelector('.sxr-viewport');
     var old = viewport.querySelector('.sxr-pane:not(.is-leaving)');
-    var from = viewport.offsetHeight;
     state.step = n;
     var pane = doc.createElement('div');
     pane.className = 'sxr-pane';
@@ -206,10 +212,9 @@
           .finished.then(function () { old.remove(); }, function () { old.remove(); });
         pane.animate([{ transform: 'translate' + axis + '(' + direction * 36 + 'px)' }, { transform: 'none' }], { duration: 560, easing: spring() });
         pane.animate([{ opacity: 0 }, { opacity: 0, offset: 0.25 }, { opacity: 1 }], { duration: 420, easing: 'ease-out' });
-        var to = pane.offsetHeight;
-        if (Math.abs(from - to) > 0.5) viewport.animate([{ height: from + 'px' }, { height: to + 'px' }], { duration: 560, easing: spring() });
       }
     }
+    viewport.scrollTop = 0;
     var first = pane.querySelector('input, textarea');
     if (first && !first.value && n > 1) setTimeout(function () { first.focus({ preventScroll: true }); }, 60);
   }
@@ -221,14 +226,14 @@
   }
 
   // Changes inside a step that alter its layout (the organisation fields)
-  // re-render it in place with the height following.
+  // re-render it in place; the card keeps its size and the new fields fade
+  // in inside it.
   function rerender() {
     var viewport = state.root.querySelector('.sxr-viewport');
     var pane = viewport.querySelector('.sxr-pane:not(.is-leaving)');
-    var from = viewport.offsetHeight;
     pane.innerHTML = stepHtml(state.step);
-    var to = viewport.offsetHeight;
-    if (!reduce() && Math.abs(from - to) > 0.5) viewport.animate([{ height: from + 'px' }, { height: to + 'px' }], { duration: 480, easing: spring() });
+    var extra = pane.querySelector('.sxr-extra');
+    if (extra && !reduce() && extra.animate) extra.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: SETTLE });
   }
 
   function go(target) {
@@ -270,29 +275,23 @@
     });
   }
 
-  // The small window after a request went through.
+  // The small tick after a request went through; it goes away by itself.
   function sent(t) {
     var box = doc.createElement('div');
     box.className = 'sxr-sent ' + (state && state.theme || lastTheme);
     box.setAttribute('role', 'status');
-    box.innerHTML = '<span class="sxr-sent-mark">' + ICON.check + '</span><span><b>' + esc(t.sent) + '</b><small>' + esc(t.sentNote) + '</small></span>'
-      + '<button type="button" aria-label="' + esc(t.close) + '">' + ICON.close + '</button>';
+    box.innerHTML = '<span class="sxr-sent-mark">' + ICON.check + '</span><b>' + esc(t.sent) + '</b>';
     doc.body.appendChild(box);
     var path = box.querySelector('.sxr-sent-mark path');
     if (!reduce()) {
-      box.animate([{ opacity: 0, transform: 'translate(-50%, 16px) scale(.96)' }, { opacity: 1, transform: 'translate(-50%, 0) scale(1)' }], { duration: 420, easing: spring() });
+      box.animate([{ opacity: 0, transform: 'translate(-50%, -50%) scale(.9)' }, { opacity: 1, transform: 'translate(-50%, -50%) scale(1)' }], { duration: 380, easing: spring() });
       path.style.strokeDasharray = '24';
-      path.animate([{ strokeDashoffset: 24 }, { strokeDashoffset: 24, offset: 0.4 }, { strokeDashoffset: 0 }], { duration: 640, easing: SETTLE });
+      path.animate([{ strokeDashoffset: 24 }, { strokeDashoffset: 24, offset: 0.35 }, { strokeDashoffset: 0 }], { duration: 560, easing: SETTLE });
     }
-    var gone = false;
-    var hide = function () {
-      if (gone) return;
-      gone = true;
+    setTimeout(function () {
       if (reduce() || !box.animate) { box.remove(); return; }
-      box.animate([{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, 8px)' }], { duration: 200, fill: 'forwards' }).finished.then(function () { box.remove(); });
-    };
-    box.querySelector('button').addEventListener('click', hide);
-    setTimeout(hide, 4200);
+      box.animate([{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, -50%) scale(.96)' }], { duration: 220, fill: 'forwards' }).finished.then(function () { box.remove(); });
+    }, 1800);
   }
 
   var lastTheme = 'dark';
@@ -363,8 +362,8 @@
     var root = doc.createElement('div');
     root.className = 'sxr-overlay ' + state.theme;
     root.innerHTML = '<section class="sxr sxr--framed" role="dialog" aria-modal="true" aria-label="' + esc(t.title) + '">'
-      + '<header class="sxr-top"><h2>' + esc(t.title) + '</h2><button type="button" class="sxr-x" data-sxr-close aria-label="' + esc(t.close) + '">' + ICON.close + '</button></header>'
-      + '<div class="sxr-main"><div class="sxr-header"></div><div class="sxr-body"><div class="sxr-viewport" aria-live="polite"></div>'
+      + '<button type="button" class="sxr-x" data-sxr-close aria-label="' + esc(t.close) + '">' + ICON.close + '</button>'
+      + '<div class="sxr-main"><div class="sxr-header"></div><div class="sxr-body"><h2 class="sxr-heading">' + esc(t.title) + '</h2><div class="sxr-viewport" aria-live="polite"></div>'
       + '<p class="sxr-error" role="alert" hidden></p>'
       + '<div class="sxr-footer"><button type="button" class="sxr-button sxr-button--back" data-sxr-back>' + ICON.back + '<span>' + esc(t.back) + '</span></button>'
       + '<button type="button" class="sxr-button sxr-button--next" data-sxr-next></button></div></div></div>'

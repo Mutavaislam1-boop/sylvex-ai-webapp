@@ -58,6 +58,7 @@ function buildContext(videoState) {
     btn.setAttribute = (name, value) => { btn.attrs[name] = value; };
   }
   const sandbox = {
+    videoHasUploadedReference: () => false,
     fetchedModelCapabilities: null,
     videoState: videoState || {modelId: 'sora_2', characterVisual: null, objectVisual: null, referenceVisual: null},
     toast: (msg) => { calls.toasts.push(msg); },

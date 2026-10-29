@@ -49,6 +49,7 @@ function makeContext() {
   };
   const dom = { imageStylePanel: fakeElement({}) };
   const sandbox = {
+    isVideoMode: () => false,
     activePhotoTool: 'replace_character',
     visualPickerRedirectTarget: null,
     activeCharacterDetailId: '',

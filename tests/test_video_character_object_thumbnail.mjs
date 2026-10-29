@@ -81,6 +81,7 @@ function makeFakeElement(tag) {
       return this.children.find((c) => c.classList.contains(m[1])) || null;
     },
     get firstChild() { return this.children[0] || null; },
+    closest() { return null; },
     setAttribute() {},
   };
   return el;
