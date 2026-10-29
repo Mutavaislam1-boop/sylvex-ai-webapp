@@ -677,7 +677,7 @@ class LocalLimiter:
   return count<limit
 
 class SecurityMiddleware:
- def __init__(self,app,quota_check=None): self.app=app;self.limiter=LocalLimiter();self.quota_check=quota_check
+ def __init__(self,app,quota_check=None,access_check=None): self.app=app;self.limiter=LocalLimiter();self.quota_check=quota_check;self.access_check=access_check
  async def __call__(self,scope,receive,send):
   if scope['type']!='http':return await self.app(scope,receive,send)
   path=scope['path'];method=scope['method'];raw_headers=scope.get('headers',[]);headers=dict(raw_headers);cookie_header=combined_cookie_header(raw_headers)
@@ -881,6 +881,12 @@ class SecurityMiddleware:
      telegram_user=user if auth_kind=='telegram' else None,
      telegram_init_data=init_data if auth_kind=='telegram' else '',
     )
+    # An account an admin blocked keeps only its status, bell and contact
+    # form (services/user_access.py); everything else is refused here, for
+    # every surface at once.
+    if self.access_check and uid and not admin and auth_kind!='service':
+     from services.user_access import ALLOWED_WHEN_BLOCKED
+     if path not in ALLOWED_WHEN_BLOCKED and await self.access_check(uid):raise SecurityError('account_blocked',403)
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)
   except SecurityError as exc:

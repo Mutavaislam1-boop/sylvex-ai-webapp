@@ -1,6 +1,6 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "./api";
-import { locale, t } from "./i18n";
+import { locale, reasonLabel, t } from "./i18n";
 
 // ---------- formatting ----------
 export const fmtNum = (n: unknown) => (typeof n === "number" ? n.toLocaleString(locale()) : n == null ? "—" : String(n));
@@ -134,24 +134,62 @@ export function Modal({ title, children, onClose, actions }: { title: string; ch
   );
 }
 
-/** Confirm a High/Critical action: always asks for a reason; `typed` makes
- * the admin type an exact word (e.g. the recipient count) to proceed. */
+// ---------- hint ----------
+/** An explanation on hover (desktop) and tap (phone), in the interface
+ * language: from a small "i" next to the label, or (icon={false}) from the
+ * label itself when tapping it does nothing else. */
+export function Tip({ text, children, icon = true }: { text: ReactNode; children?: ReactNode; icon?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+  return (
+    <span className={`tip ${open ? "open" : ""}`} ref={ref} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
+      onClick={icon ? undefined : () => setOpen((v) => !v)}>
+      {children}
+      {icon && <button type="button" className="tip-icon" aria-label={t("What is this?")}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>i</button>}
+      {open && <span className="tip-box" role="tooltip">{text}</span>}
+    </span>
+  );
+}
+
+// ---------- reasons ----------
+/** Quick reasons the server knows (services: ADMIN_REASON_CODES). */
+export const GRANT_REASONS = ["test", "error_compensation", "bonus", "promo", "gift", "refund", "management_decision", "other"];
+export const STAFF_REASONS = ["hire", "role_change", "access_review", "offboarding", "management_decision", "other"];
+export type ReasonExtra = { reason_code?: string; note?: string };
+
+/** Confirm a High/Critical action: always asks for a reason (a quick reason
+ * from `presets`, or typed), with a note for presets or `withNote`; `typed` makes the admin
+ * type an exact word (e.g. the recipient count) to proceed. */
 export function ConfirmAction({
-  title, description, confirmLabel, danger, typed, needReason = true, onConfirm, onClose,
+  title, description, confirmLabel, danger, typed, needReason = true, presets, withNote, onConfirm, onClose,
 }: {
   title: string; description: ReactNode; confirmLabel?: string; danger?: boolean; typed?: string; needReason?: boolean;
-  onConfirm: (reason: string) => Promise<void>; onClose: () => void;
+  presets?: string[]; withNote?: boolean; onConfirm: (reason: string, extra: ReasonExtra) => Promise<void>; onClose: () => void;
 }) {
   const [reason, setReason] = useState("");
+  const [code, setCode] = useState("");
+  const [note, setNote] = useState("");
   const [typedValue, setTypedValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const ok = (!needReason || reason.trim()) && (!typed || typedValue.trim() === typed);
+  const presetReason = code && code !== "other" ? reasonLabel(code) : "";
+  const finalReason = reason.trim() || presetReason;
+  const ok = (!needReason || finalReason) && (!typed || typedValue.trim() === typed);
   const submit = async () => {
     setBusy(true);
     setError("");
     try {
-      await onConfirm(reason.trim());
+      const extra: ReasonExtra = {};
+      if (code) extra.reason_code = code;
+      if (note.trim()) extra.note = note.trim();
+      await onConfirm(finalReason, extra);
       onClose();
     } catch (e) {
       setError(errorText(e));
@@ -168,9 +206,21 @@ export function ConfirmAction({
     </>}>
       <div className="stack">
         <div className="muted">{description}</div>
-        {needReason && (
-          <label className="field">{t("Reason (saved in the audit log)")}
-            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("Why is this needed?")} autoFocus />
+        {needReason && presets && (
+          <div className="field"><span>{t("Reason (saved in the audit log)")}</span>
+            <div className="chips">{presets.map((p) => (
+              <button key={p} type="button" className={`chip ${code === p ? "on" : ""}`} onClick={() => setCode(code === p ? "" : p)}>{reasonLabel(p)}</button>
+            ))}</div>
+          </div>
+        )}
+        {needReason && (!presets || code === "other" || !code) && (
+          <label className="field">{presets ? t("Your own reason") : t("Reason (saved in the audit log)")}
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("Why is this needed?")} autoFocus={!presets} />
+          </label>
+        )}
+        {needReason && (presets || withNote) && (
+          <label className="field">{t("Note (optional)")}
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} placeholder={t("Details for the team: ticket, job ID, agreement…")} />
           </label>
         )}
         {typed && (

@@ -131,6 +131,12 @@ def ensure_tables(cur):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_support_messages_thread ON support_messages(thread_id, id)")
     # A structured request (Store -> Contact sales) keeps its fields next to the text.
     cur.execute("ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS details JSONB")
+    # An award (credits, subscription, role) carries what was given; it is
+    # shown once as a centered card, not in the bell.
+    cur.execute("ALTER TABLE user_notifications ADD COLUMN IF NOT EXISTS payload JSONB")
+    # Where an admin message really went: bell rows written, Telegram sent or
+    # the bot API's reason it was not (blocked, chat not found...).
+    cur.execute("ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS delivery JSONB")
 
 
 def _iso(value):
@@ -357,7 +363,7 @@ def list_for(cur, *, surface, account_id=None, user_key=None, visitor_id=None, l
         SELECT r.id AS rid, n.id AS nid, n.kind AS kind, n.body AS body, n.image_key AS image_key,
                n.links AS links, n.created_at AS created_at, r.read_at AS read_at
         FROM user_notification_recipients r JOIN user_notifications n ON n.id = r.notification_id
-        WHERE {where} AND n.surfaces @> %s::jsonb
+        WHERE {where} AND n.surfaces @> %s::jsonb AND n.kind <> 'award'
         ORDER BY n.id DESC, r.id DESC LIMIT %s
     """, params + [surface_json, max(1, min(int(limit or 30), 100))])
     items, seen = [], set()
@@ -371,9 +377,46 @@ def list_for(cur, *, surface, account_id=None, user_key=None, visitor_id=None, l
     cur.execute(f"""
         SELECT COUNT(DISTINCT n.id) FROM user_notification_recipients r
         JOIN user_notifications n ON n.id = r.notification_id
-        WHERE {where} AND n.surfaces @> %s::jsonb AND r.read_at IS NULL
+        WHERE {where} AND n.surfaces @> %s::jsonb AND n.kind <> 'award' AND r.read_at IS NULL
     """, params + [surface_json])
     return items, int(cur.fetchone()[0] or 0)
+
+
+# --------------------------------------------------------------------------
+# Awards: credits, a subscription or an admin role given by SYLVEX
+# --------------------------------------------------------------------------
+
+AWARD_KINDS = ("credits", "subscription", "role")
+
+
+def create_award(cur, person, *, award, text, admin_id=None):
+    """One centered card for `person`, shown once on their next visit to the
+    Mini App or the website (whichever comes first), then marked read."""
+    if not person or award.get("type") not in AWARD_KINDS:
+        return None
+    if not (person.get("account_id") or person.get("user_key")):
+        return None
+    cur.execute("""
+        INSERT INTO user_notifications (kind, body, links, surfaces, channels, audience, admin_id, payload,
+                                        recipients_count)
+        VALUES ('award', %s, '[]'::jsonb, %s::jsonb, %s::jsonb, 'award', %s, %s::jsonb, 1) RETURNING id
+    """, (clean_text(text), json.dumps(list(SURFACES)), json.dumps(list(SURFACES)), admin_id,
+          json.dumps(award, ensure_ascii=False)))
+    notification_id = int(cur.fetchone()[0])
+    add_recipients(cur, notification_id, [person])
+    return notification_id
+
+
+def pending_awards(cur, *, account_id=None, user_key=None, limit=5):
+    where, params = _identity_clause(account_id, user_key, None)
+    cur.execute(f"""
+        SELECT DISTINCT ON (n.id) n.id, n.body, n.payload, n.created_at
+        FROM user_notification_recipients r JOIN user_notifications n ON n.id = r.notification_id
+        WHERE {where} AND n.kind = 'award' AND r.read_at IS NULL
+        ORDER BY n.id LIMIT %s
+    """, params + [max(1, min(int(limit or 5), 20))])
+    return [{"notification_id": int(r[0]), "text": r[1], "award": _json_dict(r[2]), "created_at": _iso(r[3])}
+            for r in cur.fetchall()]
 
 
 def mark_read(cur, *, account_id=None, user_key=None, visitor_id=None, notification_ids=None):
@@ -466,10 +509,10 @@ def history(cur, limit=50, offset=0):
         SELECT n.id, n.kind, n.body, n.image_key, n.links, n.channels, n.audience, n.recipients_count,
                n.telegram_targets, n.telegram_sent, n.admin_id, n.created_at,
                (SELECT COUNT(*) FROM user_notification_recipients r WHERE r.notification_id = n.id AND r.read_at IS NOT NULL)
-        FROM user_notifications n ORDER BY n.id DESC LIMIT %s OFFSET %s
+        FROM user_notifications n WHERE n.kind <> 'award' ORDER BY n.id DESC LIMIT %s OFFSET %s
     """, (max(1, min(int(limit or 50), 100)), max(0, int(offset or 0))))
     rows = cur.fetchall()
-    cur.execute("SELECT COUNT(*) FROM user_notifications")
+    cur.execute("SELECT COUNT(*) FROM user_notifications WHERE kind <> 'award'")
     total = int(cur.fetchone()[0] or 0)
     return [{"id": int(r[0]), "kind": r[1], "text": r[2], "has_image": bool(r[3]), "links": _json_list(r[4]),
              "channels": _json_list(r[5]), "audience": r[6], "recipients": int(r[7] or 0),
@@ -648,7 +691,7 @@ def list_threads(cur, *, status="", limit=50, offset=0):
     return items, total, unread
 
 
-def thread_detail(cur, thread_id, *, image_url=None):
+def thread_detail(cur, thread_id, *, image_url=None, mark_read=True):
     cur.execute("""
         SELECT id, account_id, user_key, visitor_id, email, topic, surface, status, admin_unread, created_at,
                last_message_at FROM support_threads WHERE id = %s
@@ -659,16 +702,55 @@ def thread_detail(cur, thread_id, *, image_url=None):
     thread = {"id": int(r[0]), "account_id": r[1], "user_key": r[2], "visitor_id": r[3], "email": r[4],
               "topic": r[5], "surface": r[6], "status": r[7], "admin_unread": bool(r[8]),
               "created_at": _iso(r[9]), "last_message_at": _iso(r[10])}
-    cur.execute("""
-        SELECT id, direction, body, image_key, links, admin_id, created_at, details FROM support_messages
-        WHERE thread_id = %s ORDER BY id
-    """, (int(thread_id),))
-    messages = [{"id": int(m[0]), "direction": m[1], "text": m[2],
-                 "image_url": image_url(m[3]) if (m[3] and image_url) else None, "links": _json_list(m[4]),
-                 "admin_id": m[5], "created_at": _iso(m[6]), "sales": _json_dict(m[7])} for m in cur.fetchall()]
-    cur.execute("UPDATE support_threads SET admin_unread = FALSE WHERE id = %s", (int(thread_id),))
-    thread["admin_unread"] = False  # opening the thread reads it
+    messages = thread_messages(cur, thread_id, image_url=image_url)
+    if mark_read:
+        cur.execute("UPDATE support_threads SET admin_unread = FALSE WHERE id = %s", (int(thread_id),))
+        thread["admin_unread"] = False  # opening the thread reads it
     return thread, messages
+
+
+def thread_messages(cur, thread_id, *, image_url=None):
+    """Messages of one conversation; an admin message carries its delivery
+    and when the person read it in the bell."""
+    cur.execute("""
+        SELECT m.id, m.direction, m.body, m.image_key, m.links, m.admin_id, m.created_at, m.details, m.delivery,
+               (SELECT MAX(r.read_at) FROM user_notification_recipients r WHERE r.notification_id = m.notification_id)
+        FROM support_messages m WHERE m.thread_id = %s ORDER BY m.id
+    """, (int(thread_id),))
+    return [{"id": int(m[0]), "thread_id": int(thread_id), "direction": m[1], "text": m[2],
+             "image_url": image_url(m[3]) if (m[3] and image_url) else None, "links": _json_list(m[4]),
+             "admin_id": m[5], "created_at": _iso(m[6]), "sales": _json_dict(m[7]),
+             "delivery": _json_dict(m[8]), "read_at": _iso(m[9])} for m in cur.fetchall()]
+
+
+def admin_thread_for(cur, person, topic="admin"):
+    """The person's latest unclosed conversation, or a new one started by an
+    admin (from the user card), so every message lives in Messages."""
+    where, value = _thread_where(person)
+    cur.execute(f"SELECT id FROM support_threads WHERE {where} AND status <> 'closed' ORDER BY id DESC LIMIT 1",
+                (value,))
+    row = cur.fetchone()
+    if row:
+        return int(row[0])
+    cur.execute("""
+        INSERT INTO support_threads (account_id, user_key, visitor_id, topic, surface, status, admin_unread)
+        VALUES (%s, %s, %s, %s, NULL, 'answered', FALSE) RETURNING id
+    """, (person.get("account_id"), person.get("user_key"), person.get("visitor_id"),
+          topic if topic in TOPICS else "admin"))
+    return int(cur.fetchone()[0])
+
+
+def person_threads(cur, person, *, limit=10):
+    """Ids of every conversation of this person, newest first."""
+    where, value = _thread_where(person)
+    cur.execute(f"SELECT id FROM support_threads WHERE {where} ORDER BY last_message_at DESC LIMIT %s",
+                (value, max(1, min(int(limit or 10), 50))))
+    return [int(r[0]) for r in cur.fetchall()]
+
+
+def set_message_delivery(cur, message_id, delivery):
+    cur.execute("UPDATE support_messages SET delivery = %s::jsonb WHERE id = %s",
+                (json.dumps(delivery or {}, ensure_ascii=False), int(message_id)))
 
 
 def record_reply(cur, thread_id, *, text, links, image_key, admin_id, notification_id):

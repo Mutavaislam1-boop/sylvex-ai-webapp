@@ -30927,6 +30927,72 @@ async function waitGeneration(jobId, options) {
     setTimeout(checkFeedbackPrompt, 4000);
   }
 
+  // =====================================================
+  // УВЕДОМЛЕНИЯ ОТ АДМИНИСТРАЦИИ ПО ЦЕНТРУ ЭКРАНА (js/account-notice.js)
+  // «Вам начислено …» (кредиты, подписка, роль в команде) — один раз, при
+  // следующем входе, на любой поверхности; и экран «доступ ограничен», пока
+  // аккаунт заблокирован. Колокольчик при этом не меняется.
+  // =====================================================
+  let accountNoticeChecking = false;
+  function accountNoticeLang() {
+    const lang = window.SYLVEX && window.SYLVEX.getLang && window.SYLVEX.getLang();
+    return lang === 'ru' || lang === 'en' ? lang : (isBrowserApp() ? 'en' : 'ru');
+  }
+  function accountNoticeTheme() { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
+  function accountNoticeEnabled() {
+    return !!window.SylvexAccountNotice && !isWebEmbed() && !(isBrowserApp() ? isBrowserGuest() : !currentTelegramInitData());
+  }
+  function showAccountBlocked(status) {
+    const notice = window.SylvexAccountNotice;
+    if (!notice) return;
+    notice.showBlocked({
+      lang: accountNoticeLang(), theme: accountNoticeTheme(), reason: status.reason || '', since: status.since || '',
+      onContact: () => {
+        notice.setBlockedBehind(true);
+        openSupport('support');
+        const modal = document.getElementById('supportModal');
+        if (!modal || !window.MutationObserver) return;
+        const watch = new MutationObserver(() => {
+          if (modal.classList.contains('show')) return;
+          watch.disconnect();
+          notice.setBlockedBehind(false);
+        });
+        watch.observe(modal, { attributes: true, attributeFilter: ['class'] });
+      },
+      onSignOut: isBrowserApp() ? signOut : null,
+    });
+  }
+  async function checkAccountNotices() {
+    if (!accountNoticeEnabled() || accountNoticeChecking || document.hidden) return;
+    accountNoticeChecking = true;
+    const notice = window.SylvexAccountNotice;
+    try {
+      const res = await fetch('/api/public/account/status');
+      const status = res.ok ? await res.json() : {};
+      if (status.blocked) { showAccountBlocked(status); return; }
+      notice.hideBlocked();
+      if (notice.isOpen()) return;
+      const awards = await fetch('/api/public/notifications/awards');
+      const data = awards.ok ? await awards.json() : {};
+      if (!(data.items || []).length) return;
+      notice.showAwards({
+        lang: accountNoticeLang(), theme: accountNoticeTheme(), items: data.items,
+        onSeen: (ids) => {
+          fetch('/api/public/notifications/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+          }).catch(() => {});
+          if (S.syncUser) S.syncUser({ force: true });
+        },
+      });
+      S.haptic.notify('success');
+    } catch (_) {} finally { accountNoticeChecking = false; }
+  }
+  function initAccountNotices() {
+    setTimeout(checkAccountNotices, 1500);
+    setInterval(checkAccountNotices, 180000);
+    document.addEventListener('visibilitychange', checkAccountNotices);
+  }
+
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
   function restoreAppTheme() {
@@ -30962,6 +31028,7 @@ async function waitGeneration(jobId, options) {
     initPresence();
     initNotifications();
     initFeedbackPrompt();
+    initAccountNotices();
     initStoreCardCentering();
     initNavAutoHide();
     initHomeIdeaAi();

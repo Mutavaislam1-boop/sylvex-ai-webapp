@@ -19,7 +19,8 @@ OTHER_TG = 7000000002
 def world(ready, monkeypatch):
     env = ready
     sent = []
-    monkeypatch.setattr(env.main, "_telegram_deliver", lambda chat, text, image=None, links=None: sent.append((chat, text, image, links)) or True)
+    monkeypatch.setattr(env.main, "_telegram_deliver_status",
+                        lambda chat, text, image=None, links=None: sent.append((chat, text, image, links)) or {"ok": True, "error": None})
     monkeypatch.setattr(env.main, "NOTIFICATIONS_SCHEMA_READY", False)
     conn = env.db.connect()
     cur = conn.cursor()

@@ -125,3 +125,36 @@ export function Composer({ draft, onChange, rows = 6, placeholder }: {
     </div>
   );
 }
+
+/** Where an admin message went and what the bot API answered. */
+export type Delivery = { channels?: string[]; bell?: string[]; telegram?: string; telegram_error?: string };
+
+const TELEGRAM_STATE: Record<string, string> = {
+  sent: "Telegram: delivered", failed: "Telegram: not delivered", pending: "Telegram: sending…",
+  not_linked: "No Telegram linked",
+};
+
+export function telegramErrorText(error?: string) {
+  const e = (error || "").toLowerCase();
+  if (e.includes("blocked by the user")) return t("The user blocked the bot.");
+  if (e.includes("chat not found") || e.includes("bot can't initiate")) return t("The user never started the bot.");
+  if (e.includes("deactivated")) return t("The Telegram account was deleted.");
+  if (e.startsWith("network_")) return t("Telegram could not be reached.");
+  if (e === "bot_not_configured") return t("The Telegram bot is not configured on the server.");
+  return error || "";
+}
+
+export function DeliveryBadges({ delivery }: { delivery?: Delivery | null }) {
+  if (!delivery || !delivery.channels) return null;
+  const bell = (delivery.bell || []).map((s) => t(CHANNEL_LABEL[s] || s));
+  return (
+    <span className="badges">
+      {bell.length > 0 && <span className="badge good">{t("Bell")}: {bell.join(", ")}</span>}
+      {TELEGRAM_STATE[delivery.telegram || ""] && (
+        <span className={`badge ${delivery.telegram === "sent" ? "good" : delivery.telegram === "failed" ? "bad" : ""}`}
+          title={telegramErrorText(delivery.telegram_error)}>{t(TELEGRAM_STATE[delivery.telegram || ""])}</span>
+      )}
+      {delivery.telegram === "failed" && delivery.telegram_error && <span className="small muted">{telegramErrorText(delivery.telegram_error)}</span>}
+    </span>
+  );
+}

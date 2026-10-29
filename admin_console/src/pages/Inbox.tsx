@@ -3,7 +3,7 @@ import { errorText, post } from "../api";
 import { useApp } from "../state";
 import { t } from "../i18n";
 import { Empty, ErrorNotice, fmtDate, Identity, Loading, Pager, SourceBadges, StatusBadge, useAsync } from "../ui";
-import { Composer, Draft, draftPayload, draftProblem, emptyDraft } from "./messaging";
+import { Composer, Delivery, DeliveryBadges, Draft, draftPayload, draftProblem, emptyDraft, telegramErrorText } from "./messaging";
 
 // Messages users wrote from the internal "Contact SYLVEX" popup (Mini App or
 // website). A reply is shown to the user as from "SYLVEX Team" in their
@@ -18,7 +18,7 @@ type Sales = {
   kind: string; company: string; team_size: string; website: string; needs: string[]; budget: string; comment: string;
   name: string; email: string; phone: string;
 };
-type Message = { id: number; direction: "in" | "out"; text: string; image_url: string | null; links: { url: string; label: string }[]; admin_id: number | null; created_at: string; sales?: Sales | null };
+type Message = { id: number; direction: "in" | "out"; text: string; image_url: string | null; links: { url: string; label: string }[]; admin_id: number | null; created_at: string; sales?: Sales | null; delivery?: Delivery };
 type Detail = {
   thread: Thread & { person: { key: string; sylvex_user_id: string | null; telegram_id: number | null; visitor_id: string | null; identity: Identity | null } };
   messages: Message[];
@@ -74,9 +74,11 @@ function ThreadView({ id, onBack }: { id: number; onBack: () => void }) {
   const reply = async () => {
     setBusy(true);
     try {
-      const res = await post<{ telegram: boolean; telegram_sent: boolean }>("/api/admin/inbox/reply", { thread_id: id, ...draftPayload(draft) });
-      toast(res.telegram ? (res.telegram_sent ? t("Reply sent: notification bell + Telegram") : t("Reply in the bell; Telegram did not accept it"))
-        : t("Reply sent to the notification bell"), res.telegram && !res.telegram_sent);
+      const res = await post<{ delivery: Delivery }>("/api/admin/inbox/reply", { thread_id: id, ...draftPayload(draft) });
+      const tg = res.delivery.telegram;
+      toast(tg === "sent" ? t("Reply sent: notification bell + Telegram")
+        : tg === "failed" ? `${t("Reply in the bell; Telegram did not accept it")}: ${telegramErrorText(res.delivery.telegram_error)}`
+        : t("Reply sent to the notification bell"), tg === "failed");
       setDraft(emptyDraft());
       reload();
     } catch (e) {
@@ -123,6 +125,7 @@ function ThreadView({ id, onBack }: { id: number; onBack: () => void }) {
             {m.sales ? <SalesCard s={m.sales} /> : <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>}
             {m.image_url && <img src={m.image_url} alt="" style={{ maxWidth: 240, borderRadius: 8, marginTop: 6 }} />}
             {m.links.map((l, i) => <div key={i} className="small"><a href={l.url} target="_blank" rel="noopener noreferrer">🔗 {l.label || l.url}</a></div>)}
+            {m.direction === "out" && m.delivery && <div className="bubble-foot"><DeliveryBadges delivery={m.delivery} /></div>}
           </div>
         ))}
       </div>

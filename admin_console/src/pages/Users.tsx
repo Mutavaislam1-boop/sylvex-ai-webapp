@@ -8,19 +8,22 @@ import { Empty, ErrorNotice, fmtDate, fmtNum, Identity, Loading, SourceBadges, u
 type UserRow = {
   telegram_id: number | null; sylvex_user_id: string | null; name: string; username: string; balance?: number;
   subscription?: string; created_at?: string; subscription_until?: string | null; online?: boolean;
-  view?: string; platform?: string; last_seen?: string; identity: Identity | null;
+  view?: string; platform?: string; last_seen?: string; identity: Identity | null; blocked?: boolean;
 };
 
 const SOURCES = [
   { key: "", label: "All sources" },
   { key: "telegram", label: "Telegram" },
   { key: "website", label: "Website" },
+  { key: "google", label: "Google" },
+  { key: "apple", label: "Apple" },
 ] as const;
 
 function matchesSource(row: UserRow, source: string) {
   if (!source) return true;
   const l = row.identity?.linked;
   if (source === "telegram") return !!l?.telegram;
+  if (source === "google" || source === "apple") return !!l?.[source];
   return !!(l?.email || l?.google || l?.apple || row.identity?.account_origin === "website");
 }
 
@@ -36,12 +39,14 @@ export default function Users({ query }: { query: string }) {
   const { data, error, loading, reload } = useAsync(
     () => tab === "audience" ? Promise.resolve({ items: [] as UserRow[] })
       : tab === "search"
-      ? post<{ items: UserRow[] }>("/api/admin/users/search", { query: q, limit: 100 })
+      ? post<{ items: UserRow[] }>("/api/admin/users/search", { query: q, limit: 100, source })
       : post<{ items: UserRow[] }>("/api/admin/users/online", { limit: 200, window_minutes: windowMinutes }),
-    [tab, q, windowMinutes],
+    [tab, q, windowMinutes, tab === "search" ? source : ""],
   );
   const submit = (e: FormEvent) => { e.preventDefault(); setQ(input.trim()); };
-  const rows = (data?.items || []).filter((r) => matchesSource(r, source));
+  // Search filters by source on the server (so it reaches beyond the first
+  // page); the recently-active list is filtered here.
+  const rows = (data?.items || []).filter((r) => tab === "search" || matchesSource(r, source));
 
   return (
     <div className="stack">
@@ -88,7 +93,8 @@ export default function Users({ query }: { query: string }) {
                 return (
                   <tr key={ref || r.name} className={ref ? "clickable" : ""} onClick={() => ref && go(`users/${ref}`)}>
                     <td>
-                      <div className="cell-main">{r.online && <span className="dot on" title={t("Online")} style={{ marginRight: 6 }} />}{r.identity?.display_name || r.name || t("SYLVEX User")}</div>
+                      <div className="cell-main">{r.online && <span className="dot on" title={t("Online")} style={{ marginRight: 6 }} />}{r.identity?.display_name || r.name || t("SYLVEX User")}
+                        {r.blocked && <span className="badge bad" style={{ marginLeft: 6 }}>{t("Blocked")}</span>}</div>
                       <div className="cell-sub">
                         {r.sylvex_user_id ? `SYLVEX ${r.sylvex_user_id}` : t("no SYLVEX ID")}
                         {r.username ? ` · @${r.username}` : ""}{r.identity?.email ? ` · ${r.identity.email}` : ""}

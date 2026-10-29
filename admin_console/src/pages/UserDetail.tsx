@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { errorText, post } from "../api";
 import { useApp } from "../state";
-import { t } from "../i18n";
+import { actionLabel, reasonLabel, roleLabel, t } from "../i18n";
 import {
-  ConfirmAction, Empty, ErrorNotice, fmtDate, fmtMoneyMap, fmtNum, Identity, Loading, Modal, refPayload,
-  SourceBadges, StatusBadge, useAsync,
+  ConfirmAction, Empty, ErrorNotice, fmtDate, fmtMoneyMap, fmtNum, GRANT_REASONS, Identity, Loading, Modal, refPayload,
+  SourceBadges, STAFF_REASONS, StatusBadge, useAsync,
 } from "../ui";
+import { CHANNEL_LABEL, Composer, Delivery, DeliveryBadges, Draft, draftPayload, draftProblem, emptyDraft, telegramErrorText } from "./messaging";
 
 type Detail = {
   account: {
@@ -18,7 +19,127 @@ type Detail = {
   generations: { id: string; mode: string; model: string; provider: string; status: string; cost: number; created_at: string; completed_at: string | null }[];
   error_reports: { id: number; mode: string; provider: string; model: string; job_id: string; error: string; status: string; created_at: string }[];
   recent_activity: { view: string | null; platform: string | null; last_seen: string | null };
+  block: Block | null;
+  block_history: Block[];
+  staff: { admin_id: number; role: string; status: string } | null;
+  admin_history: HistoryRow[];
 };
+type Block = {
+  id: number; reason: string; note: string; admin_name: string | null; created_at: string; lifted_at: string | null;
+  lifted_by_name: string | null; lift_reason: string; active: boolean;
+};
+type HistoryRow = { id: number; at: string; action: string; risk: string; actor_name: string | null; reason: string; before: Record<string, unknown>; after: Record<string, unknown> };
+type ConvoMessage = {
+  id: number | string; direction: "in" | "out"; text: string; created_at: string; author?: string | null; delivery?: Delivery;
+  image_url?: string | null; links?: { url: string; label: string }[]; read_at?: string | null; legacy?: boolean;
+};
+type Conversation = { channels: Record<string, boolean>; messages: ConvoMessage[] };
+
+const ROLE_CHOICES = ["administrator", "finance", "support", "moderator", "analyst", "read_only"];
+
+/** "50 → 60", "free → pro_month (until …)": what an audit row changed. */
+function changeSummary(h: HistoryRow) {
+  const b = h.before || {};
+  const a = h.after || {};
+  if (h.action === "balance_changed") return `${fmtNum(b.balance)} → ${fmtNum(a.balance)} (${Number(a.delta) > 0 ? "+" : ""}${fmtNum(a.delta)})`;
+  if (h.action === "subscription_changed") return `${b.subscription || t("free")} → ${a.subscription || t("free")}${a.expires_at ? ` · ${t("until {date}", { date: fmtDate(a.expires_at, false) })}` : ""}`;
+  if (h.action === "admin_created") return roleLabel(String(a.role || ""));
+  if (h.action === "admin_updated") return `${roleLabel(String(b.role || ""))} / ${t(String(b.status || ""))} → ${roleLabel(String(a.role || ""))} / ${t(String(a.status || ""))}`;
+  if (h.action === "message_sent") return (a.channels as string[] | undefined || []).map((c) => t(CHANNEL_LABEL[c] || c)).join(", ");
+  return "";
+}
+
+function WriteToUser({ target, onClose }: { target: Record<string, string>; onClose: () => void }) {
+  const { toast } = useApp();
+  const convo = useAsync(() => post<Conversation>("/api/admin/users/conversation", target), []);
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const available = convo.data?.channels || {};
+  const channels = chosen ?? ["website", "miniapp", "telegram"].filter((c) => available[c]);
+  const toggle = (c: string) => setChosen(channels.includes(c) ? channels.filter((x) => x !== c) : [...channels, c]);
+  const problem = draftProblem(draft) || (channels.length ? "" : t("Choose at least one place to deliver."));
+  const send = async () => {
+    setBusy(true);
+    try {
+      const res = await post<{ delivery: Delivery }>("/api/admin/users/message/send", { ...target, ...draftPayload(draft), channels });
+      const failed = res.delivery.telegram === "failed";
+      toast(failed ? `${t("Sent, but Telegram did not deliver it")}: ${telegramErrorText(res.delivery.telegram_error)}` : t("Message sent"), failed);
+      setDraft(emptyDraft());
+      convo.reload();
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title={t("Write to user")} onClose={onClose} actions={<>
+      <button className="btn" onClick={onClose}>{t("Close")}</button>
+      <button className="btn primary" disabled={!!problem || busy || !convo.data} onClick={send}>{busy && <span className="spinner" />}{t("Send")}</button>
+    </>}>
+      <div className="stack">
+        {convo.error ? <ErrorNotice message={convo.error} onRetry={convo.reload} /> : !convo.data ? <Loading /> : (
+          <div className="convo">
+            {convo.data.messages.length ? convo.data.messages.map((m) => (
+              <div key={m.id} className={`bubble ${m.direction}`}>
+                <div className="bubble-head">{m.direction === "out" ? `SYLVEX Team${m.author ? ` · ${m.author}` : ""}` : t("User")} · {fmtDate(m.created_at)}</div>
+                <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+                {m.image_url && <img src={m.image_url} alt="" style={{ maxWidth: 200, borderRadius: 8, marginTop: 6 }} />}
+                {m.direction === "out" && <div className="bubble-foot"><DeliveryBadges delivery={m.delivery} />
+                  {m.read_at && <span className="badge good">{t("Read")} {fmtDate(m.read_at)}</span>}</div>}
+              </div>
+            )) : <Empty>{t("No messages with this user yet.")}</Empty>}
+          </div>
+        )}
+        <div className="field"><span>{t("Deliver to")}</span>
+          <div className="chips">{["website", "miniapp", "telegram"].map((c) => (
+            <button key={c} type="button" className={`chip ${channels.includes(c) ? "on" : ""}`} disabled={!available[c]}
+              title={available[c] ? "" : c === "telegram" ? t("No Telegram linked") : t("No SYLVEX account")} onClick={() => toggle(c)}>
+              {c === "website" ? t("Website") : c === "miniapp" ? t("Mini App (Telegram and browser)") : t("Telegram bot")}
+            </button>
+          ))}</div>
+        </div>
+        <Composer draft={draft} onChange={setDraft} rows={4} placeholder={t("Write a message…")} />
+        <div className="muted small">{t("The message also appears in Messages, so the whole conversation stays in one place.")}</div>
+      </div>
+    </Modal>
+  );
+}
+
+function AssignRole({ target, staff, onClose, onSaved }: {
+  target: Record<string, string>; staff: Detail["staff"]; onClose: () => void; onSaved: () => void;
+}) {
+  const { toast } = useApp();
+  const current = staff && staff.status !== "revoked" ? staff.role : "";
+  const [role, setRole] = useState(current || "support");
+  return (
+    <ConfirmAction
+      title={t("Assign role")}
+      confirmLabel={role ? t("Save role") : t("Remove from the team")}
+      danger={!role}
+      presets={STAFF_REASONS}
+      description={<div className="stack">
+        <span>{current ? t("Current role: {role}.", { role: roleLabel(current) }) : t("This person is not on the team yet.")} {t("The same access is shown and edited in Admins.")}</span>
+        <label className="field">{t("Role")}
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            {ROLE_CHOICES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+            {current && <option value="">{t("No role (remove access)")}</option>}
+          </select>
+        </label>
+        <span className="small">{t("The owner role is never assigned from the console.")}</span>
+      </div>}
+      onConfirm={async (reason, extra) => {
+        await post("/api/admin/v2/users/role", { ...target, role, reason, ...extra });
+        toast(role ? t("Role saved") : t("Access removed"));
+        onSaved();
+      }}
+      onClose={onClose}
+    />
+  );
+}
+
+type Action = null | "balance" | "extend" | "cancel" | "message" | "block" | "unblock" | "role";
 
 const PLANS = [
   { key: "", name: "", period: "" },
@@ -29,18 +150,14 @@ const PLANS = [
 ];
 const planLabel = (p: (typeof PLANS)[number]) => (p.key ? `${p.name} · ${t(p.period)}` : t("Default (month / year by length)"));
 
-type Action = null | "balance" | "extend" | "cancel" | "message";
-
 export default function UserDetail({ refId }: { refId: string }) {
-  const { can, toast, go } = useApp();
+  const { can, toast, go, me } = useApp();
   const ref = refPayload(refId);
-  const [tab, setTab] = useState<"payments" | "subscriptions" | "generations" | "reports">("payments");
+  const [tab, setTab] = useState<"payments" | "subscriptions" | "generations" | "reports" | "history">("payments");
   const [action, setAction] = useState<Action>(null);
   const [delta, setDelta] = useState("");
   const [days, setDays] = useState("30");
   const [plan, setPlan] = useState("");
-  const [message, setMessage] = useState("");
-  const [sending, setSending] = useState(false);
   const { data, error, loading, reload } = useAsync(() => post<Detail>("/api/admin/users/detail", ref), [refId]);
 
   if (loading && !data) return <Loading />;
@@ -51,21 +168,9 @@ export default function UserDetail({ refId }: { refId: string }) {
   const target = a.sylvex_user_id ? { sylvex_user_id: a.sylvex_user_id } : ref;
   const deltaNum = Number(delta);
   const daysNum = Number(days);
-  const hasTelegram = !!(id?.linked?.telegram || a.telegram_id);
-
-  const sendMessage = async () => {
-    setSending(true);
-    try {
-      await post("/api/admin/users/message", { ...target, message: message.trim() });
-      toast(t("Message sent"));
-      setMessage("");
-      setAction(null);
-    } catch (e) {
-      toast(errorText(e), true);
-    } finally {
-      setSending(false);
-    }
-  };
+  const isOwner = me.admin.role === "owner";
+  const staffRole = data.staff && data.staff.status !== "revoked" ? data.staff.role : "";
+  const historyCount = data.admin_history.length + data.block_history.length;
 
   return (
     <div className="stack">
@@ -79,9 +184,19 @@ export default function UserDetail({ refId }: { refId: string }) {
           </div>
           <div className="row">
             <SourceBadges identity={id} />
-            {id?.status && <StatusBadge status={id.status} />}
+            {id?.status && !data.block && <StatusBadge status={id.status} />}
+            {staffRole && <span className="badge accent">{t("Team")}: {roleLabel(staffRole)}</span>}
+            {data.block && <span className="badge bad">{t("Blocked")}</span>}
           </div>
         </div>
+        {data.block && (
+          <div className="notice bad section">
+            <b>{t("Access is blocked")}</b> · {fmtDate(data.block.created_at)}{data.block.admin_name ? ` · ${data.block.admin_name}` : ""}
+            <div>{t("Reason")}: {data.block.reason}</div>
+            {data.block.note && <div className="small">{t("Note")}: {data.block.note}</div>}
+            <div className="small">{t("Generations, purchases, the API and the bot are closed for this person on every linked account; they see the reason and can contact support.")}</div>
+          </div>
+        )}
         <div className="divider" />
         <div className="idgrid">
           <div><div className="k">SYLVEX ID</div><div className="v mono">{a.sylvex_user_id || "—"}</div></div>
@@ -115,7 +230,11 @@ export default function UserDetail({ refId }: { refId: string }) {
           {can("users.balance.adjust") && <button className="btn" onClick={() => setAction("balance")}>{t("Adjust balance")}</button>}
           {can("users.subscription.edit") && <button className="btn" onClick={() => setAction("extend")}>{t("Grant / extend subscription")}</button>}
           {can("users.subscription.edit") && a.subscription_until && <button className="btn danger" onClick={() => setAction("cancel")}>{t("Cancel subscription")}</button>}
-          {can("messages.send") && <button className="btn" disabled={!hasTelegram} title={hasTelegram ? "" : t("No Telegram linked")} onClick={() => setAction("message")}>{t("Send Telegram message")}</button>}
+          {can("messages.send") && <button className="btn" onClick={() => setAction("message")}>{t("Write to user")}</button>}
+          {can("users.ban") && (data.block
+            ? <button className="btn" onClick={() => setAction("unblock")}>{t("Unblock")}</button>
+            : <button className="btn danger" disabled={staffRole === "owner"} onClick={() => setAction("block")}>{t("Block")}</button>)}
+          {isOwner && a.sylvex_user_id && staffRole !== "owner" && <button className="btn" onClick={() => setAction("role")}>{t("Assign role")}</button>}
           {can("generations.view") && a.sylvex_user_id && <button className="btn ghost" onClick={() => go(`generations?sylvex=${a.sylvex_user_id}`)}>{t("All generations")} →</button>}
           {can("audit.view") && a.sylvex_user_id && <button className="btn ghost" onClick={() => go(`audit?target=${a.sylvex_user_id}`)}>{t("Audit history")} →</button>}
         </div>
@@ -127,7 +246,30 @@ export default function UserDetail({ refId }: { refId: string }) {
           <button className={`tab ${tab === "subscriptions" ? "active" : ""}`} onClick={() => setTab("subscriptions")}>{t("Subscriptions")} ({data.subscription_history.length})</button>
           <button className={`tab ${tab === "generations" ? "active" : ""}`} onClick={() => setTab("generations")}>{t("Generations")} ({data.generations.length})</button>
           <button className={`tab ${tab === "reports" ? "active" : ""}`} onClick={() => setTab("reports")}>{t("Error reports")} ({data.error_reports.length})</button>
+          <button className={`tab ${tab === "history" ? "active" : ""}`} onClick={() => setTab("history")}>{t("Admin history")} ({historyCount})</button>
         </div>
+        {tab === "history" && (historyCount ? (
+          <div className="stack">
+            {data.admin_history.length > 0 && <div className="table-wrap"><table>
+              <thead><tr><th>{t("Date")}</th><th>{t("Change")}</th><th>{t("By")}</th><th>{t("Reason")}</th></tr></thead>
+              <tbody>{data.admin_history.map((h) => (
+                <tr key={h.id}><td className="small">{fmtDate(h.at)}</td>
+                  <td><div className="cell-main">{actionLabel(h.action)}</div><div className="cell-sub">{changeSummary(h)}</div></td>
+                  <td className="small">{h.actor_name || "—"}</td>
+                  <td className="small">{h.reason || "—"}{h.after?.reason_code ? <div className="cell-sub">{reasonLabel(String(h.after.reason_code))}</div> : null}
+                    {h.after?.note ? <div className="cell-sub">{String(h.after.note)}</div> : null}</td></tr>
+              ))}</tbody>
+            </table></div>}
+            {data.block_history.length > 0 && <div className="table-wrap"><table>
+              <thead><tr><th>{t("Blocked")}</th><th>{t("Reason")}</th><th>{t("Unblocked")}</th></tr></thead>
+              <tbody>{data.block_history.map((b) => (
+                <tr key={b.id}><td className="small">{fmtDate(b.created_at)}<div className="cell-sub">{b.admin_name || "—"}</div></td>
+                  <td className="small">{b.reason}{b.note && <div className="cell-sub">{b.note}</div>}</td>
+                  <td className="small">{b.lifted_at ? <>{fmtDate(b.lifted_at)}<div className="cell-sub">{b.lifted_by_name || "—"} · {b.lift_reason}</div></> : <span className="badge bad">{t("active")}</span>}</td></tr>
+              ))}</tbody>
+            </table></div>}
+          </div>
+        ) : <Empty>{t("No admin changes yet.")}</Empty>)}
         {tab === "payments" && (data.purchases.length ? (
           <div className="table-wrap"><table>
             <thead><tr><th>{t("Date")}</th><th>{t("Provider")}</th><th className="right">{t("Credits")}</th><th className="right">{t("Amount")}</th><th>{t("Status")}</th><th>{t("Charge ID")}</th></tr></thead>
@@ -177,10 +319,12 @@ export default function UserDetail({ refId }: { refId: string }) {
               <input type="number" value={delta} onChange={(e) => setDelta(e.target.value)} placeholder={t("e.g. 100 or -50")} />
             </label>
             {Number.isInteger(deltaNum) && deltaNum !== 0 && <span>{t("New balance")}: <b>{fmtNum(a.balance + deltaNum)}</b></span>}
+            {deltaNum > 0 && <span className="small">{t("The user sees a card about the credits once, on their next visit.")}</span>}
           </div>}
-          onConfirm={async (reason) => {
+          presets={GRANT_REASONS}
+          onConfirm={async (reason, extra) => {
             if (!Number.isInteger(deltaNum) || deltaNum === 0) throw new Error(t("Enter a whole, non-zero number of credits."));
-            await post("/api/admin/users/balance", { ...target, delta: deltaNum, reason, source: "admin_console" });
+            await post("/api/admin/users/balance", { ...target, delta: deltaNum, reason, ...extra, source: "admin_console" });
             toast(t("Balance updated"));
             setDelta("");
             reload();
@@ -201,9 +345,10 @@ export default function UserDetail({ refId }: { refId: string }) {
               <select value={plan} onChange={(e) => setPlan(e.target.value)}>{PLANS.map((p) => <option key={p.key} value={p.key}>{planLabel(p)}</option>)}</select>
             </label>
           </div>}
-          onConfirm={async (reason) => {
+          presets={GRANT_REASONS}
+          onConfirm={async (reason, extra) => {
             if (!Number.isInteger(daysNum) || daysNum < 1 || daysNum > 730) throw new Error(t("Days must be between 1 and 730."));
-            await post("/api/admin/users/subscription", { ...target, action: "extend", days: daysNum, plan: plan || undefined, reason });
+            await post("/api/admin/users/subscription", { ...target, action: "extend", days: daysNum, plan: plan || undefined, reason, ...extra });
             toast(t("Subscription extended"));
             reload();
           }}
@@ -224,19 +369,40 @@ export default function UserDetail({ refId }: { refId: string }) {
           onClose={() => setAction(null)}
         />
       )}
-      {action === "message" && (
-        <Modal title={t("Send Telegram message")} onClose={() => setAction(null)} actions={<>
-          <button className="btn" onClick={() => setAction(null)}>{t("Cancel")}</button>
-          <button className="btn primary" disabled={!message.trim() || message.length > 4000 || sending} onClick={sendMessage}>
-            {sending && <span className="spinner" />}{t("Send")}
-          </button>
-        </>}>
-          <div className="stack">
-            <div className="muted small">{t("Delivered by the SYLVEX bot to this user's Telegram chat.")}</div>
-            <textarea rows={6} value={message} onChange={(e) => setMessage(e.target.value)} maxLength={4000} autoFocus />
-            <div className="muted small right">{message.length} / 4000</div>
-          </div>
-        </Modal>
+      {action === "message" && <WriteToUser target={target} onClose={() => setAction(null)} />}
+      {action === "block" && (
+        <ConfirmAction
+          title={t("Block user")}
+          confirmLabel={t("Block")}
+          danger
+          description={<div className="stack">
+            <span>{t("The person keeps their account and data but cannot generate, buy, use the API or the bot until unblocked. Linked accounts (Telegram, email, Google, Apple) are blocked together.")}</span>
+            <span className="small">{t("They are shown the reason you write below.")}</span>
+          </div>}
+          withNote
+          onConfirm={async (reason, extra) => {
+            await post("/api/admin/users/block", { ...target, reason, note: extra.note });
+            toast(t("User blocked"));
+            reload();
+          }}
+          onClose={() => setAction(null)}
+        />
+      )}
+      {action === "unblock" && (
+        <ConfirmAction
+          title={t("Unblock user")}
+          confirmLabel={t("Unblock")}
+          description={data.block ? `${t("Blocked since {date}", { date: fmtDate(data.block.created_at) })}: ${data.block.reason}` : ""}
+          onConfirm={async (reason) => {
+            await post("/api/admin/users/unblock", { ...target, reason });
+            toast(t("User unblocked"));
+            reload();
+          }}
+          onClose={() => setAction(null)}
+        />
+      )}
+      {action === "role" && a.sylvex_user_id && (
+        <AssignRole target={{ sylvex_user_id: a.sylvex_user_id }} staff={data.staff} onClose={() => setAction(null)} onSaved={reload} />
       )}
     </div>
   );

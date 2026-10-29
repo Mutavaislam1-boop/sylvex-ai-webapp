@@ -98,9 +98,49 @@ from services import edit_workspace as edit_workspace_service
 from services import assistant_store
 from services.assistant_intents import route_intent, intent_by_id as assistant_intent_by_id
 from services.assistant_openai import stream_assistant_reply, mint_realtime_session
+from services import user_access as user_access_service
+
+# Admin blocks (services/user_access.py), checked by SecurityMiddleware for
+# every protected request. A short per-process cache keeps this off the
+# database on every call; blocking or unblocking clears the person here at
+# once, other workers follow within the TTL.
+_ACCESS_CACHE: dict = {}
+_ACCESS_CACHE_TTL = 15.0
+
+
+def _account_block_sync(uid):
+    if not DATABASE_URL:
+        return None
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        return user_access_service.block_for_uid(cursor, uid)
+    finally:
+        cursor.close()
+        conn.close()
+
+
+async def check_account_access(uid):
+    """True when an admin blocked the person behind storage key `uid`."""
+    now = time.monotonic()
+    hit = _ACCESS_CACHE.get(int(uid))
+    if hit and hit[1] > now:
+        return hit[0]
+    try:
+        blocked = bool(await asyncio.to_thread(_account_block_sync, int(uid)))
+    except Exception as exc:
+        # Availability over strictness when the block lookup itself fails:
+        # the database being down stops the request further on anyway.
+        print("ACCOUNT_ACCESS_CHECK_FAILED:", type(exc).__name__)
+        return False
+    if len(_ACCESS_CACHE) > 20000:
+        _ACCESS_CACHE.clear()
+    _ACCESS_CACHE[int(uid)] = (blocked, now + _ACCESS_CACHE_TTL)
+    return blocked
+
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
+app.add_middleware(SecurityMiddleware, quota_check=check_request_quota, access_check=check_account_access)
 # Lets the SYLVEX website (a different origin) call the public API and the
 # new /api/web/* session endpoints. Closed by default - only the origins
 # listed in WEBSITE_ORIGINS are allowed - and additive: it changes nothing
@@ -10743,6 +10783,7 @@ def ensure_admin_tables():
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            user_access_service.ensure_table(cursor)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS admin_users (
                 telegram_id BIGINT PRIMARY KEY,
@@ -11098,11 +11139,11 @@ async def admin_dashboard(request: Request):
             )
             cursor.execute(f"""
                 SELECT COUNT(*), COALESCE(SUM(balance),0),
-                       COUNT(*) FILTER (WHERE NULLIF(created_at,'')::timestamp >= NOW() - INTERVAL '24 hours')
+                       COUNT(*) FILTER (WHERE NULLIF(created_at::text,'')::timestamp >= NOW() - INTERVAL '24 hours')
                 FROM users {ghost_filter}
             """, (STORAGE_ID_FLOOR,))
             users_count, total_balance, new_users_today = cursor.fetchone()
-            cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at,'')::timestamp > NOW()")
+            cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at::text,'')::timestamp > NOW()")
             active_subscriptions = cursor.fetchone()[0]
             cursor.execute("""
                 SELECT COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'),
@@ -11172,6 +11213,35 @@ async def admin_dashboard(request: Request):
     return await asyncio.to_thread(_sync)
 
 
+def _admin_mark_people(cursor, items):
+    """Adds `source` (telegram / website, plus google / apple sign-in) and
+    `blocked` to search rows, keyed by their storage key `telegram_id`."""
+    keys = [int(i["telegram_id"]) for i in items]
+    if not keys:
+        return
+    cursor.execute("SELECT to_regclass('sylvex_accounts') IS NOT NULL AND to_regclass('account_oauth') IS NOT NULL "
+                   "AND to_regclass('user_access_blocks') IS NOT NULL")
+    if not cursor.fetchone()[0]:
+        for item in items:
+            item.update(source="telegram", sign_in=[], blocked=False)
+        return
+    cursor.execute("""
+        SELECT u.telegram_id, a.origin,
+               (SELECT string_agg(DISTINCT o.provider, ',') FROM account_oauth o WHERE o.account_id = a.account_id),
+               EXISTS (SELECT 1 FROM user_access_blocks b WHERE b.lifted_at IS NULL
+                       AND (b.user_key = u.telegram_id OR (a.account_id IS NOT NULL AND b.account_id = a.account_id)))
+        FROM users u LEFT JOIN sylvex_accounts a ON a.active_telegram_id = u.telegram_id
+        WHERE u.telegram_id = ANY(%s::bigint[])
+    """, (keys,))
+    marks = {int(r[0]): (r[1] or ("telegram" if int(r[0]) < admin_identity.STORAGE_ID_FLOOR else "website"),
+                         [p for p in (r[2] or "").split(",") if p], bool(r[3])) for r in cursor.fetchall()}
+    for item in items:
+        origin, providers, blocked = marks.get(int(item["telegram_id"]), ("telegram", [], False))
+        item["source"] = origin
+        item["sign_in"] = providers
+        item["blocked"] = blocked
+
+
 @app.post("/api/admin/users/search")
 async def admin_users_search(request: Request):
     """Universal search: SYLVEX ID (incl. retired aliases), Telegram ID,
@@ -11186,15 +11256,16 @@ async def admin_users_search(request: Request):
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            keys = admin_identity.search_keys(cursor, payload.get("query"), limit=limit, technical=technical)
+            keys = admin_identity.search_keys(cursor, payload.get("query"), limit=limit, technical=technical,
+                                              source=str(payload.get("source") or ""))
             if not keys:
                 return []
             cursor.execute("""
                 SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
                        COALESCE(u.username, '') AS username, COALESCE(u.balance, 0) AS balance,
                        COALESCE(u.subscription, 'free') AS subscription, u.created_at,
-                       (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until,
+                       (SELECT MAX(NULLIF(s.expires_at::text,'')::timestamp) FROM subscriptions s
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at::text,'')::timestamp>NOW()) AS subscription_until,
                        EXISTS(SELECT 1 FROM app_presence ap WHERE ap.telegram_id=u.telegram_id
                               AND ap.last_seen >= NOW() - INTERVAL '5 minutes') AS online
                 FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
@@ -11204,6 +11275,7 @@ async def admin_users_search(request: Request):
                       "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6]),
                       "online": bool(r[7])} for r in cursor.fetchall()}
             items = [by_key[k] for k in keys if k in by_key]
+            _admin_mark_people(cursor, items)
             return admin_identity.decorate(cursor, items, technical=technical)
         finally:
             cursor.close()
@@ -11221,7 +11293,7 @@ async def admin_user_balance(request: Request):
         actor = _admin_actor(payload, request, "users.balance.adjust")
         ensure_admin_tables()
         delta = int(payload.get("delta") or 0)
-        reason = str(payload.get("reason") or "Ручная корректировка")[:500]
+        reason, extra = _admin_reason_fields(payload, "Ручная корректировка")
         source = str(payload.get("source") or "admin_api")
         if source not in ADMIN_BALANCE_SOURCES:
             source = "admin_api"
@@ -11247,7 +11319,11 @@ async def admin_user_balance(request: Request):
                 raise HTTPException(status_code=409, detail="balance_would_go_negative")
             cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
             _admin_audit(cursor, actor, "balance_changed", target_id, {"balance": before},
-                         {"balance": after, "delta": delta, "source": source}, reason)
+                         dict({"balance": after, "delta": delta, "source": source}, **extra), reason)
+            if delta > 0 and payload.get("notify", True) is not False:
+                _admin_award(cursor, _person_for_key(cursor, target_id),
+                             {"type": "credits", "amount": delta, "reason_code": _award_reason(extra)},
+                             f"SYLVEX начислил вам {delta} кредитов.", actor)
             conn.commit()
             return after
         except Exception:
@@ -11270,7 +11346,7 @@ async def admin_user_subscription(request: Request):
         ensure_admin_tables()
         action = str(payload.get("action") or "extend")
         days = max(1, min(int(payload.get("days") or 30), 730))
-        reason = str(payload.get("reason") or "Изменение администратором")[:500]
+        reason, extra = _admin_reason_fields(payload, "Изменение администратором")
         if not (payload.get("user_id") or payload.get("sylvex_user_id")) or action not in {"extend", "cancel"}:
             raise HTTPException(status_code=400, detail="invalid_subscription_change")
         ensure_payment_tables()
@@ -11282,7 +11358,7 @@ async def admin_user_subscription(request: Request):
                 raise HTTPException(status_code=404, detail="user_not_found")
             cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
             before_plan = (cursor.fetchone() or [None])[0]
-            cursor.execute("SELECT MAX(NULLIF(expires_at,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
+            cursor.execute("SELECT MAX(NULLIF(expires_at::text,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
             before_expiry = (cursor.fetchone() or [None])[0]
             if action == "cancel":
                 cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active'", (target_id,))
@@ -11301,7 +11377,14 @@ async def admin_user_subscription(request: Request):
                 cursor.execute("UPDATE users SET subscription=%s WHERE telegram_id=%s", (plan, target_id))
                 after = {"subscription": plan, "expires_at": _to_iso(expires_at)}
             _admin_audit(cursor, actor, "subscription_changed", target_id,
-                         {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, after, reason)
+                         {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, dict(after, **extra),
+                         reason)
+            if action == "extend" and payload.get("notify", True) is not False:
+                label = shop_catalog.plan_label(after["subscription"]) or after["subscription"]
+                _admin_award(cursor, _person_for_key(cursor, target_id),
+                             {"type": "subscription", "plan": after["subscription"], "plan_label": label,
+                              "days": days, "expires_at": after["expires_at"], "reason_code": _award_reason(extra)},
+                             f"SYLVEX подарил вам подписку «{label}» на {days} дн.", actor)
             conn.commit()
             return after
         except Exception:
@@ -11864,7 +11947,9 @@ async def admin_v2_permissions(request: Request):
     def work(cursor):
         _admin_v2_actor(cursor, request)
         return {"ok": True, "permissions": admin_rbac.PERMISSIONS, "roles": list(admin_rbac.ROLES),
-                "role_defaults": {role: sorted(perms) for role, perms in admin_rbac.ROLE_DEFAULTS.items()}}
+                "role_defaults": {role: sorted(perms) for role, perms in admin_rbac.ROLE_DEFAULTS.items()},
+                "catalog": admin_rbac.permission_catalog(),
+                "risk_info": {risk: {"en": en, "ru": ru} for risk, (en, ru) in admin_rbac.RISK_INFO.items()}}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
 
@@ -11888,9 +11973,13 @@ async def admin_v2_admins(request: Request):
 
 
 def _admin_v2_reason(body):
-    reason = str(body.get("reason") or "").strip()
+    """The audit reason of a v2 change: typed text or a quick reason
+    (reason_code), with the admin's note appended."""
+    reason, extra = _admin_reason_fields(body)
     if not reason:
         raise admin_auth.AdminAuthError("reason_required", 400)
+    if extra.get("note"):
+        reason = f"{reason} — {extra['note']}"
     return reason[:500]
 
 
@@ -12038,8 +12127,8 @@ async def admin_user_detail(request: Request):
                 SELECT u.telegram_id, COALESCE(u.username,'') AS username,
                        COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
                        COALESCE(u.balance,0) AS balance, COALESCE(u.subscription,'free') AS subscription, u.created_at,
-                       (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until
+                       (SELECT MAX(NULLIF(s.expires_at::text,'')::timestamp) FROM subscriptions s
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at::text,'')::timestamp>NOW()) AS subscription_until
                 FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
                 WHERE u.telegram_id=%s
             """, (target_id,))
@@ -12093,8 +12182,25 @@ async def admin_user_detail(request: Request):
             recent_activity = {"view": presence_row[0] if presence_row else None,
                     "platform": presence_row[1] if presence_row else None,
                     "last_seen": _to_iso(presence_row[2]) if presence_row else None}
+            account_id = user_access_service.account_for_key(cursor, target_id)
+            blocks = user_access_service.history(cursor, account_id=account_id, user_key=target_id)
+            staff = admin_auth.load_admin(cursor, account_id=account_id) if account_id else None
+            admin_history = admin_auth.list_audit(cursor, target_account_id=account_id, limit=50)[0] if account_id else []
+            names = _admin_names(cursor, [b["admin_id"] for b in blocks] + [b["lifted_by"] for b in blocks]
+                                 + [h["actor_admin_id"] for h in admin_history])
+            for b in blocks:
+                b["admin_name"] = names.get(b["admin_id"])
+                b["lifted_by_name"] = names.get(b["lifted_by"])
+                b.pop("account_id", None)
+                b.pop("user_key", None)
+            for h in admin_history:
+                h["actor_name"] = names.get(h["actor_admin_id"]) or ("SYLVEX" if not h["actor_admin_id"] else None)
             return {"ok": True, "account": account, "purchases": purchases, "subscription_history": subscription_history,
-                    "generations": generations, "error_reports": error_reports, "recent_activity": recent_activity}
+                    "generations": generations, "error_reports": error_reports, "recent_activity": recent_activity,
+                    "block": next((b for b in blocks if b["active"]), None), "block_history": blocks,
+                    "staff": {"admin_id": staff["admin_id"], "role": staff["role"], "status": staff["status"]}
+                    if staff else None,
+                    "admin_history": admin_history}
         finally:
             cursor.close()
             conn.close()
@@ -12435,13 +12541,7 @@ def _request_person(cursor, request):
     user_key = int(getattr(request.state, "telegram_id", 0) or 0)
     if not user_key:
         raise HTTPException(status_code=401, detail="auth_required")
-    account_id = notifications_service.account_for_key(cursor, user_key)
-    if account_id:
-        person = notifications_service.resolve_person(cursor, f"a:{account_id}")
-        if person:
-            return person
-    return {"key": f"t:{user_key}", "account_id": None, "user_key": user_key, "visitor_id": None,
-            "telegram_chat": account_identity_service.real_telegram_id(user_key)}
+    return _person_for_key(cursor, user_key)
 
 
 def _cookie_web_account(request):
@@ -12457,11 +12557,24 @@ def _cookie_web_account(request):
     return None
 
 
-def _telegram_deliver(chat_id, text, image_url=None, links=None):
+def _telegram_error(response):
+    try:
+        body = response.json() if response.content else {}
+    except ValueError:
+        body = {}
+    if response.status_code < 400 and body.get("ok"):
+        return None
+    return str(body.get("description") or f"http_{response.status_code}")[:200]
+
+
+def _telegram_deliver_status(chat_id, text, image_url=None, links=None):
     """Sends one admin message through the main bot: a photo with caption
-    when there is an image, link buttons under it. Returns True on success."""
-    if not BOT_TOKEN or not chat_id:
-        return False
+    when there is an image, link buttons under it. Returns {ok, error} with
+    the bot API's own reason when it refused (e.g. the user blocked the bot)."""
+    if not BOT_TOKEN:
+        return {"ok": False, "error": "bot_not_configured"}
+    if not chat_id:
+        return {"ok": False, "error": "no_telegram_chat"}
     markup = None
     if links:
         markup = {"inline_keyboard": [[{"text": (l.get("label") or l["url"])[:60], "url": l["url"]}] for l in links]}
@@ -12474,17 +12587,20 @@ def _telegram_deliver(chat_id, text, image_url=None, links=None):
                 payload["caption"] = text
                 if markup:
                     payload["reply_markup"] = markup
-            response = requests.post(f"{base}/sendPhoto", json=payload, timeout=30)
-            ok = response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
-            if caption_fits or not ok:
-                return ok
+            error = _telegram_error(requests.post(f"{base}/sendPhoto", json=payload, timeout=30))
+            if caption_fits or error:
+                return {"ok": error is None, "error": error}
         payload = {"chat_id": chat_id, "text": text}
         if markup:
             payload["reply_markup"] = markup
-        response = requests.post(f"{base}/sendMessage", json=payload, timeout=20)
-        return response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
-    except (requests.RequestException, ValueError):
-        return False
+        error = _telegram_error(requests.post(f"{base}/sendMessage", json=payload, timeout=20))
+        return {"ok": error is None, "error": error}
+    except requests.RequestException as exc:
+        return {"ok": False, "error": f"network_{type(exc).__name__}"}
+
+
+def _telegram_deliver(chat_id, text, image_url=None, links=None):
+    return _telegram_deliver_status(chat_id, text, image_url, links)["ok"]
 
 
 async def _telegram_deliver_many(notification_id, chats, text, image_url, links):
@@ -12867,7 +12983,8 @@ async def admin_inbox_thread(request: Request):
 @app.post("/api/admin/inbox/reply")
 async def admin_inbox_reply(request: Request):
     """Personal reply: shown to the user as SYLVEX Team in their bell
-    (Mini App + website) and, when they have Telegram, sent by the bot."""
+    (Mini App + website) and, when they have Telegram, sent by the bot -
+    with the bot's real answer recorded on the message."""
     payload = await request.json()
 
     def work(cursor):
@@ -12877,32 +12994,20 @@ async def admin_inbox_reply(request: Request):
         links = notifications_service.clean_links(payload.get("links"))
         image_key = notifications_service.clean_image_key(payload.get("image_key"))
         person = notifications_service.thread_person(cursor, thread_id)
-        notification_id = notifications_service.create_notification(
-            cursor, text=text, links=links, image_key=image_key, surfaces=list(notifications_service.SURFACES),
-            channels=list(notifications_service.CHANNELS), audience="reply", admin_id=actor.get("admin_id"),
-            kind="reply", thread_id=thread_id)
-        notifications_service.add_recipients(cursor, notification_id, [person])
-        chat = person.get("telegram_chat")
-        notifications_service.set_delivery_counts(cursor, notification_id, recipients=1, telegram_targets=1 if chat else 0)
-        message_id = notifications_service.record_reply(cursor, thread_id, text=text, links=links, image_key=image_key,
-                                                        admin_id=actor.get("admin_id"), notification_id=notification_id)
+        notification_id, message_id, chat, delivery = _admin_write_to_person(
+            cursor, actor, person, thread_id, text=text, links=links, image_key=image_key,
+            channels=payload.get("channels"))
         _admin_audit(cursor, actor, "support_reply_sent", person.get("user_key") or 0, {},
-                     {"thread_id": thread_id, "notification_id": notification_id, "telegram": bool(chat),
+                     {"thread_id": thread_id, "notification_id": notification_id, "channels": delivery["channels"],
                       "length": len(text)}, "")
-        return notification_id, message_id, chat, text, links, image_key
+        return notification_id, message_id, chat, delivery, text, links, image_key
 
-    notification_id, message_id, chat, text, links, image_key = await asyncio.to_thread(_notifications_run, work)
-    telegram_sent = False
+    notification_id, message_id, chat, delivery, text, links, image_key = await asyncio.to_thread(
+        _notifications_run, work)
     if chat:
-        telegram_sent = await asyncio.to_thread(
-            _telegram_deliver, chat, f"💬 {notifications_service.SENDER_NAME}\n\n{text}",
-            _notification_image_url(image_key), links)
-
-        def _save(cursor):
-            notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=1 if telegram_sent else 0)
-        await asyncio.to_thread(_notifications_run, _save)
-    return {"ok": True, "message_id": message_id, "notification_id": notification_id,
-            "telegram": bool(chat), "telegram_sent": telegram_sent}
+        delivery = await _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, image_key, links)
+    return {"ok": True, "message_id": message_id, "notification_id": notification_id, "delivery": delivery,
+            "telegram": bool(chat), "telegram_sent": delivery.get("telegram") == "sent"}
 
 
 @app.post("/api/admin/inbox/status")
@@ -12916,6 +13021,349 @@ async def admin_inbox_status(request: Request):
 
     await asyncio.to_thread(_notifications_run, work)
     return {"ok": True}
+
+
+
+
+# ---------- admins: writing to one user, blocks, roles, awards ----------
+
+# Quick reasons for credits, subscriptions and roles (the console offers
+# them; any other text is "other"). Stored as code + label + free note.
+ADMIN_REASON_CODES = {
+    "test": "Тестовая выдача", "error_compensation": "Компенсация ошибки", "bonus": "Бонус",
+    "promo": "Промоакция", "gift": "Подарок пользователю", "refund": "Возмещение",
+    "management_decision": "Индивидуальное решение администрации",
+    "hire": "Приём в команду", "role_change": "Изменение обязанностей", "access_review": "Пересмотр доступа",
+    "offboarding": "Уход из команды", "other": "Другое",
+}
+
+
+def _admin_reason_fields(payload, default_reason=""):
+    """(reason text for the audit row, {reason_code, note}) from a console
+    request: a quick code, its label or the typed reason, plus a note."""
+    code = str(payload.get("reason_code") or "").strip()
+    if code not in ADMIN_REASON_CODES:
+        code = ""
+    typed = str(payload.get("reason") or "").strip()
+    note = str(payload.get("note") or "").strip()[:1000]
+    reason = typed or (ADMIN_REASON_CODES[code] if code and code != "other" else "") or default_reason
+    return reason[:500], {k: v for k, v in (("reason_code", code), ("note", note)) if v}
+
+
+def _person_for_key(cursor, target_key):
+    """The notification identity of the user behind a storage key."""
+    account_id = notifications_service.account_for_key(cursor, target_key)
+    if account_id:
+        person = notifications_service.resolve_person(cursor, f"a:{account_id}")
+        if person:
+            return person
+    return {"key": f"t:{target_key}", "account_id": None, "user_key": int(target_key), "visitor_id": None,
+            "telegram_chat": account_identity_service.real_telegram_id(target_key)}
+
+
+# Reasons the person themselves is shown on an award card; the others
+# (test grants, internal decisions) stay between admins.
+AWARD_PUBLIC_REASONS = frozenset({"error_compensation", "bonus", "promo", "gift", "refund"})
+
+
+def _admin_award(cursor, person, award, text, actor):
+    """Queues the centered "you received" card. Runs inside the caller's
+    transaction under a savepoint: a failure here never undoes the change
+    itself, it only loses the card."""
+    try:
+        ensure_notification_tables()
+    except Exception as exc:
+        print("ADMIN_AWARD_FAILED:", type(exc).__name__)
+        return None
+    try:
+        cursor.execute("SAVEPOINT admin_award")
+        savepoint = True
+    except Exception:
+        savepoint = False  # autocommit connection: nothing to protect
+    try:
+        notification_id = notifications_service.create_award(cursor, person, award=award, text=text,
+                                                             admin_id=(actor or {}).get("admin_id"))
+        if savepoint:
+            cursor.execute("RELEASE SAVEPOINT admin_award")
+        return notification_id
+    except Exception as exc:
+        if savepoint:
+            cursor.execute("ROLLBACK TO SAVEPOINT admin_award")
+        print("ADMIN_AWARD_FAILED:", type(exc).__name__)
+        return None
+
+
+def _award_reason(extra):
+    code = (extra or {}).get("reason_code")
+    return code if code in AWARD_PUBLIC_REASONS else None
+
+
+ADMIN_MESSAGE_CHANNELS = ("website", "miniapp", "telegram")
+
+
+def _admin_channels_for(person):
+    """Where a message to this person can go: the bell on the website and
+    in the Mini Apps (Telegram and browser) needs a SYLVEX identity, the bot
+    needs a real Telegram chat; a website guest has the website bell only."""
+    has_identity = bool(person.get("account_id") or person.get("user_key"))
+    return {"website": has_identity or bool(person.get("visitor_id")), "miniapp": has_identity,
+            "telegram": bool(person.get("telegram_chat"))}
+
+
+def _admin_write_to_person(cursor, actor, person, thread_id, *, text, links, image_key, channels, kind="reply"):
+    """Writes one admin message into the person's conversation and their
+    bell (chosen surfaces). Returns (notification_id, message_id, chat to
+    send to by the bot or None)."""
+    available = _admin_channels_for(person)
+    chosen = [c for c in (channels or ADMIN_MESSAGE_CHANNELS) if c in ADMIN_MESSAGE_CHANNELS and available.get(c)]
+    if not chosen:
+        raise notifications_service.NotificationError("no_delivery_channel", 409)
+    surfaces = [c for c in chosen if c in notifications_service.SURFACES]
+    chat = person.get("telegram_chat") if "telegram" in chosen else None
+    notification_id = notifications_service.create_notification(
+        cursor, text=text, links=links, image_key=image_key, surfaces=surfaces or [], channels=chosen,
+        audience="reply", admin_id=actor.get("admin_id"), kind=kind, thread_id=thread_id)
+    if surfaces:
+        notifications_service.add_recipients(cursor, notification_id, [person])
+    notifications_service.set_delivery_counts(cursor, notification_id, recipients=1 if surfaces else 0,
+                                              telegram_targets=1 if chat else 0)
+    message_id = notifications_service.record_reply(cursor, thread_id, text=text, links=links, image_key=image_key,
+                                                    admin_id=actor.get("admin_id"), notification_id=notification_id)
+    delivery = {"channels": chosen, "bell": surfaces, "telegram": "pending" if chat else
+                ("not_linked" if not available["telegram"] else "skipped")}
+    notifications_service.set_message_delivery(cursor, message_id, delivery)
+    return notification_id, message_id, chat, delivery
+
+
+async def _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, image_key, links):
+    """Sends the bot copy and records the bot API's real answer."""
+    status = await asyncio.to_thread(
+        _telegram_deliver_status, chat, f"💬 {notifications_service.SENDER_NAME}\n\n{text}",
+        _notification_image_url(image_key), links)
+    delivery = dict(delivery, telegram="sent" if status["ok"] else "failed")
+    if not status["ok"] and status.get("error"):
+        delivery["telegram_error"] = status["error"]
+
+    def _save(cursor):
+        notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=1 if status["ok"] else 0)
+        notifications_service.set_message_delivery(cursor, message_id, delivery)
+    await asyncio.to_thread(_notifications_run, _save)
+    return delivery
+
+
+def _admin_names(cursor, admin_ids):
+    """{admin id: the name the team knows them by} for message authors and
+    history rows."""
+    ids = sorted({int(i) for i in admin_ids if i})
+    if not ids:
+        return {}
+    cursor.execute("""
+        SELECT a.id, COALESCE(p.display_name, u.first_name, u.username, 'SYLVEX ' || a.account_id::text)
+        FROM admin_accounts a LEFT JOIN sylvex_accounts s ON s.account_id = a.account_id
+        LEFT JOIN users u ON u.telegram_id = s.active_telegram_id
+        LEFT JOIN user_profiles p ON p.telegram_id = s.active_telegram_id
+        WHERE a.id = ANY(%s::bigint[])
+    """, (ids,))
+    return {int(r[0]): r[1] for r in cursor.fetchall()}
+
+
+@app.post("/api/admin/users/conversation")
+async def admin_user_conversation(request: Request):
+    """Everything SYLVEX and this user wrote to each other: their
+    conversations (Messages) and older bot-only messages, plus where a new
+    message can be delivered."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        target_key = _admin_resolve_target(cursor, payload)
+        if not target_key:
+            raise notifications_service.NotificationError("user_not_found", 404)
+        person = _person_for_key(cursor, target_key)
+        messages = []
+        threads = notifications_service.person_threads(cursor, person)
+        for thread_id in threads:
+            messages.extend(notifications_service.thread_messages(cursor, thread_id, image_url=_notification_image_url))
+        authors = _admin_names(cursor, [m.get("admin_id") for m in messages])
+        for m in messages:
+            m["author"] = authors.get(m.get("admin_id")) if m["direction"] == "out" else None
+        legacy = []
+        chat = person.get("telegram_chat")
+        if chat:
+            cursor.execute("SELECT to_regclass('admin_messages')")
+            if cursor.fetchone()[0] is not None:
+                cursor.execute("""
+                    SELECT id, message, telegram_sent, created_at FROM admin_messages
+                    WHERE user_telegram_id = %s ORDER BY id DESC LIMIT 50
+                """, (int(chat),))
+                legacy = [{"id": f"legacy-{r[0]}", "direction": "out", "text": r[1], "created_at": _to_iso(r[3]),
+                           "delivery": {"channels": ["telegram"], "telegram": "sent" if r[2] else "failed"},
+                           "legacy": True} for r in cursor.fetchall()]
+        messages = sorted(messages + legacy, key=lambda m: str(m.get("created_at") or ""))
+        return {"ok": True, "channels": _admin_channels_for(person), "messages": messages[-200:],
+                "threads": threads}
+
+    return await asyncio.to_thread(_notifications_run, work)
+
+
+@app.post("/api/admin/users/message/send")
+async def admin_user_message_send(request: Request):
+    """"Write to user" from the card: one message into the person's
+    conversation (so it is in Messages too), their bell on the chosen
+    surfaces and, when chosen and possible, the bot - with the real result."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        target_key = _admin_resolve_target(cursor, payload)
+        if not target_key:
+            raise notifications_service.NotificationError("user_not_found", 404)
+        person = _person_for_key(cursor, target_key)
+        text = notifications_service.clean_text(payload.get("text") or payload.get("message"))
+        links = notifications_service.clean_links(payload.get("links"))
+        image_key = notifications_service.clean_image_key(payload.get("image_key"))
+        thread_id = notifications_service.admin_thread_for(cursor, person)
+        notification_id, message_id, chat, delivery = _admin_write_to_person(
+            cursor, actor, person, thread_id, text=text, links=links, image_key=image_key,
+            channels=payload.get("channels"))
+        _admin_audit(cursor, actor, "message_sent", target_key, {},
+                     {"thread_id": thread_id, "notification_id": notification_id, "channels": delivery["channels"],
+                      "length": len(text)}, "")
+        return notification_id, message_id, chat, delivery, text, links, image_key, thread_id
+
+    notification_id, message_id, chat, delivery, text, links, image_key, thread_id = await asyncio.to_thread(
+        _notifications_run, work)
+    if chat:
+        delivery = await _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, image_key, links)
+    return {"ok": True, "thread_id": thread_id, "message_id": message_id, "delivery": delivery}
+
+
+def _admin_block_change(payload, request, *, lift):
+    def _sync():
+        actor = _admin_actor(payload, request, "users.ban")
+        reason, extra = _admin_reason_fields(payload)
+        if not reason:
+            raise HTTPException(status_code=400, detail="reason_required")
+        ensure_admin_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            target_key = _admin_resolve_target(cursor, payload)
+            if not target_key:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            account_id = user_access_service.account_for_key(cursor, target_key)
+            if not lift:
+                cursor.execute("SELECT 1 FROM admin_accounts WHERE account_id = %s AND status = 'active' AND role = 'owner'",
+                               (account_id or 0,))
+                if cursor.fetchone():
+                    raise HTTPException(status_code=409, detail="owner_cannot_be_blocked")
+            try:
+                if lift:
+                    before = user_access_service.active_block(cursor, account_id=account_id, user_key=target_key)
+                    user_access_service.unblock(cursor, account_id=account_id, user_key=target_key, reason=reason,
+                                                admin_id=actor.get("admin_id"))
+                    _admin_audit(cursor, actor, "user_unblocked", target_key, {"blocked": True,
+                                 "block_id": (before or {}).get("id")}, dict({"blocked": False}, **extra), reason,
+                                 risk="high")
+                else:
+                    block_id = user_access_service.block(cursor, account_id=account_id, user_key=target_key,
+                                                         reason=reason, note=extra.get("note", ""),
+                                                         admin_id=actor.get("admin_id"))
+                    _admin_audit(cursor, actor, "user_blocked", target_key, {"blocked": False},
+                                 dict({"blocked": True, "block_id": block_id}, **extra), reason, risk="high")
+            except user_access_service.AccessError as exc:
+                raise HTTPException(status_code=exc.status, detail=exc.code)
+            conn.commit()
+            return target_key, user_access_service.active_block(cursor, account_id=account_id, user_key=target_key)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+    return _sync
+
+
+@app.post("/api/admin/users/block")
+async def admin_user_block(request: Request):
+    payload = await request.json()
+    _, block = await asyncio.to_thread(_admin_block_change(payload, request, lift=False))
+    _ACCESS_CACHE.clear()
+    return {"ok": True, "block": block}
+
+
+@app.post("/api/admin/users/unblock")
+async def admin_user_unblock(request: Request):
+    payload = await request.json()
+    await asyncio.to_thread(_admin_block_change(payload, request, lift=True))
+    _ACCESS_CACHE.clear()
+    return {"ok": True, "block": None}
+
+
+@app.get("/api/public/account/status")
+async def public_account_status(request: Request):
+    """Whether the signed-in caller is blocked, and why - every surface
+    asks on start so it can explain a restriction instead of failing."""
+    uid = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not uid:
+        raise HTTPException(status_code=401, detail="auth_required")
+    block = await asyncio.to_thread(_account_block_sync, uid)
+    return {"ok": True, **user_access_service.public_status(block)}
+
+
+@app.get("/api/public/notifications/awards")
+async def public_notification_awards(request: Request):
+    """Credits, a subscription or a role SYLVEX gave this person that they
+    have not seen yet - each shown once as a centered card."""
+    def work(cursor):
+        person = _request_person(cursor, request)
+        return notifications_service.pending_awards(cursor, account_id=person["account_id"],
+                                                    user_key=person["user_key"])
+
+    items = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items}
+
+
+ROLE_AWARD_LABELS = {"administrator": "Администратор", "finance": "Финансовый администратор",
+                     "support": "Поддержка", "moderator": "Модератор", "analyst": "Аналитик",
+                     "read_only": "Наблюдатель"}
+
+
+@app.post("/api/admin/v2/users/role")
+async def admin_v2_user_role(request: Request):
+    """"Assign role" from the user card (owner only): makes the person an
+    admin with that role, changes it, or removes it (role ""). The same
+    admin_accounts row the Admins section edits, so both stay in sync."""
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "admins.permissions.edit", mutation=True)
+        if actor["role"] != admin_rbac.OWNER:
+            raise admin_auth.AdminAuthError("owner_access_required", 403)
+        reason = _admin_v2_reason(body)
+        account_id = admin_auth.canonical_account(cursor, body.get("sylvex_user_id"))
+        if not account_id:
+            raise admin_auth.AdminAuthError("account_not_found", 404)
+        role = str(body.get("role") or "").strip()
+        existing = admin_auth.load_admin(cursor, account_id=account_id)
+        if not role:
+            if not existing or existing["status"] == "revoked":
+                raise admin_auth.AdminAuthError("admin_not_found", 404)
+            admin = admin_auth.update_admin(cursor, actor, existing["admin_id"], status="revoked", reason=reason)
+        elif existing:
+            admin = admin_auth.update_admin(cursor, actor, existing["admin_id"], role=role, status="active",
+                                            reason=reason)
+        else:
+            admin = admin_auth.create_admin(cursor, actor, account_id, role, [], [], reason)
+        if role:
+            person = notifications_service.resolve_person(cursor, f"a:{account_id}")
+            label = ROLE_AWARD_LABELS.get(role, role)
+            _admin_award(cursor, person, {"type": "role", "role": role, "label": label},
+                         f"Вам назначена роль «{label}» в команде SYLVEX.", actor)
+        return {"ok": True, "admin": admin_auth.public_admin(admin) if admin else None}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
 
 
 REFERENCES_SCHEMA_READY = False

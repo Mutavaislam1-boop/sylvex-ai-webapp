@@ -77,3 +77,20 @@ export const roleLabel = (role: string) => t(ROLES[role] || role);
 
 const CHANNELS: Record<string, string> = { web: "Browser", miniapp: "Telegram Mini App", bot: "Bot", miniapp_legacy: "Telegram Mini App" };
 export const channelLabel = (channel: string) => t(CHANNELS[channel] || channel);
+
+const REASONS: Record<string, string> = {
+  test: "Test grant", error_compensation: "Error compensation", bonus: "Bonus", promo: "Promotion",
+  gift: "Gift to the user", refund: "Refund", management_decision: "Individual management decision",
+  hire: "Joined the team", role_change: "Change of duties", access_review: "Access review",
+  offboarding: "Left the team", other: "Other",
+};
+export const reasonLabel = (code: string) => t(REASONS[code] || code);
+
+// Audit actions as the team reads them; unknown ones show their code.
+const ACTIONS: Record<string, string> = {
+  balance_changed: "Credits changed", subscription_changed: "Subscription changed", message_sent: "Message sent",
+  message_failed: "Message not delivered", support_reply_sent: "Reply in Messages", user_blocked: "User blocked",
+  user_unblocked: "User unblocked", admin_created: "Became an admin", admin_updated: "Admin access changed",
+  broadcast_sent: "Announcement sent", generation_recovered: "Generation recovered", generation_refunded: "Generation refunded",
+};
+export const actionLabel = (action: string) => (ACTIONS[action] ? t(ACTIONS[action]) : action);
