@@ -150,3 +150,18 @@ test('real Telegram initialization retains the native download mechanism and nev
   await assert.rejects(h.ctx.downloadOneGenerationImage(state(),2));
   assert.equal(h.calls.fetch.length,0);
 });
+
+test('opening a photo picker never anchors to the lower page or scrolls the composer into focus', () => {
+  const focus=[];
+  const picker={hidden:true,style:{},querySelector:()=>({focus:options=>focus.push(options)})};
+  const h=harness({ensureGenerationImageDownloadPicker:()=>picker,renderGenerationImageDownloadPicker(){}});
+  h.load('openGenerationImageDownloadPicker');
+  const anchor={getBoundingClientRect(){assert.fail('centred picker must not depend on the card position');}};
+  h.ctx.openGenerationImageDownloadPicker(null,{jobId:'owned-job',images,anchor});
+  assert.equal(picker.hidden,false);
+  assert.equal(picker._generationDownloadState.images.length,4);
+  assert.equal(picker.style.left,undefined);
+  assert.equal(picker.style.top,undefined);
+  assert.equal(focus.length,1);
+  assert.equal(focus[0].preventScroll,true);
+});
