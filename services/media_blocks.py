@@ -117,14 +117,22 @@ def _label(model_id):
     return re.sub(r"(?<=\d) (?=\d)", ".", " ".join(words))
 
 
-def model_catalog(capabilities, *, seedream=None, image_available=None, labels=None):
+MODEL_STATUSES = ("available", "turned_off", "no_keys")
+
+
+def model_catalog(capabilities, *, seedream=None, labels=None, providers=None, status=None):
     """The image and video models a block can use, with what they accept:
     [{id, label, generation, provider, accepts_images, max_images,
-    accepts_video, start_frame, ratios, durations, resolutions, available}].
-    `image_available` is the set of image models whose provider is
-    configured (None when that is unknown)."""
+    accepts_video, start_frame, ratios, durations, resolutions, status,
+    available}]. Every model comes from the same capability registry the
+    apps generate with, so it is "available" unless `status` (model id ->
+    one of MODEL_STATUSES) says an admin turned it off or its provider's
+    keys are missing. `providers` names the provider of models the
+    registry lists without one (image models)."""
     seedream = seedream or {}
     labels = labels or {}
+    providers = providers or {}
+    status = status or {}
     out = []
     for model_id, cap in sorted(capabilities.items()):
         category = cap.get("category")
@@ -145,15 +153,13 @@ def model_catalog(capabilities, *, seedream=None, image_available=None, labels=N
             accepts_video = bool(inputs.get("accepts_video") or cap.get("video_input") or cap.get("motion_reference"))
         if cap.get("avatar"):
             continue
-        available = None
-        if category == "image" and image_available is not None:
-            available = model_id in image_available
+        state = status.get(model_id) if status.get(model_id) in MODEL_STATUSES else "available"
         out.append({
             "id": model_id, "label": labels.get(model_id) or cap.get("label") or _label(model_id), "generation": category,
-            "provider": cap.get("provider") or "", "accepts_images": accepts, "max_images": max_images,
+            "provider": cap.get("provider") or providers.get(model_id) or "", "accepts_images": accepts, "max_images": max_images,
             "accepts_video": accepts_video, "start_frame": bool(cap.get("start_frame")),
             "ratios": list(cap.get("ratios") or []), "durations": list(cap.get("durations") or []),
-            "resolutions": list(cap.get("resolutions") or []), "available": available,
+            "resolutions": list(cap.get("resolutions") or []), "status": state, "available": state == "available",
         })
     return out
 
@@ -189,6 +195,8 @@ def problems(block, models):
         out.append(("model_unknown", block.get("model")))
     elif model["generation"] != config.get("generation"):
         out.append(("model_wrong_type", model["generation"]))
+    elif model.get("status") == "no_keys":
+        out.append(("model_no_keys", model["id"]))
     for field in fields:
         if not field.get("label"):
             out.append(("field_label_required", field["key"]))

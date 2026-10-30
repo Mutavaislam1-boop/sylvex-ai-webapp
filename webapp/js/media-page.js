@@ -316,8 +316,23 @@
     else media.style.removeProperty('--catalog-backdrop');
   }
 
+  var BLOCK_OPTIONS = {
+    base: BASE, lang: 'en',
+    onShop: function () { window.location.href = '/store.html'; },
+    onLogin: function () { window.location.href = '/login.html?next=' + encodeURIComponent(window.location.pathname + window.location.search); },
+  };
+  function openBlock(block) {
+    var bridge = window.SylvexStudioBridge;
+    if (bridge && typeof bridge.openBlock === 'function') { bridge.openBlock(block); return; }
+    if (window.SylvexMediaBlocks) window.SylvexMediaBlocks.open(block, BLOCK_OPTIONS);
+  }
+
   function openViewer(entry) {
     resetMediaForAccount();
+    // A Media block has its own window with the fields its admin set up, and
+    // runs with its own model and prompt. The Mini App opens it its own way
+    // (sign-in, store); the website with BLOCK_OPTIONS.
+    if (entry.block) { openBlock(entry.block); return; }
     var dialog = $('sxMediaViewer');
     var cat = MEDIA.category(entry.category);
     current = entry;

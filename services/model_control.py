@@ -14,33 +14,41 @@ from __future__ import annotations
 import os
 import re
 
-# Credentials each provider reads (the same names the providers use).
+# Credentials each provider reads - every name its integration accepts
+# (main.py, services/video_router.py), the dashed spellings included.
+_BYTEPLUS = ("BYTEPLUS_ARK_API_KEY", "BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "ARK_API_KEY")
+_GOOGLE = ("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY", "GOOGLE-GEMINI-API-KEY")
+_XAI = ("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
+_DASHSCOPE = ("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY", "ALIBABA_API_KEY")
+_FLUX = ("BFL_API_KEY", "FLUX_API_KEY", "FLUX-API-KEY")
 PROVIDER_ENV = {
     "openai": ("OPENAI_API_KEY",),
     "sora": ("OPENAI_API_KEY",),
     "kling": ("KLING_API_KEY", "KLING_ACCESS_KEY"),
     "runway": ("RUNWAY_API_KEY", "RUNWAYML_API_SECRET", "RUNWAYML_API_KEY"),
-    "bytedance": ("BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "BYTEPLUS_ARK_API_KEY", "ARK_API_KEY"),
-    "byteplus": ("BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "BYTEPLUS_ARK_API_KEY", "ARK_API_KEY"),
-    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-    "google": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-    "veo": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-    "grok": ("XAI_API_KEY",),
-    "xai": ("XAI_API_KEY",),
+    "bytedance": _BYTEPLUS,
+    "byteplus": _BYTEPLUS,
+    "gemini": _GOOGLE,
+    "google": _GOOGLE,
+    "veo": _GOOGLE,
+    "grok": _XAI,
+    "xai": _XAI,
     "luma": ("LUMA_AGENTS_API_KEY", "LUMA_API_KEY"),
     "minimax": ("MINIMAX_API_KEY",),
     "pixverse": ("PIXVERSE_API_KEY",),
     "heygen": ("HEYGEN_API_KEY",),
-    "elevenlabs": ("ELEVENLABS_API_KEY",),
+    "elevenlabs": ("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY"),
     "fal": ("FAL_KEY", "FAL_API_KEY"),
-    "bfl": ("BFL_API_KEY", "FLUX_API_KEY"),
-    "flux": ("BFL_API_KEY", "FLUX_API_KEY"),
+    "bfl": _FLUX,
+    "flux": _FLUX,
     "fashn": ("FASHN_API_KEY",),
     "topaz": ("TOPAZ_API_KEY",),
-    "dashscope": ("DASHSCOPE_API_KEY",),
-    "qwen": ("DASHSCOPE_API_KEY",),
-    "wan": ("DASHSCOPE_API_KEY",),
+    "dashscope": _DASHSCOPE,
+    "qwen": _DASHSCOPE,
+    "wan": _DASHSCOPE,
     "hedra": ("HEDRA_API_KEY",),
+    "ideogram": ("IDEOGRAM_API_KEY", "IDEOGRAM-API-KEY"),
+    "recraft": ("RECRAFT_API_KEY", "RECRAFT-API-KEY"),
 }
 FAILED = ("failed", "cancelled", "canceled", "timeout", "timed_out")
 # SYLVEX rule: credits = provider cost (USD) x 1.5 x 100, rounded up.
@@ -61,8 +69,9 @@ def configured(provider):
 
 
 def provider_state(is_configured, runs, completed, failed):
-    """"not_configured" | "no_data" | "working" | "errors"."""
-    if is_configured is False:
+    """"not_configured" | "no_data" | "working" | "errors". Real successful
+    generations prove the provider works whatever the key check says."""
+    if is_configured is False and not completed:
         return "not_configured"
     if not runs:
         return "no_data"

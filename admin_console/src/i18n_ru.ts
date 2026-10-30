@@ -779,9 +779,7 @@ export const RU: Record<string, string> = {
   "no video input": "без входа для видео",
   "start frame": "стартовый кадр",
   "s": "с",
-  "Provider not configured": "Провайдер не настроен",
   "Available": "Доступна",
-  "No data on availability": "Нет данных о доступности",
   "Draft saved": "Черновик сохранён",
   "Published: users see it now": "Опубликовано: пользователи уже видят блок",
   "Fix the problems below before publishing.": "Перед публикацией исправьте замечания ниже.",
@@ -795,7 +793,6 @@ export const RU: Record<string, string> = {
   "Makes an image": "Создаёт изображение",
   "Makes a video": "Создаёт видео",
   "Choose a model": "Выберите модель",
-  "not configured": "не настроена",
   "Aspect ratio": "Соотношение сторон",
   "Default": "По умолчанию",
   "Duration": "Длительность",
@@ -1065,4 +1062,9 @@ export const RU: Record<string, string> = {
   "Staff and permissions": "Сотрудники и права",
   "Media and content": "Media и контент",
   "Sign-in and security": "Вход и безопасность",
+
+  // --- Media: model state ---
+  "Turned off in Models": "Отключена в разделе «Модели»",
+  "Provider keys missing": "Нет ключей провайдера",
+  "The keys of this model's provider are not set on the server, so it cannot generate yet.": "Ключи провайдера этой модели не заданы на сервере, поэтому она пока не может генерировать.",
 };
