@@ -88,6 +88,7 @@ def probe_video_bytes(content: bytes, suffix: str) -> Optional[dict]:
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30, check=False,
         )
         meta = parse_ffmpeg_info((completed.stderr or b"").decode("utf-8", "ignore"))
+        if meta: meta.update(parse_ffmpeg_stream_info((completed.stderr or b"").decode("utf-8", "ignore")))
     except Exception as exc:
         print("VIDEO PROBE FAILED:", type(exc).__name__)
         return None
@@ -114,6 +115,7 @@ def probe_video_file(path, suffix: str, size_bytes: int = 0) -> Optional[dict]:
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30, check=False,
         )
         meta = parse_ffmpeg_info((completed.stderr or b"").decode("utf-8", "ignore"))
+        if meta: meta.update(parse_ffmpeg_stream_info((completed.stderr or b"").decode("utf-8", "ignore")))
     except Exception as exc:
         print("VIDEO PROBE FAILED:", type(exc).__name__)
         return None

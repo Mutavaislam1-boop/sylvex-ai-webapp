@@ -23,8 +23,8 @@ const index = read('webapp/index.html');
 test('the Mini App loads the reference panel with fresh pins', () => {
   assert.match(index, /<link rel="stylesheet" href="css\/reference-panel\.css\?v=ref-panel-20261027" \/>/);
   assert.match(index, /<script src="js\/reference-panel\.js\?v=ref-panel-20261027"><\/script>/);
-  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=tz4b-20261029" \/>/);
-  assert.match(index, /<script src="js\/cabinet\.js\?v=tz4b-20261029"><\/script>/);
+  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=catalog-v1-20261030d" \/>/);
+  assert.match(index, /<script src="js\/cabinet\.js\?v=catalog-v1-20261030e"><\/script>/);
 });
 
 test('the composer: prompt first, then +, Video / Photo (video by default), mic, send; tools below', () => {
@@ -39,7 +39,7 @@ test('the composer: prompt first, then +, Video / Photo (video by default), mic,
 });
 
 test('only tapping into the prompt opens the panel: Motion repeat or Photo from reference, 3 columns, 2 rows', () => {
-  assert.match(js, /const HOME_IDEA_PANEL_TITLES = \{ video: 'Повтор движения', photo: 'Фото по референсу' \};/);
+  assert.match(js, /const HOME_IDEA_PANEL_TITLES = \{ video: 'Замена персонажа в видео', photo: 'Фото по референсу' \};/);
   assert.match(js, /input\?\.addEventListener\('focus', openHomeIdeaPanel\);/);
   assert.match(js, /anchor: field, layout: 'grid', cols: 3, rows: 2, closeLabel: 'Закрыть'/);
   assert.match(js, /'<button type="button" class="home-idea-upload" data-home-idea-upload><span>＋<\/span>Загрузите любое изображение<\/button>'/);
@@ -47,7 +47,9 @@ test('only tapping into the prompt opens the panel: Motion repeat or Photo from 
 
 test('a reference + the photo runs that reference\'s own generation; otherwise the router as before', () => {
   assert.match(js, /\? \{ kind: 'video_template', itemId: ref\.id, upload, aspect: ref\.aspect \}\n\s+: \{ kind: 'image', itemId: ref\.id, upload \};/);
-  assert.match(js, /if \(!await runMediaGeneration\(request\)\) return;/);
+  assert.match(js, /request\.stayHome=true/);
+  assert.match(js, /catalog-result-slot/);
+  assert.match(js, /homeCatalogResult=\{kind:/);
   assert.match(js, /if \(homeIdeaRef\) generateHomeIdeaRef\(\); else sendHomeIdea\(\);/);
   assert.match(js, /async function runMediaGeneration\(request\) \{/);
   assert.match(js, /const url = await uploadProStudioMediaFile\(file, 'image'\);/);

@@ -10614,6 +10614,32 @@ async def admin_recover_prostudio_job(job_id: str, request: Request):
 # Маршрут FastAPI: @app.get("/api/public/prostudio/job/{job_id}")
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
+@app.get("/api/public/prostudio/request/{client_request_id}")
+async def public_prostudio_request_job(client_request_id: str):
+    """Recover an acknowledged-or-interrupted submission without resubmitting it."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", client_request_id):
+        return JSONResponse({"ok": False, "error": "invalid_request_id"}, status_code=400)
+    owner = actor_id.get()
+    if not owner:
+        return telegram_id_required_response()
+    def lookup():
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT id FROM prostudio_generation_jobs
+                    WHERE telegram_id = %s AND request_json->>'client_request_id' = %s
+                    ORDER BY created_at DESC LIMIT 1
+                """, (owner, client_request_id))
+                row = cursor.fetchone()
+                return row[0] if row else ""
+            finally:
+                cursor.close()
+    job_id = await asyncio.to_thread(lookup)
+    return {"ok": True, "job_id": job_id}
+
+
+
 @app.get("/api/public/prostudio/job/{job_id}")
 async def public_prostudio_job(job_id: str):
     if not DATABASE_URL:
@@ -21685,6 +21711,11 @@ def validate_video_feature_request(payload: dict) -> Optional[dict]:
     # - so the two can never independently drift.
     opts = payload.get("video_options") or payload.get("options") or {}
     model = (opts.get("model") or payload.get("model") or "").strip()
+    from services.catalog_video import is_catalog_video_edit
+    if is_catalog_video_edit(opts) and not any(opts.get(key) for key in (
+        "start_image", "image_url", "character_image", "reference_images", "referenceImageUrls", "characterReferences", "objectReferences",
+    )):
+        return {"ok": False, "type": "video", "error": "Choose a character/object or upload its appearance image before replacing it in the catalog video.", "model": model}
     reference_support = model_capabilities_service.video_character_object_visual_reference_supported(model)
     has_character_visual_reference = bool(opts.get("characterReferences"))
     has_object_visual_reference = bool(opts.get("objectReferences"))
@@ -21794,8 +21825,30 @@ def _reference_video_meta(url: str) -> dict:
     except Exception:
         probed = None
     if probed:
-        meta.update({k: probed[k] for k in ("bytes", "duration", "width", "height", "extension") if probed.get(k) not in (None, "")})
+        meta.update({k: probed[k] for k in ("bytes", "duration", "width", "height", "extension", "fps", "has_audio") if probed.get(k) not in (None, "")})
     return meta
+
+
+def _catalog_reference_video_meta(url: str) -> dict:
+    """Probe only a selected owned catalog asset; no arbitrary URL fetches."""
+    from urllib.parse import urlparse
+    from services.storage import head_object
+    path = urlparse(url).path
+    if re.fullmatch(r"/webapp/assets/video-templates/[A-Za-z0-9_-]+/preview\.(mp4|mov)", path):
+        source = WEBAPP_DIR / path.removeprefix("/webapp/")
+        if source.is_file():
+            return video_probe.probe_video_file(source, source.suffix) or {}
+    key = storage_key_from_url(url)
+    if not key:
+        return {}
+    try:
+        info = head_object(key)
+        size = int(info.get("ContentLength") or info.get("size") or 0)
+        if not size or size > 200 * 1024 * 1024:
+            return {"bytes":size} if size else {}
+        return video_probe.probe_video_bytes(storage_read_bytes(key), video_probe.url_extension(url)) or {}
+    except Exception:
+        return {}
 
 
 def _video_reference_inputs_summary(opts: dict, payload: Optional[dict] = None) -> dict:
@@ -21857,7 +21910,11 @@ async def validate_reference_video_media(payload: dict) -> Optional[dict]:
     facts the server cannot know (no probe sidecar), are not checked."""
     opts = payload.get("video_options") or payload.get("options") or {}
     model = (opts.get("model") or payload.get("model") or "").strip()
-    capability = model_capabilities_service.get_capability(model)
+    from services.catalog_video import is_catalog_video_edit
+    # The catalog retains its billing/model alias, but actually dispatches
+    # Kling 3 Omni base_video edit. Motion Control keeps its own limits.
+    limit_model = "kling_o3_omni" if model == "kling_motion_3_0" and is_catalog_video_edit(opts) else model
+    capability = model_capabilities_service.get_capability(limit_model)
     limits = capability.reference_inputs if capability else None
     if not limits or not limits.accepts_video:
         return None
@@ -21875,6 +21932,15 @@ async def validate_reference_video_media(payload: dict) -> Optional[dict]:
     orientation = str(opts.get("character_orientation") or ((opts.get("video_template") or {}).get("character_orientation") if isinstance(opts.get("video_template"), dict) else "") or "image")
     for url in urls:
         meta = await asyncio.to_thread(_reference_video_meta, url)
+        if is_catalog_video_edit(opts) and not meta.get("duration"):
+            meta = await asyncio.to_thread(_catalog_reference_video_meta, url)
+            limit_error = video_probe.reference_video_limit_error(limits, meta, orientation=orientation)
+            if limit_error:
+                return {"ok": False, "type": "video", "error": limit_error, "model": model}
+            if not meta.get("duration"):
+                return {"ok": False, "type": "video", "error": "Cannot verify the source video. Choose an available catalog video or upload it again before generation.", "model": model}
+        if is_catalog_video_edit(opts) and meta.get("fps") and not 24 <= float(meta["fps"]) <= 60:
+            return {"ok": False, "type": "video", "error": "Kling 3.0 Omni catalog edit requires a 24–60 fps source video. The source has not been trimmed or converted.", "model": model}
         error = video_probe.reference_video_limit_error(limits, meta, orientation=orientation)
         if error:
             return {"ok": False, "type": "video", "error": error, "model": model}

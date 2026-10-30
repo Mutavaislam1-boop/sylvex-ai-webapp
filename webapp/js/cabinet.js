@@ -7,6 +7,10 @@
 // Pro Studio chat workspace, support modal, hero carousel, pricing logic.
 (function () {
   const S = (window.SYLVEX = window.SYLVEX || {});
+  let resolveStudioAccountReady;
+  const studioAccountReady = new Promise(resolve => { resolveStudioAccountReady = resolve; });
+  S.whenProStudioReady = async () => { await studioAccountReady; await S.currentAccountLoad; };
+
   // Pro Studio state.
   let studioMode = 'pro';
 
@@ -2832,7 +2836,8 @@ function renderVideoControls() {
   const composer = document.getElementById('studioComposer');
   if (composer) composer.dataset.videoSection = videoState.section || 'generate';
 
-  if (isVideoMode() && model) updateComposerModelDisplay(model);
+  const catalogBaseEdit = videoState.videoTemplate && videoState.section === 'edit' && videoState.videoTemplate.catalog_type !== 'kling_effect';
+  if (isVideoMode() && model) updateComposerModelDisplay(catalogBaseEdit ? Object.assign({}, model, {label:'Kling 3.0 Omni · video edit'}) : model);
 
   const sizeVal = document.getElementById('imageSizeVal');
   if (sizeVal) sizeVal.textContent = videoOptionLabel('ratio', videoState.ratio);
@@ -2848,14 +2853,17 @@ function renderVideoControls() {
   if (countVal) countVal.textContent = videoOptionLabel('duration', videoState.duration);
 
   const durationVal = document.getElementById('videoDurationVal');
-  if (durationVal) durationVal.textContent = videoOptionLabel('duration', videoState.duration);
+  if (durationVal) {
+    durationVal.textContent = catalogBaseEdit ? 'Source duration' : videoOptionLabel('duration', videoState.duration);
+    const control = durationVal.closest('button'); if (control) control.disabled = !!catalogBaseEdit;
+  }
 
   const resolutionVal = document.getElementById('videoResolutionVal');
   if (resolutionVal) resolutionVal.textContent = videoState.resolution || '720p';
 
   const soundVal = document.getElementById('videoSoundVal');
   if (soundVal) {
-    soundVal.textContent = videoState.sound ? 'Звук ON' : 'Звук OFF';
+    soundVal.textContent = catalogBaseEdit ? 'Original audio' : (videoState.sound ? 'Звук ON' : 'Звук OFF');
     const soundBtn = soundVal.closest('button');
     if (soundBtn) {
       soundBtn.classList.toggle('video-sound-on', !!videoState.sound);
@@ -5161,9 +5169,23 @@ function localizedGreeting() {
     return chatMessages.findIndex((message) => message && message.activeGenerationToken === activeGeneration.loadingToken);
   }
 
+  function disposeGenerationPlaceholder(message) {
+    const key = message && message.thoughtKey;
+    if (!key) return;
+    const entry = generationThoughtLines.get(key);
+    if (entry) { clearTimeout(entry.paceTimer); entry.handle?.unmount(); generationThoughtLines.delete(key); }
+    chatThoughtTracks.delete(key);
+    generationThoughtJobs.forEach(bound => bound.delete(key));
+  }
+
   function adoptActiveGenerationPlaceholder(index) {
     const message = chatMessages[index];
     if (!message || !message.generationLoading) return -1;
+    if (activeGeneration.jobId && message.generationJobId !== activeGeneration.jobId && message.activeGenerationToken !== activeGeneration.loadingToken) {
+      disposeGenerationPlaceholder(message);
+      Object.assign(message, generationLoadingThought(activeGeneration.mode));
+    }
+    if (activeGeneration.jobId) message.generationJobId = activeGeneration.jobId;
     if (!activeGeneration.loadingToken) activeGeneration.loadingToken = 'active_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     message.activeGenerationToken = activeGeneration.loadingToken;
     message.generationStatus = activeGeneration.status;
@@ -5175,6 +5197,16 @@ function localizedGreeting() {
   function ensureActiveGenerationPlaceholder(renderNow) {
     if (!activeGeneration.locked) return -1;
     let index = activeGenerationPlaceholderIndex();
+    if (index < 0 && activeGeneration.jobId) {
+      // A restored document has a new local token. Adopt the server job's
+      // existing pending row instead of appending another animation.
+      for (let i = chatMessages.length - 1; i >= 0; i--) {
+        const message = chatMessages[i];
+        if (message?.generationLoading && (!message.generationJobId || message.generationJobId === activeGeneration.jobId)) {
+          index = adoptActiveGenerationPlaceholder(i); break;
+        }
+      }
+    }
     if (index < 0) {
       if (!activeGeneration.loadingToken) activeGeneration.loadingToken = 'active_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       const message = activeGeneration.placeholderMessage || {
@@ -5190,6 +5222,17 @@ function localizedGreeting() {
       if (!message.thoughtKey) Object.assign(message, generationLoadingThought(activeGeneration.mode));
       activeGeneration.placeholderMessage = message;
       index = chatMessages.push(message) - 1;
+    }
+    if (activeGeneration.jobId && index >= 0) {
+      const canonical = chatMessages[index];
+      canonical.generationJobId = activeGeneration.jobId;
+      chatMessages = chatMessages.filter(message => {
+        const duplicate = message !== canonical && message?.generationLoading && (!message.generationJobId || message.generationJobId === activeGeneration.jobId);
+        if (duplicate) disposeGenerationPlaceholder(message);
+        return !duplicate;
+      });
+      index = chatMessages.indexOf(canonical);
+      activeGeneration.placeholderMessage = canonical;
     }
     if (renderNow) renderChat();
     return index;
@@ -5250,6 +5293,7 @@ function localizedGreeting() {
     persistActiveGeneration();
     if (activeGeneration.placeholderMessage) {
       activeGeneration.placeholderMessage.generationStatus = activeGeneration.status;
+      if (activeGeneration.jobId) activeGeneration.placeholderMessage.generationJobId = activeGeneration.jobId;
     }
     updateSendButton();
     return true;
@@ -5337,8 +5381,18 @@ function localizedGreeting() {
   // ОЖИДАНИЕ JOB: watchGenerationJob
   // Опрашивает backend до финального статуса и обновляет карточку генерации в чате.
   // =====================================================
+  const deliveredGenerationJobs = new Map();
+  S.completedCatalogResult = jobId => deliveredGenerationJobs.get(localAccountStorageOwner() + ':' + jobId) || null;
+  function emitGenerationResultOnce(result) {
+    const data = result || {}, id = String(data.job_id || '');
+    const key = localAccountStorageOwner() + ':' + id;
+    if (id && deliveredGenerationJobs.has(key)) return;
+    if (id) deliveredGenerationJobs.set(key, data);
+    window.dispatchEvent(new CustomEvent('sylvex:generation-result', {detail:data}));
+  }
+  const submittedGenerationJobs = new Set();
   function watchGenerationJob(jobId, jobInfo) {
-    if (!jobId || activeGenerationWatchers.has(jobId)) return;
+    if (!jobId || submittedGenerationJobs.has(jobId) || activeGenerationWatchers.has(jobId)) return;
     applyActiveProStudioJob(Object.assign({}, jobInfo || {}, { id: jobId, status: (jobInfo && jobInfo.status) || 'queued' }));
     activeGenerationWatchers.add(jobId);
     const controller = new AbortController();
@@ -5378,7 +5432,8 @@ function localizedGreeting() {
   });
 
   function renderRestoredActiveGenerationResult(result, jobInfo) {
-    const data = result || {};
+    const data = Object.assign({}, result || {});
+    if (!data.frontend_model && jobInfo.model) data.frontend_model = jobInfo.model;
     const mode = chatTypeForMode(activeGeneration.mode || jobInfo.mode || data.type || currentChatType());
     activeGeneration.restoringMode = true;
     if (currentChatType() !== mode) updateComposerMode(mode);
@@ -6177,7 +6232,8 @@ function renderVideoEditPreview() {
     button.classList.remove('has-video-edit-preview');
     button.classList.remove('is-uploading');
     if (title) title.textContent = 'Загрузите видео-референс';
-    if (hint) hint.textContent = 'Длительность: 3–10 секунд';
+    const limits = currentReferenceVideoLimits();
+    if (hint) hint.textContent = limits && typeof limits.video_max_seconds === 'number' ? 'Input video: ' + (limits.video_min_seconds || 0) + '–' + limits.video_max_seconds + ' seconds' : 'Input video limits depend on the selected model';
     return;
   }
   if (!preview) {
@@ -7694,7 +7750,9 @@ function noteGenerationJob(jobId,job) {
   if(!bound||!job)return;
   const status=String(job.status||'').toLowerCase(),failed=['failed','cancelled','canceled','timeout','timed_out'].includes(status);
   bound.forEach((thought,key)=>{
-    applyGenerationThoughtProgress(thought,job.progress);
+    const progress = Object.assign({}, job.progress, {stages:Object.assign({}, job.progress && job.progress.stages)});
+    if (status !== 'completed') delete progress.stages.ready;
+    applyGenerationThoughtProgress(thought,progress);
     if(failed)finishGenerationThought(thought,true);
     showGenerationThought(key,thought);
   });
@@ -9074,7 +9132,7 @@ async function generateQuickImageDetail(e) {
   const customValues = {};
   document.querySelectorAll('#quickImageDetailFields [data-quick-image-field]').forEach((field) => { if (String(field.value || '').trim()) customValues[field.dataset.quickImageField] = String(field.value).trim(); });
   Object.assign(customValues, state.extraUploads || {});
-  if (state.source === 'quick') switchView('tools');
+  if (state.source === 'quick' && !(mediaGenerationRequest && mediaGenerationRequest.stayHome)) switchView('tools');
   updateComposerMode('image');
   // Catalog-driven generation always runs on GPT Image 2. Styles and
   // Objects use their catalog card only as a visible choice and obtain the
@@ -16782,15 +16840,15 @@ function imageModelButton(model) {
     const videoUrls = result ? generatedUrlsFromResponse(result, 'video') : [];
     const audioUrls = result ? generatedUrlsFromResponse(result, 'audio') : [];
     const options = optionsSnapshot || (result && (result.video_options || result.voice_options || result.music_options)) || (type === 'video' ? videoState : (type === 'music' ? musicOptionsPayload() : voiceState));
-    const modelId = (options && (options.model || options.modelId)) || pickStudioModel() || '';
-    const currentModel = type === 'video' ? currentVideoModel() : null;
+    const modelId = (optionsSnapshot && (optionsSnapshot.model || optionsSnapshot.modelId)) || (result && (result.frontend_model || result.model)) || (options && (options.model || options.modelId)) || pickStudioModel() || '';
+    const currentModel = type === 'video' ? (VIDEO_MODELS.find(item => item.id === modelId) || {label:modelId}) : null;
     const resultUrl = type === 'video' ? (videoUrls[0] || result.video_url || '') : (audioUrls[0] || musicAudioUrl(result || {}) || '');
     const coverUrl = type === 'music' ? musicCoverUrl(result || {}) : '';
     return {
       type,
       result_url: resultUrl,
       model: modelId,
-      model_label: (currentModel && (currentModel.label || currentModel.name)) || modelId,
+      model_label: type === 'video' && modelId === 'kling_motion_3_0' && options?.video_template?.catalog_type === 'video_template' ? 'Kling 3.0 Omni · video edit' : ((currentModel && (currentModel.label || currentModel.name)) || modelId),
       provider: (result && result.provider) || (type === 'video' ? currentVideoProvider() : (type === 'music' ? 'suno' : (type === 'voice' ? 'voice' : pickProviderHint()))),
       prompt: prompt || '',
       settings: Object.assign({}, options || {}),
@@ -20538,7 +20596,9 @@ function closeUploadPanel(e) {
   function currentReferenceVideoLimits() {
     if (!isVideoMode()) return null;
     const models = (typeof fetchedModelCapabilities !== 'undefined' && fetchedModelCapabilities && fetchedModelCapabilities.models) || null;
-    const entry = models ? models[String(videoState.modelId || '').trim()] : null;
+    const catalogEdit = videoState.modelId === 'kling_motion_3_0' && videoState.section === 'edit' && videoState.videoTemplate && videoState.videoTemplate.catalog_type !== 'kling_effect';
+    const entry = models ? models[catalogEdit ? 'kling_o3_omni' : String(videoState.modelId || '').trim()] : null;
+    if (catalogEdit && !entry) return KLING_OMNI_VIDEO_LIMITS_FALLBACK;
     const limits = entry && entry.reference_inputs;
     if (limits && limits.accepts_video) {
       const hasLimit = ['video_min_seconds', 'video_max_seconds', 'video_max_bytes', 'video_min_px', 'video_max_px']
@@ -21730,12 +21790,16 @@ function maybeShowVideoTemplateIntro(force) {
         generation_cost: item.generation_cost || (credits + ' ⚡'),
       }));
     });
-    incoming.forEach((item) => {
+    incoming.filter(item => item && item.video_exists !== false).forEach((item) => {
       if (!item || typeof item !== 'object') return;
       const id = String(item.id || '').trim();
       if (!id) return;
       const existing = byId.get(id) || {};
       const merged = Object.assign({}, existing, item);
+      // API-owned catalog assets must keep the API origin on the website.
+      ['preview_video', 'reference_video', 'video_url', 'template_video_url', 'poster_url'].forEach(key => {
+        if (merged[key] && typeof window.__sylvexWebsiteAssetUrl === 'function') merged[key] = window.__sylvexWebsiteAssetUrl(merged[key]);
+      });
       const credits = Number(merged.cost_credits || merged.cost || 0);
       byId.set(id, Object.assign({}, merged, {
         prompt: merged.prompt || merged.video_prompt || merged.description || merged.title || '',
@@ -21853,7 +21917,8 @@ function maybeShowVideoTemplateIntro(force) {
     const primary = catalogType === 'effects' ? effects : (catalogType === 'templates' ? templates : null);
     const template = (primary && primary.find((item) => String(item.id) === String(id)))
       || effects.concat(templates).find((item) => String(item.id) === String(id));
-    if (template) openVideoTemplateModal(template);
+    if (template && (template.is_kling_effect || template.catalog_type === 'kling_effect')) openVideoTemplateModal(template);
+    else if (template) void openMediaHandoff({kind:'video_template', itemId:template.id});
   }
 
   // =====================================================
@@ -21981,33 +22046,152 @@ function maybeShowVideoTemplateIntro(force) {
     return { item:null, section:'' };
   }
 
+  let mediaGenerationRequest = null;
   async function runMediaGeneration(request) {
+    if (mediaGenerationRequest || activeGenerationLocked()) return false;
+    mediaGenerationRequest = request || {};
+    try { return await runMediaGenerationCore(mediaGenerationRequest); }
+    finally { mediaGenerationRequest = null; }
+  }
+
+  async function runMediaGenerationCore(request) {
     const r = request || {};
     if (!r.upload) return false;
     if (/^video_/.test(String(r.kind || ''))) {
       const list = r.kind === 'video_effect' ? await loadKlingEffects() : (r.kind === 'video_template' ? await loadVideoTemplates() : []);
       const template = mediaVideoTemplate(r, list);
       if (!template) { toast('Этот шаблон сейчас недоступен', 'error'); return false; }
-      switchView('tools');
+      if (!r.stayHome) switchView('tools');
       updateComposerMode('video');
-      activeVideoTemplate = template;
+      activeVideoTemplate = Object.assign({}, template, {user_prompt:r.userPrompt || '', replacement_target:r.subjectKind === 'object' ? 'the main foreground object' : 'the main foreground character', resolution:r.resolution || template.resolution || '720p'});
       videoTemplateUploadUrl = r.upload;
       // The format the user picked on the Media page, if the template offers it.
       const ratios = videoTemplateRatios(template);
       videoTemplateRatio = ratios.includes(r.aspect) ? r.aspect : (ratios.includes(template.aspect_ratio) ? template.aspect_ratio : ratios[0]);
-      await startVideoTemplateGeneration();
-      return true;
+      return (await startVideoTemplateGeneration()) !== false;
     }
     const found = await mediaImageItem(r);
     const item = found.item || { id:r.itemId || '', url:r.image || '', title:r.title || 'Reference', description:'', prompt:r.prompt || '', kind:'references', source:'media' };
-    quickImageDetailState = { item, source:'quick', uploadedUrl:r.upload, previewUrl:'', uploading:false,
+    quickImageDetailState = { item, source:'quick', userPrompt:r.userPrompt || '', uploadedUrl:r.upload, previewUrl:'', uploading:false,
       extraUploads:Object.assign({}, r.extraUploads || {}), fields:Object.assign({}, r.fields || {}) };
-    switchView('tools');
+    if (!r.stayHome) switchView('tools');
     await generateQuickImageDetail(null);
     return true;
   }
 
+  async function restoreMediaAcceptedJob(r, mode) {
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(r.jobId || '')) return false;
+      const res = await fetch('/api/public/prostudio/job/' + encodeURIComponent(r.jobId), {cache:'no-store'});
+      const job = await res.json();
+      if (!res.ok || !job.ok) { toast('Could not restore this generation', 'error'); return false; }
+      const info = Object.assign({}, job, {id:r.jobId, mode, prompt:r.title || ''});
+      if (isActiveGenerationStatus(job.status)) {
+        applyActiveProStudioJob(info);
+        ensureActiveGenerationPlaceholder(true);
+        watchGenerationJob(r.jobId, info);
+      } else if (job.status === 'completed') {
+        transitionActiveGeneration('restore', Object.assign({}, info, {status:'processing'}));
+        ensureActiveGenerationPlaceholder(false);
+        const result = Object.assign({}, job.result, {job_id:r.jobId});
+        renderRestoredActiveGenerationResult(result, info);
+        emitGenerationResultOnce(result);
+      }
+      return true;
+  }
+
+  async function openMediaHandoff(request) {
+    await S.whenProStudioReady();
+    const r = Object.assign({}, request || {});
+    if (typeof window.__sylvexWebsiteAssetUrl === 'function') ['upload','image','video','resultUrl'].forEach(key => { if (r[key]) r[key] = window.__sylvexWebsiteAssetUrl(r[key]); });
+    const mode = /^video_/.test(String(r.kind || '')) ? 'video' : 'image';
+    switchView('tools');
+    closeVideoTemplatesCatalog();
+    closePhotoCatalog();
+    updateComposerMode(mode);
+    if (mode === 'video') {
+      const list = r.kind === 'video_effect' ? await loadKlingEffects() : (r.kind === 'video_template' ? await loadVideoTemplates() : []);
+      const template = r.resultUrl ? null : mediaVideoTemplate(r, list);
+      const effect = !!(template && (r.kind === 'video_effect' || template.is_kling_effect || template.catalog_type === 'kling_effect'));
+      const video = effect ? '' : (r.resultUrl || (template && videoTemplateReferenceVideo(template)) || r.video);
+      if (!video && !effect) return r.jobId ? restoreMediaAcceptedJob(r, mode) : false;
+      videoState.modelId = effect ? 'kling_effects' : (template ? templatePreferredModel(template) : 'kling_o3_omni');
+      videoState.provider = 'kling';
+      videoState.section = effect ? 'motion' : 'edit';
+      videoState.generationMode = videoState.mode = effect ? 'video_effects' : 'video_edit';
+      videoState.editInputVideo = videoState.editVideoUrl = videoState.inputVideo = videoState.videoUrl = video;
+      if (r.upload) {
+        videoState.startImage = r.upload;
+        setCurrentVideoReferenceImages([r.upload, ...currentVideoReferenceImages().filter(url => url !== r.upload)]);
+      }
+      setUploadTarget(UPLOAD_TARGETS.VIDEO_REFERENCES);
+      if (r.aspect) videoState.ratio = r.aspect;
+      if (r.resolution) videoState.resolution = r.resolution;
+      videoState.sound = true;
+      videoState.videoTemplate = template ? Object.assign({}, template, {
+        reference_video:video, catalog_type:effect ? 'kling_effect' : 'video_template', preferred_model:videoState.modelId,
+        replacement_target:r.subjectKind === 'object' ? 'the main foreground object' : 'the main foreground character',
+        user_prompt:r.userPrompt || '', resolution:r.resolution || template.resolution || '720p',
+      }) : null;
+      normalizeVideoStateForModel();
+      renderVideoControls();
+      renderUploadedPhotoGrid();
+    } else {
+      const found = !r.resultUrl && r.kind !== 'image_reference' && r.itemId ? await mediaImageItem(r) : {item:null};
+      const item = found.item;
+      const promptOnly = item && (item.kind === 'styles' || item.kind === 'objects');
+      const refs = currentUploadImages(UPLOAD_TARGETS.IMAGE_UPLOAD).slice();
+      [r.resultUrl || (!promptOnly && r.image), r.upload, ...Object.values(r.extraUploads || {})].filter(Boolean).forEach(url => {
+        if (!refs.includes(url)) refs.push(url);
+      });
+      setCurrentUploadImages(refs, UPLOAD_TARGETS.IMAGE_UPLOAD);
+      if (item) {
+        imageState.modelId = 'gpt_image_2';
+        if (item.kind === 'styles') imageState.style = item.styleId || item.id || 'auto';
+        const custom = Object.entries(r.fields || {}).map(([key,value]) => key + ': ' + value).join('\n');
+        const prompt = [item.prompt || r.prompt || '', custom].filter(Boolean).join('\n\n');
+        pendingCatalogImageGeneration = {prompt,displayPrompt:r.title || item.title || '',catalogUrl:item.url || r.image || '',userUrl:r.upload || '',itemId:item.id,kind:item.kind};
+        renderImageControls();
+      } else if (r.prompt) {
+        const input = document.getElementById('chatInput');
+        if (input && !input.value.trim()) input.value = r.prompt;
+      }
+    }
+    saveComposerDraftIfChanged();
+    updateSendButton();
+    // Applying materials is independent of restoring the existing job.
+    if (r.jobId && /^[A-Za-z0-9_-]{1,128}$/.test(r.jobId)) return restoreMediaAcceptedJob(r, mode);
+    return true;
+  }
+
+  let catalogVideoSubmitting = false;
+  function validateCatalogSourceVideo(template) {
+    const url=videoTemplateReferenceVideo(template);
+    if(!url)return Promise.resolve('The source video is unavailable');
+    return new Promise(resolve=>{
+      const video=document.createElement('video');video.preload='metadata';
+      let done=false;
+      const finish=error=>{if(done)return;done=true;clearTimeout(timer);video.removeAttribute('src');video.load();resolve(error);};
+      const timer=setTimeout(()=>finish('Could not verify the source video. Try again before generation.'),20000);
+      video.onloadedmetadata=()=>finish(referenceVideoMetadataError({duration:video.duration,width:video.videoWidth,height:video.videoHeight},KLING_OMNI_VIDEO_LIMITS_FALLBACK,'Kling 3.0 Omni catalog edit'));
+      video.onerror=()=>finish('The source video is unavailable');video.src=url;
+    });
+  }
   async function startVideoTemplateGeneration() {
+    if (guestNeedsAccount('create')) return false;
+    if(catalogVideoSubmitting||activeGenerationLocked())return false;
+    catalogVideoSubmitting=true;
+    try {
+      const template=activeVideoTemplate;
+      if(template && !template.is_kling_effect && template.catalog_type!=='kling_effect') {
+        const error=await validateCatalogSourceVideo(template);
+        if(error){toast(error,'error');return false;}
+      }
+      return await startVideoTemplateGenerationCore();
+    } finally {catalogVideoSubmitting=false;}
+  }
+
+  async function startVideoTemplateGenerationCore() {
+    if (activeGenerationLocked()) return false;
     if (guestNeedsAccount('create')) return;
     const template = activeVideoTemplate;
     if (!template) return;
@@ -22044,7 +22228,7 @@ function maybeShowVideoTemplateIntro(force) {
     videoState.ratio = selectedRatio;
     videoState.duration = Number(template.duration || 5);
     videoState.resolution = template.resolution || '720p';
-    videoState.sound = false;
+    videoState.sound = !isKlingEffect;
     videoState.startImage = uploadedImage;
     videoState.editInputVideo = isKlingEffect ? '' : referenceVideo;
     videoState.editVideoUrl = videoState.editInputVideo;
@@ -22067,6 +22251,8 @@ function maybeShowVideoTemplateIntro(force) {
     videoState.videoTemplate = {
       id: template.id || '',
       title: template.title || '',
+      user_prompt: template.user_prompt || '',
+      replacement_target: template.replacement_target || '',
       description: template.description || '',
       prompt: template.prompt || template.video_prompt || template.description || template.title || '',
       preview_video: template.preview_video || '',
@@ -22092,10 +22278,7 @@ function maybeShowVideoTemplateIntro(force) {
     const basePrompt = template.prompt || template.video_prompt || template.description || template.title || '';
     const promptText = isKlingEffect
       ? basePrompt
-      : [
-          basePrompt,
-          'Use the uploaded image as the appearance reference. Use the catalog video as the motion reference. Generate the result with the same motion from the video and the character or object appearance from the image.',
-        ].filter(Boolean).join('\n\n');
+      : 'Replace only the main character or object in @video_1 with the identity in @image_1. Preserve the original scene, other people, actions, timing, camera, full duration and audio. Do not generate a new scene.';
     chatMessages.push({
       role: 'user',
       text: promptLabel,
@@ -22111,13 +22294,16 @@ function maybeShowVideoTemplateIntro(force) {
     rememberCurrentChatSpace();
     document.body.classList.add('ai-generating');
 
+    transitionActiveGeneration('begin', {mode:'video', model:modelId});
+    adoptActiveGenerationPlaceholder(loadingIndex);
     const videoOptions = videoOptionsPayload([]);
     try {
       const start = await callGenerate(promptText, null, [], videoOptions, {
         loadingIndex,
       });
       const result = start.result || start;
-      chatMessages.splice(loadingIndex, 1, {
+      const resultIndex = activeGenerationPlaceholderIndex();
+      chatMessages.splice(resultIndex >= 0 ? resultIndex : loadingIndex, 1, {
         role: 'ai',
         imageResultMini: true,
         metadata: generationResultMetadata('video', promptLabel, result, [uploadedImage], videoOptions),
@@ -22451,9 +22637,17 @@ function maybeShowVideoTemplateIntro(force) {
 // and active-generation errors already carry their own distinct handling
 // and are left untouched.
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
+  const pendingIndex = generationOptions && generationOptions.loadingIndex;
+  if (Number.isInteger(pendingIndex) && chatMessages[pendingIndex]?.generationLoading) {
+    if (!activeGenerationLocked()) transitionActiveGeneration('begin', {mode:currentChatType(), model:pickStudioModel()});
+    adoptActiveGenerationPlaceholder(pendingIndex);
+  }
   try {
-    return await callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions);
+    const start = await callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions);
+    if (!(start && start.job_id)) { try { emitGenerationResultOnce((start && start.result) || start || {}); } catch (_) {} }
+    return start;
   } catch (err) {
+    if (!(err && err.generationEventSent)) { try { window.dispatchEvent(new CustomEvent('sylvex:generation-error', { detail: { message: String((err && err.message) || ''), jobId:err && err.jobId || '', terminalStatus:err && err.terminalStatus || '' } })); } catch (_) {} }
     if (err && typeof err === 'object' && !err.paywall && !err.activeGeneration && !err.subscriptionRequired) {
       if (!err.mode) err.mode = studioMode;
       if (!err.model) err.model = pickStudioModel();
@@ -22736,6 +22930,7 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     history,
     attachment: attachment || null,
     clientRequestId: (generationOptions && generationOptions.clientRequestId)
+      || (mediaGenerationRequest && mediaGenerationRequest.clientRequestId)
       || 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
     generationOptions,
   });
@@ -22848,7 +23043,10 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     }
     rememberCurrentChatSpace();
     if(typeof generationOptions?.onJobCreated==='function')generationOptions.onJobCreated(returnedJobId);
-    j.result = await waitGeneration(returnedJobId, generationOptions || {});
+    window.dispatchEvent(new CustomEvent('sylvex:generation-job', {detail:{jobId:returnedJobId, status:j.status || 'queued', mode:currentChatType(), startedAt:activeGeneration.startedAt}}));
+    submittedGenerationJobs.add(returnedJobId);
+    try { j.result = await waitGeneration(returnedJobId, generationOptions || {}); }
+    finally { submittedGenerationJobs.delete(returnedJobId); }
   }
 
   return j;
@@ -23061,6 +23259,20 @@ function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
 }
 
 async function waitGeneration(jobId, options) {
+  try {
+    const result = await waitGenerationJob(jobId, options);
+    try { emitGenerationResultOnce(result || {}); } catch (_) {}
+    return result;
+  } catch (err) {
+    if (!(err && err.name === 'AbortError')) {
+      if (err && typeof err === 'object') err.generationEventSent = true;
+      try { window.dispatchEvent(new CustomEvent('sylvex:generation-error', {detail:{message:String((err && err.message) || ''),jobId:err && err.jobId || '',terminalStatus:err && err.terminalStatus || ''}})); } catch (_) {}
+    }
+    throw err;
+  }
+}
+
+async function waitGenerationJob(jobId, options) {
   const signal = options && options.signal ? options.signal : null;
   const wait = (milliseconds) => new Promise((resolve, reject) => {
     if (!signal) {
@@ -23132,6 +23344,7 @@ async function waitGeneration(jobId, options) {
     const placeholder = activeGeneration.jobId === jobId ? activeGeneration.placeholderMessage : null;
     if (placeholder && placeholder.thoughtKey) bindGenerationThought(jobId, placeholder.thoughtKey, placeholder.thought);
     noteGenerationJob(jobId, job);
+    window.dispatchEvent(new CustomEvent('sylvex:generation-progress', {detail:{jobId, status:job.status, progress:job.progress || {}, mode:job.mode || ''}}));
 
     const status = String(job.status || '').toLowerCase();
     if (isActiveGenerationStatus(status)) {
@@ -23376,6 +23589,11 @@ async function waitGeneration(jobId, options) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
       return;
     }
+    if(isVideoMode() && videoState.videoTemplate && videoState.videoTemplate.catalog_type !== 'kling_effect') {
+      generationSubmitting=true;
+      let error;try{error=await validateCatalogSourceVideo(videoState.videoTemplate);}finally{generationSubmitting=false;}
+      if(error){toast(error,'error');return;}
+    }
     const ta = document.getElementById('chatInput');
     const catalogGeneration = isImageMode() ? pendingCatalogImageGeneration : null;
     pendingCatalogImageGeneration = null;
@@ -23418,6 +23636,9 @@ async function waitGeneration(jobId, options) {
       applyCatalogImageGenerationOptions(imageOptionsSnapshot, catalogGeneration);
     }
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
+    if (videoOptionsSnapshot?.video_template && videoOptionsSnapshot.video_template.catalog_type !== 'kling_effect') {
+      videoOptionsSnapshot.video_template = Object.assign({}, videoOptionsSnapshot.video_template, {user_prompt:visibleInputValue});
+    }
     const droppedReferenceNotice = videoOptionsSnapshot ? videoDroppedReferenceNotice(videoOptionsSnapshot.reference_inputs_dropped) : '';
     if (droppedReferenceNotice) toast(droppedReferenceNotice);
     const referenceVideos = isVideoMode() && videoOptionsSnapshot
@@ -26308,16 +26529,77 @@ async function waitGeneration(jobId, options) {
   // over the composer shows (Motion repeat / Photo from reference); a picked
   // reference plus the user's photo runs that reference's own Pro Studio
   // generation. Without a reference the prompt is routed as before.
-  const HOME_IDEA_PANEL_TITLES = { video: 'Повтор движения', photo: 'Фото по референсу' };
+  const HOME_IDEA_PANEL_TITLES = { video: 'Замена персонажа в видео', photo: 'Фото по референсу' };
   const homeIdeaRefItems = { video: null, photo: null };
   let homeIdeaMode = 'video', homeIdeaRef = null, homeIdeaRefPhoto = null;
+  let homeCatalogResult = null, homeCatalogOwner = '';
+  document.addEventListener('click',async event=>{
+    const button=event.target.closest('[data-home-catalog-subject]');if(!button||activeGenerationLocked())return;
+    const kind=button.dataset.homeCatalogSubject;window.SylvexRefPanel?.close();
+    const item=await openCatalogReferencePicker(kind);if(!item)return;
+    homeIdeaRefPhoto={url:item.url,preview:item.url,subjectKind:kind};homeCatalogResult=null;renderHomeIdeaRefs();
+  });
+
+  function saveHomeCatalogResult() {
+    const owner=String(getTelegramId()||'');if(!owner||!homeCatalogResult)return;
+    homeCatalogOwner=owner;
+    try{sessionStorage.setItem('sylvex-home-catalog-'+localAccountStorageOwner(),JSON.stringify({at:Date.now(),ref:homeIdeaRef,photo:homeIdeaRefPhoto&&{url:homeIdeaRefPhoto.url,preview:homeIdeaRefPhoto.url,subjectKind:homeIdeaRefPhoto.subjectKind},result:homeCatalogResult}));}catch{}
+  }
+  function mountHomeCatalogResult() {
+    const host=document.querySelector('#homeIdeaRefs .catalog-result-slot');
+    if(!host||!homeCatalogResult)return;
+    window.SylvexCatalogResult?.mount(host,homeCatalogResult,{
+      download:()=>startGenerationDownload(completedGenerationDownloadUrl(homeCatalogResult.jobId,0,false),generationDownloadFilename(homeCatalogResult.kind,homeCatalogResult.jobId)),
+      open:()=>openMediaHandoff({kind:homeCatalogResult.kind==='video'?'video_reference':'image_reference',resultUrl:homeCatalogResult.url}),
+    });
+  }
+  async function restoreHomeCatalogResult() {
+    const owner=String(getTelegramId()||'');if(!owner)return;
+    if(homeCatalogOwner===owner)return;
+    homeCatalogOwner=owner;homeCatalogResult=null;homeIdeaRef=null;homeIdeaRefPhoto=null;
+    let saved;try{saved=JSON.parse(sessionStorage.getItem('sylvex-home-catalog-'+localAccountStorageOwner())||'null');}catch{}
+    if(!saved||Date.now()-saved.at>48*60*60*1000)return;
+    homeIdeaRef=saved.ref;homeIdeaRefPhoto=saved.photo;homeCatalogResult=saved.result;renderHomeIdeaRefs();
+    if(!homeCatalogResult||homeCatalogResult.status==='failed')return;
+    try{
+      if(!homeCatalogResult.jobId&&homeCatalogResult.requestId){
+        const lookup=await fetch('/api/public/prostudio/request/'+encodeURIComponent(homeCatalogResult.requestId),{cache:'no-store'}),found=await lookup.json();
+        if(owner!==String(getTelegramId()||''))return;
+        homeCatalogResult.jobId=lookup.ok&&found.job_id||'';saveHomeCatalogResult();
+      }
+      if(!homeCatalogResult.jobId){homeCatalogResult.status='unconfirmed';saveHomeCatalogResult();mountHomeCatalogResult();return;}
+      const restoredJob=homeCatalogResult.jobId;
+      const res=await fetch('/api/public/prostudio/job/'+encodeURIComponent(restoredJob),{cache:'no-store'}),job=await res.json();
+      if(owner!==String(getTelegramId()||'')||homeCatalogResult?.jobId!==restoredJob)return;
+      if(!res.ok||!job.ok)return;
+      if(job.status==='completed')acceptHomeCatalogResult(Object.assign({},job.result,{job_id:restoredJob}));
+      else if(isActiveGenerationStatus(job.status))watchGenerationJob(restoredJob,Object.assign({},job,{id:restoredJob}));
+      else{homeCatalogResult.status='failed';saveHomeCatalogResult();mountHomeCatalogResult();}
+    }catch{ /* Keep an unconfirmed task; never retry the POST. */ }
+  }
+  function acceptHomeCatalogResult(data) {
+    if(!homeCatalogResult||data.job_id!==homeCatalogResult.jobId||homeCatalogOwner!==String(getTelegramId()||''))return;
+    const urls=generatedUrlsFromResponse(data,homeCatalogResult.kind);if(!urls.length)return;
+    homeCatalogResult.url=urls[0];homeCatalogResult.status='completed';saveHomeCatalogResult();mountHomeCatalogResult();
+  }
+  window.addEventListener('sylvex:generation-job',event=>{
+    if(!homeCatalogResult||homeCatalogResult.status!=='submitting')return;
+    Object.assign(homeCatalogResult,{jobId:event.detail.jobId,status:event.detail.status});saveHomeCatalogResult();renderHomeIdeaRefs();
+  });
+  window.addEventListener('sylvex:generation-progress',event=>{
+    if(!homeCatalogResult||event.detail.jobId!==homeCatalogResult.jobId||homeCatalogOwner!==String(getTelegramId()||''))return;
+    Object.assign(homeCatalogResult,{status:event.detail.status,progress:event.detail.progress});saveHomeCatalogResult();mountHomeCatalogResult();
+  });
+  window.addEventListener('sylvex:generation-result',event=>acceptHomeCatalogResult(event.detail||{}));
+  window.addEventListener('sylvex:generation-error',event=>{if(homeCatalogOwner===String(getTelegramId()||'')&&homeCatalogResult&&!homeCatalogResult.url){const terminal=['failed','cancelled','canceled','timeout','timed_out'].includes(event.detail?.terminalStatus);homeCatalogResult.status=terminal||(!homeCatalogResult.jobId&&!homeCatalogResult.requestId)?'failed':'unconfirmed';saveHomeCatalogResult();mountHomeCatalogResult();}});
+
 
   async function homeIdeaReferences(mode) {
     if (homeIdeaRefItems[mode]) return homeIdeaRefItems[mode];
     const items = [];
     if (mode === 'video') {
       (await loadVideoTemplates()).forEach((template) => {
-        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || '') });
+        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || ''), video:videoTemplateReferenceVideo(template) });
       });
     } else {
       // The same sections, in the same order, that mediaImageItem() looks in.
@@ -26358,6 +26640,8 @@ async function waitGeneration(jobId, options) {
   }
 
   function pickHomeIdeaRef(item) {
+    if(activeGenerationLocked()||document.getElementById('homeIdeaForm')?.classList.contains('loading'))return;
+    homeCatalogResult=null;
     homeIdeaRef = Object.assign({ kind: homeIdeaMode }, item);
     // A reference takes the place of a plain attached photo.
     homeIdeaAttachment = null;
@@ -26386,15 +26670,19 @@ async function waitGeneration(jobId, options) {
     let html = '';
     if (homeIdeaRef) {
       const photo = homeIdeaRefPhoto;
-      html = thumb(homeIdeaRef.image, 'data-home-idea-remove-ref')
+      html = (homeIdeaRef.kind==='video'&&homeIdeaRef.video ? '<span class="home-idea-ref"><video src="'+S.escapeHtml(homeIdeaRef.video)+'" poster="'+S.escapeHtml(homeIdeaRef.image)+'" controls playsinline preload="metadata"></video><button type="button" aria-label="Убрать" data-home-idea-remove-ref>×</button></span>' : thumb(homeIdeaRef.image, 'data-home-idea-remove-ref'))
         + (photo
           ? thumb(photo.preview || photo.url, 'data-home-idea-remove-photo', photo.uploading ? ' is-uploading' : '')
           : '<button type="button" class="home-idea-upload" data-home-idea-upload><span>＋</span>Загрузите любое изображение</button>');
     } else if (homeIdeaAttachment) {
       html = thumb(homeIdeaAttachment.url, 'data-home-idea-remove');
     }
+    if(homeCatalogResult&&homeIdeaRef)html+='<span class="catalog-chain-arrow" aria-hidden="true">→</span><span class="catalog-result-slot"></span>';
+    if(homeIdeaRef?.kind==='video')html+='<span class="catalog-subject-controls"><button type="button" data-home-catalog-subject="character">Персонаж</button><button type="button" data-home-catalog-subject="object">Объект</button></span>';
+    host.classList.toggle('catalog-chain',!!homeIdeaRef);
     host.innerHTML = html;
     host.hidden = !html;
+    mountHomeCatalogResult();
     syncHomeIdeaSend();
   }
 
@@ -26433,6 +26721,8 @@ async function waitGeneration(jobId, options) {
   // a video, photo references a photo).
   async function generateHomeIdeaRef() {
     if (guestNeedsAccount('create')) return;
+    if(homeCatalogResult?.status==='unconfirmed'&&homeCatalogResult.requestId&&!homeCatalogResult.jobId){homeCatalogOwner='';await restoreHomeCatalogResult();return;}
+    if(homeCatalogResult?.status==='unconfirmed'&&homeCatalogResult.jobId){const cached=S.completedCatalogResult(homeCatalogResult.jobId);if(cached)acceptHomeCatalogResult(cached);else watchGenerationJob(homeCatalogResult.jobId,{mode:homeCatalogResult.kind});return;}
     const form = document.getElementById('homeIdeaForm');
     if (!homeIdeaRefPhoto) { document.getElementById('homeIdeaFileInput')?.click(); toast('Загрузите изображение'); return; }
     if (homeIdeaRefPhoto.uploading) { toast('Фото ещё загружается'); return; }
@@ -26444,10 +26734,13 @@ async function waitGeneration(jobId, options) {
     form?.classList.add('loading');
     window.SylvexRefPanel?.close();
     try {
-      if (!await runMediaGeneration(request)) return;
-      homeIdeaRef = null;
-      homeIdeaRefPhoto = null;
-      renderHomeIdeaRefs();
+      request.stayHome=true;
+      request.userPrompt=String(document.getElementById('homeIdeaInput')?.value||'').trim();
+      request.subjectKind=homeIdeaRefPhoto.subjectKind||'';
+      request.clientRequestId='catalog_home_'+Date.now().toString(36);
+      homeCatalogResult={kind:ref.kind==='video'?'video':'image',status:'submitting',jobId:'',requestId:request.clientRequestId};
+      homeCatalogOwner=String(getTelegramId()||'');saveHomeCatalogResult();renderHomeIdeaRefs();
+      if (!await runMediaGeneration(request)) {homeCatalogResult.status=homeCatalogResult.jobId||homeCatalogResult.requestId?'unconfirmed':'failed';saveHomeCatalogResult();mountHomeCatalogResult();return;}
     } finally {
       form?.classList.remove('loading');
     }
@@ -28244,7 +28537,7 @@ async function waitGeneration(jobId, options) {
   S.goToHostPage = goToHostPage;
 
   function initialViewFromUrl() {
-    const allowed = new Set(['home', 'history', 'community', 'shop', 'pay', 'profile', 'settings', 'tools']);
+    const allowed = new Set(['home', 'media', 'history', 'community', 'shop', 'pay', 'profile', 'settings', 'tools']);
     const params = new URLSearchParams(window.location.search || '');
     const hash = (window.location.hash || '').replace(/^#/, '');
     const raw = params.get('view') || params.get('screen') || params.get('section') || hash;
@@ -30204,6 +30497,22 @@ async function waitGeneration(jobId, options) {
   // one: History (the user's generations), Characters and Objects as tabs in
   // the same area, and the upload of a new file under them.
   let studioGridReferenceTab='history';
+  let catalogReferenceResolve = null;
+  function openCatalogReferencePicker(kind) {
+    if (guestNeedsAccount('create')) return Promise.resolve(null);
+    if (catalogReferenceResolve) return Promise.resolve(null);
+    studioGridReferenceTab = ['character','object'].includes(kind) ? kind : 'history';
+    const panel = ensureStudioGridReferencePanel();
+    renderStudioGridReferencePanel(); panel.classList.add('show');
+    return new Promise(resolve => { catalogReferenceResolve = resolve; });
+  }
+  function finishCatalogReferencePicker(item) {
+    const resolve = catalogReferenceResolve;
+    catalogReferenceResolve = null;
+    closeStudioGridReferencePanel();
+    if (resolve) resolve(item || null);
+  }
+
   function openStudioGridMediaPicker(id,referenceId=''){studioGridMediaNodeId=id;studioGridMediaReferenceId=String(referenceId||'');studioGridReferenceTab='history';const panel=ensureStudioGridReferencePanel();renderStudioGridReferencePanel();panel.classList.add('show')}
   function ensureStudioGridReferencePanel(){
     let panel=document.getElementById('studioGridReferencePanel');if(panel)return panel;
@@ -30242,12 +30551,13 @@ async function waitGeneration(jobId, options) {
     grid.innerHTML=create+items.map(item=>{const preview=visualPreviewUrl(item);const pending=isCharacter?characterCardPendingStatus(item):objectCardPendingStatus(item);return `<button class="upload-generated-thumb grid-ref-visual" type="button" ${pending||!preview?'disabled':''} onclick="SYLVEX.pickStudioGridReference(event,'${isCharacter?'character':'object'}','${S.escapeHtml(item.id)}')">${preview?`<img src="${S.escapeHtml(preview)}" alt="" loading="lazy" decoding="async">`:''}<b>${S.escapeHtml(item.name||item.label||'')}</b></button>`}).join('');
   }
   function setStudioGridReferenceTab(e,tab){if(e){e.preventDefault();e.stopPropagation()}studioGridReferenceTab=['history','character','object'].includes(tab)?tab:'history';renderStudioGridReferencePanel()}
-  function closeStudioGridReferencePanel(e){if(e){e.preventDefault();e.stopPropagation()}const panel=document.getElementById('studioGridReferencePanel');if(panel)panel.classList.remove('show')}
+  function closeStudioGridReferencePanel(e){if(e){e.preventDefault();e.stopPropagation()}if(catalogReferenceResolve){finishCatalogReferencePicker(null);return;}const panel=document.getElementById('studioGridReferencePanel');if(panel)panel.classList.remove('show')}
   function pickStudioGridReference(e,kind,value){
     if(e){e.preventDefault();e.stopPropagation()}
     let item=null;
     if(kind==='history')item={url:String(value||''),kind:'image',name:'Из истории',mime:'image/*'};
     else{const visual=(kind==='character'?imageCharacters():imageObjects()).map(normalizeVisualItem).find(entry=>entry&&entry.id===value);const url=visual?(visualGenerationReferences(visual,kind)[0]||visualPreviewUrl(visual)):'';if(url)item={url,kind:'image',name:visual.name||visual.label||'',mime:'image/*',[kind==='character'?'character_id':'object_id']:visual.id}}
+    if(catalogReferenceResolve){if(item?.url)finishCatalogReferencePicker(item);return;}
     const node=loadStudioGridState().nodes.find(entry=>entry.id===studioGridMediaNodeId),referenceId=studioGridMediaReferenceId;
     if(!node||!item||!item.url)return;
     closeStudioGridReferencePanel();
@@ -30255,7 +30565,12 @@ async function waitGeneration(jobId, options) {
     else{node.attachments=Array.isArray(node.attachments)?node.attachments:[];if(node.type==='task')item.reference_id=`task_upload_${node.attachments.length+1}`;node.attachments.push(item);node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid()}
     studioGridMediaNodeId='';studioGridMediaReferenceId='';toast('Референс добавлен');
   }
-  function uploadStudioGridReferenceFile(e){if(e){e.preventDefault();e.stopPropagation()}closeStudioGridReferencePanel();const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.multiple=!studioGridMediaReferenceId;input.accept=studioGridMediaReferenceId?'image/*':'image/*,video/*,audio/*,.pdf,.txt,.doc,.docx';input.click()}}
+  function uploadStudioGridReferenceFile(e){if(e){e.preventDefault();e.stopPropagation()}if(catalogReferenceResolve){
+      const input=document.createElement('input');input.type='file';input.accept='image/*';
+      input.addEventListener('cancel',()=>finishCatalogReferencePicker(null),{once:true});
+      input.addEventListener('change',async()=>{const file=input.files?.[0];if(!file)return;try{const url=await uploadProStudioMediaFile(file,'image');finishCatalogReferencePicker({url,kind:'image',name:file.name});}catch(error){toast(error?.message||'Could not upload image');finishCatalogReferencePicker(null);}},{once:true});
+      input.click();return;
+    }closeStudioGridReferencePanel();const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.multiple=!studioGridMediaReferenceId;input.accept=studioGridMediaReferenceId?'image/*':'image/*,video/*,audio/*,.pdf,.txt,.doc,.docx';input.click()}}
   function setStudioGridReferenceAttachment(node,referenceId,item){
     if(!node||!referenceId||!item?.url)return;
     node.attachments=(Array.isArray(node.attachments)?node.attachments:[]).filter(existing=>existing.reference_id!==referenceId);
@@ -31008,9 +31323,10 @@ async function waitGeneration(jobId, options) {
       if(!owner||owner===loadedAccountOwner)return;
       loadedAccountOwner=owner;
       activateProStudioAccountOwner(owner);
-      loadConversations();
-      loadProStudioSync();
-      restoreActiveProStudioJob();
+      void restoreHomeCatalogResult();
+      S.currentAccountLoad = Promise.allSettled([loadConversations(), loadProStudioSync(), restoreActiveProStudioJob()]).then(() => {
+        if (owner === String(getTelegramId() || '')) resolveStudioAccountReady();
+      });
       restorePendingCharacterCreationJobs();
       restorePendingObjectCreationJobs();
       ensureStudioGridStorageOwner();
@@ -31028,7 +31344,7 @@ async function waitGeneration(jobId, options) {
         // Browser: signing in is optional - a guest can explore the app.
         setBrowserGuest(!user);
         if (!user && S.ensureWebAuthGate) S.ensureWebAuthGate();
-        if (user) loadAccountData();
+        if (user) loadAccountData(); else resolveStudioAccountReady();
       }).finally(() => {
         renderSubscription();
       });
@@ -31037,11 +31353,9 @@ async function waitGeneration(jobId, options) {
         renderSubscription();
       });
     }
-    loadConversations();
-    loadProStudioSync();
-    restoreActiveProStudioJob();
-    restorePendingCharacterCreationJobs();
-    restorePendingObjectCreationJobs();
+    // One account-bound restore; the user-ready event may call it again,
+    // but loadedAccountOwner prevents duplicate synchronization/watchers.
+    loadAccountData();
   }
 
   // Expose to global scope.
@@ -31306,7 +31620,30 @@ async function waitGeneration(jobId, options) {
   S.updateComposerMode = updateComposerMode;
   S.renderVideoControls = renderVideoControls;
   S.addMediaLink = addMediaLink;
+  S.openMediaHandoff = openMediaHandoff;
+  S.initCatalogMedia = function () {
+    if (S.initCatalogMedia.started) return;
+    S.initCatalogMedia.started = true;
+    window.SylvexStudioBridge = {
+      warm:()=>{}, isGuest:()=>isBrowserGuest(), accountOwner:()=>localAccountStorageOwner(), upload:file=>uploadProStudioMediaFile(file,'image'),
+      pick:kind=>openCatalogReferencePicker(kind),
+      openStudio:request=>openMediaHandoff(request),
+      generate:(request,handlers)=>new Promise((resolve,reject)=>{
+        let jobId='';
+        const clear=()=>{window.removeEventListener('sylvex:generation-job',accepted);window.removeEventListener('sylvex:generation-result',finished);window.removeEventListener('sylvex:generation-error',failed);};
+        const accepted=event=>{jobId=event.detail.jobId;if(handlers?.onJob)handlers.onJob(event.detail);};
+        const finished=event=>{if(!jobId||event.detail.job_id!==jobId)return;clear();const data=event.detail,urls=generatedUrlsFromResponse(data,request.kind.startsWith('video_')?'video':'image');if(urls.length)resolve(urls[0]);else reject(new Error('Result unavailable'));};
+        const failed=event=>{clear();reject(new Error(event.detail?.message||'Generation failed'));};
+        window.addEventListener('sylvex:generation-job',accepted);window.addEventListener('sylvex:generation-result',finished);window.addEventListener('sylvex:generation-error',failed);
+        runMediaGeneration(Object.assign({},request,{stayHome:true,clientRequestId:'catalog_'+Date.now().toString(36)})).then(ok=>{if(ok===false){clear();reject(new Error('A generation is already running'));}},error=>{clear();reject(error);});
+      }),
+    };
+    const load=src=>new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});
+    load('js/media.js?v=catalog-v1-20261030d').then(()=>load('js/media-page.js?v=catalog-v1-20261030d')).catch(()=>toast('Could not load Media'));
+  };
+
   S.openVideoTemplatesCatalog = openVideoTemplatesCatalog;
+  S.openCatalogReferencePicker = openCatalogReferencePicker;
   S.openKlingEffectsCatalog = openKlingEffectsCatalog;
   S.closeVideoTemplatesCatalog = closeVideoTemplatesCatalog;
   S.closeVideoTemplateModal = closeVideoTemplateModal;
