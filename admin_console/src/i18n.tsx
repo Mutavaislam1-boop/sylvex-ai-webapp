@@ -92,5 +92,13 @@ const ACTIONS: Record<string, string> = {
   message_failed: "Message not delivered", support_reply_sent: "Reply in Messages", user_blocked: "User blocked",
   user_unblocked: "User unblocked", admin_created: "Became an admin", admin_updated: "Admin access changed",
   broadcast_sent: "Announcement sent", generation_recovered: "Generation recovered", generation_refunded: "Generation refunded",
+  admin_access_changed: "Admin access changed", prostudio_job_recovered: "Generation recovered", review_replied: "Review answered",
+  support_status_changed: "Conversation status changed", support_assigned: "Conversation assigned",
+  support_attachments_changed: "File sending allowed or closed", reference_created: "Media block created",
+  reference_updated: "Media block edited", reference_published: "Content published", reference_unpublished: "Content unpublished",
+  reference_deleted: "Content deleted", model_disabled: "Model turned off", model_enabled: "Model turned on",
+  admin_login: "Signed in", admin_login_failed: "Wrong 2FA code", admin_login_suspicious: "Suspicious sign-in",
+  admin_logout: "Signed out", admin_logout_all: "Signed out everywhere", admin_session_revoked: "Session ended",
+  admin_reauth: "Identity confirmed", admin_totp_enabled: "Two-factor turned on", admin_totp_enrollment_started: "Two-factor setup started",
 };
 export const actionLabel = (action: string) => (ACTIONS[action] ? t(ACTIONS[action]) : action);

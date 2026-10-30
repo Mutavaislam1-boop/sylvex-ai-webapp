@@ -46,6 +46,7 @@ from services import generation_stages
 from services import generation_admin
 from services import usage_analytics
 from services import model_control
+from services import admin_security
 from services import grid_references as grid_references_service
 from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
@@ -11739,6 +11740,48 @@ def _admin_session_payload(admin, csrf, channel):
                         "max_age_seconds": admin_auth.SESSION_MAX_SECONDS}}
 
 
+def _admin_note_login(cursor, admin, channel, request, alerts):
+    """Audits a sign-in with its device; a sign-in from a device and network
+    this admin never used is also audited as suspicious and reported."""
+    ua = request.headers.get("user-agent")
+    ip = _admin_client_ip(request)
+    device = admin_security.device_label(ua)
+    new_device = admin_security.is_new_device(cursor, admin["admin_id"], admin_auth.hash_ip(ip) if ip else None, ua)
+    actor = dict(admin, channel=channel)
+    admin_auth.audit(cursor, actor, "admin_login", risk=admin_rbac.LOW, ip=ip,
+                     after={"device": device, "new_device": new_device})
+    if new_device:
+        admin_auth.audit(cursor, actor, "admin_login_suspicious", risk=admin_rbac.HIGH, ip=ip,
+                         after={"device": device, "new_device": True, "reason": "new_device"})
+        alerts.append((admin, "new_device", device, channel))
+
+
+def _admin_note_failed_login(cursor, admin, request, code, alerts):
+    """A wrong 2FA code is audited; the third in a row is reported."""
+    ip = _admin_client_ip(request)
+    device = admin_security.device_label(request.headers.get("user-agent"))
+    actor = dict(admin, channel="web")
+    admin_auth.audit(cursor, actor, "admin_login_failed", risk=admin_rbac.MEDIUM, ip=ip,
+                     after={"device": device, "reason": code})
+    if admin_security.recent_failures(cursor, admin["admin_id"]) == admin_security.FAILED_LIMIT:
+        admin_auth.audit(cursor, actor, "admin_login_suspicious", risk=admin_rbac.HIGH, ip=ip,
+                         after={"device": device, "reason": "repeated_failed_codes"})
+        alerts.append((admin, "failed", device, "web"))
+
+
+def _admin_send_security_alerts(alerts):
+    """Tells the admin (and the owner, when it is someone else) about a
+    suspicious sign-in through the SYLVEX bot. Never fails the request."""
+    for admin, kind, device, channel in alerts:
+        text = admin_security.alert_text(kind, device, channel)
+        for chat in {admin.get("telegram_id"), SUPERADMIN_TELEGRAM_ID or None} - {None, 0}:
+            try:
+                _telegram_deliver_status(int(chat), text if chat == admin.get("telegram_id")
+                                         else f"{text}\n(Админ #{admin.get('admin_id')})")
+            except Exception as exc:
+                print("ADMIN_SECURITY_ALERT_FAILED:", type(exc).__name__)
+
+
 @app.post("/api/admin/v2/auth/telegram")
 async def admin_v2_auth_telegram(request: Request):
     body = await _admin_v2_body(request)
@@ -11752,13 +11795,16 @@ async def admin_v2_auth_telegram(request: Request):
         admin = admin_auth.active_admin_for_telegram(cursor, user["id"])
         if not admin:
             raise admin_auth.AdminAuthError("admin_access_denied", 403)
+        _admin_note_login(cursor, admin, "miniapp", request, alerts)
         token, csrf, _ = admin_auth.create_session(cursor, admin, "miniapp", _admin_client_ip(request),
                                                    request.headers.get("user-agent"))
-        admin_auth.audit(cursor, dict(admin, channel="miniapp"), "admin_login", risk=admin_rbac.LOW,
-                         ip=_admin_client_ip(request))
         return admin, token, csrf
 
-    admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
+    alerts = []
+    try:
+        admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
+    finally:
+        _admin_send_security_alerts(alerts)
     payload = _admin_session_payload(admin, csrf, "miniapp")
     if body.get("mode") == "miniapp":
         # Inside Telegram the console sends this as X-Admin-Session (kept in
@@ -11816,17 +11862,24 @@ async def admin_v2_auth_web(request: Request):
         else:
             if not body.get("totp"):
                 raise admin_auth.AdminAuthError("totp_required", 401)
-            admin_auth.verify_totp(cursor, admin, body.get("totp"))
+            try:
+                admin_auth.verify_totp(cursor, admin, body.get("totp"))
+            except admin_auth.AdminAuthError as exc:
+                if exc.code in ("totp_invalid", "totp_locked"):
+                    _admin_note_failed_login(cursor, admin, request, exc.code, alerts)
+                raise
+        _admin_note_login(cursor, admin, "web", request, alerts)
         token, csrf, _ = admin_auth.create_session(cursor, admin, "web", _admin_client_ip(request),
                                                    request.headers.get("user-agent"))
-        admin_auth.audit(cursor, dict(admin, channel="web"), "admin_login", risk=admin_rbac.LOW,
-                         ip=_admin_client_ip(request))
         return admin, token, csrf
 
+    alerts = []
     try:
         admin, token, result = await asyncio.to_thread(_admin_v2_run_keep_failures, work)
     except HTTPException as exc:
         return _admin_json({"ok": False, "error": exc.detail}, exc.status_code)
+    finally:
+        _admin_send_security_alerts(alerts)
     if token is None:
         # Bootstrap owner without 2FA yet: `result` is the QR setup, no session.
         return _admin_json({"ok": True, "totp_setup_required": True, **result})
@@ -11943,9 +11996,50 @@ async def admin_v2_auth_sessions(request: Request):
         items = admin_auth.list_sessions(cursor, actor["admin_id"])
         for item in items:
             item["current"] = item["session_id"] == session["session_id"]
+            item["device"] = admin_security.device_label(item.get("user_agent"))
         return {"ok": True, "items": items}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/auth/logins")
+async def admin_v2_auth_logins(request: Request):
+    """The admin's own sign-in history (from the append-only audit log)."""
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request)
+        return {"ok": True, "items": admin_security.history(cursor, actor["admin_id"])}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/auth/sessions/revoke")
+async def admin_v2_auth_session_revoke(request: Request):
+    """Ends one console session: any of the admin's own, or - for the owner
+    - any admin's."""
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+    session_id = admin_security.clean_session_id(body.get("session_id"))
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if not session_id:
+            raise admin_auth.AdminAuthError("session_not_found", 404)
+        cursor.execute("SELECT admin_id FROM admin_sessions WHERE id = %s AND revoked_at IS NULL", (session_id,))
+        row = cursor.fetchone()
+        if not row or (int(row[0]) != actor["admin_id"] and actor.get("role") != "owner"):
+            raise admin_auth.AdminAuthError("session_not_found", 404)
+        admin_auth.revoke_session(cursor, session_id)
+        admin_auth.audit(cursor, actor, "admin_session_revoked", risk=admin_rbac.MEDIUM,
+                         after={"session_id": session_id, "admin_id": int(row[0])})
+        return session_id == session["session_id"]
+
+    current = await asyncio.to_thread(_admin_v2_run, work)
+    response = _admin_json({"ok": True, "signed_out": current})
+    if current:
+        _admin_clear_session_cookie(response)
+    return response
 
 
 @app.post("/api/admin/v2/auth/totp/enroll")
@@ -12070,14 +12164,30 @@ async def admin_v2_admin_update(admin_id: int, request: Request):
 @app.get("/api/admin/v2/audit")
 async def admin_v2_audit(request: Request, actor_admin_id: Optional[int] = None,
                          target_sylvex_user_id: Optional[str] = None, action: Optional[str] = None,
-                         risk: Optional[str] = None, before_id: Optional[int] = None, limit: int = 50):
+                         risk: Optional[str] = None, before_id: Optional[int] = None, limit: int = 50,
+                         section: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None):
+    """The append-only audit log: who, when, which section, what object,
+    before / after, the reason and the result. Read-only for everyone."""
     _admin_v2_ready(request)
+    from datetime import date, timedelta
+
+    def day(value, plus=0):
+        try:
+            return (date.fromisoformat(str(value)[:10]) + timedelta(days=plus)).isoformat() if value else None
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid_period")
 
     def work(cursor):
         _admin_v2_actor(cursor, request, "audit.view")
         target = int(target_sylvex_user_id) if target_sylvex_user_id and target_sylvex_user_id.isdigit() else None
+        actions = list(admin_security.AUDIT_SECTIONS.get(section or "", ())) or None
         items, next_before = admin_auth.list_audit(cursor, actor_admin_id=actor_admin_id, target_account_id=target,
-                                                   action=action, risk=risk, before_id=before_id, limit=limit)
+                                                   action=action, risk=risk, before_id=before_id, limit=limit,
+                                                   actions=actions, since=day(date_from), until=day(date_to, 1))
+        for item in items:
+            item["section"] = admin_security.section_of(item["action"])
+            item["result"] = admin_security.result_of(item["action"], item["after"])
+            item["object"] = admin_security.object_of(item["action"], item["after"], item["before"])
         return {"ok": True, "items": items, "next_before_id": next_before}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
@@ -12695,6 +12805,120 @@ async def admin_models_toggle(request: Request):
         MODEL_STATES_CACHE.update(value=None, expires_at=0.0)
         _media_blocks_changed()
         return {"model": model_id, "disabled": disabled}
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+# ---------- Finance overview ----------
+
+@app.post("/api/admin/finance")
+async def admin_finance(request: Request):
+    """Money and credits for a period, read-only: real payments (credit
+    packs and subscriptions, by currency and provider) kept apart from free
+    admin grants, compensations and refunds, AI costs estimated from the
+    tariff, and credits sold / granted / spent. Payment logic is untouched."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "payments.view")
+        payload.setdefault("days", 30)
+        start, end = _admin_period(payload)
+        from datetime import datetime
+        start = start or datetime(2000, 1, 1)
+        span = [start.isoformat(), end.isoformat()]
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            def present(table):
+                cursor.execute("SELECT to_regclass(%s) IS NOT NULL AS present", (table,))
+                return bool(cursor.fetchone()[0])
+
+            payments, refunds, days = [], [], {}
+            buyers = new_buyers = 0
+            if present("purchases"):
+                sub_join = "LEFT JOIN subscriptions s ON s.charge_id = p.charge_id" if present("subscriptions") else ""
+                sub_flag = "s.charge_id IS NOT NULL" if sub_join else "FALSE"
+                cursor.execute(f"""
+                    SELECT CASE WHEN {sub_flag} THEN 'subscription' ELSE 'credits' END AS kind,
+                           COALESCE(NULLIF(p.currency, ''), 'unknown') AS currency, COALESCE(NULLIF(p.provider, ''), 'unknown') AS provider,
+                           COUNT(*) AS n, COALESCE(SUM(p.amount), 0) AS amount, COALESCE(SUM(p.credits), 0) AS credits
+                    FROM purchases p {sub_join}
+                    WHERE p.status = 'completed' AND p.created_at >= %s::timestamp AND p.created_at < %s::timestamp
+                    GROUP BY 1, 2, 3 ORDER BY 5 DESC
+                """, span)
+                payments = [{"kind": r[0], "currency": r[1], "provider": r[2], "count": int(r[3]), "amount": float(r[4]),
+                             "credits": int(r[5])} for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT COALESCE(NULLIF(currency, ''), 'unknown') AS currency, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount
+                    FROM purchases WHERE status IN ('refunded', 'refund', 'chargeback')
+                      AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1
+                """, span)
+                refunds = [{"currency": r[0], "count": int(r[1]), "amount": float(r[2])} for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS n
+                    FROM purchases WHERE status = 'completed' AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1
+                """, span)
+                for r in cursor.fetchall():
+                    days.setdefault(r[0], {"day": r[0], "payments": 0, "grants": 0})["payments"] = int(r[1])
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT telegram_id) AS buyers,
+                           COUNT(DISTINCT telegram_id) FILTER (WHERE first_paid >= %s::timestamp) AS new_buyers FROM (
+                      SELECT telegram_id, MIN(created_at) OVER (PARTITION BY telegram_id) AS first_paid, created_at
+                      FROM purchases WHERE status = 'completed') x
+                    WHERE created_at >= %s::timestamp AND created_at < %s::timestamp
+                """, [span[0]] + span)
+                r = cursor.fetchone()
+                buyers, new_buyers = int(r[0] or 0), int(r[1] or 0)
+            # Free credits and subscriptions given by admins, by reason.
+            cursor.execute("""
+                SELECT action, COALESCE(NULLIF(after->>'reason_code', ''), 'other') AS code, COUNT(*) AS n,
+                       COALESCE(SUM(CASE WHEN action = 'balance_changed' THEN (after->>'delta')::numeric ELSE 0 END), 0) AS credits
+                FROM admin_audit_events
+                WHERE action IN ('balance_changed', 'subscription_changed') AND at >= %s::timestamp AND at < %s::timestamp
+                  AND (action <> 'balance_changed' OR (after->>'delta')::numeric > 0)
+                GROUP BY 1, 2 ORDER BY 3 DESC
+            """, span)
+            grants = [{"kind": "credits" if r[0] == "balance_changed" else "subscription", "reason_code": r[1],
+                       "count": int(r[2]), "credits": int(r[3] or 0)} for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT to_char(date_trunc('day', at), 'YYYY-MM-DD') AS day, COUNT(*) AS n FROM admin_audit_events
+                WHERE action IN ('balance_changed', 'subscription_changed') AND at >= %s::timestamp AND at < %s::timestamp
+                  AND (action <> 'balance_changed' OR (after->>'delta')::numeric > 0) GROUP BY 1
+            """, span)
+            for r in cursor.fetchall():
+                days.setdefault(r[0], {"day": r[0], "payments": 0, "grants": 0})["grants"] = int(r[1])
+            spent = 0
+            if present("generation_charges"):
+                cursor.execute("SELECT COALESCE(SUM(credits), 0) AS n FROM generation_charges WHERE created_at >= %s::timestamp AND created_at < %s::timestamp", span)
+                spent = int(cursor.fetchone()[0] or 0)
+            ensure_prostudio_table()
+            cursor.execute("""
+                SELECT COALESCE(provider, '') AS provider,
+                       COALESCE(SUM((request_json->'price_snapshot'->>'provider_and_model_credits')::numeric), 0) AS credits
+                FROM prostudio_generation_jobs
+                WHERE status = 'completed' AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1 ORDER BY 2 DESC
+            """, span)
+            ai_costs = [{"provider": r[0] or "—", "usd_estimate": round(float(r[1] or 0) / model_control.CREDITS_PER_USD, 2)}
+                        for r in cursor.fetchall() if float(r[1] or 0) > 0]
+        finally:
+            cursor.close()
+            conn.close()
+        # Card payments are stored in minor units (cents); Telegram Stars in stars.
+        def major(amount, currency):
+            return round(amount / 100, 2) if currency not in ("XTR", "unknown") else amount
+        for row in payments + refunds:
+            row["amount"] = major(row["amount"], row["currency"])
+        revenue = {}
+        for p in payments:
+            revenue[p["currency"]] = round(revenue.get(p["currency"], 0) + p["amount"], 2)
+        return {
+            "payments": payments, "revenue": revenue, "refunds": refunds, "grants": grants,
+            "compensations": [g for g in grants if g["reason_code"] in ("error_compensation", "refund")],
+            "ai_costs": ai_costs, "ai_cost_usd_estimate": round(sum(c["usd_estimate"] for c in ai_costs), 2),
+            "credits": {"sold": sum(p["credits"] for p in payments), "granted": sum(g["credits"] for g in grants), "spent": spent},
+            "buyers": buyers, "new_buyers": new_buyers,
+            "days": _admin_fill_days(sorted(days.values(), key=lambda d: d["day"]), payload, ("payments", "grants")),
+        }
 
     return {"ok": True, **(await asyncio.to_thread(_sync))}
 

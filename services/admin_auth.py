@@ -587,8 +587,18 @@ def audit(cur, actor, action, *, risk, target_account_id=None, target_ref=None, 
     return int(cur.fetchone()[0])
 
 
-def list_audit(cur, *, actor_admin_id=None, target_account_id=None, action=None, risk=None, before_id=None, limit=50):
+def list_audit(cur, *, actor_admin_id=None, target_account_id=None, action=None, risk=None, before_id=None, limit=50,
+               actions=None, since=None, until=None):
     conditions, params = [], []
+    if actions:
+        conditions.append(f"action IN ({', '.join(['%s'] * len(actions))})")
+        params.extend(actions)
+    if since:
+        conditions.append("at >= %s::timestamptz")
+        params.append(since)
+    if until:
+        conditions.append("at < %s::timestamptz")
+        params.append(until)
     for column, value in (("actor_admin_id", actor_admin_id), ("target_account_id", target_account_id),
                           ("action", action), ("risk", risk)):
         if value not in (None, ""):

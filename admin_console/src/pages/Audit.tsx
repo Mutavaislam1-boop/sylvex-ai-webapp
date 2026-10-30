@@ -1,20 +1,33 @@
 import { FormEvent, useEffect, useState } from "react";
 import { errorText, get } from "../api";
 import { useApp } from "../state";
-import { channelLabel, t } from "../i18n";
+import { actionLabel, channelLabel, t } from "../i18n";
 import { Empty, ErrorNotice, fmtDate, Loading, Modal } from "../ui";
 
 type Event = {
   id: number; at: string; actor_admin_id: number | null; actor_sylvex_user_id: string | null; channel: string; action: string;
   risk: string; target_sylvex_user_id: string | null; reason: string; before: unknown; after: unknown;
+  section: string; result: "done" | "failed"; object: string;
 };
-type Filters = { target: string; action: string; risk: string; actor: string };
+type Filters = { target: string; action: string; risk: string; actor: string; section: string; from: string; to: string };
 
-const RISK_TONE: Record<string, string> = { low: "", medium: "accent", high: "warn", critical: "bad" };
+const SECTION_LABELS: Record<string, string> = {
+  users: "Users",
+  finance: "Credits and subscriptions",
+  staff: "Staff and permissions",
+  content: "Media and content",
+  models: "Models",
+  messages: "Messages",
+  generations: "Generations",
+  security: "Sign-in and security",
+  other: "Other",
+};
+
+const RISK_TONE: { [k: string]: string } = { low: "", medium: "accent", high: "warn", critical: "bad" };
 
 export default function Audit({ target }: { target: string }) {
   const { go } = useApp();
-  const [draft, setDraft] = useState<Filters>({ target, action: "", risk: "", actor: "" });
+  const [draft, setDraft] = useState<Filters>({ target, action: "", risk: "", actor: "", section: "", from: "", to: "" });
   const [filters, setFilters] = useState<Filters>(draft);
   const [items, setItems] = useState<Event[]>([]);
   const [next, setNext] = useState<number | null>(null);
@@ -29,6 +42,9 @@ export default function Audit({ target }: { target: string }) {
     if (filters.target.trim()) q.set("target_sylvex_user_id", filters.target.trim());
     if (filters.action.trim()) q.set("action", filters.action.trim());
     if (filters.risk) q.set("risk", filters.risk);
+    if (filters.section) q.set("section", filters.section);
+    if (filters.from) q.set("date_from", filters.from);
+    if (filters.to) q.set("date_to", filters.to);
     if (/^\d+$/.test(filters.actor.trim())) q.set("actor_admin_id", filters.actor.trim());
     if (before) q.set("before_id", String(before));
     try {
@@ -55,21 +71,29 @@ export default function Audit({ target }: { target: string }) {
         <select value={draft.risk} onChange={(e) => setDraft({ ...draft, risk: e.target.value })}>
           <option value="">{t("Any risk")}</option><option value="low">{t("low")}</option><option value="medium">{t("medium")}</option><option value="high">{t("high")}</option><option value="critical">{t("critical")}</option>
         </select>
+        <select value={draft.section} onChange={(e) => setDraft({ ...draft, section: e.target.value })}>
+          <option value="">{t("All sections")}</option>
+          {Object.keys(SECTION_LABELS).filter((k) => k !== "other").map((k) => <option key={k} value={k}>{t(SECTION_LABELS[k])}</option>)}
+        </select>
+        <input type="date" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} aria-label={t("From")} />
+        <input type="date" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} aria-label={t("To")} />
         <button className="btn primary">{t("Apply")}</button>
       </form>
       <div className="muted small">{t("Append-only record of every admin action. Entries cannot be edited or deleted.")}</div>
       {error && <ErrorNotice message={error} onRetry={() => load()} />}
       {loading && !items.length ? <Loading /> : items.length ? (
         <div className="table-wrap"><table>
-          <thead><tr><th>{t("When")}</th><th>{t("Action")}</th><th>{t("Risk")}</th><th>{t("Admin")}</th><th>{t("Target")}</th><th>{t("Reason")}</th></tr></thead>
+          <thead><tr><th>{t("When")}</th><th>{t("Section")}</th><th>{t("Action")}</th><th>{t("Risk")}</th><th>{t("Admin")}</th><th>{t("Object")}</th><th>{t("Reason")}</th><th>{t("Result")}</th></tr></thead>
           <tbody>{items.map((e) => (
             <tr key={e.id} className="clickable" onClick={() => setOpen(e)}>
               <td className="small">{fmtDate(e.at)}</td>
-              <td><span className="mono">{e.action}</span><div className="cell-sub">{channelLabel(e.channel)}</div></td>
+              <td className="small">{t(SECTION_LABELS[e.section] || e.section)}</td>
+              <td>{actionLabel(e.action)}<div className="cell-sub"><span className="mono">{e.action}</span> · {channelLabel(e.channel)}</div></td>
               <td><span className={`badge ${RISK_TONE[e.risk] || ""}`}>{t(e.risk)}</span></td>
               <td className="small">{e.actor_sylvex_user_id ? `SYLVEX ${e.actor_sylvex_user_id}` : t("system")}{e.actor_admin_id ? <div className="cell-sub">{t("admin")} #{e.actor_admin_id}</div> : null}</td>
-              <td className="small">{e.target_sylvex_user_id ? `SYLVEX ${e.target_sylvex_user_id}` : "—"}</td>
+              <td className="small">{e.target_sylvex_user_id ? `SYLVEX ${e.target_sylvex_user_id}` : ""}{e.object && <div className="cell-sub">{e.object}</div>}{!e.target_sylvex_user_id && !e.object && "—"}</td>
               <td className="small" style={{ maxWidth: 260 }}>{e.reason || "—"}</td>
+              <td><span className={`badge ${e.result === "failed" ? "bad" : "good"}`}>{e.result === "failed" ? t("Failed") : t("Done")}</span></td>
             </tr>
           ))}</tbody>
         </table></div>
@@ -84,7 +108,9 @@ export default function Audit({ target }: { target: string }) {
           <div className="stack">
             <div className="idgrid">
               <div><div className="k">{t("When")}</div><div className="v">{fmtDate(open.at)}</div></div>
-              <div><div className="k">{t("Action")}</div><div className="v mono">{open.action}</div></div>
+              <div><div className="k">{t("Action")}</div><div className="v">{actionLabel(open.action)}</div><div className="cell-sub mono">{open.action}</div></div>
+              <div><div className="k">{t("Section")}</div><div className="v">{t(SECTION_LABELS[open.section] || open.section)}</div></div>
+              <div><div className="k">{t("Result")}</div><div className="v">{open.result === "failed" ? t("Failed") : t("Done")}</div></div>
               <div><div className="k">{t("Channel")}</div><div className="v">{channelLabel(open.channel)}</div></div>
               <div><div className="k">{t("Risk")}</div><div className="v">{t(open.risk)}</div></div>
             </div>

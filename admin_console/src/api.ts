@@ -140,6 +140,7 @@ const MESSAGES: Record<string, string> = {
   review_not_found: "Review not found.",
   invalid_base64: "The file could not be read.",
   model_required: "Choose a model.",
+  session_not_found: "This session has already ended.",
   generation_not_found: "Generation not found.",
   invalid_period: "Invalid period.",
 };
