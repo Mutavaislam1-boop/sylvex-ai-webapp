@@ -55,6 +55,10 @@ def ensure_tables(cur):
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_project_reviews_created ON project_reviews(created_at DESC)")
+    # An admin's answer to a review (it reaches the person like any message).
+    cur.execute("ALTER TABLE project_reviews ADD COLUMN IF NOT EXISTS reply_body TEXT")
+    cur.execute("ALTER TABLE project_reviews ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP")
+    cur.execute("ALTER TABLE project_reviews ADD COLUMN IF NOT EXISTS replied_by BIGINT")
 
 
 def successful_generations(cur, user_key):
@@ -141,17 +145,37 @@ def _iso(value):
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value is not None else None)
 
 
-def admin_list(cur, *, rating=0, limit=50, offset=0):
-    """Reviews for the Admin Console, newest first, with the summary."""
-    where, params = "", []
+def admin_list(cur, *, rating=0, surface="", with_text=None, replied=None, days=0, limit=50, offset=0):
+    """Reviews for the Admin Console, newest first, with filters (stars,
+    where it was left, with/without a comment, answered or not, last N days)
+    and the summary: stars, average overall / per surface / last 30 days,
+    answered, and how the prompt itself was met."""
+    conditions, params = [], []
     if int(rating or 0) in (1, 2, 3, 4, 5):
-        where, params = "WHERE rating = %s", [int(rating)]
+        conditions.append("rating = %s")
+        params.append(int(rating))
+    if surface in SURFACES:
+        conditions.append("surface = %s")
+        params.append(surface)
+    if with_text is True:
+        conditions.append("body <> ''")
+    elif with_text is False:
+        conditions.append("body = ''")
+    if replied is True:
+        conditions.append("replied_at IS NOT NULL")
+    elif replied is False:
+        conditions.append("replied_at IS NULL")
+    if int(days or 0) > 0:
+        conditions.append("created_at >= NOW() - (%s * INTERVAL '1 day')")
+        params.append(min(int(days), 3650))
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     cur.execute(f"""
-        SELECT id, account_id, user_key, rating, body, surface, generations, created_at FROM project_reviews {where}
-        ORDER BY id DESC LIMIT %s OFFSET %s
+        SELECT id, account_id, user_key, rating, body, surface, generations, created_at, reply_body, replied_at, replied_by
+        FROM project_reviews {where} ORDER BY id DESC LIMIT %s OFFSET %s
     """, params + [max(1, min(int(limit or 50), 100)), max(0, int(offset or 0))])
     items = [{"id": int(r[0]), "account_id": r[1], "user_key": r[2], "rating": int(r[3]), "text": r[4] or "",
-              "surface": r[5], "generations": int(r[6] or 0), "created_at": _iso(r[7])} for r in cur.fetchall()]
+              "surface": r[5], "generations": int(r[6] or 0), "created_at": _iso(r[7]), "reply": r[8] or "",
+              "replied_at": _iso(r[9]), "replied_by": r[10]} for r in cur.fetchall()]
     cur.execute(f"SELECT COUNT(*) FROM project_reviews {where}", params)
     total = int(cur.fetchone()[0] or 0)
     cur.execute("SELECT rating, COUNT(*) FROM project_reviews GROUP BY rating")
@@ -160,12 +184,38 @@ def admin_list(cur, *, rating=0, limit=50, offset=0):
         by_rating[str(int(star))] = int(count)
     count = sum(by_rating.values())
     average = round(sum(int(star) * n for star, n in by_rating.items()) / count, 2) if count else 0
+    cur.execute("SELECT COALESCE(surface, 'unknown') AS surface, COUNT(*) AS n, AVG(rating) AS avg_rating "
+                "FROM project_reviews GROUP BY 1")
+    by_surface = {str(r[0]): {"count": int(r[1]), "average": round(float(r[2] or 0), 2)} for r in cur.fetchall()}
     cur.execute("""
-        SELECT COALESCE(SUM(shows), 0), COALESCE(SUM(closes), 0), COALESCE(SUM(laters), 0),
-               COUNT(*) FILTER (WHERE status = 'never')
+        SELECT COUNT(*) AS n, AVG(rating) AS avg_rating FROM project_reviews
+        WHERE created_at >= NOW() - INTERVAL '30 days'
+    """)
+    month_count, month_avg = cur.fetchone()
+    cur.execute("SELECT COUNT(*) FILTER (WHERE body <> '') AS with_comment, "
+                "COUNT(*) FILTER (WHERE replied_at IS NOT NULL) AS answered FROM project_reviews")
+    with_comment, answered = (int(v or 0) for v in cur.fetchone())
+    cur.execute("""
+        SELECT COALESCE(SUM(shows), 0) AS shows, COALESCE(SUM(closes), 0) AS closes,
+               COALESCE(SUM(laters), 0) AS laters, COUNT(*) FILTER (WHERE status = 'never') AS never
         FROM review_prompts
     """)
     shows, closes, laters, never = (int(v or 0) for v in cur.fetchone())
-    summary = {"count": count, "average": average, "by_rating": by_rating, "shows": shows, "closes": closes,
-               "laters": laters, "never": never}
+    summary = {"count": count, "average": average, "by_rating": by_rating, "by_surface": by_surface,
+               "last_30_days": {"count": int(month_count or 0), "average": round(float(month_avg or 0), 2)},
+               "with_comment": with_comment, "answered": answered,
+               "shows": shows, "closes": closes, "laters": laters, "never": never}
     return items, total, summary
+
+
+def review_owner(cur, review_id):
+    cur.execute("SELECT account_id, user_key, rating, replied_at FROM project_reviews WHERE id = %s", (int(review_id),))
+    row = cur.fetchone()
+    if not row:
+        raise ReviewError("review_not_found", 404)
+    return {"account_id": row[0], "user_key": row[1], "rating": int(row[2]), "replied_at": row[3]}
+
+
+def record_reply(cur, review_id, text, admin_id):
+    cur.execute("UPDATE project_reviews SET reply_body = %s, replied_at = NOW(), replied_by = %s WHERE id = %s",
+                (text, admin_id, int(review_id)))

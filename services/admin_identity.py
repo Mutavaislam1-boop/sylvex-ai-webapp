@@ -203,10 +203,32 @@ def resolve_target(cur, *, sylvex_user_id=None, user_id=None):
     return None
 
 
-def search_keys(cur, query, *, limit=30, technical=False):
+SEARCH_SOURCES = ("telegram", "website", "google", "apple")
+
+
+def _source_clause(source, tables):
+    """SQL condition on `u.telegram_id` for where the person first registered
+    (Telegram or the website) or a sign-in method linked to the account."""
+    if source not in SEARCH_SOURCES or "sylvex_accounts" not in tables:
+        return "", ()
+    if source == "telegram":
+        return (f"(EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.active_telegram_id = u.telegram_id "
+                f"AND a.origin = 'telegram') OR (u.telegram_id < {STORAGE_ID_FLOOR} AND NOT EXISTS "
+                "(SELECT 1 FROM sylvex_accounts a WHERE a.active_telegram_id = u.telegram_id)))"), ()
+    if source == "website":
+        return ("EXISTS (SELECT 1 FROM sylvex_accounts a WHERE a.active_telegram_id = u.telegram_id "
+                "AND a.origin = 'website')"), ()
+    if "account_oauth" not in tables:
+        return "FALSE", ()
+    return ("EXISTS (SELECT 1 FROM account_oauth o JOIN sylvex_accounts a ON a.account_id = o.account_id "
+            "WHERE a.active_telegram_id = u.telegram_id AND o.provider = %s)"), (source,)
+
+
+def search_keys(cur, query, *, limit=30, technical=False, source=""):
     """Storage keys of the people matching `query`, best matches first, one
-    per person. Ghost storage rows never match; a storage key matches only
-    for technical (owner) callers."""
+    per person, optionally only those from one registration source. Ghost
+    storage rows never match; a storage key matches only for technical
+    (owner) callers."""
     query = str(query or "").strip()[:200]
     limit = max(1, min(int(limit or 30), 100))
     tables = _existing_tables(cur, ("sylvex_accounts", "account_emails", "account_oauth", "user_profiles")
@@ -226,11 +248,12 @@ def search_keys(cur, query, *, limit=30, technical=False):
         "WHERE a.active_telegram_id = u.telegram_id))"
     ) if has_accounts else f"u.telegram_id < {STORAGE_ID_FLOOR}"
 
+    source_sql, source_params = _source_clause(source, tables)
     if not query:
         cur.execute(
-            f"SELECT u.telegram_id FROM users u WHERE {not_ghost} "
-            "ORDER BY NULLIF(u.created_at,'')::timestamp DESC NULLS LAST LIMIT %s",
-            (limit,),
+            f"SELECT u.telegram_id FROM users u WHERE {not_ghost} {'AND ' + source_sql if source_sql else ''} "
+            "ORDER BY NULLIF(u.created_at::text,'')::timestamp DESC NULLS LAST LIMIT %s",
+            source_params + (limit,),
         )
         return [int(r[0]) for r in cur.fetchall()]
 
@@ -281,7 +304,7 @@ def search_keys(cur, query, *, limit=30, technical=False):
         cur.execute(
             f"SELECT u.telegram_id FROM users u {profile_join} WHERE {not_ghost} "
             f"AND (COALESCE(u.username,'') ILIKE %s OR {name_col} ILIKE %s) "
-            "ORDER BY NULLIF(u.created_at,'')::timestamp DESC NULLS LAST LIMIT %s",
+            "ORDER BY NULLIF(u.created_at::text,'')::timestamp DESC NULLS LAST LIMIT %s",
             (pattern, pattern, limit),
         )
         add(r[0] for r in cur.fetchall())
@@ -290,6 +313,11 @@ def search_keys(cur, query, *, limit=30, technical=False):
         # A payment row can still point at a merged-away storage key.
         identities = identities_for_keys(cur, ordered, technical=False)
         ordered = [k for k in ordered if not is_ghost_key(identities.get(k, {}))]
+    if source_sql and ordered:
+        cur.execute(f"SELECT u.telegram_id FROM users u WHERE u.telegram_id = ANY(%s::bigint[]) AND {source_sql}",
+                    (ordered,) + source_params)
+        matching = {int(r[0]) for r in cur.fetchall()}
+        ordered = [k for k in ordered if k in matching]
     return ordered[:limit]
 
 

@@ -5,7 +5,18 @@ import { useApp } from "../state";
 import { channelLabel, LangSwitch, roleLabel, t } from "../i18n";
 import { ConfirmAction, ErrorNotice, fmtDate, Loading, useAsync } from "../ui";
 
-type Session = { session_id: number; channel: string; created_at: string; last_seen_at: string; expires_at: string; user_agent: string; current: boolean };
+type Session = { session_id: number; channel: string; created_at: string; last_seen_at: string; expires_at: string; user_agent: string; device: string; current: boolean };
+type Login = { id: number; at: string; action: string; channel: string; device: string; new_device: boolean; detail: string };
+
+const LOGIN_LABELS: Record<string, string> = {
+  admin_login: "Signed in",
+  admin_login_failed: "Wrong 2FA code",
+  admin_login_suspicious: "Suspicious sign-in",
+  admin_logout: "Signed out",
+  admin_logout_all: "Signed out everywhere",
+  admin_session_revoked: "Session ended",
+  admin_reauth: "Identity confirmed",
+};
 
 function TotpSetup() {
   const { toast, refreshMe } = useApp();
@@ -69,8 +80,12 @@ function TotpSetup() {
 
 export default function Account({ onSignedOut }: { onSignedOut: () => void }) {
   const { me } = useApp();
+  const { toast } = useApp();
   const sessions = useAsync(() => get<{ items: Session[] }>("/api/admin/v2/auth/sessions"), []);
+  const logins = useAsync(() => get<{ items: Login[] }>("/api/admin/v2/auth/logins"), []);
   const [confirmAll, setConfirmAll] = useState(false);
+  const [ending, setEnding] = useState<Session | null>(null);
+  const suspicious = (logins.data?.items || []).filter((l) => l.action === "admin_login_suspicious");
   const inMiniApp = me.session.channel === "miniapp";
 
   return (
@@ -109,20 +124,57 @@ export default function Account({ onSignedOut }: { onSignedOut: () => void }) {
         </div>
         {sessions.error ? <ErrorNotice message={sessions.error} onRetry={sessions.reload} /> : !sessions.data ? <Loading /> : (
           <div className="table-wrap"><table>
-            <thead><tr><th>{t("Where")}</th><th>{t("Started")}</th><th>{t("Last active")}</th><th>{t("Expires")}</th></tr></thead>
+            <thead><tr><th>{t("Where")}</th><th>{t("Started")}</th><th>{t("Last active")}</th><th>{t("Expires")}</th><th></th></tr></thead>
             <tbody>{sessions.data.items.map((s) => (
               <tr key={s.session_id}>
                 <td>{channelLabel(s.channel)}{s.current && <span className="badge good" style={{ marginLeft: 6 }}>{t("this device")}</span>}
-                  <div className="cell-sub" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.user_agent}</div></td>
+                  <div className="cell-sub" title={s.user_agent}>{s.device || "—"}</div></td>
                 <td className="small">{fmtDate(s.created_at)}</td>
                 <td className="small">{fmtDate(s.last_seen_at)}</td>
                 <td className="small">{fmtDate(s.expires_at)}</td>
+                <td className="right"><button className="btn small" onClick={() => setEnding(s)}>{t("End")}</button></td>
               </tr>
             ))}</tbody>
           </table></div>
         )}
       </div>
 
+      <div className="card stack">
+        <h3>{t("Sign-in history")}</h3>
+        {suspicious.length > 0 && <div className="notice bad small">{t("Suspicious sign-ins: {n}. If it was not you, end the sessions above and tell the owner.", { n: suspicious.length })}</div>}
+        <div className="muted small">{t("A sign-in from a new device and network, or several wrong 2FA codes in a row, is marked suspicious and reported to you and the owner in Telegram.")}</div>
+        {logins.error ? <ErrorNotice message={logins.error} onRetry={logins.reload} /> : !logins.data ? <Loading /> : (
+          <div className="table-wrap"><table>
+            <thead><tr><th>{t("When")}</th><th>{t("Event")}</th><th>{t("Where")}</th></tr></thead>
+            <tbody>{logins.data.items.map((l) => (
+              <tr key={l.id}>
+                <td className="small">{fmtDate(l.at)}</td>
+                <td><span className={`badge ${l.action === "admin_login_suspicious" ? "bad" : l.action === "admin_login_failed" ? "warn" : ""}`}>{t(LOGIN_LABELS[l.action] || l.action)}</span>
+                  {l.new_device && l.action === "admin_login" && <span className="badge warn" style={{ marginLeft: 6 }}>{t("new device")}</span>}</td>
+                <td className="small">{channelLabel(l.channel)}{l.device && <div className="cell-sub">{l.device}</div>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+      </div>
+
+      {ending && (
+        <ConfirmAction
+          title={t("End session")}
+          confirmLabel={t("End")}
+          danger
+          needReason={false}
+          description={<>{channelLabel(ending.channel)} · {ending.device || "—"}{ending.current ? ` — ${t("this is the device you are using; you will be signed out.")}` : ""}</>}
+          onConfirm={async () => {
+            const res = await post<{ signed_out: boolean }>("/api/admin/v2/auth/sessions/revoke", { session_id: ending.session_id });
+            if (res.signed_out) { onSignedOut(); return; }
+            toast(t("Session ended"));
+            sessions.reload();
+            logins.reload();
+          }}
+          onClose={() => setEnding(null)}
+        />
+      )}
       {confirmAll && (
         <ConfirmAction
           title={t("Sign out everywhere")}

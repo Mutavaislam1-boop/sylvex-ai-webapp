@@ -30,6 +30,11 @@ SENDER_NAME = "SYLVEX Team"
 SURFACES = ("miniapp", "website")
 CHANNELS = ("telegram", "miniapp", "website")
 TOPICS = ("support", "sales", "admin", "general")
+# Conversation statuses as the team works them: open = new, in_progress =
+# someone is on it, answered = waiting for the person's reply, closed.
+THREAD_STATUSES = ("open", "in_progress", "answered", "closed")
+ATTACHMENT_PREFIX = "generated/support-uploads/"
+MAX_ATTACHMENTS = 5
 MAX_TEXT = 4000
 MAX_LINKS = 5
 VISITOR_RE = re.compile(r"^v_[A-Za-z0-9_-]{16,64}$")
@@ -131,6 +136,23 @@ def ensure_tables(cur):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_support_messages_thread ON support_messages(thread_id, id)")
     # A structured request (Store -> Contact sales) keeps its fields next to the text.
     cur.execute("ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS details JSONB")
+    # An award (credits, subscription, role) carries what was given; it is
+    # shown once as a centered card, not in the bell.
+    cur.execute("ALTER TABLE user_notifications ADD COLUMN IF NOT EXISTS payload JSONB")
+    # Where an admin message really went: bell rows written, Telegram sent or
+    # the bot API's reason it was not (blocked, chat not found...).
+    cur.execute("ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS delivery JSONB")
+    # Inbox work: who handles a conversation, whether the person may attach
+    # files to it, and the files they did attach.
+    cur.execute("ALTER TABLE support_threads ADD COLUMN IF NOT EXISTS assignee_admin_id BIGINT")
+    cur.execute("ALTER TABLE support_threads ADD COLUMN IF NOT EXISTS attachments_allowed BOOLEAN NOT NULL DEFAULT FALSE")
+    cur.execute("ALTER TABLE support_threads ADD COLUMN IF NOT EXISTS first_reply_at TIMESTAMP")
+    cur.execute("ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS attachments JSONB")
+    # Announcements: what audience they were sent to and why Telegram
+    # refused some of them.
+    cur.execute("ALTER TABLE user_notifications ADD COLUMN IF NOT EXISTS segment JSONB")
+    cur.execute("ALTER TABLE user_notifications ADD COLUMN IF NOT EXISTS telegram_failed INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE user_notifications ADD COLUMN IF NOT EXISTS telegram_errors JSONB")
 
 
 def _iso(value):
@@ -357,7 +379,7 @@ def list_for(cur, *, surface, account_id=None, user_key=None, visitor_id=None, l
         SELECT r.id AS rid, n.id AS nid, n.kind AS kind, n.body AS body, n.image_key AS image_key,
                n.links AS links, n.created_at AS created_at, r.read_at AS read_at
         FROM user_notification_recipients r JOIN user_notifications n ON n.id = r.notification_id
-        WHERE {where} AND n.surfaces @> %s::jsonb
+        WHERE {where} AND n.surfaces @> %s::jsonb AND n.kind <> 'award'
         ORDER BY n.id DESC, r.id DESC LIMIT %s
     """, params + [surface_json, max(1, min(int(limit or 30), 100))])
     items, seen = [], set()
@@ -371,9 +393,46 @@ def list_for(cur, *, surface, account_id=None, user_key=None, visitor_id=None, l
     cur.execute(f"""
         SELECT COUNT(DISTINCT n.id) FROM user_notification_recipients r
         JOIN user_notifications n ON n.id = r.notification_id
-        WHERE {where} AND n.surfaces @> %s::jsonb AND r.read_at IS NULL
+        WHERE {where} AND n.surfaces @> %s::jsonb AND n.kind <> 'award' AND r.read_at IS NULL
     """, params + [surface_json])
     return items, int(cur.fetchone()[0] or 0)
+
+
+# --------------------------------------------------------------------------
+# Awards: credits, a subscription or an admin role given by SYLVEX
+# --------------------------------------------------------------------------
+
+AWARD_KINDS = ("credits", "subscription", "role")
+
+
+def create_award(cur, person, *, award, text, admin_id=None):
+    """One centered card for `person`, shown once on their next visit to the
+    Mini App or the website (whichever comes first), then marked read."""
+    if not person or award.get("type") not in AWARD_KINDS:
+        return None
+    if not (person.get("account_id") or person.get("user_key")):
+        return None
+    cur.execute("""
+        INSERT INTO user_notifications (kind, body, links, surfaces, channels, audience, admin_id, payload,
+                                        recipients_count)
+        VALUES ('award', %s, '[]'::jsonb, %s::jsonb, %s::jsonb, 'award', %s, %s::jsonb, 1) RETURNING id
+    """, (clean_text(text), json.dumps(list(SURFACES)), json.dumps(list(SURFACES)), admin_id,
+          json.dumps(award, ensure_ascii=False)))
+    notification_id = int(cur.fetchone()[0])
+    add_recipients(cur, notification_id, [person])
+    return notification_id
+
+
+def pending_awards(cur, *, account_id=None, user_key=None, limit=5):
+    where, params = _identity_clause(account_id, user_key, None)
+    cur.execute(f"""
+        SELECT DISTINCT ON (n.id) n.id, n.body, n.payload, n.created_at
+        FROM user_notification_recipients r JOIN user_notifications n ON n.id = r.notification_id
+        WHERE {where} AND n.kind = 'award' AND r.read_at IS NULL
+        ORDER BY n.id LIMIT %s
+    """, params + [max(1, min(int(limit or 5), 20))])
+    return [{"notification_id": int(r[0]), "text": r[1], "award": _json_dict(r[2]), "created_at": _iso(r[3])}
+            for r in cur.fetchall()]
 
 
 def mark_read(cur, *, account_id=None, user_key=None, visitor_id=None, notification_ids=None):
@@ -397,12 +456,13 @@ def mark_read(cur, *, account_id=None, user_key=None, visitor_id=None, notificat
 # --------------------------------------------------------------------------
 
 def create_notification(cur, *, text, links, image_key, surfaces, channels, audience, admin_id, kind="broadcast",
-                        thread_id=None):
+                        thread_id=None, segment=None):
     cur.execute("""
-        INSERT INTO user_notifications (kind, body, image_key, links, surfaces, channels, audience, admin_id, thread_id)
-        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s) RETURNING id
+        INSERT INTO user_notifications (kind, body, image_key, links, surfaces, channels, audience, admin_id, thread_id,
+                                        segment)
+        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s::jsonb) RETURNING id
     """, (kind, text, image_key, json.dumps(links), json.dumps(list(surfaces)), json.dumps(list(channels)),
-          audience, admin_id, thread_id))
+          audience, admin_id, thread_id, json.dumps(segment) if segment else None))
     return int(cur.fetchone()[0])
 
 
@@ -450,6 +510,127 @@ def telegram_chats_for_everyone(cur):
     return [int(r[0]) for r in cur.fetchall()]
 
 
+# --------------------------------------------------------------------------
+# Announcement audiences: by the surfaces people use and by their plan
+# --------------------------------------------------------------------------
+
+SEGMENT_SURFACES = ("website", "browser_miniapp", "telegram_miniapp", "bot")
+# Surfaces -> where the announcement shows by default.
+SURFACE_CHANNELS = {"website": "website", "browser_miniapp": "miniapp", "telegram_miniapp": "miniapp", "bot": "telegram"}
+PLAN_RE = re.compile(r"^[a-z][a-z0-9]{1,30}$")
+
+
+def clean_segment(raw):
+    """{surfaces: [...], plans: ["free" | "paid" | plan id]} - empty lists
+    mean "any"."""
+    raw = raw if isinstance(raw, dict) else {}
+    surfaces = [x for x in SEGMENT_SURFACES if x in (raw.get("surfaces") or [])]
+    plans = []
+    for plan in raw.get("plans") or []:
+        plan = str(plan or "").strip().lower()
+        if PLAN_RE.match(plan) and plan not in plans:
+            plans.append(plan)
+    if not surfaces and not plans:
+        raise NotificationError("empty_segment")
+    return {"surfaces": surfaces, "plans": plans[:12]}
+
+
+def segment_channels(segment):
+    return [c for c in CHANNELS if c in {SURFACE_CHANNELS[x] for x in segment["surfaces"]}] or list(CHANNELS)
+
+
+def segment_people(cur, segment):
+    """Registered people (accounts, and Telegram users without one) in the
+    segment: any of its surfaces, and any of its plans."""
+    params = []
+    people = f"""
+        SELECT s.account_id, s.active_telegram_id AS user_key, s.origin FROM sylvex_accounts s
+        WHERE s.active_telegram_id IS NOT NULL
+        UNION ALL
+        SELECT NULL, u.telegram_id, 'telegram' FROM users u
+        WHERE u.telegram_id > 0 AND u.telegram_id < {STORAGE_ID_FLOOR}
+          AND NOT EXISTS (SELECT 1 FROM sylvex_accounts s WHERE s.active_telegram_id = u.telegram_id)
+    """
+    conditions = []
+    usage = _table_exists(cur, "user_surface_usage")
+    presence = _table_exists(cur, "app_presence")
+    parts = []
+    for surface in segment["surfaces"]:
+        if surface == "bot":
+            parts.append(f"(p.user_key > 0 AND p.user_key < {STORAGE_ID_FLOOR})")
+            continue
+        used = []
+        if usage:
+            used.append("EXISTS (SELECT 1 FROM user_surface_usage su WHERE su.user_key = p.user_key AND su.surface = %s)")
+            params.append(surface)
+        # Before surfaces were recorded: the Mini App presence beacon
+        # (Telegram) and the website registration.
+        if surface == "telegram_miniapp" and presence:
+            used.append("EXISTS (SELECT 1 FROM app_presence ap WHERE ap.telegram_id = p.user_key)")
+        if surface == "website":
+            used.append("p.origin = 'website'")
+        if used:
+            parts.append("(" + " OR ".join(used) + ")")
+        else:
+            parts.append("FALSE")
+    if parts:
+        conditions.append("(" + " OR ".join(parts) + ")")
+    if segment["plans"]:
+        if _table_exists(cur, "subscriptions"):
+            active = ("EXISTS (SELECT 1 FROM subscriptions sb WHERE sb.telegram_id = p.user_key AND sb.status = 'active' "
+                      "AND NULLIF(sb.expires_at::text, '')::timestamp > NOW() {extra})")
+            plan_parts = []
+            for plan in segment["plans"]:
+                if plan == "free":
+                    plan_parts.append("NOT " + active.format(extra=""))
+                elif plan == "paid":
+                    plan_parts.append(active.format(extra=""))
+                else:
+                    plan_parts.append(active.format(extra="AND sb.subscription_type LIKE %s"))
+                    params.append(plan + "\\_%")
+            conditions.append("(" + " OR ".join(plan_parts) + ")")
+        elif "free" not in segment["plans"]:
+            conditions.append("FALSE")
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    cur.execute(f"SELECT p.account_id, p.user_key FROM ({people}) p {where}", params)
+    return [{"key": f"a:{r[0]}" if r[0] else f"t:{r[1]}", "account_id": r[0], "user_key": int(r[1]), "visitor_id": None,
+             "telegram_chat": real_telegram_id(r[1])} for r in cur.fetchall()]
+
+
+def add_recipients_bulk(cur, notification_id, people):
+    """Recipient rows for many people in one statement."""
+    if not people:
+        return 0
+    cur.execute("""
+        INSERT INTO user_notification_recipients (notification_id, account_id, user_key)
+        SELECT %s, x.account_id, x.user_key FROM UNNEST(%s::bigint[], %s::bigint[]) AS x(account_id, user_key)
+    """, (notification_id, [p.get("account_id") for p in people], [p.get("user_key") for p in people]))
+    return len(people)
+
+
+def count_everyone(cur, surfaces):
+    """How many bell rows add_everyone would write (for the preview)."""
+    only_miniapp = list(surfaces) == ["miniapp"]
+    cur.execute(f"SELECT COUNT(*) FROM sylvex_accounts WHERE active_telegram_id IS NOT NULL"
+                f"{' AND active_telegram_id < %s' if only_miniapp else ''}", (STORAGE_ID_FLOOR,) if only_miniapp else ())
+    total = int(cur.fetchone()[0] or 0)
+    cur.execute("""
+        SELECT COUNT(*) FROM users u WHERE u.telegram_id > 0 AND u.telegram_id < %s
+          AND NOT EXISTS (SELECT 1 FROM sylvex_accounts s WHERE s.active_telegram_id = u.telegram_id)
+    """, (STORAGE_ID_FLOOR,))
+    total += int(cur.fetchone()[0] or 0)
+    if "website" in surfaces:
+        cur.execute("SELECT COUNT(*) FROM site_visitors WHERE account_id IS NULL")
+        total += int(cur.fetchone()[0] or 0)
+    return total
+
+
+def record_telegram_result(cur, notification_id, *, sent, failed, errors):
+    cur.execute("""
+        UPDATE user_notifications SET telegram_sent = %s, telegram_failed = %s, telegram_errors = %s::jsonb WHERE id = %s
+    """, (int(sent), int(failed), json.dumps(errors or {}, ensure_ascii=False), int(notification_id)))
+
+
 def set_delivery_counts(cur, notification_id, *, recipients=None, telegram_targets=None, telegram_sent=None):
     sets, params = [], []
     for column, value in (("recipients_count", recipients), ("telegram_targets", telegram_targets),
@@ -465,16 +646,18 @@ def history(cur, limit=50, offset=0):
     cur.execute("""
         SELECT n.id, n.kind, n.body, n.image_key, n.links, n.channels, n.audience, n.recipients_count,
                n.telegram_targets, n.telegram_sent, n.admin_id, n.created_at,
-               (SELECT COUNT(*) FROM user_notification_recipients r WHERE r.notification_id = n.id AND r.read_at IS NOT NULL)
-        FROM user_notifications n ORDER BY n.id DESC LIMIT %s OFFSET %s
+               (SELECT COUNT(*) FROM user_notification_recipients r WHERE r.notification_id = n.id AND r.read_at IS NOT NULL),
+               n.segment, n.telegram_failed, n.telegram_errors
+        FROM user_notifications n WHERE n.kind <> 'award' ORDER BY n.id DESC LIMIT %s OFFSET %s
     """, (max(1, min(int(limit or 50), 100)), max(0, int(offset or 0))))
     rows = cur.fetchall()
-    cur.execute("SELECT COUNT(*) FROM user_notifications")
+    cur.execute("SELECT COUNT(*) FROM user_notifications WHERE kind <> 'award'")
     total = int(cur.fetchone()[0] or 0)
     return [{"id": int(r[0]), "kind": r[1], "text": r[2], "has_image": bool(r[3]), "links": _json_list(r[4]),
              "channels": _json_list(r[5]), "audience": r[6], "recipients": int(r[7] or 0),
              "telegram_targets": int(r[8] or 0), "telegram_sent": int(r[9] or 0), "admin_id": r[10],
-             "created_at": _iso(r[11]), "read": int(r[12] or 0)} for r in rows], total
+             "created_at": _iso(r[11]), "read": int(r[12] or 0), "segment": _json_dict(r[13]) or None,
+             "telegram_failed": int(r[14] or 0), "telegram_errors": _json_dict(r[15])} for r in rows], total
 
 
 # --------------------------------------------------------------------------
@@ -556,9 +739,57 @@ def sales_request_text(details):
     return "\n".join(lines)
 
 
-def submit_contact(cur, person, *, message, topic="support", email="", surface="", ip_hash=None, sales=None):
+ATTACHMENT_ID_RE = re.compile(r"^[0-9a-f]{32}\.(png|jpg|webp|pdf)$")
+ATTACHMENT_MIME = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "pdf": "application/pdf"}
+
+
+def clean_attachments(raw, person):
+    """Files the person uploaded for this message, as stored: [{key, name,
+    mime, size}]. The client names a file by the id its upload returned;
+    the key is built here under the person's own folder, so nobody can
+    point at someone else's file."""
+    if not raw:
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_ATTACHMENTS:
+        raise NotificationError("too_many_attachments")
+    owner = attachment_owner_prefix(person)
+    out = []
+    for item in raw:
+        file_id = str((item or {}).get("id") or "") if isinstance(item, dict) else ""
+        match = ATTACHMENT_ID_RE.match(file_id)
+        if not owner or not match:
+            raise NotificationError("invalid_attachment")
+        out.append({"key": owner + file_id, "name": _short(item.get("name"), 120) or file_id,
+                    "mime": ATTACHMENT_MIME[match.group(1)], "size": max(0, int(item.get("size") or 0))})
+    return out
+
+
+def attachment_owner_prefix(person):
+    if person.get("account_id"):
+        return f"{ATTACHMENT_PREFIX}a{int(person['account_id'])}/"
+    if person.get("user_key"):
+        return f"{ATTACHMENT_PREFIX}t{int(person['user_key'])}/"
+    return ""
+
+
+def contact_state(cur, person):
+    """What the person's Contact window may offer: attachments when an admin
+    allowed them on their current conversation."""
+    where, value = _thread_where(person)
+    cur.execute(f"SELECT id, attachments_allowed FROM support_threads WHERE {where} AND status <> 'closed' "
+                "ORDER BY id DESC LIMIT 1", (value,))
+    row = cur.fetchone()
+    return {"thread_id": int(row[0]) if row else None, "attachments_allowed": bool(row and row[1])}
+
+
+def submit_contact(cur, person, *, message, topic="support", email="", surface="", ip_hash=None, sales=None,
+                   attachments=None):
     """Stores a user's message; continues their latest unclosed thread. A
-    sales request (Store -> Contact sales) comes as its fields instead."""
+    sales request (Store -> Contact sales) comes as its fields instead.
+    Files are accepted only on a conversation an admin allowed them on."""
+    files = clean_attachments(attachments, person)
+    if files and not contact_state(cur, person)["attachments_allowed"]:
+        raise NotificationError("attachments_not_allowed", 403)
     details = None
     if sales is not None:
         details = clean_sales_request(sales)
@@ -590,7 +821,8 @@ def submit_contact(cur, person, *, message, topic="support", email="", surface="
     if row:
         thread_id = int(row[0])
         cur.execute("""
-            UPDATE support_threads SET status = 'open', admin_unread = TRUE, topic = %s, surface = COALESCE(%s, surface),
+            UPDATE support_threads SET status = CASE WHEN status = 'in_progress' THEN status ELSE 'open' END,
+                admin_unread = TRUE, topic = %s, surface = COALESCE(%s, surface),
                 email = COALESCE(NULLIF(%s, ''), email), updated_at = NOW(), last_message_at = NOW()
             WHERE id = %s
         """, (topic, surface, email, thread_id))
@@ -601,8 +833,11 @@ def submit_contact(cur, person, *, message, topic="support", email="", surface="
         """, (person.get("account_id"), person.get("user_key"), person.get("visitor_id"), email, topic, surface,
               ip_hash))
         thread_id = int(cur.fetchone()[0])
-    cur.execute("INSERT INTO support_messages (thread_id, direction, body, details) VALUES (%s, 'in', %s, %s::jsonb) RETURNING id",
-                (thread_id, message, json.dumps(details, ensure_ascii=False) if details else None))
+    cur.execute("""
+        INSERT INTO support_messages (thread_id, direction, body, details, attachments)
+        VALUES (%s, 'in', %s, %s::jsonb, %s::jsonb) RETURNING id
+    """, (thread_id, message, json.dumps(details, ensure_ascii=False) if details else None,
+          json.dumps(files, ensure_ascii=False) if files else None))
     return thread_id, int(cur.fetchone()[0])
 
 
@@ -623,52 +858,160 @@ def thread_person(cur, thread_id):
             "telegram_chat": None}
 
 
-def list_threads(cur, *, status="", limit=50, offset=0):
-    params, where = [], ""
-    if status in ("open", "answered", "closed"):
-        where, params = "WHERE t.status = %s", [status]
+_THREAD_COLUMNS = """t.id, t.account_id, t.user_key, t.visitor_id, t.email, t.topic, t.surface, t.status,
+    t.admin_unread, t.created_at, t.last_message_at, t.assignee_admin_id, t.attachments_allowed, t.first_reply_at"""
+
+
+def _thread_row(r):
+    return {"id": int(r[0]), "account_id": r[1], "user_key": r[2], "visitor_id": r[3], "email": r[4],
+            "topic": r[5], "surface": r[6], "status": r[7], "admin_unread": bool(r[8]),
+            "created_at": _iso(r[9]), "last_message_at": _iso(r[10]), "assignee_admin_id": r[11],
+            "attachments_allowed": bool(r[12]), "first_reply_at": _iso(r[13])}
+
+
+def list_threads(cur, *, status="", topic="", exclude_topic="", assignee="", actor_admin_id=None, unread=False,
+                 query="", surface="", limit=50, offset=0):
+    """Conversations for the inbox with its filters: status, topic (or all
+    but one), assignee ("me", "none" or an admin id), unread only, surface
+    and a search over the person (name, @username, email, SYLVEX ID,
+    Telegram ID) and the messages. Returns (items, total, counts)."""
+    conditions, params = [], []
+    if topic in TOPICS:
+        conditions.append("t.topic = %s")
+        params.append(topic)
+    elif exclude_topic in TOPICS:
+        conditions.append("t.topic <> %s")
+        params.append(exclude_topic)
+    if surface in ("miniapp", "website", "telegram"):
+        conditions.append("t.surface = %s")
+        params.append(surface)
+    if assignee == "me" and actor_admin_id:
+        conditions.append("t.assignee_admin_id = %s")
+        params.append(int(actor_admin_id))
+    elif assignee == "none":
+        conditions.append("t.assignee_admin_id IS NULL")
+    elif str(assignee).isdigit():
+        conditions.append("t.assignee_admin_id = %s")
+        params.append(int(assignee))
+    if unread:
+        conditions.append("t.admin_unread = TRUE")
+    query = str(query or "").strip()[:120]
+    if query:
+        like = f"%{query.lstrip('@')}%"
+        people = ""
+        if _table_exists(cur, "users"):
+            profile = ("OR EXISTS (SELECT 1 FROM user_profiles p WHERE p.telegram_id = s.active_telegram_id "
+                       "AND p.display_name ILIKE %s)") if _table_exists(cur, "user_profiles") else ""
+            people = f"""OR EXISTS (SELECT 1 FROM sylvex_accounts s JOIN users u ON u.telegram_id = s.active_telegram_id
+                          WHERE s.account_id = t.account_id AND (u.first_name ILIKE %s OR u.username ILIKE %s {profile}))
+                       OR EXISTS (SELECT 1 FROM users u WHERE u.telegram_id = t.user_key
+                          AND (u.first_name ILIKE %s OR u.username ILIKE %s))"""
+        conditions.append(f"""(t.email ILIKE %s OR t.account_id::text = %s OR t.user_key::text = %s
+            OR t.visitor_id = %s OR EXISTS (SELECT 1 FROM support_messages m WHERE m.thread_id = t.id AND m.body ILIKE %s)
+            {people})""")
+        params += [like, query, query, query, like]
+        if people:
+            params += [like, like] + ([like] if "user_profiles" in people else []) + [like, like]
+    base = " AND ".join(conditions)
+    status_sql = "t.status = %s" if status in THREAD_STATUSES else ""
+    where = " AND ".join(c for c in (base, status_sql) if c)
+    where = f"WHERE {where}" if where else ""
+    full_params = params + ([status] if status_sql else [])
     cur.execute(f"""
-        SELECT t.id, t.account_id, t.user_key, t.visitor_id, t.email, t.topic, t.surface, t.status, t.admin_unread,
-               t.created_at, t.last_message_at,
+        SELECT {_THREAD_COLUMNS},
                (SELECT body FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1) AS last_body,
                (SELECT direction FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1) AS last_dir,
-               (SELECT COUNT(*) FROM support_messages m WHERE m.thread_id = t.id) AS messages
+               (SELECT COUNT(*) FROM support_messages m WHERE m.thread_id = t.id) AS messages,
+               (SELECT details FROM support_messages m WHERE m.thread_id = t.id AND m.details IS NOT NULL
+                ORDER BY m.id DESC LIMIT 1) AS sales
         FROM support_threads t {where}
         ORDER BY t.admin_unread DESC, t.last_message_at DESC LIMIT %s OFFSET %s
-    """, params + [max(1, min(int(limit or 50), 100)), max(0, int(offset or 0))])
+    """, full_params + [max(1, min(int(limit or 50), 100)), max(0, int(offset or 0))])
     rows = cur.fetchall()
-    cur.execute(f"SELECT COUNT(*) FROM support_threads t {where}", params)
+    cur.execute(f"SELECT COUNT(*) FROM support_threads t {where}", full_params)
     total = int(cur.fetchone()[0] or 0)
-    cur.execute("SELECT COUNT(*) FROM support_threads WHERE admin_unread = TRUE")
-    unread = int(cur.fetchone()[0] or 0)
-    items = [{"id": int(r[0]), "account_id": r[1], "user_key": r[2], "visitor_id": r[3], "email": r[4],
-              "topic": r[5], "surface": r[6], "status": r[7], "admin_unread": bool(r[8]),
-              "created_at": _iso(r[9]), "last_message_at": _iso(r[10]), "last_message": str(r[11] or "")[:300],
-              "last_direction": r[12], "messages": int(r[13] or 0)} for r in rows]
-    return items, total, unread
+    # Per status within the other filters (the tabs), and unread.
+    cur.execute(f"""
+        SELECT t.status, COUNT(*) AS n, COUNT(*) FILTER (WHERE t.admin_unread) AS unread FROM support_threads t
+        {"WHERE " + base if base else ""} GROUP BY t.status
+    """, params)
+    counts = {s_: 0 for s_ in THREAD_STATUSES}
+    unread_count = 0
+    for st, n, un in cur.fetchall():
+        counts[st] = int(n or 0)
+        unread_count += int(un or 0)
+    counts["all"] = sum(counts[s_] for s_ in THREAD_STATUSES)
+    counts["unread"] = unread_count
+    items = []
+    for r in rows:
+        item = _thread_row(r)
+        item.update(last_message=str(r[14] or "")[:300], last_direction=r[15], messages=int(r[16] or 0),
+                    sales=_json_dict(r[17]) or None)
+        items.append(item)
+    return items, total, counts
 
 
-def thread_detail(cur, thread_id, *, image_url=None):
-    cur.execute("""
-        SELECT id, account_id, user_key, visitor_id, email, topic, surface, status, admin_unread, created_at,
-               last_message_at FROM support_threads WHERE id = %s
-    """, (int(thread_id),))
+def thread_detail(cur, thread_id, *, image_url=None, mark_read=True):
+    cur.execute(f"SELECT {_THREAD_COLUMNS} FROM support_threads t WHERE t.id = %s", (int(thread_id),))
     r = cur.fetchone()
     if not r:
         raise NotificationError("thread_not_found", 404)
-    thread = {"id": int(r[0]), "account_id": r[1], "user_key": r[2], "visitor_id": r[3], "email": r[4],
-              "topic": r[5], "surface": r[6], "status": r[7], "admin_unread": bool(r[8]),
-              "created_at": _iso(r[9]), "last_message_at": _iso(r[10])}
-    cur.execute("""
-        SELECT id, direction, body, image_key, links, admin_id, created_at, details FROM support_messages
-        WHERE thread_id = %s ORDER BY id
-    """, (int(thread_id),))
-    messages = [{"id": int(m[0]), "direction": m[1], "text": m[2],
-                 "image_url": image_url(m[3]) if (m[3] and image_url) else None, "links": _json_list(m[4]),
-                 "admin_id": m[5], "created_at": _iso(m[6]), "sales": _json_dict(m[7])} for m in cur.fetchall()]
-    cur.execute("UPDATE support_threads SET admin_unread = FALSE WHERE id = %s", (int(thread_id),))
-    thread["admin_unread"] = False  # opening the thread reads it
+    thread = _thread_row(r)
+    messages = thread_messages(cur, thread_id, image_url=image_url)
+    if mark_read:
+        cur.execute("UPDATE support_threads SET admin_unread = FALSE WHERE id = %s", (int(thread_id),))
+        thread["admin_unread"] = False  # opening the thread reads it
     return thread, messages
+
+
+def thread_messages(cur, thread_id, *, image_url=None):
+    """Messages of one conversation; an admin message carries its delivery
+    and when the person read it in the bell."""
+    cur.execute("""
+        SELECT m.id, m.direction, m.body, m.image_key, m.links, m.admin_id, m.created_at, m.details, m.delivery,
+               (SELECT MAX(r.read_at) FROM user_notification_recipients r WHERE r.notification_id = m.notification_id),
+               m.attachments
+        FROM support_messages m WHERE m.thread_id = %s ORDER BY m.id
+    """, (int(thread_id),))
+    out = []
+    for m in cur.fetchall():
+        files = [dict(f, url=image_url(f["key"]) if image_url else None) for f in _json_list(m[10])
+                 if isinstance(f, dict) and f.get("key")]
+        out.append({"id": int(m[0]), "thread_id": int(thread_id), "direction": m[1], "text": m[2],
+                    "image_url": image_url(m[3]) if (m[3] and image_url) else None, "links": _json_list(m[4]),
+                    "admin_id": m[5], "created_at": _iso(m[6]), "sales": _json_dict(m[7]),
+                    "delivery": _json_dict(m[8]), "read_at": _iso(m[9]), "attachments": files})
+    return out
+
+
+def admin_thread_for(cur, person, topic="admin"):
+    """The person's latest unclosed conversation, or a new one started by an
+    admin (from the user card), so every message lives in Messages."""
+    where, value = _thread_where(person)
+    cur.execute(f"SELECT id FROM support_threads WHERE {where} AND status <> 'closed' ORDER BY id DESC LIMIT 1",
+                (value,))
+    row = cur.fetchone()
+    if row:
+        return int(row[0])
+    cur.execute("""
+        INSERT INTO support_threads (account_id, user_key, visitor_id, topic, surface, status, admin_unread)
+        VALUES (%s, %s, %s, %s, NULL, 'answered', FALSE) RETURNING id
+    """, (person.get("account_id"), person.get("user_key"), person.get("visitor_id"),
+          topic if topic in TOPICS else "admin"))
+    return int(cur.fetchone()[0])
+
+
+def person_threads(cur, person, *, limit=10):
+    """Ids of every conversation of this person, newest first."""
+    where, value = _thread_where(person)
+    cur.execute(f"SELECT id FROM support_threads WHERE {where} ORDER BY last_message_at DESC LIMIT %s",
+                (value, max(1, min(int(limit or 10), 50))))
+    return [int(r[0]) for r in cur.fetchall()]
+
+
+def set_message_delivery(cur, message_id, delivery):
+    cur.execute("UPDATE support_messages SET delivery = %s::jsonb WHERE id = %s",
+                (json.dumps(delivery or {}, ensure_ascii=False), int(message_id)))
 
 
 def record_reply(cur, thread_id, *, text, links, image_key, admin_id, notification_id):
@@ -677,18 +1020,41 @@ def record_reply(cur, thread_id, *, text, links, image_key, admin_id, notificati
         VALUES (%s, 'out', %s, %s, %s::jsonb, %s, %s) RETURNING id
     """, (int(thread_id), text, image_key, json.dumps(links), admin_id, notification_id))
     message_id = int(cur.fetchone()[0])
+    # The first admin to answer takes the conversation if nobody had.
     cur.execute("""
-        UPDATE support_threads SET status = 'answered', admin_unread = FALSE, updated_at = NOW(), last_message_at = NOW()
+        UPDATE support_threads SET status = 'answered', admin_unread = FALSE, updated_at = NOW(), last_message_at = NOW(),
+            first_reply_at = COALESCE(first_reply_at, NOW()), assignee_admin_id = COALESCE(assignee_admin_id, %s)
         WHERE id = %s
-    """, (int(thread_id),))
+    """, (admin_id, int(thread_id)))
     return message_id
 
 
 def set_thread_status(cur, thread_id, status):
-    if status not in ("open", "answered", "closed"):
+    if status not in THREAD_STATUSES:
         raise NotificationError("invalid_status")
     cur.execute("UPDATE support_threads SET status = %s, updated_at = NOW() WHERE id = %s RETURNING id",
                 (status, int(thread_id)))
+    if not cur.fetchone():
+        raise NotificationError("thread_not_found", 404)
+
+
+def assign_thread(cur, thread_id, admin_id):
+    """Gives the conversation to an admin (None: nobody). A new conversation
+    someone takes is in progress."""
+    cur.execute("""
+        UPDATE support_threads SET assignee_admin_id = %s, updated_at = NOW(),
+            status = CASE WHEN %s::bigint IS NOT NULL AND status = 'open' THEN 'in_progress' ELSE status END
+        WHERE id = %s RETURNING status
+    """, (admin_id, admin_id, int(thread_id)))
+    row = cur.fetchone()
+    if not row:
+        raise NotificationError("thread_not_found", 404)
+    return row[0]
+
+
+def set_attachments_allowed(cur, thread_id, allowed):
+    cur.execute("UPDATE support_threads SET attachments_allowed = %s, updated_at = NOW() WHERE id = %s RETURNING id",
+                (bool(allowed), int(thread_id)))
     if not cur.fetchone():
         raise NotificationError("thread_not_found", 404)
 

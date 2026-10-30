@@ -43,6 +43,10 @@ from services import edit_sessions as edit_sessions_service
 from services import grid_projects as grid_projects_service
 from services import grid_montage as grid_montage_service
 from services import generation_stages
+from services import generation_admin
+from services import usage_analytics
+from services import model_control
+from services import admin_security
 from services import grid_references as grid_references_service
 from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
@@ -98,9 +102,86 @@ from services import edit_workspace as edit_workspace_service
 from services import assistant_store
 from services.assistant_intents import route_intent, intent_by_id as assistant_intent_by_id
 from services.assistant_openai import stream_assistant_reply, mint_realtime_session
+from services import user_access as user_access_service
+from services import platform_usage as platform_usage_service
+from services import media_blocks as media_blocks_service
+
+# Admin blocks (services/user_access.py), checked by SecurityMiddleware for
+# every protected request. A short per-process cache keeps this off the
+# database on every call; blocking or unblocking clears the person here at
+# once, other workers follow within the TTL.
+_ACCESS_CACHE: dict = {}
+_ACCESS_CACHE_TTL = 15.0
+
+
+def _account_block_sync(uid):
+    if not DATABASE_URL:
+        return None
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        return user_access_service.block_for_uid(cursor, uid)
+    finally:
+        cursor.close()
+        conn.close()
+
+
+async def check_account_access(uid):
+    """True when an admin blocked the person behind storage key `uid`."""
+    now = time.monotonic()
+    hit = _ACCESS_CACHE.get(int(uid))
+    if hit and hit[1] > now:
+        return hit[0]
+    try:
+        blocked = bool(await asyncio.to_thread(_account_block_sync, int(uid)))
+    except Exception as exc:
+        # Availability over strictness when the block lookup itself fails:
+        # the database being down stops the request further on anyway.
+        print("ACCOUNT_ACCESS_CHECK_FAILED:", type(exc).__name__)
+        return False
+    if len(_ACCESS_CACHE) > 20000:
+        _ACCESS_CACHE.clear()
+    _ACCESS_CACHE[int(uid)] = (blocked, now + _ACCESS_CACHE_TTL)
+    return blocked
+
+
+_SURFACE_SEEN: dict = {}
+_SURFACE_SEEN_TTL = 600.0
+
+
+def _record_surface_sync(uid, surface):
+    ensure_notification_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        platform_usage_service.record(cursor, uid, surface)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+async def note_request_surface(uid, surface):
+    """Awaited by SecurityMiddleware for every authenticated request: records
+    which surface the person uses, at most once per person and surface every
+    few minutes (one small write; failures never affect the request)."""
+    if not surface or not DATABASE_URL:
+        return
+    key, now = (int(uid), surface), time.monotonic()
+    if _SURFACE_SEEN.get(key, 0) > now:
+        return
+    if len(_SURFACE_SEEN) > 50000:
+        _SURFACE_SEEN.clear()
+    _SURFACE_SEEN[key] = now + _SURFACE_SEEN_TTL
+    try:
+        await asyncio.to_thread(_record_surface_sync, uid, surface)
+    except Exception as exc:
+        print("SURFACE_USAGE_RECORD_FAILED:", type(exc).__name__)
+
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
+app.add_middleware(SecurityMiddleware, quota_check=check_request_quota, access_check=check_account_access,
+                   seen_hook=note_request_surface)
 # Lets the SYLVEX website (a different origin) call the public API and the
 # new /api/web/* session endpoints. Closed by default - only the origins
 # listed in WEBSITE_ORIGINS are allowed - and additive: it changes nothing
@@ -5376,7 +5457,9 @@ def release_direct_text_generation(generation_id: str) -> None:
 # результат не влияет.
 # =====================================================
 def record_prostudio_job_stage(job_id: str, stage: str) -> None:
-    if not DATABASE_URL or not job_id or stage not in generation_stages.STAGES:
+    # "result" is recorded for the admin timeline only (the user-facing
+    # progress reads generation_stages.STAGES).
+    if not DATABASE_URL or not job_id or (stage not in generation_stages.STAGES and stage != "result"):
         return
     try:
         with db_connection(DATABASE_URL) as conn:
@@ -10769,6 +10852,7 @@ def ensure_admin_tables():
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            user_access_service.ensure_table(cursor)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS admin_users (
                 telegram_id BIGINT PRIMARY KEY,
@@ -11028,8 +11112,10 @@ def _public_actor(actor: dict) -> dict:
 _V1_AUDIT_RISK = {
     "balance_changed": "high", "subscription_changed": "high", "message_sent": "medium", "message_failed": "medium",
     "broadcast_sent": "critical", "prostudio_job_recovered": "medium", "admin_access_changed": "critical",
-    "reference_created": "medium", "reference_updated": "medium", "reference_published": "medium",
-    "reference_unpublished": "medium", "reference_deleted": "medium", "support_reply_sent": "medium",
+    "reference_created": "medium", "reference_updated": "medium", "reference_published": "high",
+    "reference_unpublished": "high", "reference_deleted": "high", "support_reply_sent": "medium",
+    "support_status_changed": "low", "support_assigned": "low", "support_attachments_changed": "medium",
+    "review_replied": "medium",
 }
 
 
@@ -11124,11 +11210,11 @@ async def admin_dashboard(request: Request):
             )
             cursor.execute(f"""
                 SELECT COUNT(*), COALESCE(SUM(balance),0),
-                       COUNT(*) FILTER (WHERE NULLIF(created_at,'')::timestamp >= NOW() - INTERVAL '24 hours')
+                       COUNT(*) FILTER (WHERE NULLIF(created_at::text,'')::timestamp >= NOW() - INTERVAL '24 hours')
                 FROM users {ghost_filter}
             """, (STORAGE_ID_FLOOR,))
             users_count, total_balance, new_users_today = cursor.fetchone()
-            cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at,'')::timestamp > NOW()")
+            cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at::text,'')::timestamp > NOW()")
             active_subscriptions = cursor.fetchone()[0]
             cursor.execute("""
                 SELECT COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'),
@@ -11198,6 +11284,35 @@ async def admin_dashboard(request: Request):
     return await asyncio.to_thread(_sync)
 
 
+def _admin_mark_people(cursor, items):
+    """Adds `source` (telegram / website, plus google / apple sign-in) and
+    `blocked` to search rows, keyed by their storage key `telegram_id`."""
+    keys = [int(i["telegram_id"]) for i in items]
+    if not keys:
+        return
+    cursor.execute("SELECT to_regclass('sylvex_accounts') IS NOT NULL AND to_regclass('account_oauth') IS NOT NULL "
+                   "AND to_regclass('user_access_blocks') IS NOT NULL")
+    if not cursor.fetchone()[0]:
+        for item in items:
+            item.update(source="telegram", sign_in=[], blocked=False)
+        return
+    cursor.execute("""
+        SELECT u.telegram_id, a.origin,
+               (SELECT string_agg(DISTINCT o.provider, ',') FROM account_oauth o WHERE o.account_id = a.account_id),
+               EXISTS (SELECT 1 FROM user_access_blocks b WHERE b.lifted_at IS NULL
+                       AND (b.user_key = u.telegram_id OR (a.account_id IS NOT NULL AND b.account_id = a.account_id)))
+        FROM users u LEFT JOIN sylvex_accounts a ON a.active_telegram_id = u.telegram_id
+        WHERE u.telegram_id = ANY(%s::bigint[])
+    """, (keys,))
+    marks = {int(r[0]): (r[1] or ("telegram" if int(r[0]) < admin_identity.STORAGE_ID_FLOOR else "website"),
+                         [p for p in (r[2] or "").split(",") if p], bool(r[3])) for r in cursor.fetchall()}
+    for item in items:
+        origin, providers, blocked = marks.get(int(item["telegram_id"]), ("telegram", [], False))
+        item["source"] = origin
+        item["sign_in"] = providers
+        item["blocked"] = blocked
+
+
 @app.post("/api/admin/users/search")
 async def admin_users_search(request: Request):
     """Universal search: SYLVEX ID (incl. retired aliases), Telegram ID,
@@ -11212,15 +11327,16 @@ async def admin_users_search(request: Request):
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            keys = admin_identity.search_keys(cursor, payload.get("query"), limit=limit, technical=technical)
+            keys = admin_identity.search_keys(cursor, payload.get("query"), limit=limit, technical=technical,
+                                              source=str(payload.get("source") or ""))
             if not keys:
                 return []
             cursor.execute("""
                 SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
                        COALESCE(u.username, '') AS username, COALESCE(u.balance, 0) AS balance,
                        COALESCE(u.subscription, 'free') AS subscription, u.created_at,
-                       (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until,
+                       (SELECT MAX(NULLIF(s.expires_at::text,'')::timestamp) FROM subscriptions s
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at::text,'')::timestamp>NOW()) AS subscription_until,
                        EXISTS(SELECT 1 FROM app_presence ap WHERE ap.telegram_id=u.telegram_id
                               AND ap.last_seen >= NOW() - INTERVAL '5 minutes') AS online
                 FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
@@ -11230,6 +11346,7 @@ async def admin_users_search(request: Request):
                       "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6]),
                       "online": bool(r[7])} for r in cursor.fetchall()}
             items = [by_key[k] for k in keys if k in by_key]
+            _admin_mark_people(cursor, items)
             return admin_identity.decorate(cursor, items, technical=technical)
         finally:
             cursor.close()
@@ -11247,7 +11364,7 @@ async def admin_user_balance(request: Request):
         actor = _admin_actor(payload, request, "users.balance.adjust")
         ensure_admin_tables()
         delta = int(payload.get("delta") or 0)
-        reason = str(payload.get("reason") or "Ручная корректировка")[:500]
+        reason, extra = _admin_reason_fields(payload, "Ручная корректировка")
         source = str(payload.get("source") or "admin_api")
         if source not in ADMIN_BALANCE_SOURCES:
             source = "admin_api"
@@ -11273,7 +11390,11 @@ async def admin_user_balance(request: Request):
                 raise HTTPException(status_code=409, detail="balance_would_go_negative")
             cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
             _admin_audit(cursor, actor, "balance_changed", target_id, {"balance": before},
-                         {"balance": after, "delta": delta, "source": source}, reason)
+                         dict({"balance": after, "delta": delta, "source": source}, **extra), reason)
+            if delta > 0 and payload.get("notify", True) is not False:
+                _admin_award(cursor, _person_for_key(cursor, target_id),
+                             {"type": "credits", "amount": delta, "reason_code": _award_reason(extra)},
+                             f"SYLVEX начислил вам {delta} кредитов.", actor)
             conn.commit()
             return after
         except Exception:
@@ -11296,7 +11417,7 @@ async def admin_user_subscription(request: Request):
         ensure_admin_tables()
         action = str(payload.get("action") or "extend")
         days = max(1, min(int(payload.get("days") or 30), 730))
-        reason = str(payload.get("reason") or "Изменение администратором")[:500]
+        reason, extra = _admin_reason_fields(payload, "Изменение администратором")
         if not (payload.get("user_id") or payload.get("sylvex_user_id")) or action not in {"extend", "cancel"}:
             raise HTTPException(status_code=400, detail="invalid_subscription_change")
         ensure_payment_tables()
@@ -11308,7 +11429,7 @@ async def admin_user_subscription(request: Request):
                 raise HTTPException(status_code=404, detail="user_not_found")
             cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
             before_plan = (cursor.fetchone() or [None])[0]
-            cursor.execute("SELECT MAX(NULLIF(expires_at,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
+            cursor.execute("SELECT MAX(NULLIF(expires_at::text,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
             before_expiry = (cursor.fetchone() or [None])[0]
             if action == "cancel":
                 cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active'", (target_id,))
@@ -11327,7 +11448,14 @@ async def admin_user_subscription(request: Request):
                 cursor.execute("UPDATE users SET subscription=%s WHERE telegram_id=%s", (plan, target_id))
                 after = {"subscription": plan, "expires_at": _to_iso(expires_at)}
             _admin_audit(cursor, actor, "subscription_changed", target_id,
-                         {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, after, reason)
+                         {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, dict(after, **extra),
+                         reason)
+            if action == "extend" and payload.get("notify", True) is not False:
+                label = shop_catalog.plan_label(after["subscription"]) or after["subscription"]
+                _admin_award(cursor, _person_for_key(cursor, target_id),
+                             {"type": "subscription", "plan": after["subscription"], "plan_label": label,
+                              "days": days, "expires_at": after["expires_at"], "reason_code": _award_reason(extra)},
+                             f"SYLVEX подарил вам подписку «{label}» на {days} дн.", actor)
             conn.commit()
             return after
         except Exception:
@@ -11638,6 +11766,48 @@ def _admin_session_payload(admin, csrf, channel):
                         "max_age_seconds": admin_auth.SESSION_MAX_SECONDS}}
 
 
+def _admin_note_login(cursor, admin, channel, request, alerts):
+    """Audits a sign-in with its device; a sign-in from a device and network
+    this admin never used is also audited as suspicious and reported."""
+    ua = request.headers.get("user-agent")
+    ip = _admin_client_ip(request)
+    device = admin_security.device_label(ua)
+    new_device = admin_security.is_new_device(cursor, admin["admin_id"], admin_auth.hash_ip(ip) if ip else None, ua)
+    actor = dict(admin, channel=channel)
+    admin_auth.audit(cursor, actor, "admin_login", risk=admin_rbac.LOW, ip=ip,
+                     after={"device": device, "new_device": new_device})
+    if new_device:
+        admin_auth.audit(cursor, actor, "admin_login_suspicious", risk=admin_rbac.HIGH, ip=ip,
+                         after={"device": device, "new_device": True, "reason": "new_device"})
+        alerts.append((admin, "new_device", device, channel))
+
+
+def _admin_note_failed_login(cursor, admin, request, code, alerts):
+    """A wrong 2FA code is audited; the third in a row is reported."""
+    ip = _admin_client_ip(request)
+    device = admin_security.device_label(request.headers.get("user-agent"))
+    actor = dict(admin, channel="web")
+    admin_auth.audit(cursor, actor, "admin_login_failed", risk=admin_rbac.MEDIUM, ip=ip,
+                     after={"device": device, "reason": code})
+    if admin_security.recent_failures(cursor, admin["admin_id"]) == admin_security.FAILED_LIMIT:
+        admin_auth.audit(cursor, actor, "admin_login_suspicious", risk=admin_rbac.HIGH, ip=ip,
+                         after={"device": device, "reason": "repeated_failed_codes"})
+        alerts.append((admin, "failed", device, "web"))
+
+
+def _admin_send_security_alerts(alerts):
+    """Tells the admin (and the owner, when it is someone else) about a
+    suspicious sign-in through the SYLVEX bot. Never fails the request."""
+    for admin, kind, device, channel in alerts:
+        text = admin_security.alert_text(kind, device, channel)
+        for chat in {admin.get("telegram_id"), SUPERADMIN_TELEGRAM_ID or None} - {None, 0}:
+            try:
+                _telegram_deliver_status(int(chat), text if chat == admin.get("telegram_id")
+                                         else f"{text}\n(Админ #{admin.get('admin_id')})")
+            except Exception as exc:
+                print("ADMIN_SECURITY_ALERT_FAILED:", type(exc).__name__)
+
+
 @app.post("/api/admin/v2/auth/telegram")
 async def admin_v2_auth_telegram(request: Request):
     body = await _admin_v2_body(request)
@@ -11651,13 +11821,16 @@ async def admin_v2_auth_telegram(request: Request):
         admin = admin_auth.active_admin_for_telegram(cursor, user["id"])
         if not admin:
             raise admin_auth.AdminAuthError("admin_access_denied", 403)
+        _admin_note_login(cursor, admin, "miniapp", request, alerts)
         token, csrf, _ = admin_auth.create_session(cursor, admin, "miniapp", _admin_client_ip(request),
                                                    request.headers.get("user-agent"))
-        admin_auth.audit(cursor, dict(admin, channel="miniapp"), "admin_login", risk=admin_rbac.LOW,
-                         ip=_admin_client_ip(request))
         return admin, token, csrf
 
-    admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
+    alerts = []
+    try:
+        admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
+    finally:
+        _admin_send_security_alerts(alerts)
     payload = _admin_session_payload(admin, csrf, "miniapp")
     if body.get("mode") == "miniapp":
         # Inside Telegram the console sends this as X-Admin-Session (kept in
@@ -11715,17 +11888,24 @@ async def admin_v2_auth_web(request: Request):
         else:
             if not body.get("totp"):
                 raise admin_auth.AdminAuthError("totp_required", 401)
-            admin_auth.verify_totp(cursor, admin, body.get("totp"))
+            try:
+                admin_auth.verify_totp(cursor, admin, body.get("totp"))
+            except admin_auth.AdminAuthError as exc:
+                if exc.code in ("totp_invalid", "totp_locked"):
+                    _admin_note_failed_login(cursor, admin, request, exc.code, alerts)
+                raise
+        _admin_note_login(cursor, admin, "web", request, alerts)
         token, csrf, _ = admin_auth.create_session(cursor, admin, "web", _admin_client_ip(request),
                                                    request.headers.get("user-agent"))
-        admin_auth.audit(cursor, dict(admin, channel="web"), "admin_login", risk=admin_rbac.LOW,
-                         ip=_admin_client_ip(request))
         return admin, token, csrf
 
+    alerts = []
     try:
         admin, token, result = await asyncio.to_thread(_admin_v2_run_keep_failures, work)
     except HTTPException as exc:
         return _admin_json({"ok": False, "error": exc.detail}, exc.status_code)
+    finally:
+        _admin_send_security_alerts(alerts)
     if token is None:
         # Bootstrap owner without 2FA yet: `result` is the QR setup, no session.
         return _admin_json({"ok": True, "totp_setup_required": True, **result})
@@ -11842,9 +12022,50 @@ async def admin_v2_auth_sessions(request: Request):
         items = admin_auth.list_sessions(cursor, actor["admin_id"])
         for item in items:
             item["current"] = item["session_id"] == session["session_id"]
+            item["device"] = admin_security.device_label(item.get("user_agent"))
         return {"ok": True, "items": items}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.get("/api/admin/v2/auth/logins")
+async def admin_v2_auth_logins(request: Request):
+    """The admin's own sign-in history (from the append-only audit log)."""
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request)
+        return {"ok": True, "items": admin_security.history(cursor, actor["admin_id"])}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/auth/sessions/revoke")
+async def admin_v2_auth_session_revoke(request: Request):
+    """Ends one console session: any of the admin's own, or - for the owner
+    - any admin's."""
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+    session_id = admin_security.clean_session_id(body.get("session_id"))
+
+    def work(cursor):
+        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        if not session_id:
+            raise admin_auth.AdminAuthError("session_not_found", 404)
+        cursor.execute("SELECT admin_id FROM admin_sessions WHERE id = %s AND revoked_at IS NULL", (session_id,))
+        row = cursor.fetchone()
+        if not row or (int(row[0]) != actor["admin_id"] and actor.get("role") != "owner"):
+            raise admin_auth.AdminAuthError("session_not_found", 404)
+        admin_auth.revoke_session(cursor, session_id)
+        admin_auth.audit(cursor, actor, "admin_session_revoked", risk=admin_rbac.MEDIUM,
+                         after={"session_id": session_id, "admin_id": int(row[0])})
+        return session_id == session["session_id"]
+
+    current = await asyncio.to_thread(_admin_v2_run, work)
+    response = _admin_json({"ok": True, "signed_out": current})
+    if current:
+        _admin_clear_session_cookie(response)
+    return response
 
 
 @app.post("/api/admin/v2/auth/totp/enroll")
@@ -11890,7 +12111,9 @@ async def admin_v2_permissions(request: Request):
     def work(cursor):
         _admin_v2_actor(cursor, request)
         return {"ok": True, "permissions": admin_rbac.PERMISSIONS, "roles": list(admin_rbac.ROLES),
-                "role_defaults": {role: sorted(perms) for role, perms in admin_rbac.ROLE_DEFAULTS.items()}}
+                "role_defaults": {role: sorted(perms) for role, perms in admin_rbac.ROLE_DEFAULTS.items()},
+                "catalog": admin_rbac.permission_catalog(),
+                "risk_info": {risk: {"en": en, "ru": ru} for risk, (en, ru) in admin_rbac.RISK_INFO.items()}}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
 
@@ -11914,9 +12137,13 @@ async def admin_v2_admins(request: Request):
 
 
 def _admin_v2_reason(body):
-    reason = str(body.get("reason") or "").strip()
+    """The audit reason of a v2 change: typed text or a quick reason
+    (reason_code), with the admin's note appended."""
+    reason, extra = _admin_reason_fields(body)
     if not reason:
         raise admin_auth.AdminAuthError("reason_required", 400)
+    if extra.get("note"):
+        reason = f"{reason} — {extra['note']}"
     return reason[:500]
 
 
@@ -11963,14 +12190,30 @@ async def admin_v2_admin_update(admin_id: int, request: Request):
 @app.get("/api/admin/v2/audit")
 async def admin_v2_audit(request: Request, actor_admin_id: Optional[int] = None,
                          target_sylvex_user_id: Optional[str] = None, action: Optional[str] = None,
-                         risk: Optional[str] = None, before_id: Optional[int] = None, limit: int = 50):
+                         risk: Optional[str] = None, before_id: Optional[int] = None, limit: int = 50,
+                         section: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None):
+    """The append-only audit log: who, when, which section, what object,
+    before / after, the reason and the result. Read-only for everyone."""
     _admin_v2_ready(request)
+    from datetime import date, timedelta
+
+    def day(value, plus=0):
+        try:
+            return (date.fromisoformat(str(value)[:10]) + timedelta(days=plus)).isoformat() if value else None
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid_period")
 
     def work(cursor):
         _admin_v2_actor(cursor, request, "audit.view")
         target = int(target_sylvex_user_id) if target_sylvex_user_id and target_sylvex_user_id.isdigit() else None
+        actions = list(admin_security.AUDIT_SECTIONS.get(section or "", ())) or None
         items, next_before = admin_auth.list_audit(cursor, actor_admin_id=actor_admin_id, target_account_id=target,
-                                                   action=action, risk=risk, before_id=before_id, limit=limit)
+                                                   action=action, risk=risk, before_id=before_id, limit=limit,
+                                                   actions=actions, since=day(date_from), until=day(date_to, 1))
+        for item in items:
+            item["section"] = admin_security.section_of(item["action"])
+            item["result"] = admin_security.result_of(item["action"], item["after"])
+            item["object"] = admin_security.object_of(item["action"], item["after"], item["before"])
         return {"ok": True, "items": items, "next_before_id": next_before}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
@@ -12064,8 +12307,8 @@ async def admin_user_detail(request: Request):
                 SELECT u.telegram_id, COALESCE(u.username,'') AS username,
                        COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
                        COALESCE(u.balance,0) AS balance, COALESCE(u.subscription,'free') AS subscription, u.created_at,
-                       (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until
+                       (SELECT MAX(NULLIF(s.expires_at::text,'')::timestamp) FROM subscriptions s
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at::text,'')::timestamp>NOW()) AS subscription_until
                 FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
                 WHERE u.telegram_id=%s
             """, (target_id,))
@@ -12119,8 +12362,25 @@ async def admin_user_detail(request: Request):
             recent_activity = {"view": presence_row[0] if presence_row else None,
                     "platform": presence_row[1] if presence_row else None,
                     "last_seen": _to_iso(presence_row[2]) if presence_row else None}
+            account_id = user_access_service.account_for_key(cursor, target_id)
+            blocks = user_access_service.history(cursor, account_id=account_id, user_key=target_id)
+            staff = admin_auth.load_admin(cursor, account_id=account_id) if account_id else None
+            admin_history = admin_auth.list_audit(cursor, target_account_id=account_id, limit=50)[0] if account_id else []
+            names = _admin_names(cursor, [b["admin_id"] for b in blocks] + [b["lifted_by"] for b in blocks]
+                                 + [h["actor_admin_id"] for h in admin_history])
+            for b in blocks:
+                b["admin_name"] = names.get(b["admin_id"])
+                b["lifted_by_name"] = names.get(b["lifted_by"])
+                b.pop("account_id", None)
+                b.pop("user_key", None)
+            for h in admin_history:
+                h["actor_name"] = names.get(h["actor_admin_id"]) or ("SYLVEX" if not h["actor_admin_id"] else None)
             return {"ok": True, "account": account, "purchases": purchases, "subscription_history": subscription_history,
-                    "generations": generations, "error_reports": error_reports, "recent_activity": recent_activity}
+                    "generations": generations, "error_reports": error_reports, "recent_activity": recent_activity,
+                    "block": next((b for b in blocks if b["active"]), None), "block_history": blocks,
+                    "staff": {"admin_id": staff["admin_id"], "role": staff["role"], "status": staff["status"]}
+                    if staff else None,
+                    "admin_history": admin_history}
         finally:
             cursor.close()
             conn.close()
@@ -12166,40 +12426,83 @@ async def admin_users_online(request: Request):
     return {"ok": True, "items": items}
 
 
+def _admin_period(payload):
+    """(start, end) datetimes of an admin report: last `days` (24h = 1) or
+    an explicit from/to date (inclusive); None for all time."""
+    from datetime import datetime, timedelta
+    end = datetime.utcnow()
+    try:
+        if payload.get("from"):
+            start = datetime.fromisoformat(str(payload["from"])[:10])
+            if payload.get("to"):
+                end = datetime.fromisoformat(str(payload["to"])[:10]) + timedelta(days=1)
+            return start, end
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_period")
+    days = int(payload.get("days") or 0)
+    if days <= 0:
+        return None, end
+    return end - timedelta(days=min(days, 366)), end
+
+
+def _admin_fill_days(rows, payload, keys):
+    """Every day of the report period, with zeros where nothing happened."""
+    from datetime import timedelta
+    start, end = _admin_period(payload)
+    if start is None and rows:
+        from datetime import datetime
+        start = datetime.fromisoformat(rows[0]["day"])
+    if start is None:
+        return rows
+    known = {r["day"]: r for r in rows}
+    out, day = [], start.date()
+    while day < end.date() or (day == end.date() and day.isoformat() in known):
+        out.append(known.get(day.isoformat()) or dict({k: 0 for k in keys}, day=day.isoformat()))
+        day += timedelta(days=1)
+        if len(out) > 400:
+            break
+    return out
+
+
+def _admin_generation_where(cursor, payload, period=True):
+    """WHERE clause shared by the generation list and statistics."""
+    conditions, params = [], []
+    for field in ("mode", "status", "model", "provider"):
+        value = str(payload.get(field) or "").strip()[:80]
+        if value:
+            conditions.append(f"{field}=%s"); params.append(value.lower() if field in ("mode", "status") else value)
+    platform = str(payload.get("platform") or "").strip()[:30]
+    if platform:
+        conditions.append("COALESCE(request_json->>'client_surface','')=%s"); params.append(platform)
+    if payload.get("user_id") or payload.get("sylvex_user_id"):
+        target_id = _admin_resolve_target(cursor, payload)
+        conditions.append("telegram_id=%s"); params.append(target_id or -1)
+    if period:
+        start, end = _admin_period(payload)
+        if start is not None:
+            conditions.append("created_at >= %s::timestamp AND created_at < %s::timestamp"); params += [start.isoformat(), end.isoformat()]
+    return (f"WHERE {' AND '.join(conditions)}" if conditions else ""), params
+
+
 @app.post("/api/admin/generations")
 async def admin_generations(request: Request):
-    """Paginated, filterable generation history across all Pro Studio modes,
-    for the Support Bot's Generations section."""
+    """Paginated, filterable generation history across all Pro Studio modes."""
     payload = await request.json()
 
     def _sync():
         actor = _admin_actor(payload, request, "generations.view")
         ensure_prostudio_table()
-        mode = str(payload.get("mode") or "").strip().lower()[:20]
-        status = str(payload.get("status") or "").strip().lower()[:20]
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         offset = max(0, int(payload.get("offset") or 0))
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            target_id = None
-            if payload.get("user_id") or payload.get("sylvex_user_id"):
-                target_id = _admin_resolve_target(cursor, payload)
-                if not target_id:
-                    return [], 0
-            conditions, params = [], []
-            if mode:
-                conditions.append("mode=%s"); params.append(mode)
-            if status:
-                conditions.append("status=%s"); params.append(status)
-            if target_id:
-                conditions.append("telegram_id=%s"); params.append(target_id)
-            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-            cursor.execute(f"SELECT COUNT(*) FROM prostudio_generation_jobs {where}", params)
+            where, params = _admin_generation_where(cursor, payload)
+            cursor.execute(f"SELECT COUNT(*) AS n FROM prostudio_generation_jobs {where}", params)
             total = cursor.fetchone()[0]
             cursor.execute(f"""
                 SELECT id, telegram_id, mode, model, provider, status, cost, prompt, error_json, result_json,
-                       created_at, completed_at
+                       created_at, completed_at, request_json->>'client_surface' AS platform
                 FROM prostudio_generation_jobs {where}
                 ORDER BY created_at DESC LIMIT %s OFFSET %s
             """, params + [limit, offset])
@@ -12210,9 +12513,9 @@ async def admin_generations(request: Request):
                 items.append({
                     "id": r[0], "telegram_id": r[1], "mode": r[2] or "", "model": r[3] or "",
                     "provider": r[4] or "", "status": r[5], "cost": int(r[6] or 0), "prompt": str(r[7] or "")[:300],
-                    "error": str(error_json.get("message") or error_json.get("error") or "")[:500] if error_json else "",
+                    "error": user_generation_error_text(error_json.get("message") or error_json.get("error") or error_json)[:500] if error_json else "",
                     "has_result": bool(result_json),
-                    "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]),
+                    "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]), "platform": r[12] or "",
                 })
             admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
             return items, int(total or 0)
@@ -12222,6 +12525,636 @@ async def admin_generations(request: Request):
 
     items, total = await asyncio.to_thread(_sync)
     return {"ok": True, "items": items, "total": total}
+
+
+@app.post("/api/admin/generations/detail")
+async def admin_generation_detail(request: Request):
+    """One job: the stages it really went through and the technical log
+    (services/generation_admin.py - no keys, tokens or signed URLs)."""
+    payload = await request.json()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "generations.view")
+        ensure_prostudio_table()
+        job_id = str(payload.get("id") or "").strip()[:80]
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, telegram_id, mode, model, provider, status, cost, prompt, request_json, response_json,
+                       error_json, result_json, stage_json, attempts, created_at, completed_at
+                FROM prostudio_generation_jobs WHERE id=%s
+            """, (job_id,))
+            r = cursor.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="generation_not_found")
+            keys = ("id", "telegram_id", "mode", "model", "provider", "status", "cost", "prompt", "request_json",
+                    "response_json", "error_json", "result_json", "stage_json", "attempts", "created_at", "completed_at")
+            job = {k: (_json_obj(v) if k.endswith("_json") else v) for k, v in zip(keys, r)}
+            outbox = {}
+            cursor.execute("SELECT to_regclass('prostudio_media_outbox') IS NOT NULL AS present")
+            if cursor.fetchone()[0]:
+                cursor.execute("SELECT status, attempts, last_error, updated_at FROM prostudio_media_outbox WHERE job_id=%s", (job_id,))
+                o = cursor.fetchone()
+                if o:
+                    outbox = {"status": o[0], "attempts": o[1], "last_error": o[2], "updated_at": o[3]}
+            stages, failed_stage = generation_admin.timeline(job, outbox)
+            log = generation_admin.technical_log(job, outbox, failed_stage)
+            error = job["error_json"] or {}
+            item = {"id": job["id"], "telegram_id": job["telegram_id"], "status": job["status"],
+                    "failed_stage": failed_stage, "stages": stages, "log": log,
+                    "reason": user_generation_error_text(error.get("message") or error.get("error") or error) if error else ""}
+            items = [item]
+            admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
+            return item
+        finally:
+            cursor.close()
+            conn.close()
+
+    return {"ok": True, "item": await asyncio.to_thread(_sync)}
+
+
+@app.post("/api/admin/generations/stats")
+async def admin_generation_stats(request: Request):
+    """Generations and errors for charts: per day, by stage, model,
+    provider and platform, with average durations - filtered by period,
+    user, mode, model, provider and platform."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "generations.view")
+        ensure_prostudio_table()
+        payload.setdefault("days", 30)
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            where, params = _admin_generation_where(cursor, dict(payload, status=""))
+            cursor.execute(f"""
+                SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE status='completed') AS ok,
+                       COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad
+                FROM prostudio_generation_jobs {where} GROUP BY 1 ORDER BY 1
+            """, params)
+            days = _admin_fill_days([{"day": r[0], "total": int(r[1]), "completed": int(r[2]), "failed": int(r[3])}
+                                     for r in cursor.fetchall()], payload, ("total", "completed", "failed"))
+
+            def grouped(column):
+                cursor.execute(f"""
+                    SELECT COALESCE(NULLIF({column}, ''), '—') AS k, COUNT(*) AS total,
+                           COUNT(*) FILTER (WHERE status='completed') AS ok,
+                           COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad,
+                           AVG(EXTRACT(EPOCH FROM (completed_at - created_at))) FILTER (WHERE status='completed') AS secs
+                    FROM prostudio_generation_jobs {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 30
+                """, params)
+                return [{"key": r[0], "total": int(r[1]), "completed": int(r[2]), "failed": int(r[3]),
+                         "avg_seconds": round(float(r[4]), 1) if r[4] is not None else None} for r in cursor.fetchall()]
+
+            by_model, by_provider, by_mode = grouped("model"), grouped("provider"), grouped("mode")
+            by_platform = grouped("request_json->>'client_surface'")
+            # Stage durations and the stage each failure stopped at.
+            cursor.execute(f"""
+                SELECT status, mode, stage_json, result_json, created_at, completed_at
+                FROM prostudio_generation_jobs {where} ORDER BY created_at DESC LIMIT 5000
+            """, params)
+            stage_totals, stage_counts, failed_at = {}, {}, {}
+            for status, mode, stage_json, result_json, created_at, completed_at in cursor.fetchall():
+                job = {"status": status, "mode": mode, "stage_json": _json_obj(stage_json), "result_json": _json_obj(result_json),
+                       "created_at": created_at, "completed_at": completed_at}
+                rows, failed_stage = generation_admin.timeline(job)
+                if failed_stage:
+                    failed_at[failed_stage] = failed_at.get(failed_stage, 0) + 1
+                for row in rows:
+                    if row["seconds"] is not None and row["state"] == "done":
+                        stage_totals[row["key"]] = stage_totals.get(row["key"], 0) + row["seconds"]
+                        stage_counts[row["key"]] = stage_counts.get(row["key"], 0) + 1
+            total = sum(d["total"] for d in days)
+            completed = sum(d["completed"] for d in days)
+            failed = sum(d["failed"] for d in days)
+            durations = [m["avg_seconds"] * m["completed"] for m in by_mode if m["avg_seconds"] is not None]
+            return {
+                "total": total, "completed": completed, "failed": failed,
+                "avg_seconds": round(sum(durations) / completed, 1) if completed and durations else None,
+                "days": days, "by_model": by_model, "by_provider": by_provider, "by_mode": by_mode, "by_platform": by_platform,
+                "failed_by_stage": [{"key": k, "count": failed_at.get(k, 0)} for k in generation_admin.STAGES if failed_at.get(k)],
+                "stage_seconds": [{"key": k, "avg_seconds": round(stage_totals[k] / stage_counts[k], 2)}
+                                  for k in generation_admin.STAGES if stage_counts.get(k)],
+            }
+        finally:
+            cursor.close()
+            conn.close()
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+# ---------- Models and providers (services/model_control.py) ----------
+
+MODEL_STATES_CACHE = {"value": None, "expires_at": 0.0}
+
+
+def _model_states():
+    """{model id: {reason, since}} of models turned off, kept a few seconds."""
+    now = time.time()
+    if MODEL_STATES_CACHE["value"] is not None and now < MODEL_STATES_CACHE["expires_at"]:
+        return MODEL_STATES_CACHE["value"]
+    states = {}
+    if DATABASE_URL:
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            model_control.ensure_table(cursor)
+            conn.commit()
+            states = model_control.disabled_models(cursor)
+        finally:
+            cursor.close()
+            conn.close()
+    MODEL_STATES_CACHE.update(value=states, expires_at=now + 20)
+    return states
+
+
+def _disabled_model_ids():
+    try:
+        return set(_model_states())
+    except Exception as exc:
+        prostudio_error("MODEL_STATES_READ_FAILED", exc)
+        return set()
+
+
+@app.get("/api/public/models/status")
+async def public_models_status():
+    """Models currently turned off, so the apps can show them as unavailable."""
+    return {"ok": True, "disabled": sorted(await asyncio.to_thread(_disabled_model_ids))}
+
+
+@app.post("/api/admin/models/overview")
+async def admin_models_overview(request: Request):
+    """Every model of the capability registry with its on/off state and its
+    real results for the period, and every provider with its state - "no
+    data" when nothing is known, never an assumed "available"."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "models.view")
+        ensure_prostudio_table()
+        payload.setdefault("days", 7)
+        start, end = _admin_period(payload)
+        from datetime import datetime
+        start = start or datetime(2000, 1, 1)
+        states = _model_states()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT model, provider, COUNT(*) AS runs, COUNT(*) FILTER (WHERE status = 'completed') AS ok,
+                       COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad,
+                       AVG(EXTRACT(EPOCH FROM (completed_at - created_at))) FILTER (WHERE status = 'completed') AS secs,
+                       SUM(COALESCE((request_json->'price_snapshot'->>'provider_and_model_credits')::numeric, 0)) FILTER (WHERE status = 'completed') AS credits,
+                       MAX(created_at) FILTER (WHERE status = 'completed') AS last_ok,
+                       MAX(created_at) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS last_bad
+                FROM prostudio_generation_jobs WHERE created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1, 2
+            """, (start.isoformat(), end.isoformat()))
+            usage = cursor.fetchall()
+            cursor.execute("""
+                SELECT model_id, disabled, reason, updated_at FROM model_states
+            """)
+            changed = {r[0]: {"disabled": bool(r[1]), "reason": r[2] or "", "updated_at": _to_iso(r[3])} for r in cursor.fetchall()}
+        finally:
+            cursor.close()
+            conn.close()
+        caps = model_control_registry()
+        by_model = {}
+        for model, provider, runs, ok, bad, secs, credits, last_ok, last_bad in usage:
+            key = model_control.norm(model or "—")
+            m = by_model.setdefault(key, {"runs": 0, "completed": 0, "failed": 0, "secs": [], "credits": 0.0, "providers": set(),
+                                          "last_ok": None, "last_bad": None})
+            m["runs"] += int(runs); m["completed"] += int(ok); m["failed"] += int(bad)
+            if secs is not None:
+                m["secs"].append((float(secs), int(ok)))
+            m["credits"] += float(credits or 0)
+            if provider:
+                m["providers"].add(provider)
+            m["last_ok"] = max(filter(None, [m["last_ok"], last_ok]), default=None)
+            m["last_bad"] = max(filter(None, [m["last_bad"], last_bad]), default=None)
+
+        def avg(pairs):
+            weight = sum(w for _, w in pairs)
+            return round(sum(v * w for v, w in pairs) / weight, 1) if weight else None
+
+        models = []
+        for key in sorted(set(caps) | {k for k in by_model if k != "—"}):
+            cap = caps.get(key, {})
+            u = by_model.get(key, {})
+            provider = cap.get("provider") or (sorted(u.get("providers") or [""])[0])
+            models.append({
+                "id": key, "label": cap.get("label") or key, "category": cap.get("category") or "", "provider": provider,
+                "in_registry": key in caps, "disabled": key in states, "reason": (states.get(key) or {}).get("reason", ""),
+                "changed_at": (changed.get(key) or {}).get("updated_at"),
+                "runs": u.get("runs", 0), "completed": u.get("completed", 0), "failed": u.get("failed", 0),
+                "avg_seconds": avg(u.get("secs", [])),
+            })
+        providers = {}
+        for m in models:
+            p = m["provider"] or "—"
+            entry = providers.setdefault(p, {"key": p, "runs": 0, "completed": 0, "failed": 0, "secs": [], "credits": 0.0,
+                                             "models": [], "last_ok": None, "last_bad": None})
+            u = by_model.get(m["id"], {})
+            entry["runs"] += m["runs"]; entry["completed"] += m["completed"]; entry["failed"] += m["failed"]
+            entry["secs"] += u.get("secs", []); entry["credits"] += u.get("credits", 0.0)
+            if m["runs"]:
+                entry["models"].append(m["id"])
+            entry["last_ok"] = max(filter(None, [entry["last_ok"], u.get("last_ok")]), default=None)
+            entry["last_bad"] = max(filter(None, [entry["last_bad"], u.get("last_bad")]), default=None)
+        provider_rows = []
+        for p in sorted(providers.values(), key=lambda x: (-x["runs"], x["key"])):
+            is_configured = model_control.configured(p["key"])
+            provider_rows.append({
+                "key": p["key"], "configured": is_configured,
+                "state": model_control.provider_state(is_configured, p["runs"], p["completed"], p["failed"]),
+                "runs": p["runs"], "completed": p["completed"], "failed": p["failed"], "avg_seconds": avg(p["secs"]),
+                # Estimated from the tariff: the SYLVEX rule is credits = cost x 1.5 x 100.
+                "cost_usd_estimate": round(p["credits"] / model_control.CREDITS_PER_USD, 2) if p["credits"] else 0,
+                "models": p["models"], "last_success": _to_iso(p["last_ok"]), "last_error": _to_iso(p["last_bad"]),
+            })
+        return {"models": models, "providers": provider_rows}
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+def model_control_registry():
+    """{normalized id: {label, category, provider}} from the capability
+    registry (image, video, music, voice and text models)."""
+    out = {}
+    for model_id, cap in (model_capabilities_service.serialize_capabilities() or {}).items():
+        if cap.get("avatar"):
+            continue
+        provider = cap.get("provider") or ""
+        if not provider and cap.get("category") == "image":
+            try:
+                provider = str(image_provider_mapping(model_id).get("provider") or "")
+            except Exception:
+                provider = ""
+        out[model_control.norm(model_id)] = {"label": cap.get("label") or media_blocks_service._label(model_id),
+                                              "category": cap.get("category") or "", "provider": provider}
+    return out
+
+
+@app.post("/api/admin/models/toggle")
+async def admin_models_toggle(request: Request):
+    """Turn a model off for user generations, or back on (models.edit; the
+    reason goes to the audit log). Nothing else about the model changes."""
+    payload = await request.json()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "models.edit")
+        model_id = model_control.norm(payload.get("model"))
+        if not model_id:
+            raise HTTPException(status_code=400, detail="model_required")
+        disabled = bool(payload.get("disabled"))
+        reason = str(payload.get("reason") or "").strip()[:500]
+        if disabled and not reason:
+            raise HTTPException(status_code=400, detail="reason_required")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            model_control.ensure_table(cursor)
+            before = model_control.disabled_models(cursor).get(model_id)
+            model_control.set_disabled(cursor, model_id, disabled, reason, actor.get("telegram_id"))
+            _admin_audit(cursor, actor, "model_disabled" if disabled else "model_enabled", 0,
+                         {"model": model_id, "disabled": bool(before)}, {"model": model_id, "disabled": disabled}, reason,
+                         risk="critical")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+        MODEL_STATES_CACHE.update(value=None, expires_at=0.0)
+        _media_blocks_changed()
+        return {"model": model_id, "disabled": disabled}
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+# ---------- Finance overview ----------
+
+@app.post("/api/admin/finance")
+async def admin_finance(request: Request):
+    """Money and credits for a period, read-only: real payments (credit
+    packs and subscriptions, by currency and provider) kept apart from free
+    admin grants, compensations and refunds, AI costs estimated from the
+    tariff, and credits sold / granted / spent. Payment logic is untouched."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "payments.view")
+        payload.setdefault("days", 30)
+        start, end = _admin_period(payload)
+        from datetime import datetime
+        start = start or datetime(2000, 1, 1)
+        span = [start.isoformat(), end.isoformat()]
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            def present(table):
+                cursor.execute("SELECT to_regclass(%s) IS NOT NULL AS present", (table,))
+                return bool(cursor.fetchone()[0])
+
+            payments, refunds, days = [], [], {}
+            buyers = new_buyers = 0
+            if present("purchases"):
+                sub_join = "LEFT JOIN subscriptions s ON s.charge_id = p.charge_id" if present("subscriptions") else ""
+                sub_flag = "s.charge_id IS NOT NULL" if sub_join else "FALSE"
+                cursor.execute(f"""
+                    SELECT CASE WHEN {sub_flag} THEN 'subscription' ELSE 'credits' END AS kind,
+                           COALESCE(NULLIF(p.currency, ''), 'unknown') AS currency, COALESCE(NULLIF(p.provider, ''), 'unknown') AS provider,
+                           COUNT(*) AS n, COALESCE(SUM(p.amount), 0) AS amount, COALESCE(SUM(p.credits), 0) AS credits
+                    FROM purchases p {sub_join}
+                    WHERE p.status = 'completed' AND p.created_at >= %s::timestamp AND p.created_at < %s::timestamp
+                    GROUP BY 1, 2, 3 ORDER BY 5 DESC
+                """, span)
+                payments = [{"kind": r[0], "currency": r[1], "provider": r[2], "count": int(r[3]), "amount": float(r[4]),
+                             "credits": int(r[5])} for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT COALESCE(NULLIF(currency, ''), 'unknown') AS currency, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount
+                    FROM purchases WHERE status IN ('refunded', 'refund', 'chargeback')
+                      AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1
+                """, span)
+                refunds = [{"currency": r[0], "count": int(r[1]), "amount": float(r[2])} for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS n
+                    FROM purchases WHERE status = 'completed' AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1
+                """, span)
+                for r in cursor.fetchall():
+                    days.setdefault(r[0], {"day": r[0], "payments": 0, "grants": 0})["payments"] = int(r[1])
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT telegram_id) AS buyers,
+                           COUNT(DISTINCT telegram_id) FILTER (WHERE first_paid >= %s::timestamp) AS new_buyers FROM (
+                      SELECT telegram_id, MIN(created_at) OVER (PARTITION BY telegram_id) AS first_paid, created_at
+                      FROM purchases WHERE status = 'completed') x
+                    WHERE created_at >= %s::timestamp AND created_at < %s::timestamp
+                """, [span[0]] + span)
+                r = cursor.fetchone()
+                buyers, new_buyers = int(r[0] or 0), int(r[1] or 0)
+            # Free credits and subscriptions given by admins, by reason.
+            cursor.execute("""
+                SELECT action, COALESCE(NULLIF(after->>'reason_code', ''), 'other') AS code, COUNT(*) AS n,
+                       COALESCE(SUM(CASE WHEN action = 'balance_changed' THEN (after->>'delta')::numeric ELSE 0 END), 0) AS credits
+                FROM admin_audit_events
+                WHERE action IN ('balance_changed', 'subscription_changed') AND at >= %s::timestamp AND at < %s::timestamp
+                  AND (action <> 'balance_changed' OR (after->>'delta')::numeric > 0)
+                GROUP BY 1, 2 ORDER BY 3 DESC
+            """, span)
+            grants = [{"kind": "credits" if r[0] == "balance_changed" else "subscription", "reason_code": r[1],
+                       "count": int(r[2]), "credits": int(r[3] or 0)} for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT to_char(date_trunc('day', at), 'YYYY-MM-DD') AS day, COUNT(*) AS n FROM admin_audit_events
+                WHERE action IN ('balance_changed', 'subscription_changed') AND at >= %s::timestamp AND at < %s::timestamp
+                  AND (action <> 'balance_changed' OR (after->>'delta')::numeric > 0) GROUP BY 1
+            """, span)
+            for r in cursor.fetchall():
+                days.setdefault(r[0], {"day": r[0], "payments": 0, "grants": 0})["grants"] = int(r[1])
+            spent = 0
+            if present("generation_charges"):
+                cursor.execute("SELECT COALESCE(SUM(credits), 0) AS n FROM generation_charges WHERE created_at >= %s::timestamp AND created_at < %s::timestamp", span)
+                spent = int(cursor.fetchone()[0] or 0)
+            ensure_prostudio_table()
+            cursor.execute("""
+                SELECT COALESCE(provider, '') AS provider,
+                       COALESCE(SUM((request_json->'price_snapshot'->>'provider_and_model_credits')::numeric), 0) AS credits
+                FROM prostudio_generation_jobs
+                WHERE status = 'completed' AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1 ORDER BY 2 DESC
+            """, span)
+            ai_costs = [{"provider": r[0] or "—", "usd_estimate": round(float(r[1] or 0) / model_control.CREDITS_PER_USD, 2)}
+                        for r in cursor.fetchall() if float(r[1] or 0) > 0]
+        finally:
+            cursor.close()
+            conn.close()
+        # Card payments are stored in minor units (cents); Telegram Stars in stars.
+        def major(amount, currency):
+            return round(amount / 100, 2) if currency not in ("XTR", "unknown") else amount
+        for row in payments + refunds:
+            row["amount"] = major(row["amount"], row["currency"])
+        revenue = {}
+        for p in payments:
+            revenue[p["currency"]] = round(revenue.get(p["currency"], 0) + p["amount"], 2)
+        return {
+            "payments": payments, "revenue": revenue, "refunds": refunds, "grants": grants,
+            "compensations": [g for g in grants if g["reason_code"] in ("error_compensation", "refund")],
+            "ai_costs": ai_costs, "ai_cost_usd_estimate": round(sum(c["usd_estimate"] for c in ai_costs), 2),
+            "credits": {"sold": sum(p["credits"] for p in payments), "granted": sum(g["credits"] for g in grants), "spent": spent},
+            "buyers": buyers, "new_buyers": new_buyers,
+            "days": _admin_fill_days(sorted(days.values(), key=lambda d: d["day"]), payload, ("payments", "grants")),
+        }
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+# ---------- Usage analytics (services/usage_analytics.py) ----------
+
+ANALYTICS_SCHEMA_READY = False
+
+
+def ensure_analytics_table():
+    global ANALYTICS_SCHEMA_READY
+    if ANALYTICS_SCHEMA_READY or not DATABASE_URL:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        usage_analytics.ensure_table(cursor)
+        conn.commit()
+        ANALYTICS_SCHEMA_READY = True
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/public/analytics/events")
+async def public_analytics_events(request: Request):
+    """Usage events from the apps (js/analytics.js) - ids and counts only."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    visitor, surface, events = usage_analytics.clean_batch(body)
+    if not DATABASE_URL or not visitor or not surface or not events:
+        return {"ok": True, "stored": 0}
+
+    def _sync():
+        ensure_analytics_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            usage_analytics.record(cursor, visitor, surface, events)
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    try:
+        await asyncio.to_thread(_sync)
+    except Exception as exc:
+        prostudio_error("ANALYTICS_RECORD_FAILED", exc)
+        return {"ok": False, "stored": 0}
+    return {"ok": True, "stored": len(events)}
+
+
+# The item a generation was made with: a Media block, a photo tool or a
+# video template - the same ids the apps send with tool_open / item_select.
+_JOB_ITEM_SQL = ("COALESCE('block:' || (request_json->>'media_block_id'), NULLIF(request_json->'image_options'->>'photo_tool', ''), "
+                 "NULLIF(request_json->'video_options'->'video_template'->>'id', ''))")
+
+
+@app.post("/api/admin/analytics")
+async def admin_analytics(request: Request):
+    """How SYLVEX is used: sections (opens, visitors, time spent), models,
+    tools / styles / templates / references, the funnel, returns,
+    transitions - per platform, never mixing them."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "analytics.view")
+        ensure_analytics_table()
+        ensure_prostudio_table()
+        payload.setdefault("days", 7)
+        start, end = _admin_period(payload)
+        from datetime import datetime
+        start = start or datetime(2000, 1, 1)
+        surface = str(payload.get("platform") or "").strip()[:30]
+        section = str(payload.get("section") or "").strip()[:40]
+        item = str(payload.get("item") or "").strip()[:64]
+        model = str(payload.get("model") or "").strip()[:64]
+        ev, ev_params = ["at >= %s::timestamp", "at < %s::timestamp"], [start.isoformat(), end.isoformat()]
+        if surface:
+            ev.append("surface = %s"); ev_params.append(surface)
+        if section:
+            ev.append("section = %s"); ev_params.append(section)
+        jobs, job_params = ["created_at >= %s::timestamp", "created_at < %s::timestamp"], [start.isoformat(), end.isoformat()]
+        if surface:
+            jobs.append("COALESCE(request_json->>'client_surface', '') = %s"); job_params.append(surface)
+        if model:
+            jobs.append("model = %s"); job_params.append(model)
+        if item:
+            jobs.append(f"{_JOB_ITEM_SQL} = %s"); job_params.append(item)
+        ev_where, job_where = " AND ".join(ev), " AND ".join(jobs)
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            def rows(sql, params):
+                cursor.execute(sql, params)
+                return cursor.fetchall()
+
+            sections = [{"key": r[0], "opens": int(r[1]), "visitors": int(r[2]),
+                         "avg_seconds": round(float(r[3]) / 1000, 1) if r[3] is not None else None}
+                        for r in rows(f"""
+                SELECT o.section AS section, o.opens AS opens, o.visitors AS visitors, l.avg_ms AS avg_ms FROM
+                  (SELECT section, COUNT(*) AS opens, COUNT(DISTINCT visitor) AS visitors FROM analytics_events
+                   WHERE event = 'section_open' AND {ev_where} GROUP BY section) o
+                LEFT JOIN (SELECT section, AVG(duration_ms) AS avg_ms FROM analytics_events
+                   WHERE event = 'section_leave' AND duration_ms > 0 AND {ev_where} GROUP BY section) l ON l.section = o.section
+                ORDER BY o.opens DESC LIMIT 40
+            """, ev_params + ev_params)]
+            platforms = [{"key": r[0], "opens": int(r[1]), "visitors": int(r[2])} for r in rows(f"""
+                SELECT surface, COUNT(*) AS opens, COUNT(DISTINCT visitor) AS visitors FROM analytics_events
+                WHERE event = 'section_open' AND {ev_where} GROUP BY surface ORDER BY 2 DESC
+            """, ev_params)]
+            gen_by_platform = {r[0]: (int(r[1]), int(r[2])) for r in rows(f"""
+                SELECT COALESCE(request_json->>'client_surface', '') AS surface, COUNT(*) AS runs, COUNT(DISTINCT telegram_id) AS users
+                FROM prostudio_generation_jobs WHERE {job_where} GROUP BY 1
+            """, job_params)}
+            for p in platforms:
+                p["generations"], p["generation_users"] = gen_by_platform.get(p["key"], (0, 0))
+            known = {p["key"] for p in platforms}
+            for key, (runs, users) in gen_by_platform.items():
+                if key not in known:
+                    platforms.append({"key": key, "opens": 0, "visitors": 0, "generations": runs, "generation_users": users})
+            # The Telegram bot keeps its own generation log.
+            if not surface or surface == "bot":
+                cursor.execute("SELECT to_regclass('generations') IS NOT NULL AS present")
+                if cursor.fetchone()[0]:
+                    try:
+                        r = rows("""SELECT COUNT(*) AS runs, COUNT(DISTINCT telegram_id) AS users FROM generations
+                                    WHERE NULLIF(created_at::text, '')::timestamp >= %s::timestamp AND NULLIF(created_at::text, '')::timestamp < %s::timestamp""",
+                                 [start.isoformat(), end.isoformat()])[0]
+                        platforms.append({"key": "bot", "opens": None, "visitors": None, "generations": int(r[0]), "generation_users": int(r[1])})
+                    except Exception:
+                        conn.rollback()
+            days = _admin_fill_days([{"day": r[0], "opens": int(r[1]), "visitors": int(r[2])} for r in rows(f"""
+                SELECT to_char(date_trunc('day', at), 'YYYY-MM-DD') AS day, COUNT(*) AS opens, COUNT(DISTINCT visitor) AS visitors
+                FROM analytics_events WHERE event = 'section_open' AND {ev_where} GROUP BY 1 ORDER BY 1
+            """, ev_params)], payload, ("opens", "visitors"))
+            total_runs = 0
+            models = []
+            selects = {r[0]: int(r[1]) for r in rows(f"""
+                SELECT model, COUNT(*) AS n FROM analytics_events WHERE event = 'model_select' AND model <> '' AND {ev_where} GROUP BY model
+            """, ev_params)}
+            for r in rows(f"""
+                SELECT COALESCE(NULLIF(model, ''), '—') AS model, COUNT(DISTINCT telegram_id) AS users, COUNT(*) AS runs,
+                       COUNT(*) FILTER (WHERE status = 'completed') AS ok,
+                       COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad
+                FROM prostudio_generation_jobs WHERE {job_where} GROUP BY 1 ORDER BY 3 DESC LIMIT 40
+            """, job_params):
+                total_runs += int(r[2])
+                models.append({"key": r[0], "users": int(r[1]), "runs": int(r[2]), "completed": int(r[3]), "failed": int(r[4]),
+                               "selected": selects.get(r[0], 0)})
+            for m in models:
+                m["share"] = round(m["runs"] * 100 / total_runs, 1) if total_runs else 0
+            item_filter = " AND item = %s" if item else ""
+            item_params = ev_params + ([item] if item else [])
+            tools = {}
+            for r in rows(f"""
+                SELECT item, kind, COUNT(*) FILTER (WHERE event = 'tool_open') AS opens,
+                       COUNT(*) FILTER (WHERE event = 'item_select') AS selects
+                FROM analytics_events WHERE event IN ('tool_open', 'item_select') AND item <> '' AND {ev_where}{item_filter}
+                GROUP BY item, kind
+            """, item_params):
+                tools[r[0]] = {"key": r[0], "kind": r[1] or "tool", "opens": int(r[2]), "selects": int(r[3]), "generations": 0}
+            for r in rows(f"""
+                SELECT {_JOB_ITEM_SQL} AS item, COUNT(*) AS runs FROM prostudio_generation_jobs
+                WHERE {job_where} AND {_JOB_ITEM_SQL} IS NOT NULL GROUP BY 1
+            """, job_params):
+                entry = tools.setdefault(r[0], {"key": r[0], "kind": "block" if r[0].startswith("block:") else "tool",
+                                                "opens": 0, "selects": 0, "generations": 0})
+                entry["generations"] = int(r[1])
+            tool_rows = sorted(tools.values(), key=lambda x: (x["generations"], x["opens"] + x["selects"]), reverse=True)[:60]
+            # Media blocks by their names.
+            block_ids = [int(x["key"][6:]) for x in tool_rows if x["key"].startswith("block:") and x["key"][6:].isdigit()]
+            if block_ids:
+                ensure_references_table()
+                names = {int(r[0]): r[1] for r in rows("SELECT id, name FROM prostudio_references WHERE id = ANY(%s)", [block_ids])}
+                for x in tool_rows:
+                    if x["key"].startswith("block:") and x["key"][6:].isdigit():
+                        x["label"] = names.get(int(x["key"][6:]), "")
+
+            def distinct(sql, params):
+                return int(rows(sql, params)[0][0] or 0)
+
+            funnel = [
+                {"key": "opened", "unit": "visitors", "count": distinct(f"SELECT COUNT(DISTINCT visitor) AS n FROM analytics_events WHERE event = 'section_open' AND {ev_where}", ev_params)},
+                {"key": "chose", "unit": "visitors", "count": distinct(f"SELECT COUNT(DISTINCT visitor) AS n FROM analytics_events WHERE event IN ('model_select','tool_open','item_select') AND {ev_where}", ev_params)},
+                {"key": "started", "unit": "users", "count": distinct(f"SELECT COUNT(DISTINCT telegram_id) AS n FROM prostudio_generation_jobs WHERE {job_where}", job_params)},
+                {"key": "result", "unit": "users", "count": distinct(f"SELECT COUNT(DISTINCT telegram_id) AS n FROM prostudio_generation_jobs WHERE status = 'completed' AND {job_where}", job_params)},
+                {"key": "downloaded", "unit": "visitors", "count": distinct(f"SELECT COUNT(DISTINCT visitor) AS n FROM analytics_events WHERE event = 'download' AND {ev_where}", ev_params)},
+            ]
+            r = rows(f"""
+                SELECT COUNT(*) AS visitors, COUNT(*) FILTER (WHERE days > 1) AS returning FROM
+                (SELECT visitor, COUNT(DISTINCT date_trunc('day', at)) AS days FROM analytics_events
+                 WHERE event = 'section_open' AND {ev_where} GROUP BY visitor) v
+            """, ev_params)[0]
+            returning = {"visitors": int(r[0] or 0), "returning": int(r[1] or 0)}
+            transitions = [{"from": r[0], "to": r[1], "count": int(r[2])} for r in rows(f"""
+                SELECT prev, section, COUNT(*) AS n FROM
+                (SELECT section, LAG(section) OVER (PARTITION BY visitor ORDER BY at, id) AS prev FROM analytics_events
+                 WHERE event = 'section_open' AND {ev_where}) t
+                WHERE prev IS NOT NULL AND prev <> section GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 15
+            """, ev_params)]
+            return {"sections": sections, "platforms": platforms, "days": days, "models": models, "tools": tool_rows,
+                    "funnel": funnel, "returning": returning, "transitions": transitions}
+        finally:
+            cursor.close()
+            conn.close()
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
 
 
 @app.post("/api/admin/subscribers")
@@ -12420,6 +13353,7 @@ def ensure_notification_tables():
     try:
         notifications_service.ensure_tables(cursor)
         reviews_service.ensure_tables(cursor)
+        platform_usage_service.ensure_table(cursor)
         conn.commit()
         NOTIFICATIONS_SCHEMA_READY = True
     finally:
@@ -12461,13 +13395,7 @@ def _request_person(cursor, request):
     user_key = int(getattr(request.state, "telegram_id", 0) or 0)
     if not user_key:
         raise HTTPException(status_code=401, detail="auth_required")
-    account_id = notifications_service.account_for_key(cursor, user_key)
-    if account_id:
-        person = notifications_service.resolve_person(cursor, f"a:{account_id}")
-        if person:
-            return person
-    return {"key": f"t:{user_key}", "account_id": None, "user_key": user_key, "visitor_id": None,
-            "telegram_chat": account_identity_service.real_telegram_id(user_key)}
+    return _person_for_key(cursor, user_key)
 
 
 def _cookie_web_account(request):
@@ -12483,11 +13411,24 @@ def _cookie_web_account(request):
     return None
 
 
-def _telegram_deliver(chat_id, text, image_url=None, links=None):
+def _telegram_error(response):
+    try:
+        body = response.json() if response.content else {}
+    except ValueError:
+        body = {}
+    if response.status_code < 400 and body.get("ok"):
+        return None
+    return str(body.get("description") or f"http_{response.status_code}")[:200]
+
+
+def _telegram_deliver_status(chat_id, text, image_url=None, links=None):
     """Sends one admin message through the main bot: a photo with caption
-    when there is an image, link buttons under it. Returns True on success."""
-    if not BOT_TOKEN or not chat_id:
-        return False
+    when there is an image, link buttons under it. Returns {ok, error} with
+    the bot API's own reason when it refused (e.g. the user blocked the bot)."""
+    if not BOT_TOKEN:
+        return {"ok": False, "error": "bot_not_configured"}
+    if not chat_id:
+        return {"ok": False, "error": "no_telegram_chat"}
     markup = None
     if links:
         markup = {"inline_keyboard": [[{"text": (l.get("label") or l["url"])[:60], "url": l["url"]}] for l in links]}
@@ -12500,33 +13441,58 @@ def _telegram_deliver(chat_id, text, image_url=None, links=None):
                 payload["caption"] = text
                 if markup:
                     payload["reply_markup"] = markup
-            response = requests.post(f"{base}/sendPhoto", json=payload, timeout=30)
-            ok = response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
-            if caption_fits or not ok:
-                return ok
+            error = _telegram_error(requests.post(f"{base}/sendPhoto", json=payload, timeout=30))
+            if caption_fits or error:
+                return {"ok": error is None, "error": error}
         payload = {"chat_id": chat_id, "text": text}
         if markup:
             payload["reply_markup"] = markup
-        response = requests.post(f"{base}/sendMessage", json=payload, timeout=20)
-        return response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
-    except (requests.RequestException, ValueError):
-        return False
+        error = _telegram_error(requests.post(f"{base}/sendMessage", json=payload, timeout=20))
+        return {"ok": error is None, "error": error}
+    except requests.RequestException as exc:
+        return {"ok": False, "error": f"network_{type(exc).__name__}"}
+
+
+def _telegram_deliver(chat_id, text, image_url=None, links=None):
+    return _telegram_deliver_status(chat_id, text, image_url, links)["ok"]
+
+
+def _telegram_error_reason(error):
+    """A short, stable reason for the delivery log ("blocked", ...)."""
+    e = str(error or "").lower()
+    if "blocked by the user" in e:
+        return "blocked"
+    if "chat not found" in e or "can't initiate" in e:
+        return "not_started"
+    if "deactivated" in e:
+        return "deactivated"
+    if "too many requests" in e or "retry after" in e:
+        return "rate_limited"
+    if e.startswith("network_"):
+        return "network"
+    return "other"
 
 
 async def _telegram_deliver_many(notification_id, chats, text, image_url, links):
     semaphore = asyncio.Semaphore(20)
-    sent = 0
+    sent, failed, errors = 0, 0, {}
 
     async def one(chat):
-        nonlocal sent
+        nonlocal sent, failed
         async with semaphore:
-            if await asyncio.to_thread(_telegram_deliver, chat, text, image_url, links):
+            status = await asyncio.to_thread(_telegram_deliver_status, chat, text, image_url, links)
+            if status["ok"]:
                 sent += 1
+            else:
+                failed += 1
+                reason = _telegram_error_reason(status.get("error"))
+                errors[reason] = errors.get(reason, 0) + 1
 
     await asyncio.gather(*(one(c) for c in chats))
     if notification_id:
         def _save(cursor):
-            notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=sent)
+            notifications_service.record_telegram_result(cursor, notification_id, sent=sent, failed=failed,
+                                                         errors=errors)
         try:
             await asyncio.to_thread(_notifications_run, _save)
         except Exception as exc:
@@ -12635,10 +13601,69 @@ async def public_contact(request: Request):
         person = _request_person(cursor, request)
         return notifications_service.submit_contact(cursor, person, message=body.get("message"),
                                                     topic=body.get("topic"), email=body.get("email"),
-                                                    surface=body.get("surface"), ip_hash=ip_hash, sales=body.get("sales"))
+                                                    surface=body.get("surface"), ip_hash=ip_hash, sales=body.get("sales"),
+                                                    attachments=body.get("attachments"))
 
     thread_id, _ = await asyncio.to_thread(_notifications_run, work)
     return {"ok": True, "thread_id": thread_id}
+
+
+@app.get("/api/public/contact/state")
+async def public_contact_state(request: Request):
+    """What the caller's Contact window offers (attachments, when an admin
+    allowed them on their current conversation)."""
+    def work(cursor):
+        return notifications_service.contact_state(cursor, _request_person(cursor, request))
+
+    state = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "attachments_allowed": state["attachments_allowed"]}
+
+
+CONTACT_UPLOAD_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "pdf": "application/pdf"}
+
+
+def _contact_file_kind(content):
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return "webp"
+    if content.startswith(b"%PDF-"):
+        return "pdf"
+    return None
+
+
+@app.post("/api/public/contact/upload")
+async def public_contact_upload(request: Request):
+    """One file for a Contact message (PNG, JPG, WebP or PDF, up to 10 MB),
+    only on a conversation an admin allowed attachments on. It is stored
+    under the caller's own folder and named back by an id only."""
+    body = await request.json()
+
+    def check(cursor):
+        person = _request_person(cursor, request)
+        if not notifications_service.contact_state(cursor, person)["attachments_allowed"]:
+            raise notifications_service.NotificationError("attachments_not_allowed", 403)
+        return notifications_service.attachment_owner_prefix(person)
+
+    prefix = await asyncio.to_thread(_notifications_run, check)
+    try:
+        content = base64.b64decode(str(body.get("content_base64") or ""), validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_base64")
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="invalid_content_size")
+    kind = _contact_file_kind(content)
+    if not kind:
+        raise HTTPException(status_code=400, detail="unsupported_file")
+    file_id = f"{uuid4().hex}.{kind}"
+    key = prefix + file_id
+    url = await asyncio.to_thread(storage_put_bytes, content, key, CONTACT_UPLOAD_TYPES[kind])
+    if not url:
+        raise HTTPException(status_code=502, detail="upload_failed")
+    name = re.sub(r"[^\w .()-]", "", str(body.get("name") or ""))[:120] or f"file.{kind}"
+    return {"ok": True, "attachment": {"id": file_id, "name": name, "mime": CONTACT_UPLOAD_TYPES[kind], "size": len(content)}}
 
 
 @app.post("/api/public/visitor/contact")
@@ -12751,54 +13776,107 @@ async def admin_messages_upload_image(request: Request):
     return {"ok": True, "image_key": key, "url": _notification_image_url(key)}
 
 
+def _announcement_targets(cursor, payload, keys, audience):
+    """(people or None for everyone, channels, segment, Telegram chats) of an
+    announcement: everyone, selected people, or a segment by surface and
+    plan (services/notifications.py segment_people)."""
+    segment = None
+    channels = notifications_service.clean_channels(payload.get("channels"))
+    if audience == "segment":
+        segment = notifications_service.clean_segment(payload.get("segment"))
+        if not payload.get("channels"):
+            channels = notifications_service.segment_channels(segment)
+        people = notifications_service.segment_people(cursor, segment)
+        if not people:
+            raise notifications_service.NotificationError("no_recipients")
+    elif audience == "selected":
+        people, seen = [], set()
+        for key in keys:
+            person = notifications_service.resolve_person(cursor, key)
+            if person and person["key"] not in seen:
+                seen.add(person["key"])
+                people.append(person)
+        if not people:
+            raise notifications_service.NotificationError("no_recipients")
+    else:
+        people = None
+    if "telegram" not in channels:
+        chats = []
+    elif people is None:
+        chats = notifications_service.telegram_chats_for_everyone(cursor)
+    else:
+        chats = sorted({p["telegram_chat"] for p in people if p.get("telegram_chat")})
+    return people, channels, segment, chats
+
+
+def _announcement_audience(payload):
+    audience = str(payload.get("audience") or "selected")
+    return audience if audience in ("all", "selected", "segment") else "selected"
+
+
+@app.post("/api/admin/messages/preview")
+async def admin_messages_preview(request: Request):
+    """How many people an announcement reaches, before it is sent: bell rows
+    and Telegram chats for the chosen audience and channels."""
+    payload = await request.json()
+    audience = _announcement_audience(payload)
+    keys = [str(k) for k in (payload.get("recipients") or [])][:5000]
+
+    def work(cursor):
+        _admin_actor(payload, request, "broadcast.create" if audience != "selected" else "messages.send")
+        people, channels, segment, chats = _announcement_targets(cursor, payload, keys, audience)
+        surfaces = [c for c in channels if c in notifications_service.SURFACES]
+        if not surfaces:
+            bell = 0
+        elif people is None:
+            bell = notifications_service.count_everyone(cursor, surfaces)
+        else:
+            bell = len([p for p in people if p.get("account_id") or p.get("user_key")
+                        or ("website" in surfaces and p.get("visitor_id"))])
+        return {"ok": True, "channels": channels, "segment": segment, "people": len(people) if people is not None else bell,
+                "bell_recipients": bell, "telegram_recipients": len(chats)}
+
+    return await asyncio.to_thread(_notifications_run, work)
+
+
 @app.post("/api/admin/messages/send")
 async def admin_messages_send(request: Request):
-    """Admin Console -> everyone or selected people -> Telegram (bot message,
-    as the existing broadcast does) + Mini App bell + website bell. No
-    channel selected means everywhere."""
+    """Admin Console -> everyone, selected people or a segment (by surface
+    and plan) -> Telegram (bot message) + Mini App bell + website bell. No
+    channel selected means everywhere (for a segment: its surfaces)."""
     payload = await request.json()
-    audience = "all" if payload.get("audience") == "all" else "selected"
+    audience = _announcement_audience(payload)
     keys = [str(k) for k in (payload.get("recipients") or [])][:5000]
-    permission = "broadcast.send" if audience == "all" or len(keys) > 1 else "messages.send"
+    permission = "broadcast.send" if audience != "selected" or len(keys) > 1 else "messages.send"
 
     def work(cursor):
         actor = _admin_actor(payload, request, permission)
         text = notifications_service.clean_text(payload.get("text") or payload.get("message"))
         links = notifications_service.clean_links(payload.get("links"))
         image_key = notifications_service.clean_image_key(payload.get("image_key"))
-        channels = notifications_service.clean_channels(payload.get("channels"))
+        people, channels, segment, chats = _announcement_targets(cursor, payload, keys, audience)
         surfaces = [c for c in channels if c in notifications_service.SURFACES]
-        if audience == "selected":
-            people, seen = [], set()
-            for key in keys:
-                person = notifications_service.resolve_person(cursor, key)
-                if person and person["key"] not in seen:
-                    seen.add(person["key"])
-                    people.append(person)
-            if not people:
-                raise notifications_service.NotificationError("no_recipients")
-            chats = sorted({p["telegram_chat"] for p in people if p.get("telegram_chat")})
-        else:
-            people = None
-            chats = notifications_service.telegram_chats_for_everyone(cursor) if "telegram" in channels else []
-        if "telegram" not in channels:
-            chats = []
         notification_id = notifications_service.create_notification(
             cursor, text=text, links=links, image_key=image_key, surfaces=surfaces, channels=channels,
-            audience=audience, admin_id=actor.get("admin_id"))
+            audience=audience, admin_id=actor.get("admin_id"), segment=segment)
         recipients = 0
         if surfaces:
-            recipients = (notifications_service.add_everyone(cursor, notification_id, surfaces) if people is None
-                          else notifications_service.add_recipients(
-                              cursor, notification_id,
-                              [p for p in people if p.get("account_id") or p.get("user_key")
-                               or ("website" in surfaces and p.get("visitor_id"))]))
+            if people is None:
+                recipients = notifications_service.add_everyone(cursor, notification_id, surfaces)
+            elif audience == "segment":
+                recipients = notifications_service.add_recipients_bulk(cursor, notification_id, people)
+            else:
+                recipients = notifications_service.add_recipients(
+                    cursor, notification_id,
+                    [p for p in people if p.get("account_id") or p.get("user_key")
+                     or ("website" in surfaces and p.get("visitor_id"))])
         notifications_service.set_delivery_counts(cursor, notification_id, recipients=recipients,
                                                   telegram_targets=len(chats))
         _admin_audit(cursor, actor, "broadcast_sent" if permission == "broadcast.send" else "message_sent", 0, {},
-                     {"notification_id": notification_id, "audience": audience, "channels": channels,
-                      "recipients": recipients, "telegram_targets": len(chats), "length": len(text),
-                      "links": len(links), "image": bool(image_key)}, str(payload.get("reason") or ""))
+                     {"notification_id": notification_id, "audience": audience, "segment": segment,
+                      "channels": channels, "recipients": recipients, "telegram_targets": len(chats),
+                      "length": len(text), "links": len(links), "image": bool(image_key)},
+                     str(payload.get("reason") or ""))
         return notification_id, recipients, chats, text, links, image_key, channels
 
     notification_id, recipients, chats, text, links, image_key, channels = await asyncio.to_thread(
@@ -12818,7 +13896,11 @@ async def admin_messages_history(request: Request):
 
     def work(cursor):
         _admin_actor(payload, request, "messages.send")
-        return notifications_service.history(cursor, payload.get("limit") or 30, payload.get("offset") or 0)
+        items, total = notifications_service.history(cursor, payload.get("limit") or 30, payload.get("offset") or 0)
+        names = _admin_names(cursor, [i.get("admin_id") for i in items])
+        for item in items:
+            item["admin_name"] = names.get(item.get("admin_id"))
+        return items, total
 
     items, total = await asyncio.to_thread(_notifications_run, work)
     return {"ok": True, "items": items, "total": total}
@@ -12833,24 +13915,58 @@ def _thread_person_view(cursor, thread, actor):
             "identity": row["identity"]}
 
 
+def _bool_or_none(value):
+    return True if value in (True, "yes", "true", 1) else False if value in (False, "no", "false", 0) else None
+
+
 @app.post("/api/admin/inbox/list")
 async def admin_inbox_list(request: Request):
+    """Conversations with the inbox filters: status (open = new,
+    in_progress, answered = waiting for the person, closed), topic (or all
+    but sales), assignee, unread, surface and search; plus counts per
+    status for the tabs."""
     payload = await request.json()
 
     def work(cursor):
         actor = _admin_actor(payload, request, "messages.send")
-        items, total, unread = notifications_service.list_threads(cursor, status=str(payload.get("status") or ""),
-                                                                   limit=payload.get("limit") or 50,
-                                                                   offset=payload.get("offset") or 0)
+        items, total, counts = notifications_service.list_threads(
+            cursor, status=str(payload.get("status") or ""), topic=str(payload.get("topic") or ""),
+            exclude_topic=str(payload.get("exclude_topic") or ""), assignee=str(payload.get("assignee") or ""),
+            actor_admin_id=actor.get("admin_id"), unread=bool(payload.get("unread")), query=payload.get("query") or "",
+            surface=str(payload.get("surface") or ""), limit=payload.get("limit") or 50,
+            offset=payload.get("offset") or 0)
         _admin_identity_for(cursor, items, actor)
+        names = _admin_names(cursor, [i.get("assignee_admin_id") for i in items])
         for item in items:
             item["sylvex_user_id"] = str(item["account_id"]) if item.get("account_id") else None
             item["telegram_id"] = account_identity_service.real_telegram_id(item.get("user_key"))
+            item["assignee_name"] = names.get(item.get("assignee_admin_id"))
             item.pop("user_key", None)
-        return items, total, unread
+        cursor.execute("SELECT COUNT(*) FILTER (WHERE topic = 'sales') AS sales, "
+                       "COUNT(*) FILTER (WHERE topic <> 'sales') AS others FROM support_threads WHERE admin_unread = TRUE")
+        sales_unread, other_unread = (int(v or 0) for v in cursor.fetchone())
+        return items, total, counts, {"sales": sales_unread, "conversations": other_unread}
 
-    items, total, unread = await asyncio.to_thread(_notifications_run, work)
-    return {"ok": True, "items": items, "total": total, "unread": unread}
+    items, total, counts, unread_by = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items, "total": total, "counts": counts,
+            "unread": unread_by["sales"] + unread_by["conversations"], "unread_by": unread_by}
+
+
+@app.post("/api/admin/inbox/assignees")
+async def admin_inbox_assignees(request: Request):
+    """Admins a conversation can be given to: active, allowed to answer."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        admins = [a for a in admin_auth.list_admins(cursor)
+                  if a["status"] == "active" and "messages.send" in a["permissions_set"]]
+        names = _admin_names(cursor, [a["admin_id"] for a in admins])
+        return [{"admin_id": a["admin_id"], "name": names.get(a["admin_id"]) or f"SYLVEX {a['account_id']}",
+                 "role": a["role"], "me": a["admin_id"] == actor.get("admin_id")} for a in admins]
+
+    items = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/reviews/list")
@@ -12859,10 +13975,14 @@ async def admin_reviews_list(request: Request):
 
     def work(cursor):
         actor = _admin_actor(payload, request, "users.view")
-        items, total, summary = reviews_service.admin_list(cursor, rating=payload.get("rating") or 0,
-                                                           limit=payload.get("limit") or 50,
-                                                           offset=payload.get("offset") or 0)
+        items, total, summary = reviews_service.admin_list(
+            cursor, rating=payload.get("rating") or 0, surface=str(payload.get("surface") or ""),
+            with_text=_bool_or_none(payload.get("with_text")), replied=_bool_or_none(payload.get("replied")),
+            days=payload.get("days") or 0, limit=payload.get("limit") or 50, offset=payload.get("offset") or 0)
         _admin_identity_for(cursor, items, actor)
+        names = _admin_names(cursor, [i.get("replied_by") for i in items])
+        for item in items:
+            item["replied_by_name"] = names.get(item.get("replied_by"))
         for item in items:
             item["sylvex_user_id"] = str(item.pop("account_id")) if item.get("account_id") else None
             item["telegram_id"] = account_identity_service.real_telegram_id(item.get("user_key"))
@@ -12872,6 +13992,35 @@ async def admin_reviews_list(request: Request):
 
     items, total, summary = await asyncio.to_thread(_reviews_run, work)
     return {"ok": True, "items": items, "total": total, "summary": summary}
+
+
+@app.post("/api/admin/reviews/reply")
+async def admin_reviews_reply(request: Request):
+    """Answer to a review: reaches the person like any SYLVEX message (bell
+    on their surfaces, the bot, and their conversation in Messages)."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        review_id = int(payload.get("review_id") or 0)
+        owner = reviews_service.review_owner(cursor, review_id)
+        if not owner["user_key"]:
+            raise notifications_service.NotificationError("user_not_found", 404)
+        person = _person_for_key(cursor, owner["user_key"])
+        text = notifications_service.clean_text(payload.get("text"))
+        thread_id = notifications_service.admin_thread_for(cursor, person, topic="general")
+        notification_id, message_id, chat, delivery = _admin_write_to_person(
+            cursor, actor, person, thread_id, text=text, links=[], image_key=None, channels=payload.get("channels"))
+        reviews_service.record_reply(cursor, review_id, text, actor.get("admin_id"))
+        _admin_audit(cursor, actor, "review_replied", owner["user_key"], {},
+                     {"review_id": review_id, "rating": owner["rating"], "thread_id": thread_id,
+                      "channels": delivery["channels"], "length": len(text)}, "")
+        return notification_id, message_id, chat, delivery, text
+
+    notification_id, message_id, chat, delivery, text = await asyncio.to_thread(_reviews_run, work)
+    if chat:
+        delivery = await _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, None, [])
+    return {"ok": True, "delivery": delivery}
 
 
 @app.post("/api/admin/inbox/thread")
@@ -12884,6 +14033,10 @@ async def admin_inbox_thread(request: Request):
                                                                image_url=_notification_image_url)
         thread["person"] = _thread_person_view(cursor, thread, actor)
         thread.pop("user_key", None)
+        names = _admin_names(cursor, [thread.get("assignee_admin_id")] + [m.get("admin_id") for m in messages])
+        thread["assignee_name"] = names.get(thread.get("assignee_admin_id"))
+        for m in messages:
+            m["author"] = names.get(m.get("admin_id")) if m["direction"] == "out" else None
         return thread, messages
 
     thread, messages = await asyncio.to_thread(_notifications_run, work)
@@ -12893,7 +14046,8 @@ async def admin_inbox_thread(request: Request):
 @app.post("/api/admin/inbox/reply")
 async def admin_inbox_reply(request: Request):
     """Personal reply: shown to the user as SYLVEX Team in their bell
-    (Mini App + website) and, when they have Telegram, sent by the bot."""
+    (Mini App + website) and, when they have Telegram, sent by the bot -
+    with the bot's real answer recorded on the message."""
     payload = await request.json()
 
     def work(cursor):
@@ -12903,45 +14057,431 @@ async def admin_inbox_reply(request: Request):
         links = notifications_service.clean_links(payload.get("links"))
         image_key = notifications_service.clean_image_key(payload.get("image_key"))
         person = notifications_service.thread_person(cursor, thread_id)
-        notification_id = notifications_service.create_notification(
-            cursor, text=text, links=links, image_key=image_key, surfaces=list(notifications_service.SURFACES),
-            channels=list(notifications_service.CHANNELS), audience="reply", admin_id=actor.get("admin_id"),
-            kind="reply", thread_id=thread_id)
-        notifications_service.add_recipients(cursor, notification_id, [person])
-        chat = person.get("telegram_chat")
-        notifications_service.set_delivery_counts(cursor, notification_id, recipients=1, telegram_targets=1 if chat else 0)
-        message_id = notifications_service.record_reply(cursor, thread_id, text=text, links=links, image_key=image_key,
-                                                        admin_id=actor.get("admin_id"), notification_id=notification_id)
+        notification_id, message_id, chat, delivery = _admin_write_to_person(
+            cursor, actor, person, thread_id, text=text, links=links, image_key=image_key,
+            channels=payload.get("channels"))
         _admin_audit(cursor, actor, "support_reply_sent", person.get("user_key") or 0, {},
-                     {"thread_id": thread_id, "notification_id": notification_id, "telegram": bool(chat),
+                     {"thread_id": thread_id, "notification_id": notification_id, "channels": delivery["channels"],
                       "length": len(text)}, "")
-        return notification_id, message_id, chat, text, links, image_key
+        return notification_id, message_id, chat, delivery, text, links, image_key
 
-    notification_id, message_id, chat, text, links, image_key = await asyncio.to_thread(_notifications_run, work)
-    telegram_sent = False
+    notification_id, message_id, chat, delivery, text, links, image_key = await asyncio.to_thread(
+        _notifications_run, work)
     if chat:
-        telegram_sent = await asyncio.to_thread(
-            _telegram_deliver, chat, f"💬 {notifications_service.SENDER_NAME}\n\n{text}",
-            _notification_image_url(image_key), links)
+        delivery = await _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, image_key, links)
+    return {"ok": True, "message_id": message_id, "notification_id": notification_id, "delivery": delivery,
+            "telegram": bool(chat), "telegram_sent": delivery.get("telegram") == "sent"}
 
-        def _save(cursor):
-            notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=1 if telegram_sent else 0)
-        await asyncio.to_thread(_notifications_run, _save)
-    return {"ok": True, "message_id": message_id, "notification_id": notification_id,
-            "telegram": bool(chat), "telegram_sent": telegram_sent}
+
+def _inbox_change(payload, request, permission, change):
+    """One change to a conversation, audited against its person."""
+    def work(cursor):
+        actor = _admin_actor(payload, request, permission)
+        thread_id = int(payload.get("thread_id") or 0)
+        person = notifications_service.thread_person(cursor, thread_id)
+        action, after = change(cursor, actor, thread_id)
+        _admin_audit(cursor, actor, action, person.get("user_key") or 0, {}, dict(after, thread_id=thread_id), "")
+        return after
+    return work
 
 
 @app.post("/api/admin/inbox/status")
 async def admin_inbox_status(request: Request):
     payload = await request.json()
 
-    def work(cursor):
-        _admin_actor(payload, request, "messages.send")
-        notifications_service.set_thread_status(cursor, int(payload.get("thread_id") or 0),
-                                                str(payload.get("status") or ""))
+    def change(cursor, actor, thread_id):
+        status = str(payload.get("status") or "")
+        notifications_service.set_thread_status(cursor, thread_id, status)
+        return "support_status_changed", {"status": status}
 
-    await asyncio.to_thread(_notifications_run, work)
-    return {"ok": True}
+    result = await asyncio.to_thread(_notifications_run, _inbox_change(payload, request, "messages.send", change))
+    return {"ok": True, **result}
+
+
+@app.post("/api/admin/inbox/assign")
+async def admin_inbox_assign(request: Request):
+    """Gives the conversation to an admin ("me", an admin id, or nobody)."""
+    payload = await request.json()
+
+    def change(cursor, actor, thread_id):
+        raw = payload.get("admin_id")
+        if raw == "me":
+            admin_id = actor.get("admin_id")
+        elif raw in (None, "", 0, "none"):
+            admin_id = None
+        else:
+            target = admin_auth.load_admin(cursor, admin_id=int(raw))
+            if not target or target["status"] != "active" or "messages.send" not in target["permissions_set"]:
+                raise notifications_service.NotificationError("assignee_not_allowed")
+            admin_id = target["admin_id"]
+        # Taking it yourself needs only the right to answer; giving it to
+        # someone else is managing the inbox.
+        if admin_id not in (None, actor.get("admin_id")) and "support.manage" not in actor.get("permissions_set", set()) \
+                and actor.get("role") != admin_rbac.OWNER:
+            raise HTTPException(status_code=403, detail="admin_permission_denied")
+        status = notifications_service.assign_thread(cursor, thread_id, admin_id)
+        return "support_assigned", {"assignee_admin_id": admin_id, "status": status}
+
+    result = await asyncio.to_thread(_notifications_run, _inbox_change(payload, request, "messages.send", change))
+    return {"ok": True, **result}
+
+
+@app.post("/api/admin/inbox/attachments")
+async def admin_inbox_attachments(request: Request):
+    """Lets the person attach files (images, PDF) in this conversation."""
+    payload = await request.json()
+
+    def change(cursor, actor, thread_id):
+        allowed = bool(payload.get("allowed"))
+        notifications_service.set_attachments_allowed(cursor, thread_id, allowed)
+        return "support_attachments_changed", {"attachments_allowed": allowed}
+
+    result = await asyncio.to_thread(_notifications_run, _inbox_change(payload, request, "support.manage", change))
+    return {"ok": True, **result}
+
+
+
+
+
+# ---------- admins: writing to one user, blocks, roles, awards ----------
+
+# Quick reasons for credits, subscriptions and roles (the console offers
+# them; any other text is "other"). Stored as code + label + free note.
+ADMIN_REASON_CODES = {
+    "test": "Тестовая выдача", "error_compensation": "Компенсация ошибки", "bonus": "Бонус",
+    "promo": "Промоакция", "gift": "Подарок пользователю", "refund": "Возмещение",
+    "management_decision": "Индивидуальное решение администрации",
+    "hire": "Приём в команду", "role_change": "Изменение обязанностей", "access_review": "Пересмотр доступа",
+    "offboarding": "Уход из команды", "other": "Другое",
+}
+
+
+def _admin_reason_fields(payload, default_reason=""):
+    """(reason text for the audit row, {reason_code, note}) from a console
+    request: a quick code, its label or the typed reason, plus a note."""
+    code = str(payload.get("reason_code") or "").strip()
+    if code not in ADMIN_REASON_CODES:
+        code = ""
+    typed = str(payload.get("reason") or "").strip()
+    note = str(payload.get("note") or "").strip()[:1000]
+    reason = typed or (ADMIN_REASON_CODES[code] if code and code != "other" else "") or default_reason
+    return reason[:500], {k: v for k, v in (("reason_code", code), ("note", note)) if v}
+
+
+def _person_for_key(cursor, target_key):
+    """The notification identity of the user behind a storage key."""
+    account_id = notifications_service.account_for_key(cursor, target_key)
+    if account_id:
+        person = notifications_service.resolve_person(cursor, f"a:{account_id}")
+        if person:
+            return person
+    return {"key": f"t:{target_key}", "account_id": None, "user_key": int(target_key), "visitor_id": None,
+            "telegram_chat": account_identity_service.real_telegram_id(target_key)}
+
+
+# Reasons the person themselves is shown on an award card; the others
+# (test grants, internal decisions) stay between admins.
+AWARD_PUBLIC_REASONS = frozenset({"error_compensation", "bonus", "promo", "gift", "refund"})
+
+
+def _admin_award(cursor, person, award, text, actor):
+    """Queues the centered "you received" card. Runs inside the caller's
+    transaction under a savepoint: a failure here never undoes the change
+    itself, it only loses the card."""
+    try:
+        ensure_notification_tables()
+    except Exception as exc:
+        print("ADMIN_AWARD_FAILED:", type(exc).__name__)
+        return None
+    try:
+        cursor.execute("SAVEPOINT admin_award")
+        savepoint = True
+    except Exception:
+        savepoint = False  # autocommit connection: nothing to protect
+    try:
+        notification_id = notifications_service.create_award(cursor, person, award=award, text=text,
+                                                             admin_id=(actor or {}).get("admin_id"))
+        if savepoint:
+            cursor.execute("RELEASE SAVEPOINT admin_award")
+        return notification_id
+    except Exception as exc:
+        if savepoint:
+            cursor.execute("ROLLBACK TO SAVEPOINT admin_award")
+        print("ADMIN_AWARD_FAILED:", type(exc).__name__)
+        return None
+
+
+def _award_reason(extra):
+    code = (extra or {}).get("reason_code")
+    return code if code in AWARD_PUBLIC_REASONS else None
+
+
+ADMIN_MESSAGE_CHANNELS = ("website", "miniapp", "telegram")
+
+
+def _admin_channels_for(person):
+    """Where a message to this person can go: the bell on the website and
+    in the Mini Apps (Telegram and browser) needs a SYLVEX identity, the bot
+    needs a real Telegram chat; a website guest has the website bell only."""
+    has_identity = bool(person.get("account_id") or person.get("user_key"))
+    return {"website": has_identity or bool(person.get("visitor_id")), "miniapp": has_identity,
+            "telegram": bool(person.get("telegram_chat"))}
+
+
+def _admin_write_to_person(cursor, actor, person, thread_id, *, text, links, image_key, channels, kind="reply"):
+    """Writes one admin message into the person's conversation and their
+    bell (chosen surfaces). Returns (notification_id, message_id, chat to
+    send to by the bot or None)."""
+    available = _admin_channels_for(person)
+    chosen = [c for c in (channels or ADMIN_MESSAGE_CHANNELS) if c in ADMIN_MESSAGE_CHANNELS and available.get(c)]
+    if not chosen:
+        raise notifications_service.NotificationError("no_delivery_channel", 409)
+    surfaces = [c for c in chosen if c in notifications_service.SURFACES]
+    chat = person.get("telegram_chat") if "telegram" in chosen else None
+    notification_id = notifications_service.create_notification(
+        cursor, text=text, links=links, image_key=image_key, surfaces=surfaces or [], channels=chosen,
+        audience="reply", admin_id=actor.get("admin_id"), kind=kind, thread_id=thread_id)
+    if surfaces:
+        notifications_service.add_recipients(cursor, notification_id, [person])
+    notifications_service.set_delivery_counts(cursor, notification_id, recipients=1 if surfaces else 0,
+                                              telegram_targets=1 if chat else 0)
+    message_id = notifications_service.record_reply(cursor, thread_id, text=text, links=links, image_key=image_key,
+                                                    admin_id=actor.get("admin_id"), notification_id=notification_id)
+    delivery = {"channels": chosen, "bell": surfaces, "telegram": "pending" if chat else
+                ("not_linked" if not available["telegram"] else "skipped")}
+    notifications_service.set_message_delivery(cursor, message_id, delivery)
+    return notification_id, message_id, chat, delivery
+
+
+async def _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, image_key, links):
+    """Sends the bot copy and records the bot API's real answer."""
+    status = await asyncio.to_thread(
+        _telegram_deliver_status, chat, f"💬 {notifications_service.SENDER_NAME}\n\n{text}",
+        _notification_image_url(image_key), links)
+    delivery = dict(delivery, telegram="sent" if status["ok"] else "failed")
+    if not status["ok"] and status.get("error"):
+        delivery["telegram_error"] = status["error"]
+
+    def _save(cursor):
+        notifications_service.set_delivery_counts(cursor, notification_id, telegram_sent=1 if status["ok"] else 0)
+        notifications_service.set_message_delivery(cursor, message_id, delivery)
+    await asyncio.to_thread(_notifications_run, _save)
+    return delivery
+
+
+def _admin_names(cursor, admin_ids):
+    """{admin id: the name the team knows them by} for message authors and
+    history rows."""
+    ids = sorted({int(i) for i in admin_ids if i})
+    if not ids:
+        return {}
+    cursor.execute("""
+        SELECT a.id, COALESCE(p.display_name, u.first_name, u.username, 'SYLVEX ' || a.account_id::text)
+        FROM admin_accounts a LEFT JOIN sylvex_accounts s ON s.account_id = a.account_id
+        LEFT JOIN users u ON u.telegram_id = s.active_telegram_id
+        LEFT JOIN user_profiles p ON p.telegram_id = s.active_telegram_id
+        WHERE a.id = ANY(%s::bigint[])
+    """, (ids,))
+    return {int(r[0]): r[1] for r in cursor.fetchall()}
+
+
+@app.post("/api/admin/users/conversation")
+async def admin_user_conversation(request: Request):
+    """Everything SYLVEX and this user wrote to each other: their
+    conversations (Messages) and older bot-only messages, plus where a new
+    message can be delivered."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        target_key = _admin_resolve_target(cursor, payload)
+        if not target_key:
+            raise notifications_service.NotificationError("user_not_found", 404)
+        person = _person_for_key(cursor, target_key)
+        messages = []
+        threads = notifications_service.person_threads(cursor, person)
+        for thread_id in threads:
+            messages.extend(notifications_service.thread_messages(cursor, thread_id, image_url=_notification_image_url))
+        authors = _admin_names(cursor, [m.get("admin_id") for m in messages])
+        for m in messages:
+            m["author"] = authors.get(m.get("admin_id")) if m["direction"] == "out" else None
+        legacy = []
+        chat = person.get("telegram_chat")
+        if chat:
+            cursor.execute("SELECT to_regclass('admin_messages')")
+            if cursor.fetchone()[0] is not None:
+                cursor.execute("""
+                    SELECT id, message, telegram_sent, created_at FROM admin_messages
+                    WHERE user_telegram_id = %s ORDER BY id DESC LIMIT 50
+                """, (int(chat),))
+                legacy = [{"id": f"legacy-{r[0]}", "direction": "out", "text": r[1], "created_at": _to_iso(r[3]),
+                           "delivery": {"channels": ["telegram"], "telegram": "sent" if r[2] else "failed"},
+                           "legacy": True} for r in cursor.fetchall()]
+        messages = sorted(messages + legacy, key=lambda m: str(m.get("created_at") or ""))
+        return {"ok": True, "channels": _admin_channels_for(person), "messages": messages[-200:],
+                "threads": threads}
+
+    return await asyncio.to_thread(_notifications_run, work)
+
+
+@app.post("/api/admin/users/message/send")
+async def admin_user_message_send(request: Request):
+    """"Write to user" from the card: one message into the person's
+    conversation (so it is in Messages too), their bell on the chosen
+    surfaces and, when chosen and possible, the bot - with the real result."""
+    payload = await request.json()
+
+    def work(cursor):
+        actor = _admin_actor(payload, request, "messages.send")
+        target_key = _admin_resolve_target(cursor, payload)
+        if not target_key:
+            raise notifications_service.NotificationError("user_not_found", 404)
+        person = _person_for_key(cursor, target_key)
+        text = notifications_service.clean_text(payload.get("text") or payload.get("message"))
+        links = notifications_service.clean_links(payload.get("links"))
+        image_key = notifications_service.clean_image_key(payload.get("image_key"))
+        thread_id = notifications_service.admin_thread_for(cursor, person)
+        notification_id, message_id, chat, delivery = _admin_write_to_person(
+            cursor, actor, person, thread_id, text=text, links=links, image_key=image_key,
+            channels=payload.get("channels"))
+        _admin_audit(cursor, actor, "message_sent", target_key, {},
+                     {"thread_id": thread_id, "notification_id": notification_id, "channels": delivery["channels"],
+                      "length": len(text)}, "")
+        return notification_id, message_id, chat, delivery, text, links, image_key, thread_id
+
+    notification_id, message_id, chat, delivery, text, links, image_key, thread_id = await asyncio.to_thread(
+        _notifications_run, work)
+    if chat:
+        delivery = await _admin_deliver_telegram(notification_id, message_id, chat, delivery, text, image_key, links)
+    return {"ok": True, "thread_id": thread_id, "message_id": message_id, "delivery": delivery}
+
+
+def _admin_block_change(payload, request, *, lift):
+    def _sync():
+        actor = _admin_actor(payload, request, "users.ban")
+        reason, extra = _admin_reason_fields(payload)
+        if not reason:
+            raise HTTPException(status_code=400, detail="reason_required")
+        ensure_admin_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            target_key = _admin_resolve_target(cursor, payload)
+            if not target_key:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            account_id = user_access_service.account_for_key(cursor, target_key)
+            if not lift:
+                cursor.execute("SELECT 1 FROM admin_accounts WHERE account_id = %s AND status = 'active' AND role = 'owner'",
+                               (account_id or 0,))
+                if cursor.fetchone():
+                    raise HTTPException(status_code=409, detail="owner_cannot_be_blocked")
+            try:
+                if lift:
+                    before = user_access_service.active_block(cursor, account_id=account_id, user_key=target_key)
+                    user_access_service.unblock(cursor, account_id=account_id, user_key=target_key, reason=reason,
+                                                admin_id=actor.get("admin_id"))
+                    _admin_audit(cursor, actor, "user_unblocked", target_key, {"blocked": True,
+                                 "block_id": (before or {}).get("id")}, dict({"blocked": False}, **extra), reason,
+                                 risk="high")
+                else:
+                    block_id = user_access_service.block(cursor, account_id=account_id, user_key=target_key,
+                                                         reason=reason, note=extra.get("note", ""),
+                                                         admin_id=actor.get("admin_id"))
+                    _admin_audit(cursor, actor, "user_blocked", target_key, {"blocked": False},
+                                 dict({"blocked": True, "block_id": block_id}, **extra), reason, risk="high")
+            except user_access_service.AccessError as exc:
+                raise HTTPException(status_code=exc.status, detail=exc.code)
+            conn.commit()
+            return target_key, user_access_service.active_block(cursor, account_id=account_id, user_key=target_key)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+    return _sync
+
+
+@app.post("/api/admin/users/block")
+async def admin_user_block(request: Request):
+    payload = await request.json()
+    _, block = await asyncio.to_thread(_admin_block_change(payload, request, lift=False))
+    _ACCESS_CACHE.clear()
+    return {"ok": True, "block": block}
+
+
+@app.post("/api/admin/users/unblock")
+async def admin_user_unblock(request: Request):
+    payload = await request.json()
+    await asyncio.to_thread(_admin_block_change(payload, request, lift=True))
+    _ACCESS_CACHE.clear()
+    return {"ok": True, "block": None}
+
+
+@app.get("/api/public/account/status")
+async def public_account_status(request: Request):
+    """Whether the signed-in caller is blocked, and why - every surface
+    asks on start so it can explain a restriction instead of failing."""
+    uid = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not uid:
+        raise HTTPException(status_code=401, detail="auth_required")
+    block = await asyncio.to_thread(_account_block_sync, uid)
+    return {"ok": True, **user_access_service.public_status(block)}
+
+
+@app.get("/api/public/notifications/awards")
+async def public_notification_awards(request: Request):
+    """Credits, a subscription or a role SYLVEX gave this person that they
+    have not seen yet - each shown once as a centered card."""
+    def work(cursor):
+        person = _request_person(cursor, request)
+        return notifications_service.pending_awards(cursor, account_id=person["account_id"],
+                                                    user_key=person["user_key"])
+
+    items = await asyncio.to_thread(_notifications_run, work)
+    return {"ok": True, "items": items}
+
+
+ROLE_AWARD_LABELS = {"administrator": "Администратор", "finance": "Финансовый администратор",
+                     "support": "Поддержка", "moderator": "Модератор", "analyst": "Аналитик",
+                     "read_only": "Наблюдатель"}
+
+
+@app.post("/api/admin/v2/users/role")
+async def admin_v2_user_role(request: Request):
+    """"Assign role" from the user card (owner only): makes the person an
+    admin with that role, changes it, or removes it (role ""). The same
+    admin_accounts row the Admins section edits, so both stay in sync."""
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "admins.permissions.edit", mutation=True)
+        if actor["role"] != admin_rbac.OWNER:
+            raise admin_auth.AdminAuthError("owner_access_required", 403)
+        reason = _admin_v2_reason(body)
+        account_id = admin_auth.canonical_account(cursor, body.get("sylvex_user_id"))
+        if not account_id:
+            raise admin_auth.AdminAuthError("account_not_found", 404)
+        role = str(body.get("role") or "").strip()
+        existing = admin_auth.load_admin(cursor, account_id=account_id)
+        if not role:
+            if not existing or existing["status"] == "revoked":
+                raise admin_auth.AdminAuthError("admin_not_found", 404)
+            admin = admin_auth.update_admin(cursor, actor, existing["admin_id"], status="revoked", reason=reason)
+        elif existing:
+            admin = admin_auth.update_admin(cursor, actor, existing["admin_id"], role=role, status="active",
+                                            reason=reason)
+        else:
+            admin = admin_auth.create_admin(cursor, actor, account_id, role, [], [], reason)
+        if role:
+            person = notifications_service.resolve_person(cursor, f"a:{account_id}")
+            label = ROLE_AWARD_LABELS.get(role, role)
+            _admin_award(cursor, person, {"type": "role", "role": role, "label": label},
+                         f"Вам назначена роль «{label}» в команде SYLVEX.", actor)
+        return {"ok": True, "admin": admin_auth.public_admin(admin) if admin else None}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
 
 
 REFERENCES_SCHEMA_READY = False
@@ -12978,6 +14518,11 @@ def ensure_references_table():
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prostudio_references_catalog ON prostudio_references (published, category, kind)")
+        # Media constructor blocks (services/media_blocks.py): a block type
+        # and its configuration. Rows without a block type are the older
+        # plain references and keep working as before.
+        cursor.execute("ALTER TABLE prostudio_references ADD COLUMN IF NOT EXISTS block_type TEXT")
+        cursor.execute("ALTER TABLE prostudio_references ADD COLUMN IF NOT EXISTS config JSONB")
         conn.commit()
         REFERENCES_SCHEMA_READY = True
     finally:
@@ -12990,10 +14535,11 @@ def _reference_row_to_dict(row) -> dict:
             "prompt": row[5] or "", "model": row[6] or "", "workflow": row[7] or "",
             "preview_url": row[8] or "", "source_url": row[9] or "", "published": bool(row[10]),
             "sort_order": int(row[11] or 0), "created_by": row[12], "created_at": _to_iso(row[13]),
-            "updated_at": _to_iso(row[14])}
+            "updated_at": _to_iso(row[14]), "block_type": row[15] or None, "config": _json_obj(row[16]) or {}}
 
 
-_REFERENCE_COLUMNS = "id,category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by,created_at,updated_at"
+_REFERENCE_COLUMNS = ("id,category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,"
+                      "created_by,created_at,updated_at,block_type,config")
 
 
 @app.post("/api/admin/references/list")
@@ -13015,6 +14561,16 @@ async def admin_references_list(request: Request):
             conditions.append("kind=%s"); params.append(kind)
         if published is not None:
             conditions.append("published=%s"); params.append(bool(published))
+        block_type = str(payload.get("block_type") or "").strip()
+        if block_type == "legacy":
+            conditions.append("block_type IS NULL")
+        elif block_type in media_blocks_service.BLOCK_TYPES:
+            conditions.append("block_type=%s"); params.append(block_type)
+        if payload.get("id"):
+            conditions.append("id=%s"); params.append(int(payload.get("id") or 0))
+        query = str(payload.get("query") or "").strip()[:120]
+        if query:
+            conditions.append("(name ILIKE %s OR description ILIKE %s)"); params += [f"%{query}%", f"%{query}%"]
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -13042,6 +14598,12 @@ async def admin_references_create(request: Request):
     def _sync():
         actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
+        block_type, config = _media_block_fields(payload)
+        if block_type:
+            payload.setdefault("category", block_type)
+            payload["kind"] = "video" if config["generation"] == "video" else "photo"
+            # A block is always created as a draft; publishing is its own step.
+            payload["published"] = False
         category = str(payload.get("category") or "").strip()[:80]
         kind = str(payload.get("kind") or "").strip().lower()[:20]
         name = str(payload.get("name") or "").strip()[:200]
@@ -13060,14 +14622,16 @@ async def admin_references_create(request: Request):
         try:
             cursor.execute(f"""
                 INSERT INTO prostudio_references
-                    (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by,
+                     block_type,config)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING {_REFERENCE_COLUMNS}
             """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
-                  published, sort_order, actor["telegram_id"]))
+                  published, sort_order, actor["telegram_id"], block_type, json.dumps(config) if block_type else None))
             created = _reference_row_to_dict(cursor.fetchone())
             _admin_audit(cursor, actor, "reference_created", 0, {}, created, "")
             conn.commit()
+            _media_blocks_changed()
             return created
         except Exception:
             conn.rollback()
@@ -13104,9 +14668,12 @@ async def admin_references_update(request: Request):
             "sort_order": lambda v: int(v or 0),
         }
         updates = {key: caster(payload[key]) for key, caster in fields.items() if key in payload}
+        # Publishing goes through /references/publish (its own permission
+        # and the readiness checks), never through an edit.
+        updates.pop("published", None)
         if "kind" in updates and updates["kind"] not in {"photo", "video"}:
             raise HTTPException(status_code=400, detail="invalid_kind")
-        if not updates:
+        if not updates and "config" not in payload:
             raise HTTPException(status_code=400, detail="no_fields_to_update")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -13116,7 +14683,12 @@ async def admin_references_update(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             before = _reference_row_to_dict(before_row)
-            set_clause = ", ".join(f"{key}=%s" for key in updates)
+            if before.get("block_type"):
+                _, config = _media_block_fields(dict(payload, block_type=before["block_type"],
+                                                     config=payload.get("config", before["config"])))
+                updates["config"] = json.dumps(config)
+                updates["kind"] = "video" if config["generation"] == "video" else "photo"
+            set_clause = ", ".join(f"{key}=%s::jsonb" if key == "config" else f"{key}=%s" for key in updates)
             cursor.execute(f"""
                 UPDATE prostudio_references SET {set_clause}, updated_at=NOW() WHERE id=%s
                 RETURNING {_REFERENCE_COLUMNS}
@@ -13124,6 +14696,7 @@ async def admin_references_update(request: Request):
             after = _reference_row_to_dict(cursor.fetchone())
             _admin_audit(cursor, actor, "reference_updated", 0, before, after, "")
             conn.commit()
+            _media_blocks_changed()
             return after
         except HTTPException:
             conn.rollback()
@@ -13144,7 +14717,7 @@ async def admin_references_publish(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "content.references.manage")
+        actor = _admin_actor(payload, request, "content.publish")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         published = bool(payload.get("published", True))
@@ -13153,15 +14726,26 @@ async def admin_references_publish(request: Request):
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT published FROM prostudio_references WHERE id=%s", (reference_id,))
-            before_row = cursor.fetchone()
-            if not before_row:
+            cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+            row = cursor.fetchone()
+            if not row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
+            block = _reference_row_to_dict(row)
+            before_row = (block["published"],)
+            if published and block.get("block_type"):
+                problems = media_blocks_service.problems(block, _media_models())
+                if block.get("model") and model_control.norm(block["model"]) in _disabled_model_ids():
+                    problems.append(("model_disabled", block["model"]))
+                if problems:
+                    return {"problems": [{"code": c, "detail": d} for c, d in problems]}
             cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
             _admin_audit(cursor, actor, "reference_published" if published else "reference_unpublished",
-                         0, {"published": bool(before_row[0])}, {"published": published}, "")
+                         0, {"published": bool(before_row[0])},
+                         {"published": published, "id": reference_id, "name": block["name"],
+                          "block_type": block.get("block_type")}, str(payload.get("reason") or "").strip()[:500])
             conn.commit()
-            return reference_id, published
+            _media_blocks_changed()
+            return {"id": reference_id, "published": published}
         except HTTPException:
             conn.rollback()
             raise
@@ -13172,8 +14756,10 @@ async def admin_references_publish(request: Request):
             cursor.close()
             conn.close()
 
-    reference_id, published = await asyncio.to_thread(_sync)
-    return {"ok": True, "id": reference_id, "published": published}
+    result = await asyncio.to_thread(_sync)
+    if result.get("problems"):
+        return JSONResponse({"ok": False, "error": "block_not_ready", "problems": result["problems"]}, status_code=409)
+    return {"ok": True, **result}
 
 
 @app.post("/api/admin/references/delete")
@@ -13181,7 +14767,8 @@ async def admin_references_delete(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "content.references.manage")
+        # Removing what users see is publishing work (content.publish).
+        actor = _admin_actor(payload, request, "content.publish")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         if not reference_id:
@@ -13194,8 +14781,10 @@ async def admin_references_delete(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
-            _admin_audit(cursor, actor, "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
+            _admin_audit(cursor, actor, "reference_deleted", 0, _reference_row_to_dict(before_row), {},
+                         str(payload.get("reason") or "").strip()[:500])
             conn.commit()
+            _media_blocks_changed()
         except HTTPException:
             conn.rollback()
             raise
@@ -13208,6 +14797,195 @@ async def admin_references_delete(request: Request):
 
     await asyncio.to_thread(_sync)
     return {"ok": True}
+
+
+# ---------- Media constructor (services/media_blocks.py) ----------
+
+def _media_block_fields(payload):
+    """(block_type, cleaned config) of a create/update request; (None, {})
+    for a plain reference."""
+    block_type = str(payload.get("block_type") or "").strip()
+    if not block_type:
+        return None, {}
+    try:
+        return block_type, media_blocks_service.clean_config(payload.get("config"), block_type)
+    except media_blocks_service.BlockError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+
+
+def _media_models():
+    """Image and video models from the central capability registry, with
+    whether the provider of each image model is configured."""
+    try:
+        image_ids = {str(m.get("id")) for m in (get_image_capabilities().get("models") or []) if isinstance(m, dict)}
+    except Exception:
+        image_ids = set()
+    labels = {}
+    try:
+        for m in get_image_capabilities().get("models") or []:
+            if isinstance(m, dict) and m.get("id") and m.get("label"):
+                labels[str(m["id"])] = str(m["label"])
+    except Exception:
+        pass
+    return media_blocks_service.model_catalog(
+        model_capabilities_service.serialize_capabilities(), seedream=SEEDREAM_MODEL_CAPABILITIES,
+        image_available=image_ids or None, labels=labels)
+
+
+def _media_block_cost(block):
+    """The block's price from the central tariff, as for a real run."""
+    try:
+        payload = media_blocks_service.generation_payload(block, media_blocks_service.preview_uploads(block))
+        estimate = calculate_generation_price(payload)
+    except Exception as exc:
+        prostudio_error("MEDIA_BLOCK_ESTIMATE_FAILED", exc, block_id=block.get("id"))
+        return None
+    if not estimate.get("pricing_available", bool(estimate.get("credits"))):
+        return None
+    return int(estimate.get("credits") or estimate.get("cost_credits") or 0) or None
+
+
+@app.post("/api/admin/media/catalog")
+async def admin_media_catalog(request: Request):
+    """What the Media constructor offers: models (from the capability
+    registry), publishing places, block types and reference modes."""
+    payload = await request.json()
+    _admin_actor(payload, request, "content.references.manage")
+    models = await asyncio.to_thread(_media_models)
+    return {"ok": True, "models": models, "block_types": list(media_blocks_service.BLOCK_TYPES),
+            "ref_modes": list(media_blocks_service.REF_MODES),
+            "placements": [{"id": k, "en": v["en"], "ru": v["ru"], "types": list(v["types"])}
+                           for k, v in media_blocks_service.PLACEMENTS.items()],
+            "max_fields": media_blocks_service.MAX_FIELDS}
+
+
+@app.post("/api/admin/media/check")
+async def admin_media_check(request: Request):
+    """The price (central tariff) and what still keeps a block draft from
+    being published - recomputed as the admin edits it."""
+    payload = await request.json()
+    _admin_actor(payload, request, "content.references.manage")
+    block_type, config = _media_block_fields(payload)
+    if not block_type:
+        raise HTTPException(status_code=400, detail="invalid_block_type")
+    block = {"id": int(payload.get("id") or 0), "block_type": block_type, "config": config,
+             "name": str(payload.get("name") or "").strip(), "description": str(payload.get("description") or ""),
+             "prompt": str(payload.get("prompt") or ""), "model": str(payload.get("model") or ""),
+             "preview_url": str(payload.get("preview_url") or ""), "source_url": str(payload.get("source_url") or "")}
+
+    def work():
+        models = _media_models()
+        problems = media_blocks_service.problems(block, models)
+        if block["model"] and model_control.norm(block["model"]) in _disabled_model_ids():
+            problems.append(("model_disabled", block["model"]))
+        return {"cost": _media_block_cost(block) if block["model"] else None,
+                "problems": [{"code": c, "detail": d} for c, d in problems],
+                "config": config, "preview": media_blocks_service.public_view(block, None)}
+
+    return {"ok": True, **(await asyncio.to_thread(work))}
+
+
+def _published_blocks():
+    ensure_references_table()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            SELECT {_REFERENCE_COLUMNS} FROM prostudio_references
+            WHERE published = TRUE AND block_type IS NOT NULL ORDER BY sort_order, created_at DESC LIMIT 300
+        """)
+        return [_reference_row_to_dict(r) for r in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+
+MEDIA_BLOCK_VIEWS_CACHE = {"value": None, "expires_at": 0.0}
+MEDIA_BLOCK_VIEWS_TTL = 30
+
+
+def _media_block_views():
+    """Every published block as the apps get it, with its tariff price
+    (kept for a few seconds; any admin change drops it at once)."""
+    now = time.time()
+    cached = MEDIA_BLOCK_VIEWS_CACHE["value"]
+    if cached is not None and now < MEDIA_BLOCK_VIEWS_CACHE["expires_at"]:
+        return cached
+    views = [media_blocks_service.public_view(b, _media_block_cost(b)) for b in _published_blocks()] if DATABASE_URL else []
+    MEDIA_BLOCK_VIEWS_CACHE.update(value=views, expires_at=now + MEDIA_BLOCK_VIEWS_TTL)
+    return views
+
+
+def _media_blocks_changed():
+    MEDIA_BLOCK_VIEWS_CACHE.update(value=None, expires_at=0.0)
+
+
+async def _media_block_views_safe():
+    try:
+        views = await asyncio.to_thread(_media_block_views)
+        # A block whose model an admin turned off stays listed but cannot run.
+        disabled = await asyncio.to_thread(_disabled_model_ids)
+        return [dict(v, available=model_control.norm(v.get("model")) not in disabled) for v in views]
+    except Exception as exc:
+        prostudio_error("MEDIA_BLOCKS_LOAD_FAILED", exc)
+        return []
+
+
+@app.get("/api/public/media-blocks")
+async def public_media_blocks(placement: str = ""):
+    """Published Media blocks for the website and the Mini Apps, each with
+    its upload fields and the price the central tariff gives it now."""
+    views = await _media_block_views_safe()
+    placement = placement[:40]
+    return {"ok": True, "items": [v for v in views if not placement or placement in v["placements"]]}
+
+
+@app.post("/api/public/media-blocks/{block_id}/generate")
+async def public_media_block_generate(block_id: int, request: Request):
+    """Runs a published block: the user's uploads ({field key: URL they got
+    from SYLVEX's upload}) and the block's own settings become one Pro
+    Studio generation - the same job, price, balance check and history as
+    any other generation."""
+    body = await request.json()
+    uploads = body.get("uploads") if isinstance(body.get("uploads"), dict) else {}
+
+    def load():
+        ensure_references_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id = %s", (int(block_id),))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
+        return _reference_row_to_dict(row) if row else None
+
+    block = await asyncio.to_thread(load)
+    if not block or not block.get("published") or not block.get("block_type"):
+        return JSONResponse({"ok": False, "error": "media_block_not_found"}, status_code=404)
+    # The admin's own media is SYLVEX's: sign it fresh for the provider.
+    block = dict(block, preview_url=media_sign_url(block.get("preview_url") or ""),
+                 source_url=media_sign_url(block.get("source_url") or ""),
+                 config=dict(block["config"], extra_references=[media_sign_url(u) for u in block["config"].get("extra_references") or []]))
+    clean_uploads = {str(k)[:32]: str(v) for k, v in uploads.items() if isinstance(v, str) and v}
+    try:
+        payload = media_blocks_service.generation_payload(block, clean_uploads)
+    except media_blocks_service.BlockError as exc:
+        return JSONResponse({"ok": False, "error": exc.code, "missing": [d for _, d in exc.problems]}, status_code=exc.status)
+    if body.get("conversation_id"):
+        payload["conversation_id"] = str(body.get("conversation_id"))[:120]
+    # The caller's id as SecurityMiddleware set it on the verified request.
+    if body.get("telegram_id"):
+        payload["telegram_id"] = body["telegram_id"]
+    raw = json.dumps(payload).encode()
+
+    async def receive():
+        return {"type": "http.request", "body": raw, "more_body": False}
+
+    # The same request (and the identity SecurityMiddleware verified on it),
+    # carrying the block's generation instead of the client's body.
+    return await public_prostudio_generate(Request(request.scope, receive))
 
 
 @app.post("/api/admin/references/upload-media")
@@ -13266,7 +15044,8 @@ async def public_prostudio_references(category: str = "", kind: str = ""):
     if not DATABASE_URL:
         ensure_references_table()
         return {"ok": True, "items": []}
-    conditions, params = ["published=TRUE"], []
+    # Media constructor blocks have their own catalog (/api/public/media-blocks).
+    conditions, params = ["published=TRUE", "block_type IS NULL"], []
     category = str(category or "").strip()[:80]
     kind = str(kind or "").strip().lower()[:20]
     if category:
@@ -24773,15 +26552,14 @@ async def public_prostudio_kling_effects():
 async def public_prostudio_video_templates():
     now = time.time()
     cached = VIDEO_TEMPLATE_CATALOG_CACHE.get("value")
-    if cached is not None and now < float(VIDEO_TEMPLATE_CATALOG_CACHE.get("expires_at") or 0):
-        return JSONResponse(cached, headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"})
-    payload = {
-        "ok": True,
-        "templates": prostudio_video_templates_from_env() + prostudio_builtin_video_template_slots(),
-    }
-    VIDEO_TEMPLATE_CATALOG_CACHE["value"] = payload
-    VIDEO_TEMPLATE_CATALOG_CACHE["expires_at"] = now + VIDEO_TEMPLATE_CATALOG_CACHE_TTL
-    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"})
+    if cached is None or now >= float(VIDEO_TEMPLATE_CATALOG_CACHE.get("expires_at") or 0):
+        cached = {"ok": True, "templates": prostudio_video_templates_from_env() + prostudio_builtin_video_template_slots()}
+        VIDEO_TEMPLATE_CATALOG_CACHE["value"] = cached
+        VIDEO_TEMPLATE_CATALOG_CACHE["expires_at"] = now + VIDEO_TEMPLATE_CATALOG_CACHE_TTL
+    # Published Media video templates lead the catalog (fresh on each request).
+    blocks = await _media_block_views_safe()
+    payload = dict(cached, templates=media_blocks_service.join_catalogs(blocks, video_templates=cached["templates"]))
+    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={MEDIA_BLOCK_VIEWS_TTL}"})
 
 
 def prostudio_photo_catalog_items() -> list:
@@ -24965,12 +26743,14 @@ def prostudio_quick_image_catalog_items() -> dict:
 async def public_prostudio_quick_image_catalog():
     now = time.time()
     cached = QUICK_IMAGE_CATALOG_CACHE.get("value")
-    if cached is not None and now < float(QUICK_IMAGE_CATALOG_CACHE.get("expires_at") or 0):
-        return JSONResponse(cached, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
-    payload = {"ok": True, "catalog": prostudio_quick_image_catalog_items()}
-    QUICK_IMAGE_CATALOG_CACHE["value"] = payload
-    QUICK_IMAGE_CATALOG_CACHE["expires_at"] = now + PHOTO_CATALOG_CACHE_TTL
-    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
+    if cached is None or now >= float(QUICK_IMAGE_CATALOG_CACHE.get("expires_at") or 0):
+        cached = {"ok": True, "catalog": prostudio_quick_image_catalog_items()}
+        QUICK_IMAGE_CATALOG_CACHE["value"] = cached
+        QUICK_IMAGE_CATALOG_CACHE["expires_at"] = now + PHOTO_CATALOG_CACHE_TTL
+    # Published Media photo references and styles lead their sections.
+    blocks = await _media_block_views_safe()
+    payload = dict(cached, catalog=media_blocks_service.join_catalogs(blocks, quick_catalog=cached["catalog"]))
+    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={MEDIA_BLOCK_VIEWS_TTL}"})
 
 # =====================================================
 # API ENDPOINT: download_prostudio_image
@@ -25926,6 +27706,9 @@ async def public_prostudio_generate(request: Request):
         )
     normalize_grid_video_request(payload)
     telegram_id = _core_account_owner(request, payload)
+    # The platform the generation came from (website, Browser or Telegram
+    # Mini App), for the admin statistics; set by SecurityMiddleware.
+    payload["client_surface"] = str(getattr(request.state, "surface", "") or "")[:30]
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
     category = (payload.get("category") or mode).lower()
     prompt = (payload.get("prompt") or "").strip()
@@ -25998,6 +27781,13 @@ async def public_prostudio_generate(request: Request):
     if mode not in generation_modes | text_modes:
         prostudio_debug("GENERATE_VALIDATION_REJECTED", status=422, code="unsupported_generation_mode", mode=mode, model=selected_model, invalid_fields=["mode"])
         return JSONResponse({"ok": False, "error": "unsupported_generation_mode"}, status_code=422)
+    # A model an admin turned off (Admin Console → Models) takes no new
+    # generations; its settings and earlier results stay as they are.
+    if selected_model and model_control.norm(selected_model) in await asyncio.to_thread(_disabled_model_ids):
+        return JSONResponse({
+            "ok": False, "error": "model_disabled", "model": selected_model,
+            "message": "Эта модель временно недоступна. Выберите другую модель.",
+        }, status_code=409)
     # Pro Studio is a subscription feature. This server-side check is the
     # enforcement point; hiding the button in the Mini App is only cosmetic.
     user_state = get_user_state(telegram_id) if telegram_id else {}
@@ -26987,6 +28777,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         # durable R2 persistence happens afterward in the background and can
         # only upgrade those URLs later, never flip generation_status.
         provider_ready_at = time.monotonic()
+        # Admin timeline: the provider's result really arrived.
+        await asyncio.to_thread(record_prostudio_job_stage, job_id, "result")
         prostudio_debug(
             "JOB_PROVIDER_RESULT_READY",
             job_id=job_id,

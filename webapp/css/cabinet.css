@@ -3784,6 +3784,8 @@ CSS-БЛОК: .image-model-check
   opacity:0;
 }
 
+/* A model turned off in the Admin Console: shown, not selectable. */
+.image-model-row.is-unavailable{opacity:.45;cursor:not-allowed}
 .image-model-row.active .image-model-check,
 .image-model-row.sel .image-model-check{
   opacity:1;
@@ -9507,6 +9509,13 @@ html.browser-app .ep-danger{display:block;margin-top:22px}
 .da-send[disabled]{opacity:.6;cursor:default}
 .da-step .btn-ghost{flex:none;width:100%}
 
+/* Contact SYLVEX: files the admin allowed in this conversation. */
+.support-files{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 2px}.support-files[hidden]{display:none}
+.support-files-list{display:flex;flex-wrap:wrap;gap:6px;width:100%}.support-files-list:empty{display:none}
+.support-file{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:5px 6px 5px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--border-strong);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.support-file button{width:20px;height:20px;border:0;border-radius:50%;background:var(--border-strong);color:var(--text);font-size:13px;line-height:1;cursor:pointer}
+.support-attach{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px dashed var(--border-strong);color:var(--text);font-size:12px;font-weight:600;cursor:pointer}
+.support-files-hint{flex:1 1 160px;color:var(--text-dim);font-size:10.5px}
 /* Grid nodes as the React Bits ProfileCard: a frame (.studio-grid-node-card)
    holding a tile (header, settings, references, prompt, result) and a
    footer (status and cost, then the actions as the card's Contact button).

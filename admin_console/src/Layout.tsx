@@ -7,27 +7,33 @@ import Users from "./pages/Users";
 import UserDetail from "./pages/UserDetail";
 import Generations from "./pages/Generations";
 import Payments from "./pages/Payments";
+import Analytics from "./pages/Analytics";
+import Models from "./pages/Models";
 import Broadcast from "./pages/Broadcast";
 import Inbox from "./pages/Inbox";
 import Reviews from "./pages/Reviews";
-import Content from "./pages/Content";
+import Media from "./pages/Media";
 import Errors from "./pages/Errors";
 import Admins from "./pages/Admins";
 import Audit from "./pages/Audit";
 import System from "./pages/System";
 import Account from "./pages/Account";
 
-type NavItem = { key: string; label: string; icon: string; permission?: string; anyOf?: string[] };
+type NavItem = { key: string; label: string; icon: string; permission?: string; anyOf?: string[]; group?: string };
 
 export const NAV: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "◧", permission: "dashboard.view" },
   { key: "users", label: "Users", icon: "◉", permission: "users.view" },
   { key: "generations", label: "Generations", icon: "✦", permission: "generations.view" },
+  { key: "analytics", label: "Analytics", icon: "◔", permission: "analytics.view" },
+  { key: "models", label: "Models & providers", icon: "◎", permission: "models.view" },
   { key: "payments", label: "Payments", icon: "◈", permission: "payments.view" },
-  { key: "broadcast", label: "Messages", icon: "✉", anyOf: ["broadcast.send", "messages.send"] },
-  { key: "inbox", label: "Inbox", icon: "✆", permission: "messages.send" },
-  { key: "reviews", label: "Reviews", icon: "★", permission: "users.view" },
-  { key: "content", label: "Content", icon: "▤", permission: "content.references.manage" },
+  // Messages: one menu entry, its parts as tabs (see MESSAGE_TABS).
+  { key: "inbox", label: "Conversations", icon: "✉", permission: "messages.send", group: "messages" },
+  { key: "sales", label: "Sales department", icon: "✉", permission: "messages.send", group: "messages" },
+  { key: "reviews", label: "Reviews", icon: "✉", permission: "users.view", group: "messages" },
+  { key: "broadcast", label: "Announcements", icon: "✉", anyOf: ["broadcast.send", "messages.send"], group: "messages" },
+  { key: "content", label: "Media", icon: "▤", permission: "content.references.manage" },
   { key: "errors", label: "Errors", icon: "⚠", permission: "errors.view" },
   { key: "admins", label: "Admins", icon: "⛨", permission: "admins.view" },
   { key: "audit", label: "Audit log", icon: "☰", permission: "audit.view" },
@@ -35,7 +41,7 @@ export const NAV: NavItem[] = [
   { key: "account", label: "Account & security", icon: "☺" },
 ];
 
-const TITLES: Record<string, string> = Object.fromEntries(NAV.map((n) => [n.key, n.label]));
+const TITLES: Record<string, string> = Object.fromEntries(NAV.map((n) => [n.key, n.group ? "Messages" : n.label]));
 
 export default function Layout({ route, onSignedOut }: { route: string[]; onSignedOut: () => void }) {
   const { me, can, go } = useApp();
@@ -47,15 +53,19 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
   const params = new URLSearchParams(queryString);
   const allowed = visible.some((n) => n.key === section);
   const current = allowed ? section : visible[0]?.key || "account";
+  const currentGroup = NAV.find((n) => n.key === current)?.group || "";
+  const groupTabs = currentGroup ? visible.filter((n) => n.group === currentGroup) : [];
 
-  // Unread "Contact SYLVEX" conversations, shown next to Inbox.
-  const [inboxUnread, setInboxUnread] = useState(0);
+  // Unread conversations and sales requests, shown next to Messages and
+  // on its tabs.
+  const [unreadBy, setUnreadBy] = useState({ conversations: 0, sales: 0 });
+  const inboxUnread = unreadBy.conversations + unreadBy.sales;
   const canInbox = can("messages.send");
   useEffect(() => {
     if (!canInbox) return;
     let alive = true;
-    const load = () => post<{ unread: number }>("/api/admin/inbox/list", { limit: 1 })
-      .then((r) => alive && setInboxUnread(r.unread || 0)).catch(() => undefined);
+    const load = () => post<{ unread_by: { conversations: number; sales: number } }>("/api/admin/inbox/list", { limit: 1 })
+      .then((r) => alive && setUnreadBy(r.unread_by || { conversations: 0, sales: 0 })).catch(() => undefined);
     load();
     const timer = window.setInterval(load, 60000);
     return () => { alive = false; window.clearInterval(timer); };
@@ -79,11 +89,14 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
       case "dashboard": return <Dashboard />;
       case "users": return rest[0] ? <UserDetail refId={rest[0]} /> : <Users query={params.get("q") || ""} />;
       case "generations": return <Generations sylvexUserId={params.get("sylvex") || ""} />;
+      case "analytics": return <Analytics />;
+      case "models": return <Models />;
       case "payments": return <Payments />;
       case "broadcast": return <Broadcast to={params.get("to") || ""} />;
-      case "inbox": return <Inbox />;
+      case "inbox": return <Inbox key="inbox" threadId={rest[0] || ""} />;
+      case "sales": return <Inbox key="sales" sales threadId={rest[0] || ""} />;
       case "reviews": return <Reviews />;
-      case "content": return <Content />;
+      case "content": return <Media route={rest} />;
       case "errors": return <Errors />;
       case "admins": return <Admins />;
       case "audit": return <Audit target={params.get("target") || ""} />;
@@ -98,10 +111,11 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
       {menuOpen && <div className="scrim" onClick={() => setMenuOpen(false)} />}
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
         <div className="brand"><span className="brand-mark">S</span>SYLVEX Admin</div>
-        {visible.map((n) => (
-          <button key={n.key} className={`nav-item ${current === n.key ? "active" : ""}`} onClick={() => navigate(n.key)}>
-            <span className="nav-icon">{n.icon}</span>{t(n.label)}
-            {n.key === "inbox" && inboxUnread > 0 && <span className="nav-count">{inboxUnread}</span>}
+        {visible.filter((n, i) => !n.group || visible.findIndex((m) => m.group === n.group) === i).map((n) => (
+          <button key={n.key} className={`nav-item ${current === n.key || (n.group && n.group === currentGroup) ? "active" : ""}`}
+            onClick={() => navigate(n.key)}>
+            <span className="nav-icon">{n.icon}</span>{t(n.group ? "Messages" : n.label)}
+            {n.group === "messages" && inboxUnread > 0 && <span className="nav-count">{inboxUnread}</span>}
           </button>
         ))}
         <div className="sidebar-foot">
@@ -121,6 +135,18 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
             </form>
           )}
         </div>
+        {groupTabs.length > 1 && (
+          <div className="tabs section-tabs">
+            {groupTabs.map((n) => {
+              const unread = n.key === "inbox" ? unreadBy.conversations : n.key === "sales" ? unreadBy.sales : 0;
+              return (
+                <button key={n.key} className={`tab ${current === n.key ? "active" : ""}`} onClick={() => go(n.key)}>
+                  {t(n.label)}{unread > 0 && <span className="nav-count">{unread}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {page}
       </main>
     </div>

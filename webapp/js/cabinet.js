@@ -6620,6 +6620,7 @@ async function loadPhotoCatalog(force) {
     const normalizeItems = (items, kind) => (Array.isArray(items) ? items : []).map((item) => ({
       id:String(item.id || ''), url:String(item.image_url || item.url || ''), title:String(item.title || item.name || 'Фото'),
       description:String(item.description || ''), prompt:String(item.prompt || ''), kind, source:String(item.source || 'quick_folder'),
+      mediaBlock:item.media_block || null,
     })).filter((item) => item.url);
     quickImageCatalogCache = {
       references:normalizeItems(source.references, 'references'), styles:normalizeItems(source.styles, 'styles'),
@@ -6750,6 +6751,7 @@ function syncPhotoCatalogCardRatio(e) {
 }
 
 async function openPhotoCatalog(e) {
+  globalThis.SylvexAnalytics?.track('section_open', { section: 'media' });
   if (e) {
     e.preventDefault();
     e.stopPropagation();
@@ -6833,6 +6835,8 @@ function selectPhotoCatalogItem(e, id, source, section) {
   if (section) quickImageCatalogSection = section;
   const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
   if (!item) return;
+  if (item.mediaBlock) { openMediaBlock(item.mediaBlock); return; }
+  globalThis.SylvexAnalytics?.track('item_select', { item: item.id, kind: item.kind === 'styles' ? 'style' : item.kind === 'objects' ? 'object' : 'reference' });
   quickImageDetailState = { item, source:source === 'quick' ? 'quick' : 'prostudio', uploadedUrl:'', previewUrl:'', uploading:false, extraUploads:{} };
   // The catalog modal is intentionally left open underneath (not closed) -
   // closing this detail view later simply reveals it again, one level
@@ -8614,6 +8618,7 @@ function editWorkspaceModeAvailable(state,mode){
 }
 function editWorkspaceToast(message) { if (typeof toast === 'function') toast(message); }
 function openEditWorkspace(e,options={}) {
+  globalThis.SylvexAnalytics?.track('section_open', { section: 'edit' });
   if (e) { e.preventDefault(); e.stopPropagation(); }
   if (hideEditOnThisScreen()) return;
   if (!window.matchMedia('(min-width: 1000px)').matches) { editWorkspaceToast('Edit is currently available on wide desktop screens.'); return; }
@@ -9447,7 +9452,44 @@ function renderPhotoToolCatalog() {
       + '<span><b>' + S.escapeHtml(config.shortTitle) + '</b><small>' + S.escapeHtml(config.description) + '</small></span>'
       + '</button>'
     ).join('')
+    + mediaToolBlocks.map((block) =>
+      '<button type="button" class="photo-tool-catalog-card" onclick="SYLVEX.openMediaToolBlock(event,' + Number(block.id) + ')">'
+      + photoToolCatalogPreviewHtml({ preview:block.preview_url })
+      + '<span><b>' + S.escapeHtml(block.name) + '</b><small>' + S.escapeHtml(block.description) + '</small></span>'
+      + '</button>'
+    ).join('')
     + '</div>';
+  loadMediaToolBlocks();
+}
+
+// AI tools built in the Admin Console (Media → AI tools), after the built-in ones.
+let mediaToolBlocks = [];
+let mediaToolBlocksLoaded = false;
+function loadMediaToolBlocks() {
+  if (mediaToolBlocksLoaded || !window.SylvexMediaBlocks) return;
+  mediaToolBlocksLoaded = true;
+  window.SylvexMediaBlocks.list('ai_tools').then((blocks) => {
+    mediaToolBlocks = blocks;
+    if (blocks.length && document.querySelector('#photoToolModalBody .photo-tool-catalog')) renderPhotoToolCatalog();
+  });
+}
+
+function openMediaToolBlock(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const block = mediaToolBlocks.find((item) => Number(item.id) === Number(id));
+  if (block) openMediaBlock(block);
+}
+
+// A Media block (js/media-blocks.js): its own window over the current
+// screen; the result also lands in the Pro Studio history.
+function openMediaBlock(block) {
+  globalThis.SylvexAnalytics?.track('item_select', { item: 'block:' + block.id, kind: block.block_type === 'tool' ? 'tool' : block.block_type === 'style' ? 'style' : block.block_type === 'video' ? 'template' : 'reference' });
+  if (!window.SylvexMediaBlocks) { toast('Обновите приложение, чтобы открыть этот блок', 'error'); return; }
+  window.SylvexMediaBlocks.open(block, {
+    lang: uiLang(),
+    onShop: () => switchView('shop'),
+    onLogin: () => { if (typeof guestNeedsAccount === 'function') guestNeedsAccount('create'); },
+  });
 }
 
 function photoToolStateFor(kind) {
@@ -10287,6 +10329,7 @@ async function generateTryOnTool(e) {
 }
 
 function openPhotoToolModal(e, kind) {
+  globalThis.SylvexAnalytics?.track(kind ? 'tool_open' : 'section_open', kind ? { item: kind, kind: 'tool' } : { section: 'tools' });
   if (kind === 'edit_workspace') return openEditWorkspace(e);
   if (e) {
     e.preventDefault();
@@ -14879,6 +14922,16 @@ function imageModelDescription(model) {
   return model.description || model.desc || model.subtitle || model.note || 'AI-модель для генерации изображений.';
 }
 
+// Models an admin turned off (Admin Console → Models): shown, not selectable.
+let disabledModelIds = new Set();
+const modelKey = (id) => String(id || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+function isModelTurnedOff(id) { return disabledModelIds.has(modelKey(id)); }
+try {
+  fetch('/api/public/models/status', { cache: 'no-store' }).then((r) => r.json()).then((data) => {
+    disabledModelIds = new Set((data && data.disabled) || []);
+  }).catch(() => {});
+} catch (_) {}
+
 function imageModelButton(model) {
   const activeId = isImageMode()
     ? imageState.modelId
@@ -14886,11 +14939,12 @@ function imageModelButton(model) {
 
   const id = String(model && model.id ? model.id : '');
   const active = activeId === id;
-  const desc = model.desc || model.description || '';
+  const off = isModelTurnedOff(id);
+  const desc = off ? 'Временно недоступна' : (model.desc || model.description || '');
   // Badges are kept in model data for later, but hidden in the current UI.
   const badge = '';
 
-  return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(id) + '\')">'
+  return '<button class="image-model-row ' + (active ? 'active sel' : '') + (off ? ' is-unavailable' : '') + '" aria-disabled="' + off + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(id) + '\')">'
     + '<span class="image-model-icon">' + imageModelIconHtml(model) + '</span>'
     + '<span class="image-model-text">'
     + '<span class="image-model-name">' + S.escapeHtml(model.label || model.name || id) + badge + '</span>'
@@ -15856,6 +15910,8 @@ function imageModelButton(model) {
       e.stopPropagation();
     }
     if (kind === 'model') {
+      if (isModelTurnedOff(value)) { toast('Эта модель временно недоступна'); return; }
+      globalThis.SylvexAnalytics?.track('model_select', { model: value });
       if (isImageMode()) {
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
@@ -16498,6 +16554,7 @@ function imageModelButton(model) {
 
   function startGenerationDownload(relativeUrl, filename) {
     if (!relativeUrl) return toast('Файл для скачивания недоступен');
+    globalThis.SylvexAnalytics?.track('download', {});
     const absoluteUrl = new URL(relativeUrl, window.location.origin).toString();
     const tg = S.tg;
     if (tg && typeof tg.downloadFile === 'function') {
@@ -16607,6 +16664,7 @@ function imageModelButton(model) {
   }
 
   async function downloadOneGenerationImage(state, index) {
+    globalThis.SylvexAnalytics?.track('download', {});
     if (String(getTelegramId() || '') !== state.owner) throw new Error('account_changed');
     const relative = state.projectId && state.nodeId
       ? completedGridDownloadUrl(state.jobId, state.projectId, state.nodeId, index)
@@ -21808,7 +21866,9 @@ function maybeShowVideoTemplateIntro(force) {
         generation_cost: merged.generation_cost || (credits + ' ⚡'),
       }));
     });
-    return Array.from(byId.values()).slice(0, 100);
+    // Media blocks published from the Admin Console lead the catalog.
+    const all = Array.from(byId.values());
+    return all.filter((item) => item.media_block).concat(all.filter((item) => !item.media_block)).slice(0, 100);
   }
 
   function hydrateVideoTemplateCardVideos(root) {
@@ -21844,6 +21904,7 @@ function maybeShowVideoTemplateIntro(force) {
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   async function openVideoTemplatesCatalog(catalogType = 'templates') {
+    globalThis.SylvexAnalytics?.track('section_open', { section: 'media' });
     closeVideoTemplateIntro();
     const isEffects = catalogType === 'effects';
     const templates = isEffects ? await loadKlingEffects() : await loadVideoTemplates();
@@ -21956,6 +22017,8 @@ function maybeShowVideoTemplateIntro(force) {
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   function openVideoTemplateModal(template) {
+    if (template && template.media_block) { openMediaBlock(template.media_block); return; }
+    globalThis.SylvexAnalytics?.track('item_select', { item: template && template.id, kind: template && template.is_kling_effect ? 'effect' : 'template' });
     activeVideoTemplate = template;
     videoTemplateUploadUrl = '';
     const ratios = videoTemplateRatios(template);
@@ -22393,6 +22456,7 @@ function maybeShowVideoTemplateIntro(force) {
 
   function updateComposerMode(kind) {
     const requestedMode = chatTypeForMode(kind);
+    if (requestedMode !== currentChatType() && document.querySelector('.view[data-view="tools"].active')) globalThis.SylvexAnalytics?.track('section_open', { section: requestedMode === 'music' || requestedMode === 'voice' ? requestedMode : 'pro_studio' });
     if (requestedMode !== currentChatType()) stopTextListen(false);
     if (activeGenerationLocked() && !activeGeneration.restoringMode && activeGeneration.mode && requestedMode !== activeGeneration.mode) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
@@ -26445,6 +26509,7 @@ async function waitGenerationJob(jobId, options) {
     if (title) title.textContent = t(supportTopic === 'sales' ? 'contact_title_sales' : 'contact_title');
     if (sub) sub.textContent = t('contact_sub_' + supportTopic);
     m.classList.add('show');
+    refreshSupportAttachments();
     const email = document.getElementById('supportEmail');
     if (email && !email.value && S.user && S.user.email) email.value = S.user.email;
     setTimeout(() => { const ta = document.getElementById('supportMsg'); ta && ta.focus(); }, 250);
@@ -26481,6 +26546,63 @@ async function waitGenerationJob(jobId, options) {
   // Отправляет сообщение в Admin Console (раздел «Входящие»). Ответ придёт
   // от SYLVEX Team в колокольчик уведомлений (и сообщением бота в Telegram).
   // =====================================================
+  // Вложения к сообщению: администратор разрешает их в конкретном обращении
+  // (Сообщения → обращение → «Вложения»); файлы загружаются сразу при выборе.
+  let supportFiles = [];
+  function renderSupportFiles() {
+    const list = document.getElementById('supportFilesList');
+    if (!list) return;
+    list.innerHTML = supportFiles.map((f, i) => `<span class="support-file">${S.escapeHtml(f.name)}
+      <button type="button" data-remove-file="${i}" aria-label="${S.escapeHtml(t('support_attach_remove'))}">×</button></span>`).join('');
+  }
+  async function refreshSupportAttachments() {
+    const box = document.getElementById('supportFiles');
+    if (!box) return;
+    box.hidden = true;
+    if (isBrowserApp() ? isBrowserGuest() : !currentTelegramInitData()) return;
+    try {
+      const res = await fetch('/api/public/contact/state');
+      const data = res.ok ? await res.json() : {};
+      box.hidden = !data.attachments_allowed;
+    } catch (_) {}
+  }
+  function readFileBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',', 2)[1] || '');
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  async function addSupportFiles(files) {
+    for (const file of [...files].slice(0, Math.max(0, 5 - supportFiles.length))) {
+      if (file.size > 10 * 1024 * 1024) { toast(t('support_attach_failed')); continue; }
+      try {
+        const res = await fetch('/api/public/contact/upload', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content_base64: await readFileBase64(file), name: file.name }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.attachment) throw new Error(data.error || data.detail || 'upload_failed');
+        supportFiles.push(data.attachment);
+        renderSupportFiles();
+      } catch (_) {
+        toast(t('support_attach_failed'));
+      }
+    }
+  }
+  function initSupportAttachments() {
+    const input = document.getElementById('supportFileInput');
+    if (input) input.addEventListener('change', () => { addSupportFiles(input.files || []); input.value = ''; });
+    const list = document.getElementById('supportFilesList');
+    if (list) list.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-remove-file]');
+      if (!btn) return;
+      supportFiles.splice(Number(btn.dataset.removeFile), 1);
+      renderSupportFiles();
+    });
+  }
+
   let supportSending = false;
   async function sendSupport() {
     if (guestNeedsAccount('contact')) return;
@@ -26503,7 +26625,8 @@ async function waitGenerationJob(jobId, options) {
     try {
       const res = await fetch('/api/public/contact', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: v, email, topic: supportTopic, surface: 'miniapp' }),
+        body: JSON.stringify({ message: v, email, topic: supportTopic, surface: 'miniapp',
+          attachments: supportFiles.length ? supportFiles : undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -26512,6 +26635,8 @@ async function waitGenerationJob(jobId, options) {
         return;
       }
       ta.value = '';
+      supportFiles = [];
+      renderSupportFiles();
       closeSupport();
       S.haptic.notify('success');
     } catch (_) {
@@ -26599,13 +26724,14 @@ async function waitGenerationJob(jobId, options) {
     const items = [];
     if (mode === 'video') {
       (await loadVideoTemplates()).forEach((template) => {
-        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || ''), video:videoTemplateReferenceVideo(template) });
+        // Media blocks have their own fields and window, not this panel.
+        if (!template.is_kling_effect && !template.media_block) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || ''), video:videoTemplateReferenceVideo(template) });
       });
     } else {
       // The same sections, in the same order, that mediaImageItem() looks in.
       const catalog = await loadPhotoCatalog(false), seen = new Set();
       ['styles', 'references', 'popular_references'].forEach((section) => (catalog[section] || []).forEach((item) => {
-        if (item.source === 'prostudio_style' || seen.has(item.id)) return;
+        if (item.source === 'prostudio_style' || item.mediaBlock || seen.has(item.id)) return;
         seen.add(item.id);
         items.push({ id: item.id, image: item.url, title: item.title });
       }));
@@ -30432,6 +30558,7 @@ async function waitGenerationJob(jobId, options) {
 
   function setStudioLayout(layout,options={}) {
     const mode = layout === 'grid' ? 'grid' : 'classic';
+    if (mode === 'grid') globalThis.SylvexAnalytics?.track('section_open', { section: 'grid' });
     const workspaceMode=mode==='grid'?'grid':'studio';
     const publishNavigation=!options.preserveStudioMode&&!studioModeNavigationIntent;
     const revision=options.navigationRevision||(publishNavigation?beginStudioModeNavigation(workspaceMode):studioModeNavigationRevision);
@@ -31096,7 +31223,9 @@ async function waitGenerationJob(jobId, options) {
   // На сайте (Pro Studio внутри сайта) показывается колокольчик сайта.
   // =====================================================
   let notifItems = [], notifUnread = 0, notifTimer = 0, notifLoading = false;
-  function notifEnabled() { return !isWebEmbed() && !!currentTelegramInitData(); }
+  // Telegram Mini App and the Browser Mini App of a signed-in account; on the
+  // website (Pro Studio inside it) the website's own bell shows instead.
+  function notifEnabled() { return !isWebEmbed() && (isBrowserApp() ? !isBrowserGuest() : !!currentTelegramInitData()); }
   function notifTime(iso) {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
@@ -31242,6 +31371,72 @@ async function waitGenerationJob(jobId, options) {
     setTimeout(checkFeedbackPrompt, 4000);
   }
 
+  // =====================================================
+  // УВЕДОМЛЕНИЯ ОТ АДМИНИСТРАЦИИ ПО ЦЕНТРУ ЭКРАНА (js/account-notice.js)
+  // «Вам начислено …» (кредиты, подписка, роль в команде) — один раз, при
+  // следующем входе, на любой поверхности; и экран «доступ ограничен», пока
+  // аккаунт заблокирован. Колокольчик при этом не меняется.
+  // =====================================================
+  let accountNoticeChecking = false;
+  function accountNoticeLang() {
+    const lang = window.SYLVEX && window.SYLVEX.getLang && window.SYLVEX.getLang();
+    return lang === 'ru' || lang === 'en' ? lang : (isBrowserApp() ? 'en' : 'ru');
+  }
+  function accountNoticeTheme() { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
+  function accountNoticeEnabled() {
+    return !!window.SylvexAccountNotice && !isWebEmbed() && !(isBrowserApp() ? isBrowserGuest() : !currentTelegramInitData());
+  }
+  function showAccountBlocked(status) {
+    const notice = window.SylvexAccountNotice;
+    if (!notice) return;
+    notice.showBlocked({
+      lang: accountNoticeLang(), theme: accountNoticeTheme(), reason: status.reason || '', since: status.since || '',
+      onContact: () => {
+        notice.setBlockedBehind(true);
+        openSupport('support');
+        const modal = document.getElementById('supportModal');
+        if (!modal || !window.MutationObserver) return;
+        const watch = new MutationObserver(() => {
+          if (modal.classList.contains('show')) return;
+          watch.disconnect();
+          notice.setBlockedBehind(false);
+        });
+        watch.observe(modal, { attributes: true, attributeFilter: ['class'] });
+      },
+      onSignOut: isBrowserApp() ? signOut : null,
+    });
+  }
+  async function checkAccountNotices() {
+    if (!accountNoticeEnabled() || accountNoticeChecking || document.hidden) return;
+    accountNoticeChecking = true;
+    const notice = window.SylvexAccountNotice;
+    try {
+      const res = await fetch('/api/public/account/status');
+      const status = res.ok ? await res.json() : {};
+      if (status.blocked) { showAccountBlocked(status); return; }
+      notice.hideBlocked();
+      if (notice.isOpen()) return;
+      const awards = await fetch('/api/public/notifications/awards');
+      const data = awards.ok ? await awards.json() : {};
+      if (!(data.items || []).length) return;
+      notice.showAwards({
+        lang: accountNoticeLang(), theme: accountNoticeTheme(), items: data.items,
+        onSeen: (ids) => {
+          fetch('/api/public/notifications/read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+          }).catch(() => {});
+          if (S.syncUser) S.syncUser({ force: true });
+        },
+      });
+      S.haptic.notify('success');
+    } catch (_) {} finally { accountNoticeChecking = false; }
+  }
+  function initAccountNotices() {
+    setTimeout(checkAccountNotices, 1500);
+    setInterval(checkAccountNotices, 180000);
+    document.addEventListener('visibilitychange', checkAccountNotices);
+  }
+
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
   function restoreAppTheme() {
@@ -31277,6 +31472,8 @@ async function waitGenerationJob(jobId, options) {
     initPresence();
     initNotifications();
     initFeedbackPrompt();
+    initAccountNotices();
+    initSupportAttachments();
     initStoreCardCentering();
     initNavAutoHide();
     initHomeIdeaAi();
@@ -31369,7 +31566,7 @@ async function waitGenerationJob(jobId, options) {
     pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openMediaToolBlock, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, togglePromptFold, newChat,
     openQuickTextChat,
     openConv, deleteConv, expandHistorySection, setConversationHistoryFilter, manageConversationHistory, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,

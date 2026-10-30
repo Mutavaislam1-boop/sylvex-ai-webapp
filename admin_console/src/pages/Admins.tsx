@@ -1,14 +1,33 @@
 import { useState } from "react";
 import { get, patch, post } from "../api";
 import { useApp } from "../state";
-import { roleLabel, t } from "../i18n";
-import { ConfirmAction, Empty, ErrorNotice, Identity, Loading, StatusBadge, useAsync } from "../ui";
+import { getLang, roleLabel, t } from "../i18n";
+import { ConfirmAction, Empty, ErrorNotice, Identity, Loading, STAFF_REASONS, StatusBadge, Tip, useAsync } from "../ui";
 
 type AdminRow = {
   admin_id: number; sylvex_user_id: string; role: string; status: string; grants: string[]; denies: string[];
   permissions: string[]; totp_enabled: boolean; identity: Identity | null;
 };
-type Catalog = { permissions: Record<string, string>; roles: string[]; role_defaults: Record<string, string[]> };
+type Text2 = { en: string; ru: string };
+type Catalog = {
+  permissions: Record<string, string>; roles: string[]; role_defaults: Record<string, string[]>;
+  catalog: Record<string, { risk: string; label: Text2; description: Text2; why: Text2 }>; risk_info: Record<string, Text2>;
+};
+const RISK_TONE: Record<string, string> = { low: "", medium: "accent", high: "warn", critical: "bad" };
+const pick = (text?: Text2) => (text ? text[getLang()] || text.en : "");
+
+/** What a permission allows, why it matters and its risk - in the interface language. */
+function PermissionHelp({ catalog, permission }: { catalog: Catalog; permission: string }) {
+  const info = catalog.catalog?.[permission];
+  const risk = catalog.permissions[permission];
+  return (
+    <span className="stack" style={{ gap: 4 }}>
+      <b>{pick(info?.description) || permission}</b>
+      {pick(info?.why) && <span>{pick(info?.why)}</span>}
+      <span>{t("Risk")}: {pick(catalog.risk_info?.[risk]) || t(risk)}</span>
+    </span>
+  );
+}
 
 function PermissionPicker({ catalog, role, grants, denies, onChange }: {
   catalog: Catalog; role: string; grants: string[]; denies: string[];
@@ -36,10 +55,12 @@ function PermissionPicker({ catalog, role, grants, denies, onChange }: {
             const s = state(p);
             const effective = s === "grant" || (s === "default" && defaults.has(p));
             return (
-              <button key={p} type="button" onClick={() => cycle(p)} title={`${t("Risk")}: ${t(catalog.permissions[p])}`}
-                className={`badge ${s === "grant" ? "good" : s === "deny" ? "bad" : effective ? "accent" : ""}`} style={{ cursor: "pointer", border: 0 }}>
-                {s === "deny" ? "✕ " : s === "grant" ? "+ " : ""}{p}
-              </button>
+              <Tip key={p} text={<PermissionHelp catalog={catalog} permission={p} />}>
+                <button type="button" onClick={() => cycle(p)}
+                  className={`badge ${s === "grant" ? "good" : s === "deny" ? "bad" : effective ? "accent" : ""}`} style={{ cursor: "pointer", border: 0 }}>
+                  {s === "deny" ? "✕ " : s === "grant" ? "+ " : ""}{pick(catalog.catalog?.[p]?.label) || p}
+                </button>
+              </Tip>
             );
           })}</div>
         </div>
@@ -55,14 +76,17 @@ function EditAdmin({ row, catalog, onClose, onSaved }: { row: AdminRow | null; c
   const [status, setStatus] = useState(row?.status || "active");
   const [grants, setGrants] = useState<string[]>(row?.grants || []);
   const [denies, setDenies] = useState<string[]>(row?.denies || []);
-  const assignable = catalog.roles.filter((r) => me.admin.role === "owner" || r !== "owner");
+  // The owner role is never handed out from the console.
+  const assignable = catalog.roles.filter((r) => r !== "owner" || row?.role === "owner");
+  void me;
   return (
     <ConfirmAction
       title={row ? `${t("Edit admin")} · SYLVEX ${row.sylvex_user_id}` : t("Add admin")}
       confirmLabel={row ? t("Save changes") : t("Add admin")}
-      onConfirm={async (reason) => {
+      presets={STAFF_REASONS}
+      onConfirm={async (reason, extra) => {
         if (row) {
-          await patch(`/api/admin/v2/admins/${row.admin_id}`, { role, status, grants, denies, reason });
+          await patch(`/api/admin/v2/admins/${row.admin_id}`, { role, status, grants, denies, reason, ...extra });
           toast(t("Admin updated"));
         } else {
           // One field: a SYLVEX ID (digits) or the person's Gmail / email.
@@ -70,7 +94,7 @@ function EditAdmin({ row, catalog, onClose, onSaved }: { row: AdminRow | null; c
           const target = /^\d{6,20}$/.test(who) ? { sylvex_user_id: who }
             : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(who) ? { email: who.toLowerCase() } : null;
           if (!target) throw new Error(t("Enter the person's SYLVEX ID or email."));
-          await post("/api/admin/v2/admins", { ...target, role, grants, denies, reason });
+          await post("/api/admin/v2/admins", { ...target, role, grants, denies, reason, ...extra });
           toast(t("Admin added"));
         }
         onSaved();
@@ -108,13 +132,15 @@ export default function Admins() {
 
   if (admins.error) return <ErrorNotice message={admins.error} onRetry={admins.reload} />;
   if (!admins.data || !catalog.data) return <Loading />;
-  const canEdit = can("admins.permissions.edit");
+  // Only the owner manages the team (the server enforces the same rule).
+  const isOwner = me.admin.role === "owner";
+  const canEdit = isOwner && can("admins.permissions.edit");
 
   return (
     <div className="stack">
       <div className="row between">
         <span className="muted small">{t("Admins are SYLVEX accounts. They sign in with Telegram (Mini App) or email + password + 2FA (browser).")}</span>
-        {can("admins.create") && <button className="btn primary" onClick={() => setEditing("new")}>+ {t("Add admin")}</button>}
+        {isOwner && can("admins.create") && <button className="btn primary" onClick={() => setEditing("new")}>+ {t("Add admin")}</button>}
       </div>
       {admins.data.items.length ? (
         <div className="table-wrap"><table>
@@ -129,8 +155,8 @@ export default function Admins() {
               <td><StatusBadge status={a.status} /></td>
               <td>{a.totp_enabled ? <span className="badge good">{t("on")}</span> : <span className="badge">{t("off")}</span>}</td>
               <td className="small">
-                {a.grants.map((g) => <span key={g} className="badge good" style={{ marginRight: 4 }}>+{g}</span>)}
-                {a.denies.map((d) => <span key={d} className="badge bad" style={{ marginRight: 4 }}>✕{d}</span>)}
+                {a.grants.map((g) => <Tip key={g} icon={false} text={<PermissionHelp catalog={catalog.data!} permission={g} />}><span className="badge good" style={{ marginRight: 4 }}>+{pick(catalog.data!.catalog?.[g]?.label) || g}</span></Tip>)}
+                {a.denies.map((d) => <Tip key={d} icon={false} text={<PermissionHelp catalog={catalog.data!} permission={d} />}><span className="badge bad" style={{ marginRight: 4 }}>✕{pick(catalog.data!.catalog?.[d]?.label) || d}</span></Tip>)}
                 {!a.grants.length && !a.denies.length && <span className="muted">{t("role defaults")}</span>}
               </td>
               <td className="right">{canEdit && a.admin_id !== me.admin.admin_id && <button className="btn small" onClick={() => setEditing(a)}>{t("Edit")}</button>}</td>
@@ -142,9 +168,16 @@ export default function Admins() {
       <details className="card">
         <summary className="small" style={{ cursor: "pointer" }}>{t("What each role can do")}</summary>
         <div className="stack section">
+          <div className="row">{["low", "medium", "high", "critical"].map((risk) => (
+            <Tip key={risk} icon={false} text={pick(catalog.data!.risk_info?.[risk])}><span className={`badge ${RISK_TONE[risk]}`}>{t(risk)}</span></Tip>
+          ))}</div>
           {catalog.data.roles.map((r) => (
             <div key={r}><b>{roleLabel(r)}</b>
-              <div className="small muted">{(catalog.data!.role_defaults[r] || []).join(", ")}</div></div>
+              <div className="row" style={{ gap: 4, marginTop: 4 }}>{(catalog.data!.role_defaults[r] || []).map((p) => (
+                <Tip key={p} icon={false} text={<PermissionHelp catalog={catalog.data!} permission={p} />}>
+                  <span className={`badge ${RISK_TONE[catalog.data!.permissions[p]] || ""}`}>{pick(catalog.data!.catalog?.[p]?.label) || p}</span>
+                </Tip>
+              ))}</div></div>
           ))}
         </div>
       </details>

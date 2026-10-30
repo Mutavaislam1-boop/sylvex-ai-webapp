@@ -1,0 +1,32 @@
+/* Account notices (js/account-notice.js): the centered "You received ..."
+   card and the "access is restricted" screen. Light and dark follow the
+   page. The same file runs in the Mini App and on the website. */
+.sxn-layer{--sxn-bg:#27272a;--sxn-ink:#f5f5f5;--sxn-muted:rgba(245,245,245,.6);--sxn-line:rgba(255,255,255,.08);--sxn-field:rgba(255,255,255,.06);--sxn-gold:#eab308;--sxn-shadow:0 30px 80px -20px rgba(0,0,0,.75),0 10px 28px -12px rgba(0,0,0,.55);--sxn-ease:cubic-bezier(.23,1,.32,1);position:fixed;inset:0;z-index:2147481600;display:grid;place-items:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom));background:rgba(0,0,0,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);font-family:-apple-system,BlinkMacSystemFont,"Inter","SF Pro Display",system-ui,sans-serif;animation:sxn-fade .22s ease both}
+.sxn-layer.light{--sxn-bg:#fff;--sxn-ink:#18181b;--sxn-muted:rgba(24,24,27,.58);--sxn-line:rgba(24,24,27,.08);--sxn-field:#f4f4f5;--sxn-shadow:0 30px 80px -24px rgba(24,24,27,.35),0 10px 28px -14px rgba(24,24,27,.2);background:rgba(24,24,27,.32)}
+.sxn-layer.is-leaving{animation:sxn-fade .18s ease reverse both}
+.sxn-layer.sxn-blocked{z-index:2147481400}
+.sxn-layer.sxn-blocked.is-behind{z-index:90}
+.sxn-card{position:relative;box-sizing:border-box;width:min(380px,100%);max-height:calc(100dvh - 48px);overflow:auto;padding:26px 22px 18px;border-radius:26px;background:var(--sxn-bg);box-shadow:inset 0 0 0 1px var(--sxn-line),var(--sxn-shadow);color:var(--sxn-ink);text-align:center;animation:sxn-pop .42s var(--sxn-ease) both}
+.sxn-card svg{display:block;width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sxn-mark{position:relative;display:grid;place-items:center;width:64px;height:64px;margin:0 auto 12px;border-radius:50%;background:var(--sxn-field);color:var(--sxn-ink);box-shadow:inset 0 0 0 1px var(--sxn-line)}
+.sxn-mark.sxn-credits,.sxn-mark.sxn-subscription{background:var(--sxn-gold);color:#18181b;box-shadow:0 10px 30px -8px color-mix(in srgb,var(--sxn-gold) 70%,transparent)}
+.sxn-mark.sxn-credits svg,.sxn-mark.sxn-subscription svg{fill:currentColor;stroke-width:1.4}
+.sxn-mark.sxn-role{background:var(--sxn-ink);color:var(--sxn-bg)}
+.sxn-burst{position:absolute;left:50%;top:22px;width:150px;height:150px;margin-left:-75px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--sxn-gold) 32%,transparent) 0,transparent 66%);pointer-events:none;animation:sxn-glow 1.6s ease-out both}
+.sxn-from{display:block;margin-bottom:6px;font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--sxn-muted);text-transform:uppercase}
+.sxn-card h3{margin:0 0 8px;font-size:21px;line-height:1.25;font-weight:750;letter-spacing:-.015em}
+.sxn-card p{margin:0 0 6px;font-size:14px;line-height:1.45;color:var(--sxn-muted)}
+.sxn-reason{display:inline-flex;margin:6px 0 2px;padding:5px 12px;border-radius:999px;background:var(--sxn-field);box-shadow:inset 0 0 0 1px var(--sxn-line);font-size:12.5px;font-weight:600}
+.sxn-detail{display:flex;flex-direction:column;gap:2px;margin:10px 0 0;padding:10px 12px;border-radius:14px;background:var(--sxn-field);text-align:left}
+.sxn-detail small{font-size:11.5px;font-weight:600;color:var(--sxn-muted)}
+.sxn-detail b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.sxn-primary{display:block;width:100%;height:46px;margin-top:18px;padding:0 16px;border:0;border-radius:14px;background:var(--sxn-ink);color:var(--sxn-bg);font:650 15px inherit;font-family:inherit;cursor:pointer;transition:transform .2s ease,filter .2s ease}
+.sxn-primary:hover{filter:brightness(1.08)}
+.sxn-primary:active{transform:scale(.97)}
+.sxn-primary:focus-visible,.sxn-quiet:focus-visible{outline:2px solid color-mix(in srgb,var(--sxn-gold) 55%,transparent);outline-offset:3px}
+.sxn-quiet{display:block;margin:10px auto 0;padding:6px 10px;border:0;background:none;color:var(--sxn-muted);font:500 13px inherit;font-family:inherit;cursor:pointer}
+.sxn-quiet:hover{color:var(--sxn-ink);text-decoration:underline}
+@keyframes sxn-fade{from{opacity:0}to{opacity:1}}
+@keyframes sxn-pop{from{opacity:0;transform:translateY(14px) scale(.94)}to{opacity:1;transform:none}}
+@keyframes sxn-glow{0%{opacity:0;transform:scale(.4)}40%{opacity:1}100%{opacity:.55;transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.sxn-layer,.sxn-card,.sxn-burst{animation:none}}

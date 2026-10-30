@@ -198,8 +198,10 @@ def test_owner_is_bootstrapped_once_and_never_reseeded(ready):
     from services import admin_auth
     conn = env.db.connect()
     cur = conn.cursor()
-    owner = admin_auth.load_admin(cur, admin_id=env.ids["owner"])
-    second = admin_auth.update_admin(cur, owner, env.ids["admin"], role="owner", reason="test")
+    # The console never hands out the owner role; a second owner is set up
+    # directly in the database.
+    cur.execute("UPDATE admin_accounts SET role = 'owner' WHERE id = %s", (env.ids["admin"],))
+    second = admin_auth.load_admin(cur, admin_id=env.ids["admin"])
     admin_auth.update_admin(cur, second, env.ids["owner"], role="read_only", reason="test")
     conn.commit()
     env.main.ADMIN_SCHEMA_READY = False
@@ -351,10 +353,11 @@ async def test_critical_admin_change_requires_a_reason(ready):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("who,target,body,code", [
-    ("admin", "support", {"role": "administrator"}, "role_not_below_actor"),
-    ("admin", "support", {"role": "owner"}, "role_not_below_actor"),
-    ("admin", "support", {"grants": ["pricing.edit"]}, "cannot_grant_unheld_permission"),
-    ("admin", "owner", {"status": "suspended"}, "target_role_not_below_actor"),
+    # Only the owner assigns and changes admin roles, even below their own.
+    ("admin", "support", {"role": "analyst"}, "owner_access_required"),
+    ("admin", "support", {"role": "owner"}, "owner_access_required"),
+    ("admin", "support", {"grants": ["pricing.edit"]}, "owner_access_required"),
+    ("admin", "owner", {"status": "suspended"}, "owner_access_required"),
     ("admin", "admin", {"grants": ["pricing.edit"]}, "cannot_modify_self"),
 ])
 async def test_no_privilege_escalation(ready, who, target, body, code):
@@ -363,6 +366,15 @@ async def test_no_privilege_escalation(ready, who, target, body, code):
     r = await call(env, "PATCH", f"/api/admin/v2/admins/{env.ids[target]}", cookie=token, csrf=csrf,
                    json_body=dict(body, reason="test"))
     assert r.status_code == 403 and r.json()["detail"] == code, r.text
+
+
+@pytest.mark.asyncio
+async def test_the_owner_role_is_never_handed_out_through_the_console(ready):
+    env = ready
+    token, csrf = await login(env, OWNER_TG)
+    r = await call(env, "PATCH", f"/api/admin/v2/admins/{env.ids['admin']}", cookie=token, csrf=csrf,
+                   json_body={"role": "owner", "reason": "co-owner"})
+    assert r.status_code == 403 and r.json()["detail"] == "owner_role_not_assignable", r.text
 
 
 @pytest.mark.asyncio
@@ -396,10 +408,8 @@ async def test_owner_creates_admin_by_sylvex_id_with_exact_rights(ready):
 @pytest.mark.asyncio
 async def test_last_owner_cannot_be_removed(ready):
     env = ready
-    owner_token, owner_csrf = await login(env, OWNER_TG)
-    r = await call(env, "PATCH", f"/api/admin/v2/admins/{env.ids['admin']}", cookie=owner_token, csrf=owner_csrf,
-                   json_body={"role": "owner", "reason": "co-owner"})
-    assert r.status_code == 200, r.text
+    # A second owner only comes from outside the console (bootstrap / data).
+    q(env, "UPDATE admin_accounts SET role = 'owner' WHERE id = %s", (env.ids["admin"],))
     second_token, second_csrf = await login(env, ADMIN_TG)
     r = await call(env, "PATCH", f"/api/admin/v2/admins/{env.ids['owner']}", cookie=second_token, csrf=second_csrf,
                    json_body={"role": "administrator", "reason": "hand over"})

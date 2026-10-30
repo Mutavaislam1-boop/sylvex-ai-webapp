@@ -23,8 +23,8 @@ const index = read('webapp/index.html');
 test('the Mini App loads the reference panel with fresh pins', () => {
   assert.match(index, /<link rel="stylesheet" href="css\/reference-panel\.css\?v=ref-panel-20261027" \/>/);
   assert.match(index, /<script src="js\/reference-panel\.js\?v=ref-panel-20261027"><\/script>/);
-  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=catalog-v1-20261030d" \/>/);
-  assert.match(index, /<script src="js\/cabinet\.js\?v=catalog-v1-20261030e"><\/script>/);
+  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=admin-catalog-20261030" \/>/);
+  assert.match(index, /<script src="js\/cabinet\.js\?v=admin-catalog-20261030"><\/script>/);
 });
 
 test('the composer: prompt first, then +, Video / Photo (video by default), mic, send; tools below', () => {

@@ -29,7 +29,8 @@ PUBLIC_GETS = frozenset({
  '/api/public/prostudio/pricing-catalog',
  # Static Store catalog (products, prices, generation examples); no user data.
  '/api/public/shop/catalog',
- '/api/public/video/templates', '/api/public/prostudio/references',
+ '/api/public/video/templates', '/api/public/prostudio/references', '/api/public/media-blocks',
+ '/api/public/models/status',
  # Website web-session read: has no Telegram initData to present, so it
  # authenticates itself off its own cookie (see verify_web_session_token)
  # instead of going through this middleware's Telegram check.
@@ -67,6 +68,9 @@ PUBLIC_POSTS = frozenset({
  '/api/web/account/delete/start', '/api/web/account/delete/verify',
  '/api/web/account/profile',
  '/api/web/account/telegram/preview', '/api/web/account/telegram/confirm',
+ # Usage analytics from the apps: ids and counts only, guests included
+ # (services/usage_analytics.py).
+ '/api/public/analytics/events',
  # Guide Mode must work for a guest with no SYLVEX account - see
  # PUBLIC_GETS's /api/web/assistant/state comment above. Identity is
  # resolved from the website session cookie inside the handler itself
@@ -677,7 +681,7 @@ class LocalLimiter:
   return count<limit
 
 class SecurityMiddleware:
- def __init__(self,app,quota_check=None): self.app=app;self.limiter=LocalLimiter();self.quota_check=quota_check
+ def __init__(self,app,quota_check=None,access_check=None,seen_hook=None): self.app=app;self.limiter=LocalLimiter();self.quota_check=quota_check;self.access_check=access_check;self.seen_hook=seen_hook
  async def __call__(self,scope,receive,send):
   if scope['type']!='http':return await self.app(scope,receive,send)
   path=scope['path'];method=scope['method'];raw_headers=scope.get('headers',[]);headers=dict(raw_headers);cookie_header=combined_cookie_header(raw_headers)
@@ -871,7 +875,14 @@ class SecurityMiddleware:
       json_body.pop('initData',None);json_body.pop('init_data',None);json_body.pop('initDataUnsafe',None)
      body=json.dumps(json_body,separators=(',',':')).encode()
     if init_data and path in TELEGRAM_BLOCKED_PURCHASE_ROUTES:raise SecurityError('telegram_stars_only',403)
+    # Which surface the person uses (website, Browser or Telegram Mini App),
+    # for announcements by platform and analytics (services/platform_usage.py).
+    surface=None
+    if uid and not admin and auth_kind in ('telegram','web'):
+     from services.platform_usage import surface_of
+     surface=surface_of(auth_kind,headers.get(b'origin',b'').decode(),headers.get(b'referer',b'').decode(),website_origins())
     scope.setdefault('state',{}).update(
+     surface=surface,
      account_id=web_account_id or None,
      account_storage_id=uid if auth_kind=='web' else None,
      auth_kind=auth_kind,
@@ -881,6 +892,14 @@ class SecurityMiddleware:
      telegram_user=user if auth_kind=='telegram' else None,
      telegram_init_data=init_data if auth_kind=='telegram' else '',
     )
+    # An account an admin blocked keeps only its status, bell and contact
+    # form (services/user_access.py); everything else is refused here, for
+    # every surface at once.
+    if self.access_check and uid and not admin and auth_kind!='service':
+     from services.user_access import ALLOWED_WHEN_BLOCKED
+     if path not in ALLOWED_WHEN_BLOCKED and await self.access_check(uid):raise SecurityError('account_blocked',403)
+    if self.seen_hook and surface:
+     await self.seen_hook(uid,surface)
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)
   except SecurityError as exc:
