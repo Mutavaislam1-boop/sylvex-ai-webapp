@@ -10,7 +10,7 @@ import Payments from "./pages/Payments";
 import Broadcast from "./pages/Broadcast";
 import Inbox from "./pages/Inbox";
 import Reviews from "./pages/Reviews";
-import Content from "./pages/Content";
+import Media from "./pages/Media";
 import Errors from "./pages/Errors";
 import Admins from "./pages/Admins";
 import Audit from "./pages/Audit";
@@ -29,7 +29,7 @@ export const NAV: NavItem[] = [
   { key: "sales", label: "Sales department", icon: "✉", permission: "messages.send", group: "messages" },
   { key: "reviews", label: "Reviews", icon: "✉", permission: "users.view", group: "messages" },
   { key: "broadcast", label: "Announcements", icon: "✉", anyOf: ["broadcast.send", "messages.send"], group: "messages" },
-  { key: "content", label: "Content", icon: "▤", permission: "content.references.manage" },
+  { key: "content", label: "Media", icon: "▤", permission: "content.references.manage" },
   { key: "errors", label: "Errors", icon: "⚠", permission: "errors.view" },
   { key: "admins", label: "Admins", icon: "⛨", permission: "admins.view" },
   { key: "audit", label: "Audit log", icon: "☰", permission: "audit.view" },
@@ -90,7 +90,7 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
       case "inbox": return <Inbox key="inbox" threadId={rest[0] || ""} />;
       case "sales": return <Inbox key="sales" sales threadId={rest[0] || ""} />;
       case "reviews": return <Reviews />;
-      case "content": return <Content />;
+      case "content": return <Media route={rest} />;
       case "errors": return <Errors />;
       case "admins": return <Admins />;
       case "audit": return <Audit target={params.get("target") || ""} />;

@@ -29,7 +29,7 @@ PUBLIC_GETS = frozenset({
  '/api/public/prostudio/pricing-catalog',
  # Static Store catalog (products, prices, generation examples); no user data.
  '/api/public/shop/catalog',
- '/api/public/video/templates', '/api/public/prostudio/references',
+ '/api/public/video/templates', '/api/public/prostudio/references', '/api/public/media-blocks',
  # Website web-session read: has no Telegram initData to present, so it
  # authenticates itself off its own cookie (see verify_web_session_token)
  # instead of going through this middleware's Telegram check.

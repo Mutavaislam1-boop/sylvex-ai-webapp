@@ -100,6 +100,7 @@ from services.assistant_intents import route_intent, intent_by_id as assistant_i
 from services.assistant_openai import stream_assistant_reply, mint_realtime_session
 from services import user_access as user_access_service
 from services import platform_usage as platform_usage_service
+from services import media_blocks as media_blocks_service
 
 # Admin blocks (services/user_access.py), checked by SecurityMiddleware for
 # every protected request. A short per-process cache keeps this off the
@@ -11079,8 +11080,8 @@ def _public_actor(actor: dict) -> dict:
 _V1_AUDIT_RISK = {
     "balance_changed": "high", "subscription_changed": "high", "message_sent": "medium", "message_failed": "medium",
     "broadcast_sent": "critical", "prostudio_job_recovered": "medium", "admin_access_changed": "critical",
-    "reference_created": "medium", "reference_updated": "medium", "reference_published": "medium",
-    "reference_unpublished": "medium", "reference_deleted": "medium", "support_reply_sent": "medium",
+    "reference_created": "medium", "reference_updated": "medium", "reference_published": "high",
+    "reference_unpublished": "high", "reference_deleted": "high", "support_reply_sent": "medium",
     "support_status_changed": "low", "support_assigned": "low", "support_attachments_changed": "medium",
     "review_replied": "medium",
 }
@@ -13703,6 +13704,11 @@ def ensure_references_table():
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prostudio_references_catalog ON prostudio_references (published, category, kind)")
+        # Media constructor blocks (services/media_blocks.py): a block type
+        # and its configuration. Rows without a block type are the older
+        # plain references and keep working as before.
+        cursor.execute("ALTER TABLE prostudio_references ADD COLUMN IF NOT EXISTS block_type TEXT")
+        cursor.execute("ALTER TABLE prostudio_references ADD COLUMN IF NOT EXISTS config JSONB")
         conn.commit()
         REFERENCES_SCHEMA_READY = True
     finally:
@@ -13715,10 +13721,11 @@ def _reference_row_to_dict(row) -> dict:
             "prompt": row[5] or "", "model": row[6] or "", "workflow": row[7] or "",
             "preview_url": row[8] or "", "source_url": row[9] or "", "published": bool(row[10]),
             "sort_order": int(row[11] or 0), "created_by": row[12], "created_at": _to_iso(row[13]),
-            "updated_at": _to_iso(row[14])}
+            "updated_at": _to_iso(row[14]), "block_type": row[15] or None, "config": _json_obj(row[16]) or {}}
 
 
-_REFERENCE_COLUMNS = "id,category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by,created_at,updated_at"
+_REFERENCE_COLUMNS = ("id,category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,"
+                      "created_by,created_at,updated_at,block_type,config")
 
 
 @app.post("/api/admin/references/list")
@@ -13740,6 +13747,16 @@ async def admin_references_list(request: Request):
             conditions.append("kind=%s"); params.append(kind)
         if published is not None:
             conditions.append("published=%s"); params.append(bool(published))
+        block_type = str(payload.get("block_type") or "").strip()
+        if block_type == "legacy":
+            conditions.append("block_type IS NULL")
+        elif block_type in media_blocks_service.BLOCK_TYPES:
+            conditions.append("block_type=%s"); params.append(block_type)
+        if payload.get("id"):
+            conditions.append("id=%s"); params.append(int(payload.get("id") or 0))
+        query = str(payload.get("query") or "").strip()[:120]
+        if query:
+            conditions.append("(name ILIKE %s OR description ILIKE %s)"); params += [f"%{query}%", f"%{query}%"]
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -13767,6 +13784,12 @@ async def admin_references_create(request: Request):
     def _sync():
         actor = _admin_actor(payload, request, "content.references.manage")
         ensure_references_table()
+        block_type, config = _media_block_fields(payload)
+        if block_type:
+            payload.setdefault("category", block_type)
+            payload["kind"] = "video" if config["generation"] == "video" else "photo"
+            # A block is always created as a draft; publishing is its own step.
+            payload["published"] = False
         category = str(payload.get("category") or "").strip()[:80]
         kind = str(payload.get("kind") or "").strip().lower()[:20]
         name = str(payload.get("name") or "").strip()[:200]
@@ -13785,14 +13808,16 @@ async def admin_references_create(request: Request):
         try:
             cursor.execute(f"""
                 INSERT INTO prostudio_references
-                    (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by,
+                     block_type,config)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING {_REFERENCE_COLUMNS}
             """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
-                  published, sort_order, actor["telegram_id"]))
+                  published, sort_order, actor["telegram_id"], block_type, json.dumps(config) if block_type else None))
             created = _reference_row_to_dict(cursor.fetchone())
             _admin_audit(cursor, actor, "reference_created", 0, {}, created, "")
             conn.commit()
+            _media_blocks_changed()
             return created
         except Exception:
             conn.rollback()
@@ -13829,9 +13854,12 @@ async def admin_references_update(request: Request):
             "sort_order": lambda v: int(v or 0),
         }
         updates = {key: caster(payload[key]) for key, caster in fields.items() if key in payload}
+        # Publishing goes through /references/publish (its own permission
+        # and the readiness checks), never through an edit.
+        updates.pop("published", None)
         if "kind" in updates and updates["kind"] not in {"photo", "video"}:
             raise HTTPException(status_code=400, detail="invalid_kind")
-        if not updates:
+        if not updates and "config" not in payload:
             raise HTTPException(status_code=400, detail="no_fields_to_update")
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -13841,7 +13869,12 @@ async def admin_references_update(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             before = _reference_row_to_dict(before_row)
-            set_clause = ", ".join(f"{key}=%s" for key in updates)
+            if before.get("block_type"):
+                _, config = _media_block_fields(dict(payload, block_type=before["block_type"],
+                                                     config=payload.get("config", before["config"])))
+                updates["config"] = json.dumps(config)
+                updates["kind"] = "video" if config["generation"] == "video" else "photo"
+            set_clause = ", ".join(f"{key}=%s::jsonb" if key == "config" else f"{key}=%s" for key in updates)
             cursor.execute(f"""
                 UPDATE prostudio_references SET {set_clause}, updated_at=NOW() WHERE id=%s
                 RETURNING {_REFERENCE_COLUMNS}
@@ -13849,6 +13882,7 @@ async def admin_references_update(request: Request):
             after = _reference_row_to_dict(cursor.fetchone())
             _admin_audit(cursor, actor, "reference_updated", 0, before, after, "")
             conn.commit()
+            _media_blocks_changed()
             return after
         except HTTPException:
             conn.rollback()
@@ -13869,7 +13903,7 @@ async def admin_references_publish(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "content.references.manage")
+        actor = _admin_actor(payload, request, "content.publish")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         published = bool(payload.get("published", True))
@@ -13878,15 +13912,24 @@ async def admin_references_publish(request: Request):
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT published FROM prostudio_references WHERE id=%s", (reference_id,))
-            before_row = cursor.fetchone()
-            if not before_row:
+            cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+            row = cursor.fetchone()
+            if not row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
+            block = _reference_row_to_dict(row)
+            before_row = (block["published"],)
+            if published and block.get("block_type"):
+                problems = media_blocks_service.problems(block, _media_models())
+                if problems:
+                    return {"problems": [{"code": c, "detail": d} for c, d in problems]}
             cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
             _admin_audit(cursor, actor, "reference_published" if published else "reference_unpublished",
-                         0, {"published": bool(before_row[0])}, {"published": published}, "")
+                         0, {"published": bool(before_row[0])},
+                         {"published": published, "id": reference_id, "name": block["name"],
+                          "block_type": block.get("block_type")}, str(payload.get("reason") or "").strip()[:500])
             conn.commit()
-            return reference_id, published
+            _media_blocks_changed()
+            return {"id": reference_id, "published": published}
         except HTTPException:
             conn.rollback()
             raise
@@ -13897,8 +13940,10 @@ async def admin_references_publish(request: Request):
             cursor.close()
             conn.close()
 
-    reference_id, published = await asyncio.to_thread(_sync)
-    return {"ok": True, "id": reference_id, "published": published}
+    result = await asyncio.to_thread(_sync)
+    if result.get("problems"):
+        return JSONResponse({"ok": False, "error": "block_not_ready", "problems": result["problems"]}, status_code=409)
+    return {"ok": True, **result}
 
 
 @app.post("/api/admin/references/delete")
@@ -13906,7 +13951,8 @@ async def admin_references_delete(request: Request):
     payload = await request.json()
 
     def _sync():
-        actor = _admin_actor(payload, request, "content.references.manage")
+        # Removing what users see is publishing work (content.publish).
+        actor = _admin_actor(payload, request, "content.publish")
         ensure_references_table()
         reference_id = int(payload.get("id") or 0)
         if not reference_id:
@@ -13919,8 +13965,10 @@ async def admin_references_delete(request: Request):
             if not before_row:
                 raise HTTPException(status_code=404, detail="reference_not_found")
             cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
-            _admin_audit(cursor, actor, "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
+            _admin_audit(cursor, actor, "reference_deleted", 0, _reference_row_to_dict(before_row), {},
+                         str(payload.get("reason") or "").strip()[:500])
             conn.commit()
+            _media_blocks_changed()
         except HTTPException:
             conn.rollback()
             raise
@@ -13933,6 +13981,189 @@ async def admin_references_delete(request: Request):
 
     await asyncio.to_thread(_sync)
     return {"ok": True}
+
+
+# ---------- Media constructor (services/media_blocks.py) ----------
+
+def _media_block_fields(payload):
+    """(block_type, cleaned config) of a create/update request; (None, {})
+    for a plain reference."""
+    block_type = str(payload.get("block_type") or "").strip()
+    if not block_type:
+        return None, {}
+    try:
+        return block_type, media_blocks_service.clean_config(payload.get("config"), block_type)
+    except media_blocks_service.BlockError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+
+
+def _media_models():
+    """Image and video models from the central capability registry, with
+    whether the provider of each image model is configured."""
+    try:
+        image_ids = {str(m.get("id")) for m in (get_image_capabilities().get("models") or []) if isinstance(m, dict)}
+    except Exception:
+        image_ids = set()
+    labels = {}
+    try:
+        for m in get_image_capabilities().get("models") or []:
+            if isinstance(m, dict) and m.get("id") and m.get("label"):
+                labels[str(m["id"])] = str(m["label"])
+    except Exception:
+        pass
+    return media_blocks_service.model_catalog(
+        model_capabilities_service.serialize_capabilities(), seedream=SEEDREAM_MODEL_CAPABILITIES,
+        image_available=image_ids or None, labels=labels)
+
+
+def _media_block_cost(block):
+    """The block's price from the central tariff, as for a real run."""
+    try:
+        payload = media_blocks_service.generation_payload(block, media_blocks_service.preview_uploads(block))
+        estimate = calculate_generation_price(payload)
+    except Exception as exc:
+        prostudio_error("MEDIA_BLOCK_ESTIMATE_FAILED", exc, block_id=block.get("id"))
+        return None
+    if not estimate.get("pricing_available", bool(estimate.get("credits"))):
+        return None
+    return int(estimate.get("credits") or estimate.get("cost_credits") or 0) or None
+
+
+@app.post("/api/admin/media/catalog")
+async def admin_media_catalog(request: Request):
+    """What the Media constructor offers: models (from the capability
+    registry), publishing places, block types and reference modes."""
+    payload = await request.json()
+    _admin_actor(payload, request, "content.references.manage")
+    models = await asyncio.to_thread(_media_models)
+    return {"ok": True, "models": models, "block_types": list(media_blocks_service.BLOCK_TYPES),
+            "ref_modes": list(media_blocks_service.REF_MODES),
+            "placements": [{"id": k, "en": v["en"], "ru": v["ru"], "types": list(v["types"])}
+                           for k, v in media_blocks_service.PLACEMENTS.items()],
+            "max_fields": media_blocks_service.MAX_FIELDS}
+
+
+@app.post("/api/admin/media/check")
+async def admin_media_check(request: Request):
+    """The price (central tariff) and what still keeps a block draft from
+    being published - recomputed as the admin edits it."""
+    payload = await request.json()
+    _admin_actor(payload, request, "content.references.manage")
+    block_type, config = _media_block_fields(payload)
+    if not block_type:
+        raise HTTPException(status_code=400, detail="invalid_block_type")
+    block = {"id": int(payload.get("id") or 0), "block_type": block_type, "config": config,
+             "name": str(payload.get("name") or "").strip(), "description": str(payload.get("description") or ""),
+             "prompt": str(payload.get("prompt") or ""), "model": str(payload.get("model") or ""),
+             "preview_url": str(payload.get("preview_url") or ""), "source_url": str(payload.get("source_url") or "")}
+
+    def work():
+        models = _media_models()
+        return {"cost": _media_block_cost(block) if block["model"] else None,
+                "problems": [{"code": c, "detail": d} for c, d in media_blocks_service.problems(block, models)],
+                "config": config, "preview": media_blocks_service.public_view(block, None)}
+
+    return {"ok": True, **(await asyncio.to_thread(work))}
+
+
+def _published_blocks():
+    ensure_references_table()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            SELECT {_REFERENCE_COLUMNS} FROM prostudio_references
+            WHERE published = TRUE AND block_type IS NOT NULL ORDER BY sort_order, created_at DESC LIMIT 300
+        """)
+        return [_reference_row_to_dict(r) for r in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+
+MEDIA_BLOCK_VIEWS_CACHE = {"value": None, "expires_at": 0.0}
+MEDIA_BLOCK_VIEWS_TTL = 30
+
+
+def _media_block_views():
+    """Every published block as the apps get it, with its tariff price
+    (kept for a few seconds; any admin change drops it at once)."""
+    now = time.time()
+    cached = MEDIA_BLOCK_VIEWS_CACHE["value"]
+    if cached is not None and now < MEDIA_BLOCK_VIEWS_CACHE["expires_at"]:
+        return cached
+    views = [media_blocks_service.public_view(b, _media_block_cost(b)) for b in _published_blocks()] if DATABASE_URL else []
+    MEDIA_BLOCK_VIEWS_CACHE.update(value=views, expires_at=now + MEDIA_BLOCK_VIEWS_TTL)
+    return views
+
+
+def _media_blocks_changed():
+    MEDIA_BLOCK_VIEWS_CACHE.update(value=None, expires_at=0.0)
+
+
+async def _media_block_views_safe():
+    try:
+        return await asyncio.to_thread(_media_block_views)
+    except Exception as exc:
+        prostudio_error("MEDIA_BLOCKS_LOAD_FAILED", exc)
+        return []
+
+
+@app.get("/api/public/media-blocks")
+async def public_media_blocks(placement: str = ""):
+    """Published Media blocks for the website and the Mini Apps, each with
+    its upload fields and the price the central tariff gives it now."""
+    views = await _media_block_views_safe()
+    placement = placement[:40]
+    return {"ok": True, "items": [v for v in views if not placement or placement in v["placements"]]}
+
+
+@app.post("/api/public/media-blocks/{block_id}/generate")
+async def public_media_block_generate(block_id: int, request: Request):
+    """Runs a published block: the user's uploads ({field key: URL they got
+    from SYLVEX's upload}) and the block's own settings become one Pro
+    Studio generation - the same job, price, balance check and history as
+    any other generation."""
+    body = await request.json()
+    uploads = body.get("uploads") if isinstance(body.get("uploads"), dict) else {}
+
+    def load():
+        ensure_references_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id = %s", (int(block_id),))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
+        return _reference_row_to_dict(row) if row else None
+
+    block = await asyncio.to_thread(load)
+    if not block or not block.get("published") or not block.get("block_type"):
+        return JSONResponse({"ok": False, "error": "media_block_not_found"}, status_code=404)
+    # The admin's own media is SYLVEX's: sign it fresh for the provider.
+    block = dict(block, preview_url=media_sign_url(block.get("preview_url") or ""),
+                 source_url=media_sign_url(block.get("source_url") or ""),
+                 config=dict(block["config"], extra_references=[media_sign_url(u) for u in block["config"].get("extra_references") or []]))
+    clean_uploads = {str(k)[:32]: str(v) for k, v in uploads.items() if isinstance(v, str) and v}
+    try:
+        payload = media_blocks_service.generation_payload(block, clean_uploads)
+    except media_blocks_service.BlockError as exc:
+        return JSONResponse({"ok": False, "error": exc.code, "missing": [d for _, d in exc.problems]}, status_code=exc.status)
+    if body.get("conversation_id"):
+        payload["conversation_id"] = str(body.get("conversation_id"))[:120]
+    # The caller's id as SecurityMiddleware set it on the verified request.
+    if body.get("telegram_id"):
+        payload["telegram_id"] = body["telegram_id"]
+    raw = json.dumps(payload).encode()
+
+    async def receive():
+        return {"type": "http.request", "body": raw, "more_body": False}
+
+    # The same request (and the identity SecurityMiddleware verified on it),
+    # carrying the block's generation instead of the client's body.
+    return await public_prostudio_generate(Request(request.scope, receive))
 
 
 @app.post("/api/admin/references/upload-media")
@@ -13991,7 +14222,8 @@ async def public_prostudio_references(category: str = "", kind: str = ""):
     if not DATABASE_URL:
         ensure_references_table()
         return {"ok": True, "items": []}
-    conditions, params = ["published=TRUE"], []
+    # Media constructor blocks have their own catalog (/api/public/media-blocks).
+    conditions, params = ["published=TRUE", "block_type IS NULL"], []
     category = str(category or "").strip()[:80]
     kind = str(kind or "").strip().lower()[:20]
     if category:
@@ -25458,15 +25690,14 @@ async def public_prostudio_kling_effects():
 async def public_prostudio_video_templates():
     now = time.time()
     cached = VIDEO_TEMPLATE_CATALOG_CACHE.get("value")
-    if cached is not None and now < float(VIDEO_TEMPLATE_CATALOG_CACHE.get("expires_at") or 0):
-        return JSONResponse(cached, headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"})
-    payload = {
-        "ok": True,
-        "templates": prostudio_video_templates_from_env() + prostudio_builtin_video_template_slots(),
-    }
-    VIDEO_TEMPLATE_CATALOG_CACHE["value"] = payload
-    VIDEO_TEMPLATE_CATALOG_CACHE["expires_at"] = now + VIDEO_TEMPLATE_CATALOG_CACHE_TTL
-    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"})
+    if cached is None or now >= float(VIDEO_TEMPLATE_CATALOG_CACHE.get("expires_at") or 0):
+        cached = {"ok": True, "templates": prostudio_video_templates_from_env() + prostudio_builtin_video_template_slots()}
+        VIDEO_TEMPLATE_CATALOG_CACHE["value"] = cached
+        VIDEO_TEMPLATE_CATALOG_CACHE["expires_at"] = now + VIDEO_TEMPLATE_CATALOG_CACHE_TTL
+    # Published Media video templates lead the catalog (fresh on each request).
+    blocks = await _media_block_views_safe()
+    payload = dict(cached, templates=media_blocks_service.join_catalogs(blocks, video_templates=cached["templates"]))
+    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={MEDIA_BLOCK_VIEWS_TTL}"})
 
 
 def prostudio_photo_catalog_items() -> list:
@@ -25650,12 +25881,14 @@ def prostudio_quick_image_catalog_items() -> dict:
 async def public_prostudio_quick_image_catalog():
     now = time.time()
     cached = QUICK_IMAGE_CATALOG_CACHE.get("value")
-    if cached is not None and now < float(QUICK_IMAGE_CATALOG_CACHE.get("expires_at") or 0):
-        return JSONResponse(cached, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
-    payload = {"ok": True, "catalog": prostudio_quick_image_catalog_items()}
-    QUICK_IMAGE_CATALOG_CACHE["value"] = payload
-    QUICK_IMAGE_CATALOG_CACHE["expires_at"] = now + PHOTO_CATALOG_CACHE_TTL
-    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
+    if cached is None or now >= float(QUICK_IMAGE_CATALOG_CACHE.get("expires_at") or 0):
+        cached = {"ok": True, "catalog": prostudio_quick_image_catalog_items()}
+        QUICK_IMAGE_CATALOG_CACHE["value"] = cached
+        QUICK_IMAGE_CATALOG_CACHE["expires_at"] = now + PHOTO_CATALOG_CACHE_TTL
+    # Published Media photo references and styles lead their sections.
+    blocks = await _media_block_views_safe()
+    payload = dict(cached, catalog=media_blocks_service.join_catalogs(blocks, quick_catalog=cached["catalog"]))
+    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={MEDIA_BLOCK_VIEWS_TTL}"})
 
 # =====================================================
 # API ENDPOINT: download_prostudio_image

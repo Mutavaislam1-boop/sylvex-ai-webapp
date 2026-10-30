@@ -6564,6 +6564,7 @@ async function loadPhotoCatalog(force) {
     const normalizeItems = (items, kind) => (Array.isArray(items) ? items : []).map((item) => ({
       id:String(item.id || ''), url:String(item.image_url || item.url || ''), title:String(item.title || item.name || 'Фото'),
       description:String(item.description || ''), prompt:String(item.prompt || ''), kind, source:String(item.source || 'quick_folder'),
+      mediaBlock:item.media_block || null,
     })).filter((item) => item.url);
     quickImageCatalogCache = {
       references:normalizeItems(source.references, 'references'), styles:normalizeItems(source.styles, 'styles'),
@@ -6777,6 +6778,7 @@ function selectPhotoCatalogItem(e, id, source, section) {
   if (section) quickImageCatalogSection = section;
   const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
   if (!item) return;
+  if (item.mediaBlock) { openMediaBlock(item.mediaBlock); return; }
   quickImageDetailState = { item, source:source === 'quick' ? 'quick' : 'prostudio', uploadedUrl:'', previewUrl:'', uploading:false, extraUploads:{} };
   // The catalog modal is intentionally left open underneath (not closed) -
   // closing this detail view later simply reveals it again, one level
@@ -9389,7 +9391,43 @@ function renderPhotoToolCatalog() {
       + '<span><b>' + S.escapeHtml(config.shortTitle) + '</b><small>' + S.escapeHtml(config.description) + '</small></span>'
       + '</button>'
     ).join('')
+    + mediaToolBlocks.map((block) =>
+      '<button type="button" class="photo-tool-catalog-card" onclick="SYLVEX.openMediaToolBlock(event,' + Number(block.id) + ')">'
+      + photoToolCatalogPreviewHtml({ preview:block.preview_url })
+      + '<span><b>' + S.escapeHtml(block.name) + '</b><small>' + S.escapeHtml(block.description) + '</small></span>'
+      + '</button>'
+    ).join('')
     + '</div>';
+  loadMediaToolBlocks();
+}
+
+// AI tools built in the Admin Console (Media → AI tools), after the built-in ones.
+let mediaToolBlocks = [];
+let mediaToolBlocksLoaded = false;
+function loadMediaToolBlocks() {
+  if (mediaToolBlocksLoaded || !window.SylvexMediaBlocks) return;
+  mediaToolBlocksLoaded = true;
+  window.SylvexMediaBlocks.list('ai_tools').then((blocks) => {
+    mediaToolBlocks = blocks;
+    if (blocks.length && document.querySelector('#photoToolModalBody .photo-tool-catalog')) renderPhotoToolCatalog();
+  });
+}
+
+function openMediaToolBlock(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const block = mediaToolBlocks.find((item) => Number(item.id) === Number(id));
+  if (block) openMediaBlock(block);
+}
+
+// A Media block (js/media-blocks.js): its own window over the current
+// screen; the result also lands in the Pro Studio history.
+function openMediaBlock(block) {
+  if (!window.SylvexMediaBlocks) { toast('Обновите приложение, чтобы открыть этот блок', 'error'); return; }
+  window.SylvexMediaBlocks.open(block, {
+    lang: uiLang(),
+    onShop: () => switchView('shop'),
+    onLogin: () => { if (typeof guestNeedsAccount === 'function') guestNeedsAccount('create'); },
+  });
 }
 
 function photoToolStateFor(kind) {
@@ -21744,7 +21782,9 @@ function maybeShowVideoTemplateIntro(force) {
         generation_cost: merged.generation_cost || (credits + ' ⚡'),
       }));
     });
-    return Array.from(byId.values()).slice(0, 100);
+    // Media blocks published from the Admin Console lead the catalog.
+    const all = Array.from(byId.values());
+    return all.filter((item) => item.media_block).concat(all.filter((item) => !item.media_block)).slice(0, 100);
   }
 
   function hydrateVideoTemplateCardVideos(root) {
@@ -21891,6 +21931,7 @@ function maybeShowVideoTemplateIntro(force) {
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   function openVideoTemplateModal(template) {
+    if (template && template.media_block) { openMediaBlock(template.media_block); return; }
     activeVideoTemplate = template;
     videoTemplateUploadUrl = '';
     const ratios = videoTemplateRatios(template);
@@ -26378,13 +26419,14 @@ async function waitGeneration(jobId, options) {
     const items = [];
     if (mode === 'video') {
       (await loadVideoTemplates()).forEach((template) => {
-        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || '') });
+        // Media blocks have their own fields and window, not this panel.
+        if (!template.is_kling_effect && !template.media_block) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || '') });
       });
     } else {
       // The same sections, in the same order, that mediaImageItem() looks in.
       const catalog = await loadPhotoCatalog(false), seen = new Set();
       ['styles', 'references', 'popular_references'].forEach((section) => (catalog[section] || []).forEach((item) => {
-        if (item.source === 'prostudio_style' || seen.has(item.id)) return;
+        if (item.source === 'prostudio_style' || item.mediaBlock || seen.has(item.id)) return;
         seen.add(item.id);
         items.push({ id: item.id, image: item.url, title: item.title });
       }));
@@ -31186,7 +31228,7 @@ async function waitGeneration(jobId, options) {
     pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openMediaToolBlock, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, scrollPresetCarousel, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, clearVideoEditInput, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, togglePromptFold, newChat,
     openQuickTextChat,
     openConv, deleteConv, expandHistorySection, setConversationHistoryFilter, manageConversationHistory, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,

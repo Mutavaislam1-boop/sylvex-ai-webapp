@@ -19,7 +19,9 @@ for (const file of files) {
   const tables = [/label: "([^"]+)"/g, /^\s+[a-z_]+: "([^"]+)",?$/gm];
   if (/Layout\.tsx$|Users\.tsx$/.test(file)) for (const m of code.matchAll(tables[0])) add(m[1], file);
   // Label maps translated with t(MAP[key]) in the messaging screens.
-  if (/(Inbox|messaging|Broadcast)\.tsx$/.test(file))
+  // Media: tab labels, mode cards (title/text), hints and problem texts.
+  if (/Media\.tsx$/.test(file)) for (const m of code.matchAll(/(?:label|title|text): "([^"]+)"/g)) add(m[1], file);
+  if (/(Inbox|messaging|Broadcast|Media)\.tsx$/.test(file))
     for (const block of code.matchAll(/const [A-Z_]+: Record<string, string> = \{([^}]+)\}/g))
       for (const m of block[1].matchAll(/:\s*"([^"]+)"/g)) add(m[1], file);
   for (const m of code.matchAll(/\[\s*"[a-z]*",\s*"([A-Z][^"]+)"\s*\]/g)) add(m[1], file);

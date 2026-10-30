@@ -116,7 +116,9 @@ function Editor({ initial, onClose, onSaved }: { initial: Draft; onClose: () => 
   );
 }
 
-export default function Content() {
+// Older plain references (no block type): listed, edited and published as
+// before, under Media → Older references.
+export default function LegacyReferences() {
   const { toast } = useApp();
   const [kind, setKind] = useState("");
   const [published, setPublished] = useState<"" | "yes" | "no">("");
@@ -126,7 +128,7 @@ export default function Content() {
   const [deleting, setDeleting] = useState<Ref | null>(null);
   const { data, error, loading, reload } = useAsync(
     () => post<{ items: Ref[]; total: number }>("/api/admin/references/list", {
-      kind, category: category.trim(), limit: LIMIT, offset,
+      kind, category: category.trim(), limit: LIMIT, offset, block_type: "legacy",
       ...(published ? { published: published === "yes" } : {}),
     }),
     [kind, published, category, offset],
