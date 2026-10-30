@@ -195,6 +195,7 @@ function buildDispatchContext() {
   // method here would throw a ReferenceError instead of creating an
   // implicit global - it would never actually reach the sandbox object
   // vm.createContext() contextifies.
+  Object.assign(sandbox, {catalogVideoSubmitting:false, activeGenerationLocked:()=>false, validateCatalogSourceVideo:async()=>'', transitionActiveGeneration:()=>{}, adoptActiveGenerationPlaceholder:()=>{}, activeGenerationPlaceholderIndex:()=>-1});
   sandbox.callGenerate = function callGenerate(promptText, _image, _refs, videoOptions) {
     sandbox.capturedPrompt = promptText;
     sandbox.capturedOptions = videoOptions;
@@ -216,6 +217,7 @@ function buildDispatchContext() {
   vm.runInContext(extractFunction('videoOptionsPayload'), context);
   vm.runInContext(extractFunction('videoTemplateReferenceVideo'), context);
   vm.runInContext(extractFunction('templatePreferredModel'), context);
+  vm.runInContext(extractFunction('startVideoTemplateGenerationCore'), context);
   vm.runInContext(extractFunction('startVideoTemplateGeneration'), context);
   return context;
 }

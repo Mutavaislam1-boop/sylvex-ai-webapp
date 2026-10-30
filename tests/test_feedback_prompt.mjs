@@ -22,7 +22,7 @@ const page = read('admin_console/src/pages/Reviews.tsx');
 test('the Mini App loads the prompt with fresh pins', () => {
   assert.match(index, /<link rel="stylesheet" href="css\/feedback-prompt\.css\?v=reviews-20261028" \/>/);
   assert.match(index, /<script src="js\/feedback-prompt\.js\?v=reviews-20261028"><\/script>/);
-  assert.match(index, /<script src="js\/cabinet\.js\?v=admin-d-20261030"><\/script>/);
+  assert.match(index, /<script src="js\/cabinet\.js\?v=admin-catalog-20261030"><\/script>/);
 });
 
 test('five stars with grades, the comment, Send only after a rating, later, never and ×', () => {

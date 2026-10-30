@@ -10061,3 +10061,11 @@ press anywhere in Edit.
 .generation-image-download-picker>footer button[data-generation-picker-download]{background:var(--st-text,#f5f5f7);color:var(--st-bg,#111);font-weight:700}
 .generation-image-download-picker button:disabled{opacity:.5;cursor:default}
 .generation-image-download-picker>p{margin:8px 0 0;font-size:10px;line-height:1.4;opacity:.7}
+
+.view[data-view="home"] .user-card{position:relative}
+.home-profile-settings{position:absolute;top:12px;right:12px;padding:4px;border:0;background:transparent;color:var(--text);font-size:20px;cursor:pointer;z-index:2}
+.view[data-view="media"],.sx-media-viewer{--sx-bg-3:var(--bg2,#17171c);--sx-text:var(--text,#eee);--sx-border:var(--border,#444);--sx-surface:var(--bg,#111);--sx-radius-pill:999px;--sx-shadow-sm:none;--sx-radius-xl:20px;--sx-font:inherit;--sx-ease:ease}
+.view[data-view="media"] .sx-media-tools:has(.sx-media-tools-row:empty){display:none}
+.view[data-view="media"] .sx-media-page{padding:12px 0 80px}
+
+.mini-media-filters{display:flex;gap:8px;padding:12px 0}.mini-media-filters button{padding:7px 16px;border:1px solid var(--border,#444);border-radius:999px;background:transparent;color:var(--text);font:inherit}.mini-media-filters button[aria-pressed=true]{background:var(--text);color:var(--bg,#111)}

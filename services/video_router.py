@@ -23,6 +23,7 @@ from urllib.parse import urlparse, urlunparse
 
 from services.error_translator import raw_error_text, translate_provider_error
 from services.character_prompts import build_character_prompt, infer_character_operation
+from services.catalog_video import is_catalog_video_edit, replacement_prompt
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.storage import generated_key, key_from_url as storage_key_from_url, put_bytes as storage_put_bytes, read_bytes as storage_read_bytes
 import services.model_capabilities as model_capabilities
@@ -1283,6 +1284,8 @@ def _clean_url_list(*values) -> list:
 
 
 def _build_video_visual_prompt(prompt: str, payload: dict, opts: dict, video_template=None) -> str:
+    if is_catalog_video_edit(opts):
+        return replacement_prompt(opts["video_template"])
     base_prompt = str(prompt or payload.get("prompt") or "").strip()
     character_prompt = str(opts.get("characterPrompt") or "").strip()
     object_prompt = str(opts.get("objectPrompt") or "").strip()
@@ -2549,7 +2552,7 @@ def _kling_motion_settings(provider_model: str, body: dict, raw_options: dict):
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_video=False):
+def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_video=False, preserve_base_audio=False):
     model = _kling_model_family(provider_model)
     supported_resolutions = {"720p", "1080p"}
     if model == "kling-3.0-omni":
@@ -2561,7 +2564,7 @@ def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_
     )
     settings = {
         "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
-        "audio": "off" if base_video else ("original" if has_video and body.get("sound") else "off"),
+        "audio": "original" if base_video and preserve_base_audio else ("off" if base_video else ("original" if has_video and body.get("sound") else "off")),
     }
     if not base_video:
         settings["duration"] = _kling_duration(body.get("duration"), duration_values)
@@ -4498,7 +4501,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             contents.append({"type": "last_frame", "url": end_image_url, "id": "image_2"})
         kling_body = {
             "contents": contents,
-            "settings": _kling_omni_settings(provider_model, body, has_video=bool(input_video), base_video=reference_type == "base_video" and bool(input_video)),
+            "settings": _kling_omni_settings(provider_model, body, has_video=bool(input_video), base_video=reference_type == "base_video" and bool(input_video), preserve_base_audio=is_catalog_video_edit(raw_options)),
             "options": _kling_options(payload),
         }
         print("KLING DEBUG OMNI WORKFLOW:", "base_video_edit" if reference_type == "base_video" and input_video else reference_type)

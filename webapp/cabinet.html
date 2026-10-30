@@ -72,7 +72,7 @@ HTML-страница Mini App. Комментарии подписывают э
     CSS-класс задаёт внешний вид и расположение: view active
     =================================================== -->
     <section class="view active" data-view="home">
-      <div class="user-card" data-animated-content>
+      <div class="user-card" data-animated-content><button type="button" class="home-profile-settings" aria-label="Настройки профиля" onclick="switchView('profile')">⚙</button>
         <div class="user-row">
           <div class="avatar" id="homeAvatar">··<span class="dot"></span></div>
           <div class="user-meta">
@@ -1406,6 +1406,49 @@ HTML-страница Mini App. Комментарии подписывают э
 
     </section>
 
+    <section class="view" data-view="media"><nav class="mini-media-filters" aria-label="Media filters"><button type="button" data-media-kind="all" aria-pressed="true">Все</button><button type="button" data-media-kind="video" aria-pressed="false">Видео</button><button type="button" data-media-kind="image" aria-pressed="false">Фото</button></nav>
+<div class="sx-media-page">
+  <div class="sx-container">
+    <div class="sx-page-hero sx-media-hero">
+      <h1>Media</h1>
+      <p>Every visual catalog in SYLVEX in one place — video styles, image styles, photo references and more.</p>
+    </div>
+
+    <section class="sx-media-tools" aria-label="SYLVEX media tools">
+      <div class="sx-media-tools-row" id="sxMediaTools"></div>
+    </section>
+  </div>
+
+  <section class="sx-media-featured" id="sxMediaFeatured" aria-label="Featured media">
+    <div class="sx-container"><h2 class="sx-media-heading">Featured</h2></div>
+    <div class="sx-marquee sx-media-marquee" id="sxMediaMarquee">
+      <div class="sx-marquee-track sx-media-marquee-track" id="sxMediaMarqueeTrack"></div>
+    </div>
+    <div class="sx-container"><p class="sx-media-empty" id="sxMediaFeaturedEmpty" hidden>Featured references and trending videos will appear here soon.</p></div>
+  </section>
+
+  <div class="sx-container">
+    <section class="sx-media-catalog" aria-label="Media">
+      <div class="sx-media-wall" id="sxMediaWall"></div>
+      <button type="button" class="sx-btn sx-btn-ghost sx-media-more" id="sxMediaMore" hidden>Show more</button>
+      <p class="sx-media-empty" id="sxMediaWallEmpty" hidden>The media catalog could not be loaded. Please try again later.</p>
+    </section>
+  </div>
+</div>
+</section>
+<dialog class="sx-media-viewer" id="sxMediaViewer" aria-labelledby="sxMediaViewerTitle">
+  <button class="sx-media-viewer-close" type="button" data-media-close aria-label="Close">×</button>
+  <div class="sx-media-viewer-media" id="sxMediaViewerMedia"></div>
+  <div class="sx-media-viewer-body">
+    <h3 id="sxMediaViewerTitle"></h3>
+    <p id="sxMediaViewerText"></p>
+    <div class="sx-media-make" id="sxMediaMake"></div>
+    <p class="sx-media-status" id="sxMediaStatus" role="status" hidden></p>
+    <button class="sx-media-generate" id="sxMediaGenerate" type="button" disabled>Generate</button>
+    <a class="sx-media-open" id="sxMediaViewerOpen" href="/pro-studio.html">Open in Pro Studio</a>
+  </div>
+  <input type="file" id="sxMediaFile" accept="image/*" hidden>
+</dialog>
     <section class="view" data-view="profile">
       <div class="user-card">
         <div class="user-row">
@@ -1591,7 +1634,7 @@ HTML-страница Mini App. Комментарии подписывают э
     HTML-ЭЛЕМЕНТ: Profile
     CSS-класс задаёт внешний вид и расположение: nav-btn
     =================================================== -->
-    <button class="nav-btn" data-view="profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span data-i18n="profile">Profile</span></button>
+    <button class="nav-btn" data-view="media"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m3 16 5-5 5 5 4-4 4 4"/></svg><span>Media</span></button>
     <button class="nav-btn" data-view="tools" aria-label="Pro Studio"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"/></svg><span data-i18n="nav_studio">Pro Studio</span></button>
     <!-- ==================================================
     HTML-ЭЛЕМЕНТ: Shop
