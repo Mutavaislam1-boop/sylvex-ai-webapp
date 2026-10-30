@@ -1,0 +1,68 @@
+/* SYLVEX paywall window (js/paywall.js). One file for the website and both
+   Mini Apps - keep it byte-identical in sylvex-website/css/paywall.css and
+   sylvex-ai-webapp/webapp/css/paywall.css. */
+.sxpw { position: fixed; inset: 0; z-index: 2147482000; display: flex; align-items: center; justify-content: center; padding: 20px; font-family: inherit; }
+.sxpw[hidden] { display: none; }
+html.sxpw-open, html.sxpw-open body { overflow: hidden; }
+.sxpw-backdrop { position: absolute; inset: 0; background: rgba(4, 5, 10, .72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); animation: sxpw-fade .2s ease-out; }
+.sxpw-panel {
+  position: relative; width: min(960px, 100%); max-height: calc(100dvh - 40px); overflow: auto; outline: none;
+  padding: 40px 36px 28px; border-radius: 28px; color: #f4f5fb; text-align: center;
+  background:
+    radial-gradient(120% 70% at 50% -10%, rgba(124, 92, 255, .32), transparent 60%),
+    radial-gradient(60% 50% at 100% 100%, rgba(0, 214, 255, .14), transparent 70%),
+    linear-gradient(180deg, #14151f 0%, #0b0c13 100%);
+  border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .06);
+  animation: sxpw-rise .28s cubic-bezier(.2, .8, .2, 1);
+}
+.sxpw-x { position: absolute; top: 14px; right: 14px; width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(255, 255, 255, .08); color: #fff; font-size: 22px; line-height: 38px; transition: background .15s; }
+.sxpw-x:hover { background: rgba(255, 255, 255, .16); }
+.sxpw-eyebrow { display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .18em;
+  color: #cfc4ff; background: rgba(124, 92, 255, .16); border: 1px solid rgba(124, 92, 255, .35); }
+.sxpw-panel h2 { margin: 16px auto 10px; max-width: 640px; font-size: clamp(26px, 4vw, 40px); line-height: 1.12; font-weight: 800; letter-spacing: -.02em;
+  background: linear-gradient(90deg, #fff 0%, #d9d2ff 55%, #9be8ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sxpw-text { margin: 0 auto 26px; max-width: 600px; font-size: 16px; line-height: 1.55; color: rgba(236, 238, 248, .74); }
+.sxpw-plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; text-align: left; }
+.sxpw-plans.is-empty { display: none; }
+.sxpw-loading { grid-column: 1 / -1; padding: 40px 0; text-align: center; color: rgba(236, 238, 248, .5); font-size: 14px; }
+.sxpw-plan { position: relative; display: flex; flex-direction: column; padding: 24px 22px 22px; border-radius: 22px;
+  background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .1); transition: transform .18s, border-color .18s; }
+.sxpw-plan:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, .22); }
+.sxpw-plan.is-popular { background: linear-gradient(180deg, rgba(124, 92, 255, .2), rgba(124, 92, 255, .05)); border-color: rgba(149, 122, 255, .6);
+  box-shadow: 0 18px 60px rgba(92, 64, 255, .25); }
+.sxpw-badge { position: absolute; top: -11px; left: 22px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  color: #0b0c13; background: linear-gradient(90deg, #b9a8ff, #8fe6ff); }
+.sxpw-plan h3 { margin: 0 0 10px; font-size: 18px; font-weight: 700; color: #fff; }
+.sxpw-price { display: flex; align-items: baseline; gap: 6px; margin-bottom: 16px; }
+.sxpw-price b { font-size: 34px; font-weight: 800; letter-spacing: -.02em; color: #fff; }
+.sxpw-price span { font-size: 14px; color: rgba(236, 238, 248, .55); }
+.sxpw-plan ul { margin: 0 0 20px; padding: 0; list-style: none; display: grid; gap: 9px; flex: 1; }
+.sxpw-plan li { position: relative; padding-left: 22px; font-size: 14px; line-height: 1.4; color: rgba(236, 238, 248, .82); }
+.sxpw-plan li::before { content: ""; position: absolute; left: 0; top: 4px; width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #8fe6ff 0 35%, rgba(143, 230, 255, .2) 40% 100%); }
+.sxpw-cta, .sxpw-primary { width: 100%; min-height: 46px; border: 0; border-radius: 14px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 700;
+  color: #0b0c13; background: #fff; transition: transform .15s, box-shadow .15s; }
+.sxpw-plan.is-popular .sxpw-cta, .sxpw-primary { color: #fff; background: linear-gradient(90deg, #7c5cff, #4f8bff 60%, #19c9ff); box-shadow: 0 10px 30px rgba(92, 64, 255, .35); }
+.sxpw-cta:hover, .sxpw-primary:hover { transform: translateY(-1px); }
+.sxpw-link { margin-top: 18px; padding: 8px 12px; border: 0; background: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600;
+  color: #cfc4ff; text-decoration: underline; text-underline-offset: 3px; }
+.sxpw-link:hover { color: #fff; }
+.sxpw-balance { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 420px; margin: 0 auto 22px; }
+.sxpw-balance div { padding: 16px; border-radius: 18px; background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .1); }
+.sxpw-balance span { display: block; font-size: 12px; color: rgba(236, 238, 248, .55); margin-bottom: 4px; }
+.sxpw-balance b { font-size: 24px; font-weight: 800; color: #fff; }
+.sxpw-actions { display: flex; flex-direction: column; align-items: center; max-width: 420px; margin: 0 auto; }
+.sxpw-actions .sxpw-link { margin-top: 10px; }
+@keyframes sxpw-fade { from { opacity: 0; } }
+@keyframes sxpw-rise { from { opacity: 0; transform: translateY(18px) scale(.98); } }
+@media (max-width: 760px) {
+  .sxpw { padding: 0; align-items: flex-end; }
+  .sxpw-panel { max-height: 94dvh; padding: 34px 18px calc(22px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; }
+  .sxpw-plans { grid-template-columns: 1fr; gap: 14px; }
+  .sxpw-plan { padding: 20px 18px 18px; }
+  .sxpw-price b { font-size: 28px; }
+  .sxpw-text { font-size: 15px; margin-bottom: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .sxpw-backdrop, .sxpw-panel { animation: none; } .sxpw-plan, .sxpw-cta, .sxpw-primary { transition: none; } }

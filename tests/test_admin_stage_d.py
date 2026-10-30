@@ -82,7 +82,14 @@ def test_provider_state_is_never_assumed(monkeypatch):
     assert mc.configured("kling") is True
     assert mc.provider_state(None, 0, 0, 0) == "no_data"
     assert mc.provider_state(True, 0, 0, 0) == "no_data"
-    assert mc.provider_state(False, 5, 5, 0) == "not_configured"
+    assert mc.provider_state(False, 5, 0, 5) == "not_configured"
+    # Real successful generations win over the key check.
+    assert mc.provider_state(False, 5, 5, 0) == "working"
+    # Every name the integration reads counts, the dashed ones included.
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setenv("GROK-API-KEY", "x")
+    assert mc.configured("grok") is True
+    assert mc.configured("recraft") in (True, False) and mc.configured("ideogram") in (True, False)
     assert mc.provider_state(True, 10, 3, 7) == "errors"
     assert mc.provider_state(True, 10, 9, 1) == "working"
     assert mc.norm("Qwen-Image-2-Pro") == "qwen_image_2_pro"

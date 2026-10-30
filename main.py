@@ -12765,7 +12765,7 @@ async def admin_models_overview(request: Request):
             entry["last_bad"] = max(filter(None, [entry["last_bad"], u.get("last_bad")]), default=None)
         provider_rows = []
         for p in sorted(providers.values(), key=lambda x: (-x["runs"], x["key"])):
-            is_configured = model_control.configured(p["key"])
+            is_configured = True if p["completed"] else model_control.configured(p["key"])
             provider_rows.append({
                 "key": p["key"], "configured": is_configured,
                 "state": model_control.provider_state(is_configured, p["runs"], p["completed"], p["failed"]),
@@ -14813,13 +14813,33 @@ def _media_block_fields(payload):
         raise HTTPException(status_code=exc.status, detail=exc.code)
 
 
+def _media_model_states(registry=None):
+    """{model id: "turned_off" | "no_keys"} - the models of the capability
+    registry that cannot generate now; every other one is available."""
+    registry = registry if registry is not None else model_control_registry()
+    disabled = _disabled_model_ids()
+    states = {}
+    for model_id, entry in registry.items():
+        if model_id in disabled:
+            states[model_id] = "turned_off"
+        elif model_control.configured(entry["provider"]) is False:
+            states[model_id] = "no_keys"
+    return states
+
+
+def _media_model_state(model_id):
+    """"available" | "turned_off" | "no_keys" | "unknown" for a block's model."""
+    registry = model_control_registry()
+    key = model_control.norm(model_id)
+    if key not in registry:
+        return "unknown"
+    return _media_model_states(registry).get(key, "available")
+
+
 def _media_models():
-    """Image and video models from the central capability registry, with
-    whether the provider of each image model is configured."""
-    try:
-        image_ids = {str(m.get("id")) for m in (get_image_capabilities().get("models") or []) if isinstance(m, dict)}
-    except Exception:
-        image_ids = set()
+    """Image and video models from the central capability registry - the
+    same models the apps generate with - each with its state: turned off in
+    Models, its provider's keys missing, or available."""
     labels = {}
     try:
         for m in get_image_capabilities().get("models") or []:
@@ -14827,9 +14847,10 @@ def _media_models():
                 labels[str(m["id"])] = str(m["label"])
     except Exception:
         pass
+    registry = model_control_registry()
     return media_blocks_service.model_catalog(
-        model_capabilities_service.serialize_capabilities(), seedream=SEEDREAM_MODEL_CAPABILITIES,
-        image_available=image_ids or None, labels=labels)
+        model_capabilities_service.serialize_capabilities(), seedream=SEEDREAM_MODEL_CAPABILITIES, labels=labels,
+        providers={k: v["provider"] for k, v in registry.items()}, status=_media_model_states(registry))
 
 
 def _media_block_cost(block):
@@ -14923,9 +14944,10 @@ def _media_blocks_changed():
 async def _media_block_views_safe():
     try:
         views = await asyncio.to_thread(_media_block_views)
-        # A block whose model an admin turned off stays listed but cannot run.
-        disabled = await asyncio.to_thread(_disabled_model_ids)
-        return [dict(v, available=model_control.norm(v.get("model")) not in disabled) for v in views]
+        # A block whose model cannot generate now (turned off in Models, its
+        # provider's keys missing) stays listed but cannot run.
+        states = await asyncio.to_thread(_media_model_states)
+        return [dict(v, available=model_control.norm(v.get("model")) not in states) for v in views]
     except Exception as exc:
         prostudio_error("MEDIA_BLOCKS_LOAD_FAILED", exc)
         return []
@@ -14964,6 +14986,13 @@ async def public_media_block_generate(block_id: int, request: Request):
     block = await asyncio.to_thread(load)
     if not block or not block.get("published") or not block.get("block_type"):
         return JSONResponse({"ok": False, "error": "media_block_not_found"}, status_code=404)
+    # The block runs on the model its admin chose, or not at all - never on
+    # another model in its place.
+    model_state = await asyncio.to_thread(_media_model_state, block.get("model"))
+    if model_state == "turned_off":
+        return JSONResponse({"ok": False, "error": "model_disabled", "model": block.get("model")}, status_code=409)
+    if model_state != "available":
+        return JSONResponse({"ok": False, "error": "model_unavailable", "model": block.get("model")}, status_code=503)
     # The admin's own media is SYLVEX's: sign it fresh for the provider.
     block = dict(block, preview_url=media_sign_url(block.get("preview_url") or ""),
                  source_url=media_sign_url(block.get("source_url") or ""),
@@ -27798,6 +27827,9 @@ async def public_prostudio_generate(request: Request):
             "subscription_required": True,
             "error": "prostudio_subscription_required",
             "message": "Pro Studio доступна после активации подписки.",
+            # The paywall window offers plans to an empty balance and a plan
+            # (credits kept) to one with credits left; access is unchanged.
+            "balance": int(user_state.get("balance") or 0),
             "shop_url": SHOP_WEBAPP_URL,
         }, status_code=403)
     if mode == "image" and is_edit_workspace_request(payload):

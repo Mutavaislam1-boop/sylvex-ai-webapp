@@ -24981,6 +24981,27 @@ async function waitGenerationJob(jobId, options) {
     switchView('shop');
   }
 
+  // Paywall window (js/paywall.js, shared with the website): a generation
+  // refused for lack of a subscription or credits opens it, wherever it was
+  // started (home, Pro Studio, Grid, Edit, tools). Its plans and packages
+  // lead into this Store - Stars inside Telegram, cards in a browser.
+  function initGenerationPaywall() {
+    const paywall = window.SylvexPaywall;
+    if (!paywall) return;
+    paywall.configure({
+      lang: () => (uiLang() === 'ru' ? 'ru' : 'en'),
+      price: (plan) => (isBrowserApp() ? '$' + plan.monthlyUsd : storeStarsFor(plan.monthlyUsd * 100).toLocaleString('ru-RU') + ' ⭐'),
+      onPlan: (planId) => {
+        const productId = 'plan_' + planId + '_month';
+        switchView('shop');
+        switchShopTab('subscriptions');
+        if (isBrowserApp()) Promise.resolve(loadBrowserStoreConfig()).then(() => openStoreProduct(productId));
+        else openStoreFor(productId);
+      },
+      onCredits: () => { switchView('shop'); switchShopTab('tokens'); },
+    });
+  }
+
   /* ===== Shop: buy flow ===== */
   let pendingPack = null;
   function resetPayPalSubscriptionPanel() {
@@ -31461,6 +31482,7 @@ async function waitGenerationJob(jobId, options) {
     // Restore saved theme.
     restoreAppTheme();
     mountStoreCards();
+    initGenerationPaywall();
 
     const initialShareId = shareStartId();
     if (initialShareId) {
@@ -31824,6 +31846,8 @@ async function waitGenerationJob(jobId, options) {
     window.SylvexStudioBridge = {
       warm:()=>{}, isGuest:()=>isBrowserGuest(), accountOwner:()=>localAccountStorageOwner(), upload:file=>uploadProStudioMediaFile(file,'image'),
       pick:kind=>openCatalogReferencePicker(kind),
+      // An Admin Console Media block runs in its own window with its saved model.
+      openBlock:block=>openMediaBlock(block),
       openStudio:request=>openMediaHandoff(request),
       generate:(request,handlers)=>new Promise((resolve,reject)=>{
         let jobId='';
@@ -31836,7 +31860,7 @@ async function waitGenerationJob(jobId, options) {
       }),
     };
     const load=src=>new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});
-    load('js/media.js?v=catalog-v1-20261030d').then(()=>load('js/media-page.js?v=catalog-v1-20261030d')).catch(()=>toast('Could not load Media'));
+    load('js/media.js?v=media-fix-20261030').then(()=>load('js/media-page.js?v=media-fix-20261030')).catch(()=>toast('Could not load Media'));
   };
 
   S.openVideoTemplatesCatalog = openVideoTemplatesCatalog;

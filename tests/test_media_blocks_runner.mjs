@@ -22,7 +22,7 @@ function load() {
 
 test('the module and its stylesheet are loaded before the Mini App code', () => {
   assert.match(index, /<link rel="stylesheet" href="css\/media-blocks\.css\?v=media-c-20261029" \/>/);
-  assert.match(index, /<script src="js\/media-blocks\.js\?v=media-c-20261029"><\/script>\n<script src="js\/cabinet\.js/);
+  assert.match(index, /<script src="js\/media-blocks\.js\?v=media-fix-20261030"><\/script>\n<script src="js\/cabinet\.js/);
 });
 
 test('catalog items with a block open the block window', () => {
@@ -57,4 +57,37 @@ test('helpers: the block of an item and the result of a job', () => {
 
 test('without the network the block list is empty, not an error', async () => {
   assert.deepEqual(Array.from(await load().list('ai_tools')), []);
+});
+
+// The Mini App's own Media page (js/media.js + js/media-page.js, loaded by
+// cabinet.js) once had no block support: an admin's photo block opened as a
+// plain catalog photo, which always runs on GPT Image 2. It now carries the
+// block and opens it in the block window with the block's own model.
+test("the Mini App's Media page opens a block instead of the GPT Image catalog flow", () => {
+  const media = read('js/media.js');
+  const page = read('js/media-page.js');
+  const site = (path) => { try { return readFileSync(new URL('../../sylvex-website/' + path, import.meta.url), 'utf8'); } catch { return null; } };
+  for (const kind of ['video_styles', 'image_styles', 'photo_references']) {
+    assert.match(media, new RegExp("push\\(item\\('" + kind + "'[^\\n]*block: [a-z]+\\.media_block"));
+  }
+  assert.match(media, /if \(entry && entry\.block\) return 'media_block';/);
+  assert.match(page, /if \(entry\.block\) \{ openBlock\(entry\.block\); return; \}/);
+  assert.match(page, /bridge && typeof bridge\.openBlock === 'function'\) \{ bridge\.openBlock\(block\); return; \}/);
+  assert.match(cabinet, /openBlock:block=>openMediaBlock\(block\),/);
+  assert.match(cabinet, /load\('js\/media\.js\?v=media-fix-20261030'\)\.then\(\(\)=>load\('js\/media-page\.js\?v=media-fix-20261030'\)\)/);
+  // One file for both apps.
+  if (site('js/media.js')) {
+    assert.equal(media, site('js/media.js'));
+    assert.equal(page, site('js/media-page.js'));
+  }
+});
+
+test('an item of the shared data layer keeps its block', () => {
+  const context = { window: {} };
+  context.window = context;
+  vm.createContext(context);
+  vm.runInContext(read('js/media.js'), context);
+  const M = context.SYLVEX_MEDIA;
+  assert.equal(M.generationKind({ category: 'photo_references', sourceId: 'media_block_7', block: { id: 7, model: 'seedream_4_5' } }), 'media_block');
+  assert.equal(M.generationKind({ category: 'photo_references', sourceId: 'quick_1' }), 'image');
 });

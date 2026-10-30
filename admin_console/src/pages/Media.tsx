@@ -23,7 +23,7 @@ type Block = {
 };
 type Model = {
   id: string; label: string; generation: "image" | "video"; provider: string; accepts_images: boolean; max_images: number;
-  accepts_video: boolean; start_frame: boolean; ratios: string[]; durations: number[]; resolutions: string[]; available: boolean | null;
+  accepts_video: boolean; start_frame: boolean; ratios: string[]; durations: number[]; resolutions: string[]; status: "available" | "turned_off" | "no_keys"; available: boolean;
 };
 type Placement = { id: string; en: string; ru: string; types: BlockType[] };
 type Catalog = { models: Model[]; placements: Placement[]; max_fields: number };
@@ -67,6 +67,7 @@ const PROBLEMS: Record<string, string> = {
   model_no_start_frame: "The model has no start frame input.",
   placement_required: "Choose where to publish the block.",
   model_disabled: "This model is turned off in Models. Choose another one or turn it back on.",
+  model_no_keys: "The keys of this model's provider are not set on the server, so it cannot generate yet.",
 };
 
 const DEFAULT_PLACEMENT = { tool: "ai_tools", video: "video_styles", photo: "photo_references", style: "image_styles" };
@@ -220,6 +221,14 @@ function FieldBuilder({ fields, max, generation, model, onChange }: {
   );
 }
 
+// Every model here is one SYLVEX already generates with; only Models turning
+// it off, or its provider's keys missing on the server, make it unavailable.
+const MODEL_STATUS: Record<string, string> = {
+  available: "Available",
+  turned_off: "Turned off in Models",
+  no_keys: "Provider keys missing",
+};
+
 function ModelInfo({ model }: { model: Model }) {
   const facts = [
     model.accepts_images ? t("up to {n} images", { n: model.max_images }) : t("no image input"),
@@ -231,9 +240,7 @@ function ModelInfo({ model }: { model: Model }) {
   ].filter(Boolean);
   return (
     <div className="row small">
-      <span className={`badge ${model.available === false ? "bad" : model.available ? "good" : ""}`}>
-        {model.available === false ? t("Provider not configured") : model.available ? t("Available") : t("No data on availability")}
-      </span>
+      <span className={`badge ${model.available ? "good" : "bad"}`}>{t(MODEL_STATUS[model.status])}</span>
       <span className="muted">{facts.join(" · ")}</span>
     </div>
   );
@@ -344,7 +351,7 @@ function Editor({ initial, catalog, onClose, onSaved }: { initial: Block; catalo
           <label className="field">{t("Model")}
             <select value={b.model} onChange={(e) => set({ model: e.target.value })}>
               <option value="">{t("Choose a model")}</option>
-              {models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.available === false ? ` (${t("not configured")})` : ""}</option>)}
+              {models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.available ? "" : ` (${t(MODEL_STATUS[m.status])})`}</option>)}
             </select>
           </label>
           {model && <ModelInfo model={model} />}

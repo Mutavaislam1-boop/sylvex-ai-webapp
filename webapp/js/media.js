@@ -12,6 +12,9 @@
  *   tool examples     GET /api/public/prostudio/photo-tool-demos
  *   references        GET /api/public/prostudio/references (published by admins;
  *                     category "featured"/"trending" feeds the moving row)
+ *   Media blocks      published from the Admin Console's Media constructor,
+ *                     inside the video template and photo catalogs above
+ *                     (`media_block` on the item)
  *
  * Characters and Objects are deliberately left out of this page.
  */
@@ -77,6 +80,9 @@
       image: fields.image || '',
       video: fields.video || '',
       ratio: fields.ratio || 0,
+      // A Media block built in the Admin Console opens its own window
+      // (js/media-blocks.js) with the upload fields its admin set up.
+      block: fields.block || null,
     };
   }
 
@@ -90,17 +96,17 @@
     ((s.videoTemplates && s.videoTemplates.templates) || []).forEach(function (t) {
       var video = t.preview_exists === false ? '' : absolute(base, t.preview_video || t.reference_video);
       var poster = t.poster_exists === false ? '' : absolute(base, t.poster_url);
-      push(item('video_styles', { id: t.id, title: t.title || t.name, description: t.description, video: video, image: poster, ratio: ratio(t.aspect_ratio), aspect: t.aspect_ratio, cost: t.cost_credits || t.cost }));
+      push(item('video_styles', { id: t.id, title: t.title || t.name, description: t.description, video: video, image: poster, ratio: ratio(t.aspect_ratio), aspect: t.aspect_ratio, cost: t.cost_credits || t.cost, block: t.media_block }));
     });
     ((s.videoEffects && s.videoEffects.effects) || []).forEach(function (e) {
       push(item('video_effects', { id: e.id || e.effect_scene, title: e.title || e.name, description: e.description, video: absolute(base, e.preview_video), image: absolute(base, e.poster_url), ratio: ratio(e.aspect_ratio), aspect: e.aspect_ratio, cost: e.cost_credits || e.cost }));
     });
     var quick = (s.quickImage && s.quickImage.catalog) || {};
     (quick.styles || []).forEach(function (q) {
-      push(item('image_styles', { id: q.id, title: q.title, description: q.description, image: absolute(base, q.image_url) }));
+      push(item('image_styles', { id: q.id, title: q.title, description: q.description, image: absolute(base, q.image_url), block: q.media_block }));
     });
     (quick.references || []).concat(quick.popular_references || []).forEach(function (q) {
-      push(item('photo_references', { id: q.id, title: q.title, description: q.description, image: absolute(base, q.image_url) }));
+      push(item('photo_references', { id: q.id, title: q.title, description: q.description, image: absolute(base, q.image_url), block: q.media_block }));
     });
     ((s.photoCatalog && s.photoCatalog.photos) || []).forEach(function (p) {
       push(item('catalog_photos', { id: p.id, title: p.title, description: p.description, image: absolute(base, p.image_url), ratio: ratio(p.aspect_ratio), prompt: p.prompt }));
@@ -169,6 +175,7 @@
     catalog_photos: 'image_reference', references: 'image_reference', tool_examples: 'tool',
   };
   function generationKind(entry) {
+    if (entry && entry.block) return 'media_block';
     if (entry && entry.category === 'photo_references' && /^ref/.test(entry.sourceId)) return 'image_reference';
     return GENERATION_KINDS[entry && entry.category] || 'image';
   }

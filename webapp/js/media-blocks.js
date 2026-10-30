@@ -30,6 +30,8 @@
       missing: 'Add the files marked as required.', balance: 'Not enough credits for this generation.', topUp: 'Top up',
       signIn: 'Sign in to upload files and generate.', signInAction: 'Sign in', subscription: 'Generation is available with a subscription.', plans: 'See plans', unavailable: 'This block is not available any more.', wrongType: 'This field takes a {kind}.',
       download: 'Open result', again: 'Generate again', modelOff: 'This block is temporarily unavailable: its AI model is turned off.',
+      blockPaused: 'This block is temporarily unavailable: its AI model cannot generate right now.',
+      modelUnavailable: 'This block is temporarily unavailable: its AI model cannot generate right now. Nothing was charged.',
     },
     ru: {
       generate: 'Сгенерировать', generating: 'Генерация…', upload: 'Загрузить', photo: 'Фото', video: 'Видео', required: 'обязательно',
@@ -39,6 +41,8 @@
       missing: 'Добавьте обязательные файлы.', balance: 'Недостаточно токенов для генерации.', topUp: 'Пополнить',
       signIn: 'Войдите, чтобы загружать файлы и генерировать.', signInAction: 'Войти', subscription: 'Генерация доступна с подпиской.', plans: 'Тарифы', unavailable: 'Этот блок больше недоступен.', wrongType: 'В это поле нужно {kind}.',
       download: 'Открыть результат', again: 'Сгенерировать ещё', modelOff: 'Блок временно недоступен: его AI-модель отключена.',
+      blockPaused: 'Блок временно недоступен: его AI-модель сейчас не может генерировать.',
+      modelUnavailable: 'Блок временно недоступен: его AI-модель сейчас не может генерировать. Токены не списаны.',
     },
   };
   var VIDEO_URL = /\.(mp4|webm|mov|m4v)(\?|#|$)/i;
@@ -152,7 +156,7 @@
     node.querySelector('#sxmbText').hidden = !block.description;
     renderMedia();
     renderFields();
-    setStatus(block.available === false ? say('modelOff') : '', block.available === false ? 'error' : '');
+    setStatus(block.available === false ? say('blockPaused') : '', block.available === false ? 'error' : '');
     node.hidden = false;
     document.documentElement.classList.add('sxmb-open');
   }
@@ -286,6 +290,7 @@
       }
       if (r.status === 404) throw new Error(say('unavailable'));
       if (body.error === 'model_disabled') throw new Error(say('modelOff'));
+      if (body.error === 'model_unavailable') throw new Error(say('modelUnavailable'));
       if (body.error === 'upload_required') throw new Error(say('missing'));
       if (!r.ok || !body.job_id) throw new Error(humanError(body, say('failed')));
       return wait(current, body.job_id);

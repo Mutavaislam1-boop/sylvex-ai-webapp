@@ -115,11 +115,26 @@ def test_model_catalog_reads_the_registry():
         "avatar_x": {"category": "video", "avatar": True},
         "suno": {"category": "music"},
     }
-    cat = {m["id"]: m for m in mb.model_catalog(caps, seedream={"seedream_5_0": {"max_references": 10}}, image_available={"seedream_5_0"})}
+    cat = {m["id"]: m for m in mb.model_catalog(caps, seedream={"seedream_5_0": {"max_references": 10}},
+                                                 providers={"seedream_5_0": "bytedance"}, status={"imagen_4_fast": "no_keys"})}
     assert set(cat) == {"seedream_5_0", "imagen_4_fast", "kling_o3_omni"}
-    assert cat["seedream_5_0"]["max_images"] == 10 and cat["seedream_5_0"]["available"] is True
-    assert cat["imagen_4_fast"]["accepts_images"] is False and cat["imagen_4_fast"]["available"] is False
+    assert cat["seedream_5_0"]["max_images"] == 10 and cat["seedream_5_0"]["provider"] == "bytedance"
+    assert cat["imagen_4_fast"]["accepts_images"] is False
     assert cat["kling_o3_omni"]["accepts_video"] and cat["kling_o3_omni"]["label"] == "Kling O3 Omni"
+    # A registry model is available unless it is known not to be.
+    assert (cat["seedream_5_0"]["status"], cat["seedream_5_0"]["available"]) == ("available", True)
+    assert (cat["kling_o3_omni"]["status"], cat["kling_o3_omni"]["available"]) == ("available", True)
+    assert (cat["imagen_4_fast"]["status"], cat["imagen_4_fast"]["available"]) == ("no_keys", False)
+
+
+def test_a_model_with_missing_keys_keeps_a_block_from_publishing():
+    caps = {"seedream_4_5": {"category": "image", "character": {"visual_reference": {"visual_mode": "real_multi_image"}}}}
+    block = {"name": "x", "preview_url": "/p.png", "model": "seedream_4_5", "block_type": "style", "prompt": "p",
+             "config": {"generation": "image", "placements": ["image_styles"],
+                        "fields": [{"key": "photo", "label": "Photo", "accept": "image", "required": True}]}}
+    ok = mb.model_catalog(caps)
+    assert ("model_no_keys", "seedream_4_5") not in mb.problems(block, ok)
+    assert ("model_no_keys", "seedream_4_5") in mb.problems(block, mb.model_catalog(caps, status={"seedream_4_5": "no_keys"}))
 
 
 # --- through the API ---------------------------------------------------------
@@ -137,6 +152,9 @@ def world(ready, monkeypatch):
     monkeypatch.setattr(env.main, "REFERENCES_SCHEMA_READY", False)
     monkeypatch.setitem(env.main.MEDIA_BLOCK_VIEWS_CACHE, "value", None)
     monkeypatch.setattr(env.main, "_media_models", lambda: MODELS)
+    monkeypatch.setitem(env.main.MODEL_STATES_CACHE, "value", None)
+    # The block's model (seedream_5_0) is BytePlus's; its key is set.
+    monkeypatch.setenv("BYTEPLUS_ARK_API_KEY", "test-key")
     priced = []
     monkeypatch.setattr(env.main, "calculate_generation_price",
                         lambda payload: priced.append(payload) or {"credits": 30, "pricing_available": True})
@@ -218,3 +236,27 @@ async def test_catalog_lists_registry_models_and_places(world):
     assert {m["id"] for m in data["models"]} == {m["id"] for m in MODELS}
     assert {p["id"] for p in data["placements"]} >= {"ai_tools", "video_styles", "photo_references", "image_styles"}
     assert data["ref_modes"] == ["A", "B", "C"]
+
+
+@pglite
+@pytest.mark.asyncio
+async def test_a_block_whose_model_cannot_generate_says_so(world, monkeypatch):
+    """No other model runs in its place, and nothing is started or charged."""
+    env = world
+    item = (await admin(env, "/api/admin/references/create", DRAFT)).json()["item"]
+    assert (await admin(env, "/api/admin/references/publish", {"id": item["id"], "published": True})).status_code == 200
+    headers = {"X-Telegram-Init-Data": init_data(USER_TG)}
+    body = {"uploads": {"me": "https://images.example/me.png"}}
+    for name in ("BYTEPLUS_ARK_API_KEY", "BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "ARK_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    r = await call(env, "POST", f"/api/public/media-blocks/{item['id']}/generate", origin=None, headers=headers, json_body=body)
+    assert r.status_code == 503 and r.json()["error"] == "model_unavailable" and r.json()["model"] == "seedream_5_0"
+    # The catalogs show it as unavailable.
+    items = (await call(env, "GET", "/api/public/media-blocks", origin=None)).json()["items"]
+    assert items[0]["available"] is False
+    monkeypatch.setenv("BYTEPLUS_ARK_API_KEY", "test-key")
+    monkeypatch.setitem(env.main.MODEL_STATES_CACHE, "value", {"seedream_5_0": {"reason": "outage"}})
+    monkeypatch.setitem(env.main.MODEL_STATES_CACHE, "expires_at", 1e18)
+    r = await call(env, "POST", f"/api/public/media-blocks/{item['id']}/generate", origin=None, headers=headers, json_body=body)
+    assert r.status_code == 409 and r.json()["error"] == "model_disabled"
+    assert env.runs == []
