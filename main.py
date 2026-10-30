@@ -43,6 +43,9 @@ from services import edit_sessions as edit_sessions_service
 from services import grid_projects as grid_projects_service
 from services import grid_montage as grid_montage_service
 from services import generation_stages
+from services import generation_admin
+from services import usage_analytics
+from services import model_control
 from services import grid_references as grid_references_service
 from services import sylvex_restore as sylvex_restore_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
@@ -5453,7 +5456,9 @@ def release_direct_text_generation(generation_id: str) -> None:
 # результат не влияет.
 # =====================================================
 def record_prostudio_job_stage(job_id: str, stage: str) -> None:
-    if not DATABASE_URL or not job_id or stage not in generation_stages.STAGES:
+    # "result" is recorded for the admin timeline only (the user-facing
+    # progress reads generation_stages.STAGES).
+    if not DATABASE_URL or not job_id or (stage not in generation_stages.STAGES and stage != "result"):
         return
     try:
         with db_connection(DATABASE_URL) as conn:
@@ -12285,40 +12290,83 @@ async def admin_users_online(request: Request):
     return {"ok": True, "items": items}
 
 
+def _admin_period(payload):
+    """(start, end) datetimes of an admin report: last `days` (24h = 1) or
+    an explicit from/to date (inclusive); None for all time."""
+    from datetime import datetime, timedelta
+    end = datetime.utcnow()
+    try:
+        if payload.get("from"):
+            start = datetime.fromisoformat(str(payload["from"])[:10])
+            if payload.get("to"):
+                end = datetime.fromisoformat(str(payload["to"])[:10]) + timedelta(days=1)
+            return start, end
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_period")
+    days = int(payload.get("days") or 0)
+    if days <= 0:
+        return None, end
+    return end - timedelta(days=min(days, 366)), end
+
+
+def _admin_fill_days(rows, payload, keys):
+    """Every day of the report period, with zeros where nothing happened."""
+    from datetime import timedelta
+    start, end = _admin_period(payload)
+    if start is None and rows:
+        from datetime import datetime
+        start = datetime.fromisoformat(rows[0]["day"])
+    if start is None:
+        return rows
+    known = {r["day"]: r for r in rows}
+    out, day = [], start.date()
+    while day < end.date() or (day == end.date() and day.isoformat() in known):
+        out.append(known.get(day.isoformat()) or dict({k: 0 for k in keys}, day=day.isoformat()))
+        day += timedelta(days=1)
+        if len(out) > 400:
+            break
+    return out
+
+
+def _admin_generation_where(cursor, payload, period=True):
+    """WHERE clause shared by the generation list and statistics."""
+    conditions, params = [], []
+    for field in ("mode", "status", "model", "provider"):
+        value = str(payload.get(field) or "").strip()[:80]
+        if value:
+            conditions.append(f"{field}=%s"); params.append(value.lower() if field in ("mode", "status") else value)
+    platform = str(payload.get("platform") or "").strip()[:30]
+    if platform:
+        conditions.append("COALESCE(request_json->>'client_surface','')=%s"); params.append(platform)
+    if payload.get("user_id") or payload.get("sylvex_user_id"):
+        target_id = _admin_resolve_target(cursor, payload)
+        conditions.append("telegram_id=%s"); params.append(target_id or -1)
+    if period:
+        start, end = _admin_period(payload)
+        if start is not None:
+            conditions.append("created_at >= %s::timestamp AND created_at < %s::timestamp"); params += [start.isoformat(), end.isoformat()]
+    return (f"WHERE {' AND '.join(conditions)}" if conditions else ""), params
+
+
 @app.post("/api/admin/generations")
 async def admin_generations(request: Request):
-    """Paginated, filterable generation history across all Pro Studio modes,
-    for the Support Bot's Generations section."""
+    """Paginated, filterable generation history across all Pro Studio modes."""
     payload = await request.json()
 
     def _sync():
         actor = _admin_actor(payload, request, "generations.view")
         ensure_prostudio_table()
-        mode = str(payload.get("mode") or "").strip().lower()[:20]
-        status = str(payload.get("status") or "").strip().lower()[:20]
         limit = max(1, min(int(payload.get("limit") or 30), 100))
         offset = max(0, int(payload.get("offset") or 0))
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
-            target_id = None
-            if payload.get("user_id") or payload.get("sylvex_user_id"):
-                target_id = _admin_resolve_target(cursor, payload)
-                if not target_id:
-                    return [], 0
-            conditions, params = [], []
-            if mode:
-                conditions.append("mode=%s"); params.append(mode)
-            if status:
-                conditions.append("status=%s"); params.append(status)
-            if target_id:
-                conditions.append("telegram_id=%s"); params.append(target_id)
-            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-            cursor.execute(f"SELECT COUNT(*) FROM prostudio_generation_jobs {where}", params)
+            where, params = _admin_generation_where(cursor, payload)
+            cursor.execute(f"SELECT COUNT(*) AS n FROM prostudio_generation_jobs {where}", params)
             total = cursor.fetchone()[0]
             cursor.execute(f"""
                 SELECT id, telegram_id, mode, model, provider, status, cost, prompt, error_json, result_json,
-                       created_at, completed_at
+                       created_at, completed_at, request_json->>'client_surface' AS platform
                 FROM prostudio_generation_jobs {where}
                 ORDER BY created_at DESC LIMIT %s OFFSET %s
             """, params + [limit, offset])
@@ -12329,9 +12377,9 @@ async def admin_generations(request: Request):
                 items.append({
                     "id": r[0], "telegram_id": r[1], "mode": r[2] or "", "model": r[3] or "",
                     "provider": r[4] or "", "status": r[5], "cost": int(r[6] or 0), "prompt": str(r[7] or "")[:300],
-                    "error": str(error_json.get("message") or error_json.get("error") or "")[:500] if error_json else "",
+                    "error": user_generation_error_text(error_json.get("message") or error_json.get("error") or error_json)[:500] if error_json else "",
                     "has_result": bool(result_json),
-                    "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]),
+                    "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]), "platform": r[12] or "",
                 })
             admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
             return items, int(total or 0)
@@ -12341,6 +12389,522 @@ async def admin_generations(request: Request):
 
     items, total = await asyncio.to_thread(_sync)
     return {"ok": True, "items": items, "total": total}
+
+
+@app.post("/api/admin/generations/detail")
+async def admin_generation_detail(request: Request):
+    """One job: the stages it really went through and the technical log
+    (services/generation_admin.py - no keys, tokens or signed URLs)."""
+    payload = await request.json()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "generations.view")
+        ensure_prostudio_table()
+        job_id = str(payload.get("id") or "").strip()[:80]
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, telegram_id, mode, model, provider, status, cost, prompt, request_json, response_json,
+                       error_json, result_json, stage_json, attempts, created_at, completed_at
+                FROM prostudio_generation_jobs WHERE id=%s
+            """, (job_id,))
+            r = cursor.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="generation_not_found")
+            keys = ("id", "telegram_id", "mode", "model", "provider", "status", "cost", "prompt", "request_json",
+                    "response_json", "error_json", "result_json", "stage_json", "attempts", "created_at", "completed_at")
+            job = {k: (_json_obj(v) if k.endswith("_json") else v) for k, v in zip(keys, r)}
+            outbox = {}
+            cursor.execute("SELECT to_regclass('prostudio_media_outbox') IS NOT NULL AS present")
+            if cursor.fetchone()[0]:
+                cursor.execute("SELECT status, attempts, last_error, updated_at FROM prostudio_media_outbox WHERE job_id=%s", (job_id,))
+                o = cursor.fetchone()
+                if o:
+                    outbox = {"status": o[0], "attempts": o[1], "last_error": o[2], "updated_at": o[3]}
+            stages, failed_stage = generation_admin.timeline(job, outbox)
+            log = generation_admin.technical_log(job, outbox, failed_stage)
+            error = job["error_json"] or {}
+            item = {"id": job["id"], "telegram_id": job["telegram_id"], "status": job["status"],
+                    "failed_stage": failed_stage, "stages": stages, "log": log,
+                    "reason": user_generation_error_text(error.get("message") or error.get("error") or error) if error else ""}
+            items = [item]
+            admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
+            return item
+        finally:
+            cursor.close()
+            conn.close()
+
+    return {"ok": True, "item": await asyncio.to_thread(_sync)}
+
+
+@app.post("/api/admin/generations/stats")
+async def admin_generation_stats(request: Request):
+    """Generations and errors for charts: per day, by stage, model,
+    provider and platform, with average durations - filtered by period,
+    user, mode, model, provider and platform."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "generations.view")
+        ensure_prostudio_table()
+        payload.setdefault("days", 30)
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            where, params = _admin_generation_where(cursor, dict(payload, status=""))
+            cursor.execute(f"""
+                SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE status='completed') AS ok,
+                       COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad
+                FROM prostudio_generation_jobs {where} GROUP BY 1 ORDER BY 1
+            """, params)
+            days = _admin_fill_days([{"day": r[0], "total": int(r[1]), "completed": int(r[2]), "failed": int(r[3])}
+                                     for r in cursor.fetchall()], payload, ("total", "completed", "failed"))
+
+            def grouped(column):
+                cursor.execute(f"""
+                    SELECT COALESCE(NULLIF({column}, ''), '—') AS k, COUNT(*) AS total,
+                           COUNT(*) FILTER (WHERE status='completed') AS ok,
+                           COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad,
+                           AVG(EXTRACT(EPOCH FROM (completed_at - created_at))) FILTER (WHERE status='completed') AS secs
+                    FROM prostudio_generation_jobs {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 30
+                """, params)
+                return [{"key": r[0], "total": int(r[1]), "completed": int(r[2]), "failed": int(r[3]),
+                         "avg_seconds": round(float(r[4]), 1) if r[4] is not None else None} for r in cursor.fetchall()]
+
+            by_model, by_provider, by_mode = grouped("model"), grouped("provider"), grouped("mode")
+            by_platform = grouped("request_json->>'client_surface'")
+            # Stage durations and the stage each failure stopped at.
+            cursor.execute(f"""
+                SELECT status, mode, stage_json, result_json, created_at, completed_at
+                FROM prostudio_generation_jobs {where} ORDER BY created_at DESC LIMIT 5000
+            """, params)
+            stage_totals, stage_counts, failed_at = {}, {}, {}
+            for status, mode, stage_json, result_json, created_at, completed_at in cursor.fetchall():
+                job = {"status": status, "mode": mode, "stage_json": _json_obj(stage_json), "result_json": _json_obj(result_json),
+                       "created_at": created_at, "completed_at": completed_at}
+                rows, failed_stage = generation_admin.timeline(job)
+                if failed_stage:
+                    failed_at[failed_stage] = failed_at.get(failed_stage, 0) + 1
+                for row in rows:
+                    if row["seconds"] is not None and row["state"] == "done":
+                        stage_totals[row["key"]] = stage_totals.get(row["key"], 0) + row["seconds"]
+                        stage_counts[row["key"]] = stage_counts.get(row["key"], 0) + 1
+            total = sum(d["total"] for d in days)
+            completed = sum(d["completed"] for d in days)
+            failed = sum(d["failed"] for d in days)
+            durations = [m["avg_seconds"] * m["completed"] for m in by_mode if m["avg_seconds"] is not None]
+            return {
+                "total": total, "completed": completed, "failed": failed,
+                "avg_seconds": round(sum(durations) / completed, 1) if completed and durations else None,
+                "days": days, "by_model": by_model, "by_provider": by_provider, "by_mode": by_mode, "by_platform": by_platform,
+                "failed_by_stage": [{"key": k, "count": failed_at.get(k, 0)} for k in generation_admin.STAGES if failed_at.get(k)],
+                "stage_seconds": [{"key": k, "avg_seconds": round(stage_totals[k] / stage_counts[k], 2)}
+                                  for k in generation_admin.STAGES if stage_counts.get(k)],
+            }
+        finally:
+            cursor.close()
+            conn.close()
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+# ---------- Models and providers (services/model_control.py) ----------
+
+MODEL_STATES_CACHE = {"value": None, "expires_at": 0.0}
+
+
+def _model_states():
+    """{model id: {reason, since}} of models turned off, kept a few seconds."""
+    now = time.time()
+    if MODEL_STATES_CACHE["value"] is not None and now < MODEL_STATES_CACHE["expires_at"]:
+        return MODEL_STATES_CACHE["value"]
+    states = {}
+    if DATABASE_URL:
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            model_control.ensure_table(cursor)
+            conn.commit()
+            states = model_control.disabled_models(cursor)
+        finally:
+            cursor.close()
+            conn.close()
+    MODEL_STATES_CACHE.update(value=states, expires_at=now + 20)
+    return states
+
+
+def _disabled_model_ids():
+    try:
+        return set(_model_states())
+    except Exception as exc:
+        prostudio_error("MODEL_STATES_READ_FAILED", exc)
+        return set()
+
+
+@app.get("/api/public/models/status")
+async def public_models_status():
+    """Models currently turned off, so the apps can show them as unavailable."""
+    return {"ok": True, "disabled": sorted(await asyncio.to_thread(_disabled_model_ids))}
+
+
+@app.post("/api/admin/models/overview")
+async def admin_models_overview(request: Request):
+    """Every model of the capability registry with its on/off state and its
+    real results for the period, and every provider with its state - "no
+    data" when nothing is known, never an assumed "available"."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "models.view")
+        ensure_prostudio_table()
+        payload.setdefault("days", 7)
+        start, end = _admin_period(payload)
+        from datetime import datetime
+        start = start or datetime(2000, 1, 1)
+        states = _model_states()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT model, provider, COUNT(*) AS runs, COUNT(*) FILTER (WHERE status = 'completed') AS ok,
+                       COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad,
+                       AVG(EXTRACT(EPOCH FROM (completed_at - created_at))) FILTER (WHERE status = 'completed') AS secs,
+                       SUM(COALESCE((request_json->'price_snapshot'->>'provider_and_model_credits')::numeric, 0)) FILTER (WHERE status = 'completed') AS credits,
+                       MAX(created_at) FILTER (WHERE status = 'completed') AS last_ok,
+                       MAX(created_at) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS last_bad
+                FROM prostudio_generation_jobs WHERE created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1, 2
+            """, (start.isoformat(), end.isoformat()))
+            usage = cursor.fetchall()
+            cursor.execute("""
+                SELECT model_id, disabled, reason, updated_at FROM model_states
+            """)
+            changed = {r[0]: {"disabled": bool(r[1]), "reason": r[2] or "", "updated_at": _to_iso(r[3])} for r in cursor.fetchall()}
+        finally:
+            cursor.close()
+            conn.close()
+        caps = model_control_registry()
+        by_model = {}
+        for model, provider, runs, ok, bad, secs, credits, last_ok, last_bad in usage:
+            key = model_control.norm(model or "—")
+            m = by_model.setdefault(key, {"runs": 0, "completed": 0, "failed": 0, "secs": [], "credits": 0.0, "providers": set(),
+                                          "last_ok": None, "last_bad": None})
+            m["runs"] += int(runs); m["completed"] += int(ok); m["failed"] += int(bad)
+            if secs is not None:
+                m["secs"].append((float(secs), int(ok)))
+            m["credits"] += float(credits or 0)
+            if provider:
+                m["providers"].add(provider)
+            m["last_ok"] = max(filter(None, [m["last_ok"], last_ok]), default=None)
+            m["last_bad"] = max(filter(None, [m["last_bad"], last_bad]), default=None)
+
+        def avg(pairs):
+            weight = sum(w for _, w in pairs)
+            return round(sum(v * w for v, w in pairs) / weight, 1) if weight else None
+
+        models = []
+        for key in sorted(set(caps) | {k for k in by_model if k != "—"}):
+            cap = caps.get(key, {})
+            u = by_model.get(key, {})
+            provider = cap.get("provider") or (sorted(u.get("providers") or [""])[0])
+            models.append({
+                "id": key, "label": cap.get("label") or key, "category": cap.get("category") or "", "provider": provider,
+                "in_registry": key in caps, "disabled": key in states, "reason": (states.get(key) or {}).get("reason", ""),
+                "changed_at": (changed.get(key) or {}).get("updated_at"),
+                "runs": u.get("runs", 0), "completed": u.get("completed", 0), "failed": u.get("failed", 0),
+                "avg_seconds": avg(u.get("secs", [])),
+            })
+        providers = {}
+        for m in models:
+            p = m["provider"] or "—"
+            entry = providers.setdefault(p, {"key": p, "runs": 0, "completed": 0, "failed": 0, "secs": [], "credits": 0.0,
+                                             "models": [], "last_ok": None, "last_bad": None})
+            u = by_model.get(m["id"], {})
+            entry["runs"] += m["runs"]; entry["completed"] += m["completed"]; entry["failed"] += m["failed"]
+            entry["secs"] += u.get("secs", []); entry["credits"] += u.get("credits", 0.0)
+            if m["runs"]:
+                entry["models"].append(m["id"])
+            entry["last_ok"] = max(filter(None, [entry["last_ok"], u.get("last_ok")]), default=None)
+            entry["last_bad"] = max(filter(None, [entry["last_bad"], u.get("last_bad")]), default=None)
+        provider_rows = []
+        for p in sorted(providers.values(), key=lambda x: (-x["runs"], x["key"])):
+            is_configured = model_control.configured(p["key"])
+            provider_rows.append({
+                "key": p["key"], "configured": is_configured,
+                "state": model_control.provider_state(is_configured, p["runs"], p["completed"], p["failed"]),
+                "runs": p["runs"], "completed": p["completed"], "failed": p["failed"], "avg_seconds": avg(p["secs"]),
+                # Estimated from the tariff: the SYLVEX rule is credits = cost x 1.5 x 100.
+                "cost_usd_estimate": round(p["credits"] / model_control.CREDITS_PER_USD, 2) if p["credits"] else 0,
+                "models": p["models"], "last_success": _to_iso(p["last_ok"]), "last_error": _to_iso(p["last_bad"]),
+            })
+        return {"models": models, "providers": provider_rows}
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+def model_control_registry():
+    """{normalized id: {label, category, provider}} from the capability
+    registry (image, video, music, voice and text models)."""
+    out = {}
+    for model_id, cap in (model_capabilities_service.serialize_capabilities() or {}).items():
+        if cap.get("avatar"):
+            continue
+        provider = cap.get("provider") or ""
+        if not provider and cap.get("category") == "image":
+            try:
+                provider = str(image_provider_mapping(model_id).get("provider") or "")
+            except Exception:
+                provider = ""
+        out[model_control.norm(model_id)] = {"label": cap.get("label") or media_blocks_service._label(model_id),
+                                              "category": cap.get("category") or "", "provider": provider}
+    return out
+
+
+@app.post("/api/admin/models/toggle")
+async def admin_models_toggle(request: Request):
+    """Turn a model off for user generations, or back on (models.edit; the
+    reason goes to the audit log). Nothing else about the model changes."""
+    payload = await request.json()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "models.edit")
+        model_id = model_control.norm(payload.get("model"))
+        if not model_id:
+            raise HTTPException(status_code=400, detail="model_required")
+        disabled = bool(payload.get("disabled"))
+        reason = str(payload.get("reason") or "").strip()[:500]
+        if disabled and not reason:
+            raise HTTPException(status_code=400, detail="reason_required")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            model_control.ensure_table(cursor)
+            before = model_control.disabled_models(cursor).get(model_id)
+            model_control.set_disabled(cursor, model_id, disabled, reason, actor.get("telegram_id"))
+            _admin_audit(cursor, actor, "model_disabled" if disabled else "model_enabled", 0,
+                         {"model": model_id, "disabled": bool(before)}, {"model": model_id, "disabled": disabled}, reason,
+                         risk="critical")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+        MODEL_STATES_CACHE.update(value=None, expires_at=0.0)
+        _media_blocks_changed()
+        return {"model": model_id, "disabled": disabled}
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
+
+
+# ---------- Usage analytics (services/usage_analytics.py) ----------
+
+ANALYTICS_SCHEMA_READY = False
+
+
+def ensure_analytics_table():
+    global ANALYTICS_SCHEMA_READY
+    if ANALYTICS_SCHEMA_READY or not DATABASE_URL:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        usage_analytics.ensure_table(cursor)
+        conn.commit()
+        ANALYTICS_SCHEMA_READY = True
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/public/analytics/events")
+async def public_analytics_events(request: Request):
+    """Usage events from the apps (js/analytics.js) - ids and counts only."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    visitor, surface, events = usage_analytics.clean_batch(body)
+    if not DATABASE_URL or not visitor or not surface or not events:
+        return {"ok": True, "stored": 0}
+
+    def _sync():
+        ensure_analytics_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            usage_analytics.record(cursor, visitor, surface, events)
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    try:
+        await asyncio.to_thread(_sync)
+    except Exception as exc:
+        prostudio_error("ANALYTICS_RECORD_FAILED", exc)
+        return {"ok": False, "stored": 0}
+    return {"ok": True, "stored": len(events)}
+
+
+# The item a generation was made with: a Media block, a photo tool or a
+# video template - the same ids the apps send with tool_open / item_select.
+_JOB_ITEM_SQL = ("COALESCE('block:' || (request_json->>'media_block_id'), NULLIF(request_json->'image_options'->>'photo_tool', ''), "
+                 "NULLIF(request_json->'video_options'->'video_template'->>'id', ''))")
+
+
+@app.post("/api/admin/analytics")
+async def admin_analytics(request: Request):
+    """How SYLVEX is used: sections (opens, visitors, time spent), models,
+    tools / styles / templates / references, the funnel, returns,
+    transitions - per platform, never mixing them."""
+    payload = await request.json()
+
+    def _sync():
+        _admin_actor(payload, request, "analytics.view")
+        ensure_analytics_table()
+        ensure_prostudio_table()
+        payload.setdefault("days", 7)
+        start, end = _admin_period(payload)
+        from datetime import datetime
+        start = start or datetime(2000, 1, 1)
+        surface = str(payload.get("platform") or "").strip()[:30]
+        section = str(payload.get("section") or "").strip()[:40]
+        item = str(payload.get("item") or "").strip()[:64]
+        model = str(payload.get("model") or "").strip()[:64]
+        ev, ev_params = ["at >= %s::timestamp", "at < %s::timestamp"], [start.isoformat(), end.isoformat()]
+        if surface:
+            ev.append("surface = %s"); ev_params.append(surface)
+        if section:
+            ev.append("section = %s"); ev_params.append(section)
+        jobs, job_params = ["created_at >= %s::timestamp", "created_at < %s::timestamp"], [start.isoformat(), end.isoformat()]
+        if surface:
+            jobs.append("COALESCE(request_json->>'client_surface', '') = %s"); job_params.append(surface)
+        if model:
+            jobs.append("model = %s"); job_params.append(model)
+        if item:
+            jobs.append(f"{_JOB_ITEM_SQL} = %s"); job_params.append(item)
+        ev_where, job_where = " AND ".join(ev), " AND ".join(jobs)
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            def rows(sql, params):
+                cursor.execute(sql, params)
+                return cursor.fetchall()
+
+            sections = [{"key": r[0], "opens": int(r[1]), "visitors": int(r[2]),
+                         "avg_seconds": round(float(r[3]) / 1000, 1) if r[3] is not None else None}
+                        for r in rows(f"""
+                SELECT o.section AS section, o.opens AS opens, o.visitors AS visitors, l.avg_ms AS avg_ms FROM
+                  (SELECT section, COUNT(*) AS opens, COUNT(DISTINCT visitor) AS visitors FROM analytics_events
+                   WHERE event = 'section_open' AND {ev_where} GROUP BY section) o
+                LEFT JOIN (SELECT section, AVG(duration_ms) AS avg_ms FROM analytics_events
+                   WHERE event = 'section_leave' AND duration_ms > 0 AND {ev_where} GROUP BY section) l ON l.section = o.section
+                ORDER BY o.opens DESC LIMIT 40
+            """, ev_params + ev_params)]
+            platforms = [{"key": r[0], "opens": int(r[1]), "visitors": int(r[2])} for r in rows(f"""
+                SELECT surface, COUNT(*) AS opens, COUNT(DISTINCT visitor) AS visitors FROM analytics_events
+                WHERE event = 'section_open' AND {ev_where} GROUP BY surface ORDER BY 2 DESC
+            """, ev_params)]
+            gen_by_platform = {r[0]: (int(r[1]), int(r[2])) for r in rows(f"""
+                SELECT COALESCE(request_json->>'client_surface', '') AS surface, COUNT(*) AS runs, COUNT(DISTINCT telegram_id) AS users
+                FROM prostudio_generation_jobs WHERE {job_where} GROUP BY 1
+            """, job_params)}
+            for p in platforms:
+                p["generations"], p["generation_users"] = gen_by_platform.get(p["key"], (0, 0))
+            known = {p["key"] for p in platforms}
+            for key, (runs, users) in gen_by_platform.items():
+                if key not in known:
+                    platforms.append({"key": key, "opens": 0, "visitors": 0, "generations": runs, "generation_users": users})
+            # The Telegram bot keeps its own generation log.
+            if not surface or surface == "bot":
+                cursor.execute("SELECT to_regclass('generations') IS NOT NULL AS present")
+                if cursor.fetchone()[0]:
+                    try:
+                        r = rows("""SELECT COUNT(*) AS runs, COUNT(DISTINCT telegram_id) AS users FROM generations
+                                    WHERE NULLIF(created_at::text, '')::timestamp >= %s::timestamp AND NULLIF(created_at::text, '')::timestamp < %s::timestamp""",
+                                 [start.isoformat(), end.isoformat()])[0]
+                        platforms.append({"key": "bot", "opens": None, "visitors": None, "generations": int(r[0]), "generation_users": int(r[1])})
+                    except Exception:
+                        conn.rollback()
+            days = _admin_fill_days([{"day": r[0], "opens": int(r[1]), "visitors": int(r[2])} for r in rows(f"""
+                SELECT to_char(date_trunc('day', at), 'YYYY-MM-DD') AS day, COUNT(*) AS opens, COUNT(DISTINCT visitor) AS visitors
+                FROM analytics_events WHERE event = 'section_open' AND {ev_where} GROUP BY 1 ORDER BY 1
+            """, ev_params)], payload, ("opens", "visitors"))
+            total_runs = 0
+            models = []
+            selects = {r[0]: int(r[1]) for r in rows(f"""
+                SELECT model, COUNT(*) AS n FROM analytics_events WHERE event = 'model_select' AND model <> '' AND {ev_where} GROUP BY model
+            """, ev_params)}
+            for r in rows(f"""
+                SELECT COALESCE(NULLIF(model, ''), '—') AS model, COUNT(DISTINCT telegram_id) AS users, COUNT(*) AS runs,
+                       COUNT(*) FILTER (WHERE status = 'completed') AS ok,
+                       COUNT(*) FILTER (WHERE status IN ('failed','cancelled','canceled','timeout','timed_out')) AS bad
+                FROM prostudio_generation_jobs WHERE {job_where} GROUP BY 1 ORDER BY 3 DESC LIMIT 40
+            """, job_params):
+                total_runs += int(r[2])
+                models.append({"key": r[0], "users": int(r[1]), "runs": int(r[2]), "completed": int(r[3]), "failed": int(r[4]),
+                               "selected": selects.get(r[0], 0)})
+            for m in models:
+                m["share"] = round(m["runs"] * 100 / total_runs, 1) if total_runs else 0
+            item_filter = " AND item = %s" if item else ""
+            item_params = ev_params + ([item] if item else [])
+            tools = {}
+            for r in rows(f"""
+                SELECT item, kind, COUNT(*) FILTER (WHERE event = 'tool_open') AS opens,
+                       COUNT(*) FILTER (WHERE event = 'item_select') AS selects
+                FROM analytics_events WHERE event IN ('tool_open', 'item_select') AND item <> '' AND {ev_where}{item_filter}
+                GROUP BY item, kind
+            """, item_params):
+                tools[r[0]] = {"key": r[0], "kind": r[1] or "tool", "opens": int(r[2]), "selects": int(r[3]), "generations": 0}
+            for r in rows(f"""
+                SELECT {_JOB_ITEM_SQL} AS item, COUNT(*) AS runs FROM prostudio_generation_jobs
+                WHERE {job_where} AND {_JOB_ITEM_SQL} IS NOT NULL GROUP BY 1
+            """, job_params):
+                entry = tools.setdefault(r[0], {"key": r[0], "kind": "block" if r[0].startswith("block:") else "tool",
+                                                "opens": 0, "selects": 0, "generations": 0})
+                entry["generations"] = int(r[1])
+            tool_rows = sorted(tools.values(), key=lambda x: (x["generations"], x["opens"] + x["selects"]), reverse=True)[:60]
+            # Media blocks by their names.
+            block_ids = [int(x["key"][6:]) for x in tool_rows if x["key"].startswith("block:") and x["key"][6:].isdigit()]
+            if block_ids:
+                ensure_references_table()
+                names = {int(r[0]): r[1] for r in rows("SELECT id, name FROM prostudio_references WHERE id = ANY(%s)", [block_ids])}
+                for x in tool_rows:
+                    if x["key"].startswith("block:") and x["key"][6:].isdigit():
+                        x["label"] = names.get(int(x["key"][6:]), "")
+
+            def distinct(sql, params):
+                return int(rows(sql, params)[0][0] or 0)
+
+            funnel = [
+                {"key": "opened", "unit": "visitors", "count": distinct(f"SELECT COUNT(DISTINCT visitor) AS n FROM analytics_events WHERE event = 'section_open' AND {ev_where}", ev_params)},
+                {"key": "chose", "unit": "visitors", "count": distinct(f"SELECT COUNT(DISTINCT visitor) AS n FROM analytics_events WHERE event IN ('model_select','tool_open','item_select') AND {ev_where}", ev_params)},
+                {"key": "started", "unit": "users", "count": distinct(f"SELECT COUNT(DISTINCT telegram_id) AS n FROM prostudio_generation_jobs WHERE {job_where}", job_params)},
+                {"key": "result", "unit": "users", "count": distinct(f"SELECT COUNT(DISTINCT telegram_id) AS n FROM prostudio_generation_jobs WHERE status = 'completed' AND {job_where}", job_params)},
+                {"key": "downloaded", "unit": "visitors", "count": distinct(f"SELECT COUNT(DISTINCT visitor) AS n FROM analytics_events WHERE event = 'download' AND {ev_where}", ev_params)},
+            ]
+            r = rows(f"""
+                SELECT COUNT(*) AS visitors, COUNT(*) FILTER (WHERE days > 1) AS returning FROM
+                (SELECT visitor, COUNT(DISTINCT date_trunc('day', at)) AS days FROM analytics_events
+                 WHERE event = 'section_open' AND {ev_where} GROUP BY visitor) v
+            """, ev_params)[0]
+            returning = {"visitors": int(r[0] or 0), "returning": int(r[1] or 0)}
+            transitions = [{"from": r[0], "to": r[1], "count": int(r[2])} for r in rows(f"""
+                SELECT prev, section, COUNT(*) AS n FROM
+                (SELECT section, LAG(section) OVER (PARTITION BY visitor ORDER BY at, id) AS prev FROM analytics_events
+                 WHERE event = 'section_open' AND {ev_where}) t
+                WHERE prev IS NOT NULL AND prev <> section GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 15
+            """, ev_params)]
+            return {"sections": sections, "platforms": platforms, "days": days, "models": models, "tools": tool_rows,
+                    "funnel": funnel, "returning": returning, "transitions": transitions}
+        finally:
+            cursor.close()
+            conn.close()
+
+    return {"ok": True, **(await asyncio.to_thread(_sync))}
 
 
 @app.post("/api/admin/subscribers")
@@ -13920,6 +14484,8 @@ async def admin_references_publish(request: Request):
             before_row = (block["published"],)
             if published and block.get("block_type"):
                 problems = media_blocks_service.problems(block, _media_models())
+                if block.get("model") and model_control.norm(block["model"]) in _disabled_model_ids():
+                    problems.append(("model_disabled", block["model"]))
                 if problems:
                     return {"problems": [{"code": c, "detail": d} for c, d in problems]}
             cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
@@ -14059,8 +14625,11 @@ async def admin_media_check(request: Request):
 
     def work():
         models = _media_models()
+        problems = media_blocks_service.problems(block, models)
+        if block["model"] and model_control.norm(block["model"]) in _disabled_model_ids():
+            problems.append(("model_disabled", block["model"]))
         return {"cost": _media_block_cost(block) if block["model"] else None,
-                "problems": [{"code": c, "detail": d} for c, d in media_blocks_service.problems(block, models)],
+                "problems": [{"code": c, "detail": d} for c, d in problems],
                 "config": config, "preview": media_blocks_service.public_view(block, None)}
 
     return {"ok": True, **(await asyncio.to_thread(work))}
@@ -14103,7 +14672,10 @@ def _media_blocks_changed():
 
 async def _media_block_views_safe():
     try:
-        return await asyncio.to_thread(_media_block_views)
+        views = await asyncio.to_thread(_media_block_views)
+        # A block whose model an admin turned off stays listed but cannot run.
+        disabled = await asyncio.to_thread(_disabled_model_ids)
+        return [dict(v, available=model_control.norm(v.get("model")) not in disabled) for v in views]
     except Exception as exc:
         prostudio_error("MEDIA_BLOCKS_LOAD_FAILED", exc)
         return []
@@ -26844,6 +27416,9 @@ async def public_prostudio_generate(request: Request):
         )
     normalize_grid_video_request(payload)
     telegram_id = _core_account_owner(request, payload)
+    # The platform the generation came from (website, Browser or Telegram
+    # Mini App), for the admin statistics; set by SecurityMiddleware.
+    payload["client_surface"] = str(getattr(request.state, "surface", "") or "")[:30]
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
     category = (payload.get("category") or mode).lower()
     prompt = (payload.get("prompt") or "").strip()
@@ -26916,6 +27491,13 @@ async def public_prostudio_generate(request: Request):
     if mode not in generation_modes | text_modes:
         prostudio_debug("GENERATE_VALIDATION_REJECTED", status=422, code="unsupported_generation_mode", mode=mode, model=selected_model, invalid_fields=["mode"])
         return JSONResponse({"ok": False, "error": "unsupported_generation_mode"}, status_code=422)
+    # A model an admin turned off (Admin Console → Models) takes no new
+    # generations; its settings and earlier results stay as they are.
+    if selected_model and model_control.norm(selected_model) in await asyncio.to_thread(_disabled_model_ids):
+        return JSONResponse({
+            "ok": False, "error": "model_disabled", "model": selected_model,
+            "message": "Эта модель временно недоступна. Выберите другую модель.",
+        }, status_code=409)
     # Pro Studio is a subscription feature. This server-side check is the
     # enforcement point; hiding the button in the Mini App is only cosmetic.
     user_state = get_user_state(telegram_id) if telegram_id else {}
@@ -27905,6 +28487,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         # durable R2 persistence happens afterward in the background and can
         # only upgrade those URLs later, never flip generation_status.
         provider_ready_at = time.monotonic()
+        # Admin timeline: the provider's result really arrived.
+        await asyncio.to_thread(record_prostudio_job_stage, job_id, "result")
         prostudio_debug(
             "JOB_PROVIDER_RESULT_READY",
             job_id=job_id,

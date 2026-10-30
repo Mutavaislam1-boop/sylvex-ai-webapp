@@ -7,6 +7,8 @@ import Users from "./pages/Users";
 import UserDetail from "./pages/UserDetail";
 import Generations from "./pages/Generations";
 import Payments from "./pages/Payments";
+import Analytics from "./pages/Analytics";
+import Models from "./pages/Models";
 import Broadcast from "./pages/Broadcast";
 import Inbox from "./pages/Inbox";
 import Reviews from "./pages/Reviews";
@@ -23,6 +25,8 @@ export const NAV: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "◧", permission: "dashboard.view" },
   { key: "users", label: "Users", icon: "◉", permission: "users.view" },
   { key: "generations", label: "Generations", icon: "✦", permission: "generations.view" },
+  { key: "analytics", label: "Analytics", icon: "◔", permission: "analytics.view" },
+  { key: "models", label: "Models & providers", icon: "◎", permission: "models.view" },
   { key: "payments", label: "Payments", icon: "◈", permission: "payments.view" },
   // Messages: one menu entry, its parts as tabs (see MESSAGE_TABS).
   { key: "inbox", label: "Conversations", icon: "✉", permission: "messages.send", group: "messages" },
@@ -85,6 +89,8 @@ export default function Layout({ route, onSignedOut }: { route: string[]; onSign
       case "dashboard": return <Dashboard />;
       case "users": return rest[0] ? <UserDetail refId={rest[0]} /> : <Users query={params.get("q") || ""} />;
       case "generations": return <Generations sylvexUserId={params.get("sylvex") || ""} />;
+      case "analytics": return <Analytics />;
+      case "models": return <Models />;
       case "payments": return <Payments />;
       case "broadcast": return <Broadcast to={params.get("to") || ""} />;
       case "inbox": return <Inbox key="inbox" threadId={rest[0] || ""} />;

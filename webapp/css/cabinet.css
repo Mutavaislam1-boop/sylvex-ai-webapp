@@ -3784,6 +3784,8 @@ CSS-БЛОК: .image-model-check
   opacity:0;
 }
 
+/* A model turned off in the Admin Console: shown, not selectable. */
+.image-model-row.is-unavailable{opacity:.45;cursor:not-allowed}
 .image-model-row.active .image-model-check,
 .image-model-row.sel .image-model-check{
   opacity:1;

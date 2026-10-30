@@ -169,6 +169,8 @@
       window.SYLVEX.closeExpiredSubscriptionModal();
     }
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
+    // Usage analytics (js/analytics.js): which section is open.
+    if (window.SylvexAnalytics) window.SylvexAnalytics.track('section_open', { section: { tools: 'pro_studio', pay: 'shop' }[name] || name });
     if (name !== 'tools' && window.SYLVEX && window.SYLVEX.VoiceDialogueComposer) {
       window.SYLVEX.VoiceDialogueComposer.closeMenus();
     }

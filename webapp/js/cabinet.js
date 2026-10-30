@@ -6695,6 +6695,7 @@ function syncPhotoCatalogCardRatio(e) {
 }
 
 async function openPhotoCatalog(e) {
+  globalThis.SylvexAnalytics?.track('section_open', { section: 'media' });
   if (e) {
     e.preventDefault();
     e.stopPropagation();
@@ -6779,6 +6780,7 @@ function selectPhotoCatalogItem(e, id, source, section) {
   const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
   if (!item) return;
   if (item.mediaBlock) { openMediaBlock(item.mediaBlock); return; }
+  globalThis.SylvexAnalytics?.track('item_select', { item: item.id, kind: item.kind === 'styles' ? 'style' : item.kind === 'objects' ? 'object' : 'reference' });
   quickImageDetailState = { item, source:source === 'quick' ? 'quick' : 'prostudio', uploadedUrl:'', previewUrl:'', uploading:false, extraUploads:{} };
   // The catalog modal is intentionally left open underneath (not closed) -
   // closing this detail view later simply reveals it again, one level
@@ -8558,6 +8560,7 @@ function editWorkspaceModeAvailable(state,mode){
 }
 function editWorkspaceToast(message) { if (typeof toast === 'function') toast(message); }
 function openEditWorkspace(e,options={}) {
+  globalThis.SylvexAnalytics?.track('section_open', { section: 'edit' });
   if (e) { e.preventDefault(); e.stopPropagation(); }
   if (hideEditOnThisScreen()) return;
   if (!window.matchMedia('(min-width: 1000px)').matches) { editWorkspaceToast('Edit is currently available on wide desktop screens.'); return; }
@@ -9422,6 +9425,7 @@ function openMediaToolBlock(e, id) {
 // A Media block (js/media-blocks.js): its own window over the current
 // screen; the result also lands in the Pro Studio history.
 function openMediaBlock(block) {
+  globalThis.SylvexAnalytics?.track('item_select', { item: 'block:' + block.id, kind: block.block_type === 'tool' ? 'tool' : block.block_type === 'style' ? 'style' : block.block_type === 'video' ? 'template' : 'reference' });
   if (!window.SylvexMediaBlocks) { toast('Обновите приложение, чтобы открыть этот блок', 'error'); return; }
   window.SylvexMediaBlocks.open(block, {
     lang: uiLang(),
@@ -10267,6 +10271,7 @@ async function generateTryOnTool(e) {
 }
 
 function openPhotoToolModal(e, kind) {
+  globalThis.SylvexAnalytics?.track(kind ? 'tool_open' : 'section_open', kind ? { item: kind, kind: 'tool' } : { section: 'tools' });
   if (kind === 'edit_workspace') return openEditWorkspace(e);
   if (e) {
     e.preventDefault();
@@ -14859,6 +14864,16 @@ function imageModelDescription(model) {
   return model.description || model.desc || model.subtitle || model.note || 'AI-модель для генерации изображений.';
 }
 
+// Models an admin turned off (Admin Console → Models): shown, not selectable.
+let disabledModelIds = new Set();
+const modelKey = (id) => String(id || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+function isModelTurnedOff(id) { return disabledModelIds.has(modelKey(id)); }
+try {
+  fetch('/api/public/models/status', { cache: 'no-store' }).then((r) => r.json()).then((data) => {
+    disabledModelIds = new Set((data && data.disabled) || []);
+  }).catch(() => {});
+} catch (_) {}
+
 function imageModelButton(model) {
   const activeId = isImageMode()
     ? imageState.modelId
@@ -14866,11 +14881,12 @@ function imageModelButton(model) {
 
   const id = String(model && model.id ? model.id : '');
   const active = activeId === id;
-  const desc = model.desc || model.description || '';
+  const off = isModelTurnedOff(id);
+  const desc = off ? 'Временно недоступна' : (model.desc || model.description || '');
   // Badges are kept in model data for later, but hidden in the current UI.
   const badge = '';
 
-  return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(id) + '\')">'
+  return '<button class="image-model-row ' + (active ? 'active sel' : '') + (off ? ' is-unavailable' : '') + '" aria-disabled="' + off + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(id) + '\')">'
     + '<span class="image-model-icon">' + imageModelIconHtml(model) + '</span>'
     + '<span class="image-model-text">'
     + '<span class="image-model-name">' + S.escapeHtml(model.label || model.name || id) + badge + '</span>'
@@ -15836,6 +15852,8 @@ function imageModelButton(model) {
       e.stopPropagation();
     }
     if (kind === 'model') {
+      if (isModelTurnedOff(value)) { toast('Эта модель временно недоступна'); return; }
+      globalThis.SylvexAnalytics?.track('model_select', { model: value });
       if (isImageMode()) {
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
@@ -16478,6 +16496,7 @@ function imageModelButton(model) {
 
   function startGenerationDownload(relativeUrl, filename) {
     if (!relativeUrl) return toast('Файл для скачивания недоступен');
+    globalThis.SylvexAnalytics?.track('download', {});
     const absoluteUrl = new URL(relativeUrl, window.location.origin).toString();
     const tg = S.tg;
     if (tg && typeof tg.downloadFile === 'function') {
@@ -16587,6 +16606,7 @@ function imageModelButton(model) {
   }
 
   async function downloadOneGenerationImage(state, index) {
+    globalThis.SylvexAnalytics?.track('download', {});
     if (String(getTelegramId() || '') !== state.owner) throw new Error('account_changed');
     const relative = state.projectId && state.nodeId
       ? completedGridDownloadUrl(state.jobId, state.projectId, state.nodeId, index)
@@ -21820,6 +21840,7 @@ function maybeShowVideoTemplateIntro(force) {
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   async function openVideoTemplatesCatalog(catalogType = 'templates') {
+    globalThis.SylvexAnalytics?.track('section_open', { section: 'media' });
     closeVideoTemplateIntro();
     const isEffects = catalogType === 'effects';
     const templates = isEffects ? await loadKlingEffects() : await loadVideoTemplates();
@@ -21932,6 +21953,7 @@ function maybeShowVideoTemplateIntro(force) {
   // =====================================================
   function openVideoTemplateModal(template) {
     if (template && template.media_block) { openMediaBlock(template.media_block); return; }
+    globalThis.SylvexAnalytics?.track('item_select', { item: template && template.id, kind: template && template.is_kling_effect ? 'effect' : 'template' });
     activeVideoTemplate = template;
     videoTemplateUploadUrl = '';
     const ratios = videoTemplateRatios(template);
@@ -22248,6 +22270,7 @@ function maybeShowVideoTemplateIntro(force) {
 
   function updateComposerMode(kind) {
     const requestedMode = chatTypeForMode(kind);
+    if (requestedMode !== currentChatType() && document.querySelector('.view[data-view="tools"].active')) globalThis.SylvexAnalytics?.track('section_open', { section: requestedMode === 'music' || requestedMode === 'voice' ? requestedMode : 'pro_studio' });
     if (requestedMode !== currentChatType()) stopTextListen(false);
     if (activeGenerationLocked() && !activeGeneration.restoringMode && activeGeneration.mode && requestedMode !== activeGeneration.mode) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
@@ -30242,6 +30265,7 @@ async function waitGeneration(jobId, options) {
 
   function setStudioLayout(layout,options={}) {
     const mode = layout === 'grid' ? 'grid' : 'classic';
+    if (mode === 'grid') globalThis.SylvexAnalytics?.track('section_open', { section: 'grid' });
     const workspaceMode=mode==='grid'?'grid':'studio';
     const publishNavigation=!options.preserveStudioMode&&!studioModeNavigationIntent;
     const revision=options.navigationRevision||(publishNavigation?beginStudioModeNavigation(workspaceMode):studioModeNavigationRevision);

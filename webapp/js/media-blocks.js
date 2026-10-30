@@ -29,7 +29,7 @@
       failed: 'The generation did not go through. Please try again.', uploadFailed: 'The file could not be uploaded. Please try again.',
       missing: 'Add the files marked as required.', balance: 'Not enough credits for this generation.', topUp: 'Top up',
       signIn: 'Sign in to upload files and generate.', signInAction: 'Sign in', subscription: 'Generation is available with a subscription.', plans: 'See plans', unavailable: 'This block is not available any more.', wrongType: 'This field takes a {kind}.',
-      download: 'Open result', again: 'Generate again',
+      download: 'Open result', again: 'Generate again', modelOff: 'This block is temporarily unavailable: its AI model is turned off.',
     },
     ru: {
       generate: 'Сгенерировать', generating: 'Генерация…', upload: 'Загрузить', photo: 'Фото', video: 'Видео', required: 'обязательно',
@@ -38,7 +38,7 @@
       failed: 'Генерация не прошла. Попробуйте ещё раз.', uploadFailed: 'Не удалось загрузить файл. Попробуйте ещё раз.',
       missing: 'Добавьте обязательные файлы.', balance: 'Недостаточно токенов для генерации.', topUp: 'Пополнить',
       signIn: 'Войдите, чтобы загружать файлы и генерировать.', signInAction: 'Войти', subscription: 'Генерация доступна с подпиской.', plans: 'Тарифы', unavailable: 'Этот блок больше недоступен.', wrongType: 'В это поле нужно {kind}.',
-      download: 'Открыть результат', again: 'Сгенерировать ещё',
+      download: 'Открыть результат', again: 'Сгенерировать ещё', modelOff: 'Блок временно недоступен: его AI-модель отключена.',
     },
   };
   var VIDEO_URL = /\.(mp4|webm|mov|m4v)(\?|#|$)/i;
@@ -152,7 +152,7 @@
     node.querySelector('#sxmbText').hidden = !block.description;
     renderMedia();
     renderFields();
-    setStatus('', '');
+    setStatus(block.available === false ? say('modelOff') : '', block.available === false ? 'error' : '');
     node.hidden = false;
     document.documentElement.classList.add('sxmb-open');
   }
@@ -199,7 +199,7 @@
 
   function renderGo() {
     var button = document.getElementById('sxmbGo');
-    button.disabled = state.busy || !ready();
+    button.disabled = state.busy || !ready() || state.block.available === false;
     button.classList.toggle('is-busy', state.busy);
     button.innerHTML = state.busy ? esc(say('generating')) : esc(state.result ? say('again') : say('generate')) + costHtml(state.block);
   }
@@ -285,6 +285,7 @@
         var shop = new Error(say('balance')); shop.action = 'shop'; throw shop;
       }
       if (r.status === 404) throw new Error(say('unavailable'));
+      if (body.error === 'model_disabled') throw new Error(say('modelOff'));
       if (body.error === 'upload_required') throw new Error(say('missing'));
       if (!r.ok || !body.job_id) throw new Error(humanError(body, say('failed')));
       return wait(current, body.job_id);

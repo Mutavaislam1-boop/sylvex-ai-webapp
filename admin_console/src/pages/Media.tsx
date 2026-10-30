@@ -66,6 +66,7 @@ const PROBLEMS: Record<string, string> = {
   too_many_images: "More images than the model accepts.",
   model_no_start_frame: "The model has no start frame input.",
   placement_required: "Choose where to publish the block.",
+  model_disabled: "This model is turned off in Models. Choose another one or turn it back on.",
 };
 
 const DEFAULT_PLACEMENT = { tool: "ai_tools", video: "video_styles", photo: "photo_references", style: "image_styles" };

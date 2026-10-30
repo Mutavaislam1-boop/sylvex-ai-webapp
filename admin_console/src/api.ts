@@ -139,6 +139,9 @@ const MESSAGES: Record<string, string> = {
   assignee_not_allowed: "This admin cannot answer conversations.",
   review_not_found: "Review not found.",
   invalid_base64: "The file could not be read.",
+  model_required: "Choose a model.",
+  generation_not_found: "Generation not found.",
+  invalid_period: "Invalid period.",
 };
 
 export function errorText(err: unknown): string {
