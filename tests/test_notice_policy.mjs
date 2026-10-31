@@ -28,7 +28,8 @@ test('photos added, errors and generation results still notify', () => {
   assert.ok(cabinet.includes("      loadConversations();\n      toast('Генерация завершена');\n    } catch (err) {\n      if (!(err && err.subscriptionRequired)) toast('Ошибка генерации');"), 'text generation');
   assert.ok(cabinet.includes("clearActiveProStudioJob(activeGeneration.jobId);\n    toast('Генерация завершена');"), 'restored background job');
   assert.ok(cabinet.includes("editWorkspaceToast('Генерация завершена');"), 'Edit workspace');
-  assert.ok(cabinet.includes("toast('Недостаточно токенов')"));
+  // Not enough credits: the paywall window says it (js/paywall.js), not a toast.
+  assert.ok(cabinet.includes("window.SylvexPaywall?.show('balance', { required: balanceCheck.required, balance: balanceCheck.balance });"));
 });
 
 test('the same notice is not repeated while it is shown', () => {

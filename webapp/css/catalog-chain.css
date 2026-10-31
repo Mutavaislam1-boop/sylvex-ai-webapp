@@ -1,0 +1,12 @@
+/* The catalog chain in the Home composer (Mini App home-idea, website
+   sx-composer): the chosen reference, the person's photo and, for a video
+   template, the character/object choice. A generation started from it
+   runs in Pro Studio (js/generation-handoff.js); nothing of it stays here.
+   Keep byte-identical in sylvex-website/css/catalog-chain.css. */
+.sx-composer-refs.catalog-chain>.sx-composer-ref,.sx-composer-refs.catalog-chain>.sx-composer-upload,.home-idea-refs.catalog-chain>.home-idea-ref,.home-idea-refs.catalog-chain>.home-idea-upload{flex:0 0 76px;width:76px;height:96px;min-height:0}
+.sx-composer-ref>video,.home-idea-ref>video{width:100%;height:100%;object-fit:cover}
+@media(max-width:480px){.sx-composer-refs.catalog-chain>.sx-composer-ref,.sx-composer-refs.catalog-chain>.sx-composer-upload,.home-idea-refs.catalog-chain>.home-idea-ref,.home-idea-refs.catalog-chain>.home-idea-upload{flex-basis:64px;width:64px;height:84px}}
+
+.sx-composer-refs,.home-idea-refs{flex-wrap:wrap}
+.catalog-subject-controls{display:flex;flex-basis:100%;gap:8px}
+.catalog-subject-controls>button{position:static!important;width:auto!important;height:auto!important;padding:5px 10px!important;border:1px solid #666;border-radius:8px!important;background:transparent!important;color:inherit!important;font:inherit!important;font-size:11px!important}

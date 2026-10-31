@@ -1,0 +1,41 @@
+/* SYLVEX generation handoff (js/generation-handoff.js). One file for the
+   website and both Mini Apps - keep it byte-identical in
+   sylvex-website/css/generation-handoff.css and
+   sylvex-ai-webapp/webapp/css/generation-handoff.css. */
+.sxho { position: fixed; inset: 0; z-index: 2147481000; display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(5, 6, 12, .78); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #f4f5fb;
+  font-family: inherit; animation: sxho-fade .2s ease-out; transition: opacity .2s ease; }
+.sxho.is-leaving { opacity: 0; }
+.sxho-row { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: nowrap; max-width: 860px; width: 100%; }
+.sxho-step { display: flex; flex-direction: column; align-items: center; gap: 10px; opacity: 0; transform: translateY(10px) scale(.96);
+  animation: sxho-in .42s cubic-bezier(.2, .8, .2, 1) forwards; animation-delay: calc(var(--d) * 340ms); }
+.sxho-step > span { font-size: 13px; font-weight: 600; color: rgba(236, 238, 248, .78); text-align: center; white-space: nowrap; }
+.sxho-arrow { font-size: 26px; color: #9be8ff; opacity: 0; animation: sxho-arrow .4s ease-out forwards; animation-delay: calc(var(--d) * 340ms); }
+.sxho-stack { position: relative; width: 116px; height: 116px; }
+.sxho-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 18px; border: 1px solid rgba(255, 255, 255, .16);
+  background: #1b1c28; box-shadow: 0 14px 40px rgba(0, 0, 0, .45); transform: translate(calc(var(--i) * 12px), calc(var(--i) * -8px)) rotate(calc(var(--i) * 4deg)); }
+.sxho-thumb--empty { display: block; }
+.sxho-window { position: relative; width: 132px; height: 116px; border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: 9px; padding: 0 18px;
+  background: linear-gradient(160deg, rgba(124, 92, 255, .32), rgba(25, 201, 255, .12)); border: 1px solid rgba(149, 122, 255, .5); box-shadow: 0 18px 60px rgba(92, 64, 255, .3); }
+.sxho-window i { display: block; height: 9px; border-radius: 6px; background: rgba(255, 255, 255, .16); }
+.sxho-window i:nth-child(2) { width: 70%; }
+.sxho-window i:nth-child(3) { width: 45%; }
+.sxho-generation .sxho-window::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .22) 50%, transparent 80%);
+  transform: translateX(-100%); animation: sxho-shine 1.1s ease-in-out infinite; animation-delay: .8s; }
+.sxho-spark { position: absolute; right: 12px; top: 12px; width: 12px; height: 12px; border-radius: 50%; background: #9be8ff; box-shadow: 0 0 16px #9be8ff; animation: sxho-pulse 1s ease-in-out infinite; }
+.sxho-studio-window { background: linear-gradient(180deg, #1a1b27, #10111a); border-color: rgba(255, 255, 255, .18); box-shadow: 0 18px 60px rgba(0, 0, 0, .45); }
+.sxho-studio-window em { font-style: normal; font-size: 13px; font-weight: 800; letter-spacing: .02em; color: #fff; }
+.sxho.is-reduced .sxho-step, .sxho.is-reduced .sxho-arrow { animation: none; opacity: 1; transform: none; }
+.sxho.is-reduced .sxho-window::after, .sxho.is-reduced .sxho-spark { animation: none; }
+@keyframes sxho-fade { from { opacity: 0; } }
+@keyframes sxho-in { to { opacity: 1; transform: none; } }
+@keyframes sxho-arrow { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+@keyframes sxho-shine { to { transform: translateX(100%); } }
+@keyframes sxho-pulse { 50% { transform: scale(.7); opacity: .6; } }
+@media (max-width: 640px) {
+  .sxho-row { flex-direction: column; gap: 8px; }
+  .sxho-arrow { transform: rotate(90deg); animation-name: sxho-arrow-down; }
+  .sxho-stack { width: 92px; height: 92px; }
+  .sxho-window { width: 150px; height: 84px; }
+}
+@keyframes sxho-arrow-down { from { opacity: 0; transform: rotate(90deg) translateX(-8px); } to { opacity: 1; transform: rotate(90deg); } }
