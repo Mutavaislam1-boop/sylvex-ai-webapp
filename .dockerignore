@@ -16,3 +16,24 @@ provider_limits_report.*
 
 admin_console/node_modules
 admin_console/src
+
+# Not used by the running app: tests, documentation, editor/OS files.
+tests
+docs
+/*.md
+.DS_Store
+**/.DS_Store
+.vscode
+.pytest_cache
+**/.pytest_cache
+
+# Sources of front-end bundles; the built files the app serves are in webapp/js/vendor.
+store_lanyard
+store_glow
+studio_stack
+edit_pixel
+grid_dock
+swipe_toast
+mode_segment
+thought_line
+**/node_modules
