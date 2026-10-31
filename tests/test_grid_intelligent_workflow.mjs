@@ -42,12 +42,12 @@ test('Grid execution keeps stable request ids, versions and dependency schedulin
   assert.match(cabinet, /parents\.some\(parent=>parent\.status!==['"]COMPLETED['"]\)/);
 });
 
-test('Grid projects autosave to private server history and remain mobile', () => {
+test('Grid projects autosave to private server history; Grid is off on phones only', () => {
   assert.match(main, /CREATE TABLE IF NOT EXISTS prostudio_grid_projects/);
   assert.match(cabinet, /scheduleStudioGridCloudSave\(\)/);
   assert.match(cabinet, /loadStudioGridCloudProjects\(\)/);
   assert.match(cabinet, /window\.addEventListener\('pagehide'/);
-  assert.match(cabinet, /function studioGridAvailableOnThisScreen\(\) \{\s*return true;/);
+  assert.match(cabinet, /function studioGridAvailableOnThisScreen\(\) \{\s*return !\(window\.matchMedia && window\.matchMedia\('\(max-width: 767px\)'\)\.matches\);/);
 });
 
 test('website sidebar shows only Grid projects while Grid Mode is open', () => {

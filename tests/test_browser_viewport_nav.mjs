@@ -60,12 +60,14 @@ test('browser app Pro Studio workspace has no dot/grid background (Telegram keep
   assert.match(css, /radial-gradient\(circle, var\(--st-grid-line\) 1px, transparent 1\.3px\)/);
 });
 
-test('browser app: no Assistant button/setting; Grid remains available on mobile', () => {
+test('browser app: no Assistant button/setting; Grid stays off on phones only', () => {
   assert.match(css, /html\.browser-app #aiAssistantFab,\s*html\.browser-app \.settings-ai-assistant-row\{display:none!important\}/);
   assert.doesNotMatch(css, /html\.browser-app:is\(\.device-mobile,\.device-tablet\) #studioLayoutSwitch\{display:none!important\}/);
   assert.match(cabinet, /if \(isBrowserApp\(\)\) \{ fab\.remove\(\); return; \}/);
   assert.match(cabinet, /function isBrowserMobileUi\(\) \{\s*return isBrowserApp\(\) && !!\(S\.device && \(S\.device\.isMobile \|\| S\.device\.isTablet\)\);/);
-  assert.match(cabinet, /const mode = layout === 'grid' \? 'grid' : 'classic';/);
+  // Phones (≤767px) have no Grid Mode in Standard or Pro; tablets keep it.
+  assert.match(cabinet, /const mode = layout === 'grid' && studioGridAvailableOnThisScreen\(\) \? 'grid' : 'classic';/);
+  assert.match(cabinet, /function studioGridAvailableOnThisScreen\(\) \{\s*return !\(window\.matchMedia && window\.matchMedia\('\(max-width: 767px\)'\)\.matches\);/);
   assert.match(cabinet, /filter\(\(\[key\]\) => !\(key === 'edit_workspace' && hideEditOnThisScreen\(\)\)\)/);
   assert.match(cabinet, /HOME_QUICK_TOOLS\.filter\(\(item\) => item\.key !== 'edit_workspace'\)/);
   // The Grid/Edit features themselves are still there.
