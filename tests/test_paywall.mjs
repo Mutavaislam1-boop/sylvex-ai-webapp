@@ -65,20 +65,79 @@ test('the response still reaches the app unchanged', async () => {
   assert.equal(await context.fetch('/api/public/prostudio/generate', { method: 'POST' }), reply);
 });
 
-test('the window offers the Store plans and leads into the Store', () => {
+test('the window offers the Store plans; a plan or a package goes straight to its checkout', () => {
   assert.match(source, /var OFFERED = \['starter', 'pro', 'max'\];/);
   assert.match(source, /root\.SylvexStoreCards/);
   assert.match(source, /'Начните создавать с SYLVEX'/);
   assert.match(source, /'Выберите подходящий план и получите кредиты для генерации изображений, видео и другого ИИ-контента\.'/);
+  // "Top up" shows the packages right in the window.
+  assert.match(source, /current = \{ kind: 'packs', balance: current \? current\.balance : 0, required: 0 \};/);
+  assert.match(source, /if \(plan\) \{ buy\(host\.onPlan, plan\.getAttribute\('data-sxpw-plan'\), plan\); return; \}/);
+  assert.match(source, /if \(pack\) \{ buy\(host\.onPack, pack\.getAttribute\('data-sxpw-pack'\), pack\); return; \}/);
   const index = read('index.html');
-  assert.match(index, /<link rel="stylesheet" href="css\/paywall\.css\?v=paywall-20261030" \/>/);
-  assert.match(index, /<script src="js\/paywall\.js\?v=paywall-20261030"><\/script>/);
+  assert.match(index, /<link rel="stylesheet" href="css\/paywall\.css\?v=handoff-20261031" \/>/);
+  assert.match(index, /<script src="js\/paywall\.js\?v=handoff-20261031"><\/script>/);
   const cabinet = read('js/cabinet.js');
   assert.match(cabinet, /initGenerationPaywall\(\);/);
-  // Telegram sells in Stars, the browser by card - the Store's own flows.
-  assert.match(cabinet, /isBrowserApp\(\) \? '\$' \+ plan\.monthlyUsd : storeStarsFor\(plan\.monthlyUsd \* 100\)/);
-  assert.match(cabinet, /else openStoreFor\(productId\);/);
-  assert.match(cabinet, /onCredits: \(\) => \{ switchView\('shop'\); switchShopTab\('tokens'\); \}/);
+  // Telegram sells in Stars, the browser by card - straight to the product's own checkout.
+  assert.match(cabinet, /onPlan: \(planId\) => paywallProduct\('plan_' \+ planId \+ '_month'\),/);
+  assert.match(cabinet, /onPack: \(packId\) => paywallProduct\(packId\),/);
+  assert.match(cabinet, /if \(!browserStripeEnabled\) throw new Error\(BROWSER_STRIPE_ERRORS\.stripe_not_configured\);\n\s+openBrowserStoreProduct\(productId\);/);
+  assert.match(cabinet, /if \(!storeProductAvailable\(productId\)\) throw new Error\(STORE_ERRORS\.unknown_product\);\n\s+openStoreProduct\(productId\);/);
+  // A confirmed payment brings the person back.
+  assert.match(cabinet, /window\.SylvexPaywall\?\.completeReturn\(\);/);
+});
+
+function withStorage() {
+  const store = new Map();
+  const shown = [];
+  const context = {
+    Date, Promise, JSON, Number, String, isFinite, location: { pathname: '/pro-studio.html', search: '?mode=image' },
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
+    fetch: () => Promise.resolve(response(200, {})),
+  };
+  context.window = context;
+  context.top = context;
+  vm.createContext(context);
+  vm.runInContext(source, context);
+  return { context, store, shown, P: context.SylvexPaywall };
+}
+
+test('a purchase remembers where it started and brings it back once - nothing is resubmitted', () => {
+  const { P } = withStorage();
+  const restored = [];
+  P.addCapture(() => ({ view: 'home', home: { ref: { id: 'r1' }, photo: { url: 'https://x/me.png' }, prompt: 'neon' } }));
+  P.onReturn((data) => restored.push(data));
+  const entry = P.remember();
+  assert.equal(entry.path, '/pro-studio.html?mode=image');
+  assert.equal(P.peekReturn().data.home.prompt, 'neon');
+  // A payment on the same page (Mini App): delivered once, then gone.
+  assert.equal(P.completeReturn().data.view, 'home');
+  assert.equal(P.completeReturn(), null);
+  assert.deepEqual(restored.map((d) => d.home.photo.url), ['https://x/me.png']);
+});
+
+test('a payment confirmed on another page (the Store) lands back on its own page only', () => {
+  const { context, P } = withStorage();
+  const restored = [];
+  P.onReturn((data) => restored.push(data));
+  P.addCapture(() => ({ mode: 'video' }));
+  P.remember();
+  // Not paid yet: nothing lands.
+  assert.equal(P.landReturn(), null);
+  assert.equal(P.markPaid().paid, true);
+  context.location.search = '?mode=grid';
+  assert.equal(P.landReturn(), null, 'another page does not take it');
+  context.location.search = '?mode=image';
+  assert.equal(P.landReturn().data.mode, 'video');
+  assert.equal(P.peekReturn(), null);
+  assert.equal(restored.length, 1);
+});
+
+test('an old return point expires', () => {
+  const { store, P } = withStorage();
+  store.set('sylvex-purchase-return-v1', JSON.stringify({ at: Date.now() - 4 * 60 * 60 * 1000, path: '/', data: {} }));
+  assert.equal(P.peekReturn(), null);
 });
 
 test('one file for the website and the Mini Apps', () => {

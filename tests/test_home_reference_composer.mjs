@@ -24,7 +24,7 @@ test('the Mini App loads the reference panel with fresh pins', () => {
   assert.match(index, /<link rel="stylesheet" href="css\/reference-panel\.css\?v=ref-panel-20261027" \/>/);
   assert.match(index, /<script src="js\/reference-panel\.js\?v=ref-panel-20261027"><\/script>/);
   assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=admin-catalog-20261030" \/>/);
-  assert.match(index, /<script src="js\/cabinet\.js\?v=media-fix-20261030"><\/script>/);
+  assert.match(index, /<script src="js\/cabinet\.js\?v=handoff-20261031"><\/script>/);
 });
 
 test('the composer: prompt first, then +, Video / Photo (video by default), mic, send; tools below', () => {
@@ -46,13 +46,27 @@ test('only tapping into the prompt opens the panel: Motion repeat or Photo from 
 });
 
 test('a reference + the photo runs that reference\'s own generation; otherwise the router as before', () => {
-  assert.match(js, /\? \{ kind: 'video_template', itemId: ref\.id, upload, aspect: ref\.aspect \}\n\s+: \{ kind: 'image', itemId: ref\.id, upload \};/);
-  assert.match(js, /request\.stayHome=true/);
-  assert.match(js, /catalog-result-slot/);
-  assert.match(js, /homeCatalogResult=\{kind:/);
+  assert.match(js, /\? \{ kind: 'video_template', itemId: ref\.id, upload: photo\.url, aspect: ref\.aspect \}\n\s+: \{ kind: 'image', itemId: ref\.id, upload: photo\.url \};/);
+  assert.match(js, /request\.stayHome = true;/);
   assert.match(js, /if \(homeIdeaRef\) generateHomeIdeaRef\(\); else sendHomeIdea\(\);/);
   assert.match(js, /async function runMediaGeneration\(request\) \{/);
   assert.match(js, /const url = await uploadProStudioMediaFile\(file, 'image'\);/);
+});
+
+// The generation runs in Pro Studio only: Home shows no result of its own
+// and keeps nothing to restore; once the server accepts the job (one job,
+// charged once) the handoff animation plays and Pro Studio opens; a refusal
+// starts nothing and leaves Home as it was.
+test('an accepted Home generation hands off to Pro Studio; a refused one leaves Home as it was', () => {
+  assert.doesNotMatch(js, /homeCatalogResult|catalog-result-slot|SylvexCatalogResult/);
+  assert.match(js, /const jobId = await submitStayHomeGeneration\(request\);\n\s+if \(!jobId\) return;\n\s+await window\.SylvexHandoff\?\.play\(/);
+  assert.match(js, /resetHomeIdea\(\);\n\s+switchView\('tools'\);\n\s+updateComposerMode\(kind\);/);
+  assert.match(js, /const accepted = \(event\) => finish\(String\(event\.detail && event\.detail\.jobId \|\| ''\)\);/);
+  assert.match(js, /runMediaGeneration\(request\)\.then\(\(\) => finish\(null\), \(\) => finish\(null\)\);/);
+  // Sessions from the former Home card are dropped, never resumed.
+  assert.match(js, /sessionStorage\.removeItem\('sylvex-home-catalog-'\+localAccountStorageOwner\(\)\)/);
+  assert.match(index, /<script src="js\/generation-handoff\.js\?v=handoff-20261031"><\/script>/);
+  assert.doesNotMatch(index, /catalog-result/);
 });
 
 test('the mic types speech into the prompt', () => {

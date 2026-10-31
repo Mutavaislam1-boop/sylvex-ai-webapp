@@ -9,13 +9,29 @@
      403 + subscription_required            -> "start" (no credits either)
                                                or "subscription" (credits, no plan)
      402 + paywall / insufficient_balance   -> "balance" (not enough for this one)
-   Any other refusal is left to the app's own error message. Access rules,
-   prices and checkout stay where they are: the plans are the Store's own
-   (js/store-cards.js) and buying goes through the host's Store.
+   Any other refusal is left to the app's own error message. Access rules
+   and prices stay where they are: the plans are the Store's own
+   (js/store-cards.js), the packages the host's, and a plan or a package
+   goes straight to that product's checkout through the host (onPlan /
+   onPack), never through the Store's listing first.
 
-     SylvexPaywall.configure({ lang, price(plan), onPlan(planId), onCredits(), storeCardsSrc })
-     SylvexPaywall.show(kind, { required, balance })
+   Before a purchase it remembers where the person was (the page and what
+   the hosts' capture functions return: the section, the references, the
+   files, the prompt, the settings). After a successful payment the host
+   brings that back - the same page and section, filled in as it was; the
+   generation itself is never started again on its own.
+
+     SylvexPaywall.configure({ lang, price(plan), packs() -> [{ id, credits, price }],
+                               onPlan(planId) -> Promise?, onPack(packId) -> Promise?,
+                               onCredits(), storeCardsSrc, capture() })
+     SylvexPaywall.show(kind, { required, balance })   kind: start | subscription | balance | packs
      SylvexPaywall.classify(status, body)  -> { kind, required, balance } | null
+     SylvexPaywall.addCapture(fn)          a page's own state to bring back
+     SylvexPaywall.onReturn(fn)            fn(data) brings it back
+     SylvexPaywall.remember()              save the return point now (a purchase started elsewhere)
+     SylvexPaywall.completeReturn()        after a payment on this page: deliver it
+     SylvexPaywall.markPaid()              after a payment elsewhere (the Store): mark it for its page
+     SylvexPaywall.landReturn()            on a page load: deliver a paid return meant for this page
 */
 (function (root) {
   'use strict';
@@ -35,6 +51,9 @@
       tools: 'Pro Studio, Grid, Edit and every tool', choose: 'Subscribe', popular: 'Popular',
       credits_link: 'Only need credits? Buy a credit package', top_up: 'Top up credits', plans_link: 'See plans',
       need: 'Needed', have: 'On your balance', loading: 'Loading plans…',
+      packs_title: 'Top up credits', packs_text: 'Credits never expire and work for every generation. Pick a package to go to checkout.',
+      buy: 'Buy', back_to_plans: 'Back to plans', no_packs: 'Credit packages are not available right now.',
+      busy: 'Opening checkout…', failed: 'Checkout could not be opened. Please try again.',
     },
     ru: {
       eyebrow: 'SYLVEX', close: 'Закрыть',
@@ -49,12 +68,19 @@
       tools: 'Pro Studio, Grid, Edit и все инструменты', choose: 'Оформить', popular: 'Популярный',
       credits_link: 'Нужны только кредиты? Купить пакет', top_up: 'Пополнить кредиты', plans_link: 'Посмотреть тарифы',
       need: 'Нужно', have: 'На балансе', loading: 'Загружаем тарифы…',
+      packs_title: 'Пополнить кредиты', packs_text: 'Кредиты не сгорают и подходят для любой генерации. Выберите пакет — и перейдите к оплате.',
+      buy: 'Купить', back_to_plans: 'Назад к тарифам', no_packs: 'Пакеты кредитов сейчас недоступны.',
+      busy: 'Открываем оплату…', failed: 'Не удалось открыть оплату. Попробуйте ещё раз.',
     },
   };
   // The three plans the window offers (the Store keeps the full list).
   var OFFERED = ['starter', 'pro', 'max'];
 
-  var host = { lang: 'en', price: null, onPlan: null, onCredits: null, storeCardsSrc: '' };
+  var host = { lang: 'en', price: null, packs: null, onPlan: null, onPack: null, onCredits: null, storeCardsSrc: '', capture: null };
+  var captures = [];
+  var returnHandlers = [];
+  var RETURN_KEY = 'sylvex-purchase-return-v1';
+  var RETURN_TTL = 3 * 60 * 60 * 1000;
   var node = null;
   var current = null;
   var lastShown = 0;
@@ -192,8 +218,15 @@
         + '<div class="sxpw-actions"><button type="button" class="sxpw-primary" data-sxpw-credits>' + esc(say('top_up')) + '</button>'
         + '<button type="button" class="sxpw-link" data-sxpw-to-plans>' + esc(say('plans_link')) + '</button></div>';
     }
+    if (kind === 'packs') {
+      return '<p class="sxpw-text">' + esc(say('packs_text')) + '</p>'
+        + '<div class="sxpw-packs" data-sxpw-packs-host><div class="sxpw-loading">' + esc(say('loading')) + '</div></div>'
+        + '<p class="sxpw-error" data-sxpw-error hidden></p>'
+        + '<button type="button" class="sxpw-link" data-sxpw-to-plans>' + esc(say('back_to_plans')) + '</button>';
+    }
     return '<p class="sxpw-text">' + esc(say(kind + '_text')) + '</p>'
       + '<div class="sxpw-plans" data-sxpw-plans-host><div class="sxpw-loading">' + esc(say('loading')) + '</div></div>'
+      + '<p class="sxpw-error" data-sxpw-error hidden></p>'
       + '<button type="button" class="sxpw-link sxpw-credits-link" data-sxpw-credits>' + esc(say('credits_link')) + '</button>';
   }
 
@@ -206,7 +239,100 @@
       + '<h2 id="sxpwTitle">' + esc(say(kind + '_title')) + '</h2>'
       + body(kind, current);
     node.querySelector('.sxpw-panel').dataset.kind = kind;
-    if (kind !== 'balance') fillPlans();
+    if (kind === 'packs') fillPacks();
+    else if (kind !== 'balance') fillPlans();
+  }
+
+  function fillPacks() {
+    var holder = node && node.querySelector('[data-sxpw-packs-host]');
+    if (!holder) return;
+    Promise.resolve(typeof host.packs === 'function' ? host.packs() : []).then(function (packs) {
+      if (!node || !holder.isConnected) return;
+      packs = (packs || []).filter(function (p) { return p && p.id; });
+      holder.innerHTML = packs.length ? packs.map(function (p) {
+        return '<article class="sxpw-pack"><b>' + esc(fmt(p.credits)) + ' ⚡</b><span>' + esc(p.price || '') + '</span>'
+          + '<button type="button" class="sxpw-cta" data-sxpw-pack="' + esc(p.id) + '">' + esc(say('buy')) + '</button></article>';
+      }).join('') : '<div class="sxpw-loading">' + esc(say('no_packs')) + '</div>';
+    }, function () {
+      if (holder.isConnected) holder.innerHTML = '<div class="sxpw-loading">' + esc(say('no_packs')) + '</div>';
+    });
+  }
+
+  // ---------------------------------------------------------- the return point
+  function storage() {
+    try { return root.localStorage || null; } catch (_) { return null; }
+  }
+  function here() {
+    return typeof location === 'undefined' ? '' : location.pathname + location.search;
+  }
+  function captureState() {
+    var data = {};
+    captures.concat(host.capture ? [host.capture] : []).forEach(function (fn) {
+      try { var part = fn(); if (part && typeof part === 'object') Object.keys(part).forEach(function (k) { data[k] = part[k]; }); } catch (_) { /* a page that cannot say keeps the rest */ }
+    });
+    return data;
+  }
+  function remember() {
+    var entry = { at: Date.now(), path: here(), data: captureState(), paid: false };
+    try { storage().setItem(RETURN_KEY, JSON.stringify(entry)); } catch (_) { /* private mode: no return point */ }
+    return entry;
+  }
+  function peekReturn() {
+    var entry = null;
+    try { entry = JSON.parse(storage().getItem(RETURN_KEY) || 'null'); } catch (_) { entry = null; }
+    if (entry && !(Date.now() - Number(entry.at) < RETURN_TTL)) { clearReturn(); entry = null; }
+    return entry && typeof entry === 'object' ? entry : null;
+  }
+  function clearReturn() {
+    try { storage().removeItem(RETURN_KEY); } catch (_) { /* nothing saved */ }
+  }
+  function deliver(entry) {
+    returnHandlers.forEach(function (fn) { try { fn(entry.data || {}, entry); } catch (_) { /* one handler does not stop the others */ } });
+  }
+  // A payment finished on the page it started from (the Mini Apps).
+  function completeReturn() {
+    var entry = peekReturn();
+    if (!entry) return null;
+    clearReturn();
+    deliver(entry);
+    return entry;
+  }
+  // A payment finished on another page (the website's Store after Stripe):
+  // the entry is kept, marked paid, for its own page to bring back.
+  function markPaid() {
+    var entry = peekReturn();
+    if (!entry) return null;
+    entry.paid = true;
+    try { storage().setItem(RETURN_KEY, JSON.stringify(entry)); } catch (_) { /* nothing to mark */ }
+    return entry;
+  }
+  function landReturn() {
+    var entry = peekReturn();
+    if (!entry || !entry.paid || entry.path !== here()) return null;
+    clearReturn();
+    deliver(entry);
+    return entry;
+  }
+
+  // ---------------------------------------------------------- buying
+  function setError(text) {
+    var el = node && node.querySelector('[data-sxpw-error]');
+    if (!el) return;
+    el.textContent = text || '';
+    el.hidden = !text;
+  }
+  function buy(fn, id, button) {
+    if (typeof fn !== 'function') return;
+    remember();
+    setError('');
+    var label = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = say('busy'); }
+    var result;
+    try { result = fn(id); } catch (error) { result = Promise.reject(error); }
+    Promise.resolve(result).then(function () { close(); }, function (error) {
+      if (button && button.isConnected) { button.disabled = false; button.textContent = label; }
+      setError((error && error.message) || say('failed'));
+    });
   }
 
   function ensureNode() {
@@ -228,13 +354,17 @@
     var target = event.target;
     if (target.closest('[data-sxpw-close]')) { close(); return; }
     var plan = target.closest('[data-sxpw-plan]');
-    if (plan) {
-      var id = plan.getAttribute('data-sxpw-plan');
-      close();
-      if (typeof host.onPlan === 'function') host.onPlan(id);
-      return;
-    }
+    if (plan) { buy(host.onPlan, plan.getAttribute('data-sxpw-plan'), plan); return; }
+    var pack = target.closest('[data-sxpw-pack]');
+    if (pack) { buy(host.onPack, pack.getAttribute('data-sxpw-pack'), pack); return; }
     if (target.closest('[data-sxpw-credits]')) {
+      // The packages right here; a host without them opens its own.
+      if (typeof host.packs === 'function' && typeof host.onPack === 'function') {
+        current = { kind: 'packs', balance: current ? current.balance : 0, required: 0 };
+        render();
+        return;
+      }
+      remember();
       close();
       if (typeof host.onCredits === 'function') host.onCredits();
       return;
@@ -254,7 +384,7 @@
       }
     } catch (_) { /* another origin: show it here */ }
     if (typeof document === 'undefined' || !document.body) return;
-    kind = kind === 'balance' || kind === 'subscription' ? kind : 'start';
+    kind = kind === 'balance' || kind === 'subscription' || kind === 'packs' ? kind : 'start';
     info = info || {};
     // The same refusal from a retried request does not reopen it.
     var now = Date.now();
@@ -284,6 +414,10 @@
   var api = {
     configure: configure, show: show, close: close, classify: classify,
     isOpen: function () { return !!(node && !node.hidden); },
+    addCapture: function (fn) { if (typeof fn === 'function') captures.push(fn); },
+    onReturn: function (fn) { if (typeof fn === 'function') returnHandlers.push(fn); },
+    remember: remember, peekReturn: peekReturn, clearReturn: clearReturn,
+    completeReturn: completeReturn, markPaid: markPaid, landReturn: landReturn,
   };
   root.SylvexPaywall = api;
   watch();

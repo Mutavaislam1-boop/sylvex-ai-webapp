@@ -10808,13 +10808,19 @@ async function generatePhotoTool(e) {
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {
-      fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
-      mode: 'image',
-      prompt,
-    });
+    if (error && (error.paywall || error.subscriptionRequired)) {
+      // Refused before it started: the paywall window explains it, no row
+      // stays behind and the tool keeps its files.
+      chatMessages.splice(loadingIndex, 1);
+    } else {
+      chatMessages[loadingIndex] = resolveFailureMessage(error, {
+        fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
+        mode: 'image',
+        prompt,
+      });
+      toast(translateGenerationError(error, 'Не удалось обработать фото'));
+    }
     renderPhotoToolModal();
-    toast(translateGenerationError(error, 'Не удалось обработать фото'));
   } finally {
     document.body.classList.remove('ai-generating');
     renderChat();
@@ -22138,8 +22144,32 @@ function maybeShowVideoTemplateIntro(force) {
     quickImageDetailState = { item, source:'quick', userPrompt:r.userPrompt || '', uploadedUrl:r.upload, previewUrl:'', uploading:false,
       extraUploads:Object.assign({}, r.extraUploads || {}), fields:Object.assign({}, r.fields || {}) };
     if (!r.stayHome) switchView('tools');
+    const keepSettings = r.stayHome ? keepComposerImageSettings() : null;
     await generateQuickImageDetail(null);
+    if (keepSettings) keepSettings();
     return true;
+  }
+
+  // A catalog generation started outside Pro Studio rides on its image
+  // composer; once the request has gone out (or was refused), the
+  // composer's own model and style come back, so the next generation made
+  // in Pro Studio is not quietly the catalog's.
+  function keepComposerImageSettings() {
+    const before = { modelId: imageState.modelId, style: imageState.style };
+    let done = false;
+    const restore = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('sylvex:generation-job', restore);
+      window.removeEventListener('sylvex:generation-error', restore);
+      imageState.modelId = before.modelId;
+      imageState.style = before.style;
+      renderImageControls();
+      saveCurrentDraftSoon('image');
+    };
+    window.addEventListener('sylvex:generation-job', restore);
+    window.addEventListener('sylvex:generation-error', restore);
+    return restore;
   }
 
   async function restoreMediaAcceptedJob(r, mode) {
@@ -22338,6 +22368,7 @@ function maybeShowVideoTemplateIntro(force) {
     normalizeVideoStateForModel();
 
     const promptLabel = template.title || 'Video template';
+    const templateRowsStart = chatMessages.length;
     const basePrompt = template.prompt || template.video_prompt || template.description || template.title || '';
     const promptText = isKlingEffect
       ? basePrompt
@@ -22373,14 +22404,14 @@ function maybeShowVideoTemplateIntro(force) {
       });
       loadConversations();
     } catch (err) {
-      if (loadingIndex >= 0) {
-        if (err && err.paywall) {
-          chatMessages[loadingIndex] = buildInsufficientBalanceMessage(err, promptLabel, null, [uploadedImage], null, videoOptions, []);
-        } else {
-          chatMessages[loadingIndex] = resolveFailureMessage(err, { mode: 'video', prompt: promptLabel });
-        }
+      if (isAccessRefusal(err)) {
+        // Refused before it started: no rows stay behind; the paywall
+        // window explains it and the template stays chosen where it was.
+        chatMessages.splice(templateRowsStart);
+      } else {
+        if (loadingIndex >= 0) chatMessages[loadingIndex] = resolveFailureMessage(err, { mode: 'video', prompt: promptLabel });
+        toast(genericErrorTextForMode('video'));
       }
-      if (!(err && (err.paywall || err.subscriptionRequired))) toast(genericErrorTextForMode('video'));
     } finally {
       document.body.classList.remove('ai-generating');
       videoState = previousVideoState;
@@ -23469,6 +23500,7 @@ async function waitGenerationJob(jobId, options) {
       e.preventDefault();
       e.stopPropagation();
     }
+    window.SylvexPaywall?.remember();
     switchView('shop');
     const message = chatMessages[index];
     if (message) message.shopOpenedAt = new Date().toISOString();
@@ -23724,31 +23756,17 @@ async function waitGenerationJob(jobId, options) {
 
     const balanceCheck = estimateFrontendGenerationCredits(imageOptionsSnapshot);
     if (balanceCheck.known && balanceCheck.balance < balanceCheck.required) {
-      chatMessages.push(buildInsufficientBalanceMessage(
-        {
-          paywall: true,
-          insufficientBalance: true,
-          requiredCredits: balanceCheck.required,
-          balance: balanceCheck.balance,
-        },
-        v,
-        attachment,
-        referenceImages,
-        imageOptionsSnapshot,
-        videoOptionsSnapshot,
-        audioUploads
-      ));
-      ta.value = '';
-      autoGrow(ta);
-      updateSendButton();
-      saveCurrentDraftSoon();
-      renderChat();
-      rememberCurrentChatSpace();
-      toast('Недостаточно токенов');
+      // Not enough credits, known before any request: nothing starts. The
+      // paywall window offers a top-up and everything stays where it was.
+      window.SylvexPaywall?.show('balance', { required: balanceCheck.required, balance: balanceCheck.balance });
+      if (mediaGenerationRequest && mediaGenerationRequest.stayHome) clearCatalogComposerVehicle();
+      try { window.dispatchEvent(new CustomEvent('sylvex:generation-error', {detail:{message:'insufficient_balance', jobId:'', terminalStatus:''}})); } catch (_) {}
       clearActiveProStudioJob();
       return;
     }
 
+    // Where this request's own workspace rows begin (a refusal removes them).
+    const requestRowsStart = chatMessages.length;
     generationSubmitting = true;
     dismissGenerationInputUi();
 
@@ -23798,7 +23816,6 @@ async function waitGenerationJob(jobId, options) {
       loadingIndex = appendPendingGenerationPlaceholder();
     }
     ta.value = ''; autoGrow(ta); updateSendButton();
-    saveCurrentDraftSoon();
     clearAttachment();
     if (isImageMode()) {
       imageState.referenceImageUrl = '';
@@ -23832,6 +23849,9 @@ async function waitGenerationJob(jobId, options) {
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
     if (isVoiceMode()) renderVoiceToolPanel();
+    // The draft is what is left once the request has taken its inputs - not
+    // the sent prompt and references (a page left right away keeps it too).
+    saveCurrentDraftSoon();
     if (loadingIndex < 0) loadingIndex = appendPendingGenerationPlaceholder();
     renderChat();
     document.body.classList.add('ai-generating');
@@ -23933,22 +23953,21 @@ async function waitGenerationJob(jobId, options) {
         rememberCurrentChatSpace();
         return;
       }
-      if (err && err.paywall) {
-        if (catalogGeneration) pendingCatalogImageGeneration = catalogGeneration;
-        if (loadingIndex >= 0) {
-          chatMessages[loadingIndex] = buildInsufficientBalanceMessage(
-            err,
-            v,
-            attachment,
-            referenceImages,
-            imageOptionsSnapshot,
-            videoOptionsSnapshot,
-            audioUploads
-          );
+      if (isAccessRefusal(err)) {
+        // Refused before it started (no subscription, not enough credits):
+        // the paywall window (js/paywall.js) explains it, the request
+        // leaves no rows behind, and its prompt, references and settings
+        // stay where they were - the composer, or Home / the catalog it
+        // came from (which keeps its own).
+        if (activeGeneration.historyPreview) {
+          activeGeneration.historyPreview = false;
+          restoreChatSpace(activeGeneration.mode || currentChatType());
         }
+        chatMessages.splice(requestRowsStart);
+        if (mediaGenerationRequest && mediaGenerationRequest.stayHome) clearCatalogComposerVehicle();
+        else restoreGenerationInputs(retryRequest);
         renderChat();
         rememberCurrentChatSpace();
-        toast('Недостаточно токенов');
         if (!activeGeneration.jobId) clearActiveProStudioJob();
         return;
       }
@@ -24243,6 +24262,23 @@ async function waitGenerationJob(jobId, options) {
   // Puts a request's inputs back into the composer: the prompt, its
   // attachment and the references that sending cleared. Used when a request
   // could not start, and by the retry under a failed generation.
+  function isAccessRefusal(err) {
+    return !!(err && (err.paywall || err.subscriptionRequired));
+  }
+
+  // A catalog generation from Home rides on Pro Studio's composer; when it
+  // does not start, the composer goes back to empty (Home keeps its own).
+  function clearCatalogComposerVehicle() {
+    const ta = document.getElementById('chatInput');
+    if (ta) { ta.value = ''; autoGrow(ta); }
+    pendingCatalogImageGeneration = null;
+    imageState.referenceImageUrl = '';
+    imageState.referenceImageUrls = [];
+    imageState.uploadedImageUrls = [];
+    renderUploadedPhotoGrid();
+    updateSendButton();
+  }
+
   function restoreGenerationInputs(request) {
     const ta = document.getElementById('chatInput');
     const referenceImages = (request && request.referenceImages) || [];
@@ -24983,23 +25019,97 @@ async function waitGenerationJob(jobId, options) {
 
   // Paywall window (js/paywall.js, shared with the website): a generation
   // refused for lack of a subscription or credits opens it, wherever it was
-  // started (home, Pro Studio, Grid, Edit, tools). Its plans and packages
-  // lead into this Store - Stars inside Telegram, cards in a browser.
+  // started (home, Pro Studio, Grid, Edit, tools). A plan or a package goes
+  // straight to that product's checkout - Stars inside Telegram, a card in
+  // a browser - and once it is paid the person is back where they were
+  // (captureReturnState / restoreReturnState below).
+  const PAYWALL_PACKS = ['pack_500', 'pack_1000', 'pack_2000', 'pack_5000'];
+  function paywallProduct(productId) {
+    if (isBrowserApp()) {
+      return Promise.resolve(loadBrowserStoreConfig()).then(() => {
+        if (!browserStripeEnabled) throw new Error(BROWSER_STRIPE_ERRORS.stripe_not_configured);
+        openBrowserStoreProduct(productId);
+      });
+    }
+    return loadStoreCatalog().then(() => {
+      if (!storeProductAvailable(productId)) throw new Error(STORE_ERRORS.unknown_product);
+      openStoreProduct(productId);
+    });
+  }
   function initGenerationPaywall() {
     const paywall = window.SylvexPaywall;
     if (!paywall) return;
     paywall.configure({
       lang: () => (uiLang() === 'ru' ? 'ru' : 'en'),
       price: (plan) => (isBrowserApp() ? '$' + plan.monthlyUsd : storeStarsFor(plan.monthlyUsd * 100).toLocaleString('ru-RU') + ' ⭐'),
-      onPlan: (planId) => {
-        const productId = 'plan_' + planId + '_month';
-        switchView('shop');
-        switchShopTab('subscriptions');
-        if (isBrowserApp()) Promise.resolve(loadBrowserStoreConfig()).then(() => openStoreProduct(productId));
-        else openStoreFor(productId);
-      },
+      packs: () => loadStoreCatalog().then(() => PAYWALL_PACKS.map((id) => storeProduct(id)).filter((p) => p && p.available !== false).map((p) => ({
+        id: p.product_id, credits: p.credits,
+        price: isBrowserApp() ? '$' + (p.credits / 100) : Number(p.stars).toLocaleString('ru-RU') + ' ⭐',
+      }))),
+      onPlan: (planId) => paywallProduct('plan_' + planId + '_month'),
+      onPack: (packId) => paywallProduct(packId),
       onCredits: () => { switchView('shop'); switchShopTab('tokens'); },
     });
+    paywall.addCapture(captureReturnState);
+    paywall.onReturn(restoreReturnState);
+  }
+
+  // What a purchase brings back: the section, and what was being prepared
+  // there - Home's reference, photo and prompt; an open quick tool with its
+  // files; Grid or Edit. Pro Studio's composer (prompt, references,
+  // settings) keeps its own draft per mode, so the mode is enough for it.
+  function captureReturnState() {
+    const active = document.querySelector('.view.active')?.dataset.view || 'home';
+    const state = {
+      view: active === 'shop' || active === 'pay' ? 'home' : active,
+      mode: currentChatType(),
+      videoSection: videoState.section || '',
+      workspace: document.body.classList.contains('edit-workspace-open') ? 'edit'
+        : document.querySelector('[data-view="tools"] .studio')?.classList.contains('grid-mode') ? 'grid' : '',
+      prompt: String(document.getElementById('chatInput')?.value || ''),
+    };
+    if (homeIdeaRef) {
+      state.home = {
+        mode: homeIdeaMode, ref: homeIdeaRef,
+        photo: homeIdeaRefPhoto && homeIdeaRefPhoto.url && !homeIdeaRefPhoto.uploading ? { url: homeIdeaRefPhoto.url, subjectKind: homeIdeaRefPhoto.subjectKind || '' } : null,
+        prompt: String(document.getElementById('homeIdeaInput')?.value || ''),
+      };
+    }
+    if (activePhotoTool && document.getElementById('photoToolModal')?.classList.contains('show')) {
+      let saved = {};
+      try { saved = JSON.parse(JSON.stringify(photoToolState[activePhotoTool] || {})); } catch {}
+      state.tool = { kind: activePhotoTool, state: saved };
+    }
+    return state;
+  }
+
+  function restoreReturnState(state) {
+    if (!state || typeof state !== 'object') return;
+    const view = ['home', 'tools', 'media', 'history', 'profile', 'community', 'settings'].includes(state.view) ? state.view : 'home';
+    switchView(view);
+    if (view === 'tools') {
+      updateComposerMode(state.mode === 'video' && state.videoSection ? state.videoSection : (state.mode || 'image'));
+      const ta = document.getElementById('chatInput');
+      if (ta && !ta.value && state.prompt) { ta.value = state.prompt; autoGrow(ta); updateSendButton(); }
+      if (state.workspace === 'grid') setStudioLayout('grid');
+      if (state.workspace === 'edit') openEditWorkspace(null);
+    }
+    if (state.home && state.home.ref) {
+      homeIdeaMode = state.home.mode === 'photo' ? 'photo' : 'video';
+      homeIdeaRef = state.home.ref;
+      homeIdeaRefPhoto = state.home.photo && state.home.photo.url ? { url: state.home.photo.url, preview: state.home.photo.url, subjectKind: state.home.photo.subjectKind || '' } : null;
+      const input = document.getElementById('homeIdeaInput');
+      if (input) { input.value = state.home.prompt || ''; input.dispatchEvent(new Event('input')); }
+      renderHomeIdeaRefs();
+    }
+    if (state.tool && PHOTO_TOOL_CONFIG[state.tool.kind]) {
+      const saved = state.tool.state || {};
+      saved.generating = false;
+      if (Array.isArray(saved.files)) saved.files = saved.files.filter((file) => file && file.url && !file.uploading);
+      photoToolState[state.tool.kind] = Object.assign({ files: [], generating: false }, saved);
+      openPhotoToolModal(null, state.tool.kind);
+    }
+    toast(uiLang() === 'ru' ? 'Оплата прошла — продолжайте с того же места' : 'Payment complete - carry on where you left off');
   }
 
   /* ===== Shop: buy flow ===== */
@@ -25240,6 +25350,8 @@ async function waitGenerationJob(jobId, options) {
         delete storeOrderWatchers[orderId];
         if (result.user && S.renderUser && !isBrowserApp()) S.renderUser(result.user);
         if (S.syncUser) S.syncUser({ force: true });
+        // Back to the section the purchase started from, filled in as it was.
+        window.SylvexPaywall?.completeReturn();
         if (order.kind === 'subscription') showSubscriptionCelebration(result.user || S.user || {}, order.plan_key);
         return;
       }
@@ -26678,67 +26790,18 @@ async function waitGenerationJob(jobId, options) {
   const HOME_IDEA_PANEL_TITLES = { video: 'Замена персонажа в видео', photo: 'Фото по референсу' };
   const homeIdeaRefItems = { video: null, photo: null };
   let homeIdeaMode = 'video', homeIdeaRef = null, homeIdeaRefPhoto = null;
-  let homeCatalogResult = null, homeCatalogOwner = '';
   document.addEventListener('click',async event=>{
     const button=event.target.closest('[data-home-catalog-subject]');if(!button||activeGenerationLocked())return;
     const kind=button.dataset.homeCatalogSubject;window.SylvexRefPanel?.close();
     const item=await openCatalogReferencePicker(kind);if(!item)return;
-    homeIdeaRefPhoto={url:item.url,preview:item.url,subjectKind:kind};homeCatalogResult=null;renderHomeIdeaRefs();
+    homeIdeaRefPhoto={url:item.url,preview:item.url,subjectKind:kind};renderHomeIdeaRefs();
   });
 
-  function saveHomeCatalogResult() {
-    const owner=String(getTelegramId()||'');if(!owner||!homeCatalogResult)return;
-    homeCatalogOwner=owner;
-    try{sessionStorage.setItem('sylvex-home-catalog-'+localAccountStorageOwner(),JSON.stringify({at:Date.now(),ref:homeIdeaRef,photo:homeIdeaRefPhoto&&{url:homeIdeaRefPhoto.url,preview:homeIdeaRefPhoto.url,subjectKind:homeIdeaRefPhoto.subjectKind},result:homeCatalogResult}));}catch{}
+  // Generations started on Home live in Pro Studio only. Sessions from the
+  // former Home result card left a saved entry; it is dropped unread.
+  function dropLegacyHomeCatalogResult() {
+    try { sessionStorage.removeItem('sylvex-home-catalog-'+localAccountStorageOwner()); } catch {}
   }
-  function mountHomeCatalogResult() {
-    const host=document.querySelector('#homeIdeaRefs .catalog-result-slot');
-    if(!host||!homeCatalogResult)return;
-    window.SylvexCatalogResult?.mount(host,homeCatalogResult,{
-      download:()=>startGenerationDownload(completedGenerationDownloadUrl(homeCatalogResult.jobId,0,false),generationDownloadFilename(homeCatalogResult.kind,homeCatalogResult.jobId)),
-      open:()=>openMediaHandoff({kind:homeCatalogResult.kind==='video'?'video_reference':'image_reference',resultUrl:homeCatalogResult.url}),
-    });
-  }
-  async function restoreHomeCatalogResult() {
-    const owner=String(getTelegramId()||'');if(!owner)return;
-    if(homeCatalogOwner===owner)return;
-    homeCatalogOwner=owner;homeCatalogResult=null;homeIdeaRef=null;homeIdeaRefPhoto=null;
-    let saved;try{saved=JSON.parse(sessionStorage.getItem('sylvex-home-catalog-'+localAccountStorageOwner())||'null');}catch{}
-    if(!saved||Date.now()-saved.at>48*60*60*1000)return;
-    homeIdeaRef=saved.ref;homeIdeaRefPhoto=saved.photo;homeCatalogResult=saved.result;renderHomeIdeaRefs();
-    if(!homeCatalogResult||homeCatalogResult.status==='failed')return;
-    try{
-      if(!homeCatalogResult.jobId&&homeCatalogResult.requestId){
-        const lookup=await fetch('/api/public/prostudio/request/'+encodeURIComponent(homeCatalogResult.requestId),{cache:'no-store'}),found=await lookup.json();
-        if(owner!==String(getTelegramId()||''))return;
-        homeCatalogResult.jobId=lookup.ok&&found.job_id||'';saveHomeCatalogResult();
-      }
-      if(!homeCatalogResult.jobId){homeCatalogResult.status='unconfirmed';saveHomeCatalogResult();mountHomeCatalogResult();return;}
-      const restoredJob=homeCatalogResult.jobId;
-      const res=await fetch('/api/public/prostudio/job/'+encodeURIComponent(restoredJob),{cache:'no-store'}),job=await res.json();
-      if(owner!==String(getTelegramId()||'')||homeCatalogResult?.jobId!==restoredJob)return;
-      if(!res.ok||!job.ok)return;
-      if(job.status==='completed')acceptHomeCatalogResult(Object.assign({},job.result,{job_id:restoredJob}));
-      else if(isActiveGenerationStatus(job.status))watchGenerationJob(restoredJob,Object.assign({},job,{id:restoredJob}));
-      else{homeCatalogResult.status='failed';saveHomeCatalogResult();mountHomeCatalogResult();}
-    }catch{ /* Keep an unconfirmed task; never retry the POST. */ }
-  }
-  function acceptHomeCatalogResult(data) {
-    if(!homeCatalogResult||data.job_id!==homeCatalogResult.jobId||homeCatalogOwner!==String(getTelegramId()||''))return;
-    const urls=generatedUrlsFromResponse(data,homeCatalogResult.kind);if(!urls.length)return;
-    homeCatalogResult.url=urls[0];homeCatalogResult.status='completed';saveHomeCatalogResult();mountHomeCatalogResult();
-  }
-  window.addEventListener('sylvex:generation-job',event=>{
-    if(!homeCatalogResult||homeCatalogResult.status!=='submitting')return;
-    Object.assign(homeCatalogResult,{jobId:event.detail.jobId,status:event.detail.status});saveHomeCatalogResult();renderHomeIdeaRefs();
-  });
-  window.addEventListener('sylvex:generation-progress',event=>{
-    if(!homeCatalogResult||event.detail.jobId!==homeCatalogResult.jobId||homeCatalogOwner!==String(getTelegramId()||''))return;
-    Object.assign(homeCatalogResult,{status:event.detail.status,progress:event.detail.progress});saveHomeCatalogResult();mountHomeCatalogResult();
-  });
-  window.addEventListener('sylvex:generation-result',event=>acceptHomeCatalogResult(event.detail||{}));
-  window.addEventListener('sylvex:generation-error',event=>{if(homeCatalogOwner===String(getTelegramId()||'')&&homeCatalogResult&&!homeCatalogResult.url){const terminal=['failed','cancelled','canceled','timeout','timed_out'].includes(event.detail?.terminalStatus);homeCatalogResult.status=terminal||(!homeCatalogResult.jobId&&!homeCatalogResult.requestId)?'failed':'unconfirmed';saveHomeCatalogResult();mountHomeCatalogResult();}});
-
 
   async function homeIdeaReferences(mode) {
     if (homeIdeaRefItems[mode]) return homeIdeaRefItems[mode];
@@ -26788,7 +26851,6 @@ async function waitGenerationJob(jobId, options) {
 
   function pickHomeIdeaRef(item) {
     if(activeGenerationLocked()||document.getElementById('homeIdeaForm')?.classList.contains('loading'))return;
-    homeCatalogResult=null;
     homeIdeaRef = Object.assign({ kind: homeIdeaMode }, item);
     // A reference takes the place of a plain attached photo.
     homeIdeaAttachment = null;
@@ -26824,12 +26886,10 @@ async function waitGenerationJob(jobId, options) {
     } else if (homeIdeaAttachment) {
       html = thumb(homeIdeaAttachment.url, 'data-home-idea-remove');
     }
-    if(homeCatalogResult&&homeIdeaRef)html+='<span class="catalog-chain-arrow" aria-hidden="true">→</span><span class="catalog-result-slot"></span>';
     if(homeIdeaRef?.kind==='video')html+='<span class="catalog-subject-controls"><button type="button" data-home-catalog-subject="character">Персонаж</button><button type="button" data-home-catalog-subject="object">Объект</button></span>';
     host.classList.toggle('catalog-chain',!!homeIdeaRef);
     host.innerHTML = html;
     host.hidden = !html;
-    mountHomeCatalogResult();
     syncHomeIdeaSend();
   }
 
@@ -26864,33 +26924,71 @@ async function waitGenerationJob(jobId, options) {
     }
   }
 
-  // Reference + photo: the reference's own generation (video templates make
-  // a video, photo references a photo).
+  // Reference + photo: the reference's own Pro Studio generation (video
+  // templates make a video, photo references a photo). Only once the server
+  // has accepted it (one job, charged once) does a short animation carry it
+  // into Pro Studio, where it runs with its references and settings and
+  // stays in the history; Home starts over. A refusal (no subscription, not
+  // enough credits) starts nothing: no animation, no move, the paywall
+  // window explains it, and every choice stays on Home.
   async function generateHomeIdeaRef() {
     if (guestNeedsAccount('create')) return;
-    if(homeCatalogResult?.status==='unconfirmed'&&homeCatalogResult.requestId&&!homeCatalogResult.jobId){homeCatalogOwner='';await restoreHomeCatalogResult();return;}
-    if(homeCatalogResult?.status==='unconfirmed'&&homeCatalogResult.jobId){const cached=S.completedCatalogResult(homeCatalogResult.jobId);if(cached)acceptHomeCatalogResult(cached);else watchGenerationJob(homeCatalogResult.jobId,{mode:homeCatalogResult.kind});return;}
     const form = document.getElementById('homeIdeaForm');
     if (!homeIdeaRefPhoto) { document.getElementById('homeIdeaFileInput')?.click(); toast('Загрузите изображение'); return; }
     if (homeIdeaRefPhoto.uploading) { toast('Фото ещё загружается'); return; }
-    if (form?.classList.contains('loading')) return;
-    const ref = homeIdeaRef, upload = homeIdeaRefPhoto.url;
-    const request = ref.kind === 'video'
-      ? { kind: 'video_template', itemId: ref.id, upload, aspect: ref.aspect }
-      : { kind: 'image', itemId: ref.id, upload };
+    if (form?.classList.contains('loading') || activeGenerationLocked()) return;
+    const ref = homeIdeaRef, photo = homeIdeaRefPhoto;
+    const kind = ref.kind === 'video' ? 'video' : 'image';
+    const request = kind === 'video'
+      ? { kind: 'video_template', itemId: ref.id, upload: photo.url, aspect: ref.aspect }
+      : { kind: 'image', itemId: ref.id, upload: photo.url };
+    request.stayHome = true;
+    request.userPrompt = String(document.getElementById('homeIdeaInput')?.value || '').trim();
+    request.subjectKind = photo.subjectKind || '';
+    request.clientRequestId = 'catalog_home_' + Date.now().toString(36);
     form?.classList.add('loading');
     window.SylvexRefPanel?.close();
     try {
-      request.stayHome=true;
-      request.userPrompt=String(document.getElementById('homeIdeaInput')?.value||'').trim();
-      request.subjectKind=homeIdeaRefPhoto.subjectKind||'';
-      request.clientRequestId='catalog_home_'+Date.now().toString(36);
-      homeCatalogResult={kind:ref.kind==='video'?'video':'image',status:'submitting',jobId:'',requestId:request.clientRequestId};
-      homeCatalogOwner=String(getTelegramId()||'');saveHomeCatalogResult();renderHomeIdeaRefs();
-      if (!await runMediaGeneration(request)) {homeCatalogResult.status=homeCatalogResult.jobId||homeCatalogResult.requestId?'unconfirmed':'failed';saveHomeCatalogResult();mountHomeCatalogResult();return;}
+      const jobId = await submitStayHomeGeneration(request);
+      if (!jobId) return;
+      await window.SylvexHandoff?.play({ images: [ref.image, photo.url], video: kind === 'video' ? ref.video : '', kind, lang: uiLang() === 'ru' ? 'ru' : 'en' });
+      resetHomeIdea();
+      switchView('tools');
+      updateComposerMode(kind);
     } finally {
       form?.classList.remove('loading');
     }
+  }
+
+  // Runs a catalog generation through Pro Studio's own flow and resolves
+  // with its job id once the server has accepted it, or with null when it
+  // did not start (refused, invalid, already busy). It never resubmits.
+  function submitStayHomeGeneration(request) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (jobId) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('sylvex:generation-job', accepted);
+        window.removeEventListener('sylvex:generation-error', failed);
+        resolve(jobId || null);
+      };
+      const accepted = (event) => finish(String(event.detail && event.detail.jobId || ''));
+      const failed = (event) => { if (!(event.detail && event.detail.jobId)) finish(null); };
+      window.addEventListener('sylvex:generation-job', accepted);
+      window.addEventListener('sylvex:generation-error', failed);
+      // An accepted job resolves above long before this settles.
+      runMediaGeneration(request).then(() => finish(null), () => finish(null));
+    });
+  }
+
+  function resetHomeIdea() {
+    homeIdeaRef = null;
+    homeIdeaRefPhoto = null;
+    homeIdeaAttachment = null;
+    const input = document.getElementById('homeIdeaInput');
+    if (input) { input.value = ''; input.dispatchEvent(new Event('input')); }
+    renderHomeIdeaRefs();
   }
 
   // The prompt row's mic: speech to text into the prompt.
@@ -31542,7 +31640,7 @@ async function waitGenerationJob(jobId, options) {
       if(!owner||owner===loadedAccountOwner)return;
       loadedAccountOwner=owner;
       activateProStudioAccountOwner(owner);
-      void restoreHomeCatalogResult();
+      dropLegacyHomeCatalogResult();
       S.currentAccountLoad = Promise.allSettled([loadConversations(), loadProStudioSync(), restoreActiveProStudioJob()]).then(() => {
         if (owner === String(getTelegramId() || '')) resolveStudioAccountReady();
       });
