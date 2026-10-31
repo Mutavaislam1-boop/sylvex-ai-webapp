@@ -77,3 +77,20 @@ test('photo tools open as icon tiles in Standard, without Edit on phones', () =>
   assert.match(js, /S\.photoToolIconHtml = function \(key\)/);
   assert.match(cabinet, /const phone = typeof window !== 'undefined' && window\.matchMedia && window\.matchMedia\('\(max-width: 767px\)'\)\.matches;/);
 });
+
+test("the composer is Standard's own block, resting on the keyboard by its own rule", () => {
+  // One block built from scratch: attachments, its own prompt field, bottom bar.
+  assert.match(js, /<div class="sxs-composer">/);
+  assert.match(js, /<textarea class="sxs-input"/);
+  // Pro Studio's composer is hidden and only keeps the state: the text is mirrored into #chatInput.
+  assert.match(js, /Object\.defineProperty\(pro\.input, 'value'/);
+  assert.match(js, /pro\.input\.dispatchEvent\(new Event\('input', \{ bubbles: true \}\)\)/);
+  assert.match(css, /body\.sxs-std #studioComposer > \.studio-mode-tabs,\s*body\.sxs-std #studioComposer > \.studio-video-panel \{ visibility: hidden !important;/);
+  // No Pro input window, no keyboard-close button in Standard.
+  assert.doesNotMatch(css, /composer-input-window/);
+  assert.doesNotMatch(js + css, /mobile-keyboard-close/);
+  // The part of the screen the keyboard covers stays free under Standard.
+  assert.match(js, /window\.innerHeight - vv\.height - vv\.offsetTop/);
+  assert.match(css, /body\.sxs-std \.view\[data-view="tools"\] \.studio \{ padding-bottom: var\(--sxs-kb, 0px\) !important;/);
+});
+

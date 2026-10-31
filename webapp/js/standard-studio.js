@@ -4,12 +4,14 @@
    sylvex-website/studio/js/standard-studio.js.
 
    On phones (≤767px) Pro Studio opens in Standard by default; "Pro" is the
-   existing mobile interface, unchanged. Standard has its own header, mode
-   row, chips, bottom bar, "Параметры" panel and "+" sheet, and it is only a
-   face: every value it shows is read from Pro Studio, every button runs the
-   existing Pro Studio function (directly, through SYLVEX.studioBridge, or by
-   pressing the existing control). The prompt field itself is Pro Studio's
-   own #chatInput, so drafts, dictation, dialogues and sending are untouched.
+   existing mobile interface, unchanged. Standard is built from scratch: its
+   own header, mode row, chips, composer (one block: attachments, prompt,
+   bottom bar), "Параметры" panel and "+" sheet. Pro Studio's own composer is
+   hidden in Standard and only keeps the state: the prompt typed here is
+   mirrored into #chatInput, and every button runs the existing Pro Studio
+   function (directly, through SYLVEX.studioBridge, or by pressing the
+   existing control). The composer rests on the on-screen keyboard by its
+   own rule (visualViewport), not by Pro's input window.
    Grid Mode and Edit are not available on phones in either interface. */
 (function () {
   'use strict';
@@ -126,13 +128,12 @@
     pro.studio = studio;
     pro.composer = composer;
     pro.bar = $('.studio-bar', studio);
-    pro.prompt = $('.studio-prompt-column', composer);
     pro.input = $('#chatInput');
     pro.send = $('#sendBtn');
     pro.mic = $('#micBtn');
     pro.model = $('.studio-control-row .studio-select-pill.wide', composer);
     pro.home = $('.studio-bar-right > button:last-child', studio);
-    if (!pro.prompt || !pro.input || !pro.send) return false;
+    if (!pro.input || !pro.send) return false;
 
     // Header (Standard): menu, SYLVEX, Standard | Pro, home.
     el.hdr = document.createElement('header');
@@ -155,19 +156,23 @@
     el.top = document.createElement('section');
     el.top.className = 'sxs-top';
     el.top.innerHTML = '<div class="sxs-params" role="dialog" aria-label="' + t('Параметры') + '"></div>'
-      + '<div class="sxs-modes"><div class="sxs-seg-modes" role="tablist" aria-label="' + t('Режим') + '"></div><div class="sxs-chips"></div></div>';
+      + '<div class="sxs-modes"><div class="sxs-seg-modes" role="tablist" aria-label="' + t('Режим') + '"></div><div class="sxs-chips"></div></div>'
+      // The composer: one block - attachments, prompt, bottom bar.
+      + '<div class="sxs-composer"><div class="sxs-atts" hidden></div><div class="sxs-dialog"></div><div class="sxs-addons"></div>'
+      + '<div class="sxs-field"><textarea class="sxs-input" rows="2" enterkeyhint="enter"></textarea><span class="sxs-est" hidden></span></div>'
+      + '<div class="sxs-bar"></div></div>';
     composer.parentNode.insertBefore(el.top, composer);
     el.params = $('.sxs-params', el.top);
     el.segModes = $('.sxs-seg-modes', el.top);
     el.chips = $('.sxs-chips', el.top);
-
-    // Inside the composer: attachments above the prompt, Standard's bar below it.
-    el.atts = document.createElement('div');
-    el.atts.className = 'sxs-atts';
-    pro.prompt.parentNode.insertBefore(el.atts, pro.prompt);
-    el.bar = document.createElement('div');
-    el.bar.className = 'sxs-bar';
-    pro.prompt.appendChild(el.bar);
+    el.composer = $('.sxs-composer', el.top);
+    el.atts = $('.sxs-atts', el.top);
+    el.dialog = $('.sxs-dialog', el.top);
+    el.addons = $('.sxs-addons', el.top);
+    el.input = $('.sxs-input', el.top);
+    el.est = $('.sxs-est', el.top);
+    el.bar = $('.sxs-bar', el.top);
+    linkPrompt();
 
     // The "+" sheet for Photo and Video.
     el.sheet = document.createElement('div');
@@ -200,6 +205,7 @@
     document.addEventListener('pointerup', function () { slider = null; });
     if (PHONE.addEventListener) PHONE.addEventListener('change', apply); else PHONE.addListener(apply);
     watchHosts();
+    watchKeyboard();
     mounted = true;
     apply();
     setInterval(sync, 350);
@@ -223,7 +229,12 @@
     // No Grid Mode on phones.
     var grid = $('#studioGridWorkspace');
     if (phone && grid && !grid.hidden && typeof S.setStudioLayout === 'function') S.setStudioLayout('classic');
-    if (!std) { closeParams(); closeSheet(); }
+    if (!std) {
+      closeParams();
+      closeSheet();
+      if (sheetHome.dialog) adopt('dialog', sheetHome.dialog.node, null);
+      if (sheetHome.addons) adopt('addons', sheetHome.addons.node, null);
+    }
     // Pages that size Pro Studio to the space left under their own header
     // re-measure on resize (the website hides its mode tabs in Standard).
     var wasStd = apply.std;
@@ -257,6 +268,83 @@
     if (mic && pro.mic) mic.classList.toggle('on', /\b(live|recording|active|is-recording)\b/.test(pro.mic.className));
     if (state.params) renderIf('params', paramsSig(mode), function () { renderParams(mode); });
     if (state.sheet) renderFrames();
+    // The prompt: placeholder of the mode, voice duration estimate, dialogue speakers.
+    var placeholder = pro.input.getAttribute('placeholder') || '';
+    if (el.input.placeholder !== placeholder) el.input.placeholder = placeholder;
+    if (el.input.value !== pro.input.value && document.activeElement !== el.input) mirrorIn();
+    var estimate = mode === 'voice' ? textOf($('#voiceDurationEstimate')) : '';
+    el.est.hidden = !estimate;
+    if (estimate && el.est.textContent !== estimate) el.est.textContent = estimate;
+    el.composer.classList.toggle('has-est', !!estimate);
+    renderIf('dialog', mode + '|' + b.voiceWorkspace(), function () {
+      adopt('dialog', $('#voiceHorizontalTools'), mode === 'voice' && b.voiceWorkspace() === 'dialogue' ? el.dialog : null);
+      // The voice text tools (pronunciation, translation, analysis…) open here.
+      adopt('addons', $('.voice-editor-addons'), mode === 'voice' ? el.addons : null);
+    });
+  }
+
+  // ---------------------------------------------------------------- prompt
+  // Standard's own field; Pro Studio's #chatInput (hidden) holds the same
+  // text, so everything that reads, saves, fills or clears the prompt works
+  // unchanged. Whatever Pro Studio writes into #chatInput shows up here.
+  var fromStandard = false;
+  function growInput() {
+    el.input.style.height = 'auto';
+    el.input.style.height = Math.min(el.input.scrollHeight, Math.round(window.innerHeight * 0.34)) + 'px';
+  }
+  function mirrorIn() {
+    if (el.input.value === pro.input.value) return;
+    el.input.value = pro.input.value;
+    growInput();
+  }
+  function mirrorSelection() {
+    try { pro.input.setSelectionRange(el.input.selectionStart, el.input.selectionEnd); } catch (e) {}
+  }
+  function linkPrompt() {
+    var native = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    Object.defineProperty(pro.input, 'value', {
+      configurable: true,
+      get: function () { return native.get.call(this); },
+      set: function (value) { native.set.call(this, value); if (!fromStandard && mounted) mirrorIn(); },
+    });
+    el.input.value = pro.input.value;
+    el.input.addEventListener('input', function () {
+      fromStandard = true;
+      pro.input.value = el.input.value;
+      fromStandard = false;
+      mirrorSelection();
+      pro.input.dispatchEvent(new Event('input', { bubbles: true }));
+      growInput();
+    });
+    ['select', 'keyup', 'click'].forEach(function (type) { el.input.addEventListener(type, mirrorSelection); });
+    // Pro Studio tools (voice emotions, pauses…) focus #chatInput after
+    // inserting: in Standard the typing continues here, with no input window.
+    pro.input.addEventListener('focus', function () {
+      if (!active()) return;
+      var start = pro.input.selectionStart, end = pro.input.selectionEnd;
+      document.body.classList.remove('composer-input-window-open');
+      pro.composer.classList.remove('composer-input-window');
+      el.input.focus();
+      try { el.input.setSelectionRange(start, end); } catch (e) {}
+    });
+  }
+
+  // ---------------------------------------------------------------- keyboard
+  // The composer sits right on top of the on-screen keyboard: the part of the
+  // screen the keyboard covers (visualViewport) is kept free under Standard.
+  function watchKeyboard() {
+    var vv = window.visualViewport;
+    var update = function () {
+      var typing = active() && document.activeElement === el.input;
+      var covered = typing && vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+      document.body.style.setProperty('--sxs-kb', covered + 'px');
+      document.body.classList.toggle('sxs-typing', typing);
+    };
+    if (vv) { vv.addEventListener('resize', update); vv.addEventListener('scroll', update); }
+    window.addEventListener('resize', update);
+    el.input.addEventListener('focus', function () { update(); setTimeout(update, 120); setTimeout(update, 400); });
+    el.input.addEventListener('blur', function () { setTimeout(update, 60); });
+    update();
   }
   function renderIf(key, sig, fn) {
     if (state.sig[key] === sig) return;
