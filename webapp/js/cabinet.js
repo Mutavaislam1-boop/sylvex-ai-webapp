@@ -9437,7 +9437,25 @@ function selectPhotoToolReference(e,url){if(e){e.preventDefault();e.stopPropagat
 
 function hideEditOnThisScreen() {
   const app = typeof window !== 'undefined' ? window.SYLVEX : null;
-  return !!(app && app.isBrowserMobileUi && app.isBrowserMobileUi());
+  // Edit is not available on phones (Standard and Pro alike).
+  const phone = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 767px)').matches;
+  return !!(phone || (app && app.isBrowserMobileUi && app.isBrowserMobileUi()));
+}
+
+// Standard (mobile): the same tools as icon tiles - the icon set of the Home
+// quick tools - each opening exactly as from the cards.
+function photoToolIconGridHtml() {
+  const icon = (key) => (typeof S.photoToolIconHtml === 'function' ? S.photoToolIconHtml(key) : '');
+  return '<div class="photo-tool-catalog photo-tool-icon-grid">'
+    + Object.entries(PHOTO_TOOL_CONFIG).filter(([key]) => !(key === 'edit_workspace' && hideEditOnThisScreen())).map(([key, config]) =>
+      '<button type="button" class="photo-tool-icon-tile" onclick="SYLVEX.openPhotoToolModal(event,\'' + key + '\')">'
+      + '<span class="photo-tool-icon">' + icon(key) + '</span><b>' + S.escapeHtml(config.shortTitle) + '</b></button>'
+    ).join('')
+    + mediaToolBlocks.map((block) =>
+      '<button type="button" class="photo-tool-icon-tile" onclick="SYLVEX.openMediaToolBlock(event,' + Number(block.id) + ')">'
+      + '<span class="photo-tool-icon">' + icon('') + '</span><b>' + S.escapeHtml(block.name) + '</b></button>'
+    ).join('')
+    + '</div>';
 }
 
 function renderPhotoToolCatalog() {
@@ -9445,7 +9463,7 @@ function renderPhotoToolCatalog() {
   if (!body) return;
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструменты</small><h3>Что сделать с фотографией?</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
-    + '<div class="photo-tool-catalog">'
+    + (S.isStandardStudio && S.isStandardStudio() ? photoToolIconGridHtml() : ('<div class="photo-tool-catalog">'
     + Object.entries(PHOTO_TOOL_CONFIG).filter(([key]) => !(key === 'edit_workspace' && hideEditOnThisScreen())).map(([key, config]) =>
       '<button type="button" class="photo-tool-catalog-card" onclick="SYLVEX.openPhotoToolModal(event,\'' + key + '\')">'
       + photoToolCatalogPreviewHtml(config)
@@ -9458,7 +9476,7 @@ function renderPhotoToolCatalog() {
       + '<span><b>' + S.escapeHtml(block.name) + '</b><small>' + S.escapeHtml(block.description) + '</small></span>'
       + '</button>'
     ).join('')
-    + '</div>';
+    + '</div>'));
   loadMediaToolBlocks();
 }
 
@@ -17651,7 +17669,9 @@ function imageModelButton(model) {
   ];
   // Home quick tools shown on this screen (Edit is left out on a mobile browser).
   function homeQuickTools() {
-    return isBrowserMobileUi() ? HOME_QUICK_TOOLS.filter((item) => item.key !== 'edit_workspace') : HOME_QUICK_TOOLS;
+    // No Edit on phones, nor in the browser app on mobile devices.
+    const noEdit = isBrowserMobileUi() || (window.matchMedia && window.matchMedia('(max-width: 767px)').matches);
+    return noEdit ? HOME_QUICK_TOOLS.filter((item) => item.key !== 'edit_workspace') : HOME_QUICK_TOOLS;
   }
   let homeQuickOffset = 0;
   let homeQuickTimer = null;
@@ -30671,12 +30691,13 @@ async function waitGenerationJob(jobId, options) {
 
   // Grid Mode's canvas/workspace remains the same canvas on desktop and
   // mobile; touch panning, pinch zoom and the compact rail adapt it in place.
+  // No Grid Mode on phones (Standard and Pro alike); tablets and wider keep it.
   function studioGridAvailableOnThisScreen() {
-    return true;
+    return !(window.matchMedia && window.matchMedia('(max-width: 767px)').matches);
   }
 
   function setStudioLayout(layout,options={}) {
-    const mode = layout === 'grid' ? 'grid' : 'classic';
+    const mode = layout === 'grid' && studioGridAvailableOnThisScreen() ? 'grid' : 'classic';
     if (mode === 'grid') globalThis.SylvexAnalytics?.track('section_open', { section: 'grid' });
     const workspaceMode=mode==='grid'?'grid':'studio';
     const publishNavigation=!options.preserveStudioMode&&!studioModeNavigationIntent;
@@ -31712,6 +31733,96 @@ async function waitGenerationJob(jobId, options) {
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
+
+  // Mobile Standard (js/standard-studio.js) is only a different face of this
+  // same Pro Studio: it reads state and calls the functions above through
+  // this bridge and has no generation, upload or pricing logic of its own.
+  S.studioBridge = {
+    mode() {
+      if (isVideoMode()) return 'video';
+      if (isMusicMode()) return 'music';
+      if (isVoiceMode()) return 'voice';
+      if (studioMode === 'text') return 'text';
+      return 'image';
+    },
+    videoSection() { return videoState.section || 'generate'; },
+    voiceWorkspace() { return voiceWorkspaceMode; },
+    // What is attached to the current request, in composer order.
+    attachments() {
+      const out = [];
+      const mode = this.mode();
+      const ref = (id, url, label, type) => out.push({ id, url, label, group: 'ref', type: type || 'image' });
+      const visual = (id, url, label) => out.push({ id, url, label, group: 'visual' });
+      if (mode === 'image') {
+        currentUploadImages(UPLOAD_TARGETS.IMAGE_UPLOAD).forEach((url, i) => ref('ref:' + i, url, 'Референс ' + (i + 1)));
+        const style = imageState.style && imageState.style !== 'auto' ? imageStyleSheetItem(imageState.style) : null;
+        if (style) visual('style', style.preview || style.image || style.thumb || '', 'Стиль');
+        const object = selectedImageObject();
+        if (object) visual('object', visualPreviewUrl(object), 'Объект');
+        const character = selectedImageCharacter();
+        if (character) visual('character', visualPreviewUrl(character), 'Персонаж');
+      } else if (mode === 'video') {
+        if (videoState.startImage) ref('start', videoState.startImage, 'Начало');
+        if (videoState.endImage) ref('end', videoState.endImage, 'Конец');
+        const editVideo = videoState.editInputVideo || videoState.editVideoUrl || '';
+        if (videoState.section === 'edit' && editVideo) ref('edit', editVideo, 'Видео', 'video');
+        const refVideo = currentVideoReferenceUrl();
+        if (refVideo) ref('refvideo', refVideo, 'Видео', 'video');
+        currentVideoReferenceImages().forEach((url, i) => ref('vref:' + i, url, 'Референс ' + (i + 1)));
+        const visualThumb = (item) => item ? (item.previewUrl || (item.references || [])[0] || '') : '';
+        if (videoState.objectVisual) visual('object', visualThumb(videoState.objectVisual), 'Объект');
+        if (videoState.characterVisual) visual('character', visualThumb(videoState.characterVisual), 'Персонаж');
+      } else {
+        const file = currentModeAttachment();
+        if (file) out.push({ id: 'file', url: file.previewUrl || file.url || '', label: file.name || file.fileName || 'Файл', group: 'ref', type: file.kind || file.type || 'file' });
+      }
+      return out;
+    },
+    removeAttachment(id) {
+      const mode = this.mode();
+      if (id === 'style') { imageState.style = 'auto'; renderImageControls(); updateSendButton(); return; }
+      if (id === 'character' || id === 'object') return clearVisualSelection(null, id);
+      if (id === 'start') return clearSelectionButton('video_start');
+      if (id === 'end') return clearSelectionButton('video_end');
+      if (id === 'edit') return clearVideoEditInput(null);
+      if (id === 'refvideo') return clearVideoReference(null);
+      if (id === 'file') return mode === 'voice' ? clearVoiceUploads(null) : clearAttachment();
+      const [kind, index] = String(id).split(':');
+      const target = kind === 'vref' ? UPLOAD_TARGETS.VIDEO_REFERENCES : UPLOAD_TARGETS.IMAGE_UPLOAD;
+      const urls = currentUploadImages(target);
+      urls.splice(Number(index), 1);
+      setCurrentUploadImages(urls, target);
+      renderAllUploadPreviews();
+    },
+    uploadTarget() { return getUploadTarget(); },
+    setUploadTarget(target) { setUploadTarget(target); },
+    // Text: the versions of the chosen model family, as the version picker lists them.
+    textVersions() {
+      const familyId = textState.familyId || textModelFamilyId(currentTextModel());
+      const family = TEXT_MODEL_FAMILIES.find((item) => item.id === familyId);
+      const items = textVersionsForFamily(familyId).map((item) => ({ id: item.id, label: String(item.label || item.id).replace(/^[-\s]+/, '') }));
+      return { family: family ? family.label : '', items, activeId: textState.modelId || (currentTextModel() || {}).id || '' };
+    },
+    pickTextVersion(id) { pickTextOption(null, 'model_version', id); },
+    imageCount() { return Number(imageState.count || 1); },
+    setImageCount(count) {
+      imageState.count = Math.max(1, Math.min(4, Number(count) || 1));
+      renderImageControls();
+    },
+    musicDuration() {
+      const model = currentMusicModel();
+      const maxMinutes = Math.max(...((model && model.durations) || [1, 2, 3, 4]));
+      return { supported: musicModelSupports('duration'), seconds: musicState.duration === 'auto' ? 0 : Math.min(maxMinutes * 60, Number(musicState.duration) || 0), maxMinutes, model: (model && model.label) || '' };
+    },
+    // Same rule as the duration wheel: 0:00 is Auto, the top minute has no seconds.
+    setMusicDuration(seconds) {
+      const { maxMinutes } = this.musicDuration();
+      let value = Math.max(0, Math.min(maxMinutes * 60, Math.round(Number(seconds) || 0)));
+      if (Math.floor(value / 60) === maxMinutes) value = maxMinutes * 60;
+      musicDurationDraftSeconds = value;
+      saveMusicDuration(null);
+    },
+  };
 
   S.newEditWorkspace=newEditWorkspace;S.toggleEditWorkspaceSidebar=toggleEditWorkspaceSidebar;S.leaveEditWorkspace=leaveEditWorkspace;S.loadMoreEditSessions=loadMoreEditSessions;S.resetEditWorkspaceSize=resetEditWorkspaceSize;S.selectEditWorkspaceNode=selectEditWorkspaceNode;
   S.setEditLightPreset=setEditLightPreset;

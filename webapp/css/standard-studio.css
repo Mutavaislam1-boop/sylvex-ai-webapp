@@ -1,0 +1,199 @@
+/* SYLVEX Pro Studio — mobile "Standard" interface (js/standard-studio.js).
+   One file for the Mini App and the website - keep it byte-identical in
+   sylvex-ai-webapp/webapp/css/standard-studio.css and
+   sylvex-website/studio/css/standard-studio.css.
+   Everything here is scoped to phones: body.sxs-phone / sxs-std / sxs-pro. */
+
+.sxs-hdr, .sxs-top, .sxs-atts, .sxs-bar, .sxs-pro-seg, .sxs-theme { display: none; }
+.sxs-sheet-wrap[hidden] { display: none !important; }
+
+body.sxs-phone {
+  --sxs-surface: var(--st-bg-3, #242528);
+  --sxs-surface-2: var(--st-bg-2, #1c1d20);
+  --sxs-line: var(--st-line-2, rgba(255,255,255,.1));
+  --sxs-text: var(--st-text, #f5f5f7);
+  --sxs-mute: var(--st-dim, #9a9ba0);
+  --sxs-on-bg: var(--st-invert-bg, #f2f2f4);
+  --sxs-on-text: var(--st-invert-text, #000);
+  --sxs-send: #8fa2c9;
+  --sxs-blue: #3d6fe0;
+}
+.sxs-i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+
+/* ---------------------------------------------------------------- phones: both interfaces */
+/* No Grid Mode and no Edit on phones; «Обычный | Сетка» becomes Standard | Pro. */
+body.sxs-phone #studioLayoutSwitch,
+body.sxs-phone #studioGridWorkspace { display: none !important; }
+body.sxs-phone .sxs-pro-seg { display: flex; align-items: center; }
+.sxs-seg { display: flex; padding: 3px; border-radius: 12px; background: var(--sxs-surface-2); border: 1px solid var(--sxs-line); }
+.sxs-seg button { padding: 5px 9px; border: 0; border-radius: 9px; background: none; color: var(--sxs-mute); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.sxs-seg button.on { background: var(--sxs-on-bg); color: var(--sxs-on-text); }
+
+/* ---------------------------------------------------------------- Standard: header */
+body.sxs-std .studio-bar { position: absolute !important; visibility: hidden; height: 0 !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; border: 0 !important; overflow: visible !important; }
+body.sxs-std .studio-bar #modelPop { visibility: visible; }
+body.sxs-std .sxs-hdr { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 10px; padding-top: env(safe-area-inset-top); border-bottom: 1px solid var(--st-line, rgba(255,255,255,.06)); color: var(--sxs-text); }
+.sxs-hdr-mid { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.sxs-brand { font-weight: 650; font-size: 17px; letter-spacing: .02em; white-space: nowrap; }
+.sxs-ib { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; border: 0; border-radius: 12px; background: none; color: inherit; cursor: pointer; padding: 0; }
+.sxs-ib.on { background: var(--sxs-line); }
+
+/* Theme switch on the side menu's user card (Standard only). */
+body.sxs-std #hdUserCard { position: relative; }
+body.sxs-std .sxs-theme { display: grid; place-items: center; position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border: 0; border-radius: 10px; background: var(--st-bg-3, rgba(255,255,255,.06)); color: var(--st-text, #fff); cursor: pointer; }
+body.sxs-std .sxs-theme .sxs-i { width: 18px; height: 18px; }
+body.sxs-std #hdUserCard .hd-user-main { padding-right: 38px; }
+
+/* ---------------------------------------------------------------- Standard: composer area */
+body.sxs-std .sxs-top { display: block; flex: 0 0 auto; padding: 0 8px; color: var(--sxs-text); }
+body.sxs-std #studioComposer .studio-mode-tabs,
+body.sxs-std #studioComposer .studio-video-panel > :not(.studio-voice-full):not(.studio-prompt-column):not(.sxs-atts),
+body.sxs-std #studioComposer .studio-voice-full .vgen-actions,
+body.sxs-std #studioComposer .studio-voice-full .vgen-upload-row,
+body.sxs-std #studioComposer .studio-control-row,
+body.sxs-std #studioAudioPlayer { display: none !important; }
+
+body.sxs-std #studioComposer {
+  margin: 0 8px calc(8px + env(safe-area-inset-bottom)) !important; padding: 10px 12px 8px !important;
+  border-radius: 22px !important; background: var(--sxs-surface) !important; border: 1px solid var(--sxs-line) !important;
+  box-shadow: none !important; min-height: 0 !important; max-height: none !important; height: auto !important;
+}
+body.sxs-std #studioComposer .studio-video-panel { display: block !important; padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; min-height: 0 !important; }
+body.sxs-std #studioComposer .studio-prompt-column { display: flex !important; flex-direction: column; position: relative; padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; min-height: 0 !important; }
+body.sxs-std #chatInput { display: block !important; width: 100% !important; min-height: 50px !important; max-height: 34vh; margin: 0 !important; padding: 2px 0 !important; border: 0 !important; background: transparent !important; color: var(--sxs-text) !important; font-size: 16px !important; line-height: 1.35 !important; resize: none; box-shadow: none !important; }
+body.sxs-std #studioComposer .voice-text-estimate { position: absolute; top: 2px; right: 0; font-size: 12px; color: var(--sxs-mute); }
+body.sxs-std[data-sxs-current="voice"] #chatInput { padding-right: 52px !important; }
+
+/* Attachments: thumbnails inside the composer, above the prompt. */
+body.sxs-std .sxs-atts { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 0 8px; padding-top: 2px; }
+body.sxs-std .sxs-atts[hidden] { display: none; }
+.sxs-atts::-webkit-scrollbar { display: none; }
+.sxs-att { position: relative; flex: 0 0 auto; width: 54px; height: 66px; border-radius: 8px; overflow: hidden; background: var(--sxs-surface-2); }
+.sxs-att img, .sxs-att-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.sxs-att-media { display: grid; place-items: center; color: var(--sxs-mute); }
+.sxs-att-x { position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; line-height: 1; cursor: pointer; }
+.sxs-att-lbl { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 1px 2px; text-align: center; font-size: 7.6px; line-height: 1.1; color: #fff; white-space: nowrap; overflow: hidden; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+.sxs-att-sep { flex: 0 0 1px; align-self: stretch; margin: 2px 3px; background: var(--sxs-line); }
+
+/* Bottom bar. */
+body.sxs-std .sxs-bar { display: flex; align-items: center; gap: 2px; margin-top: 6px; color: var(--sxs-text); }
+.sxs-bar .sxs-ib { width: 38px; height: 38px; color: var(--sxs-text); opacity: .85; }
+.sxs-bar .sxs-ib.on { opacity: 1; }
+.sxs-spacer { flex: 1 1 auto; }
+.sxs-model { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 160px; height: 38px; padding: 0 6px; border: 0; background: none; color: var(--sxs-mute); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.sxs-bar.is-music .sxs-model { max-width: 118px; }
+.sxs-model-icon { display: inline-grid; place-items: center; flex: 0 0 auto; }
+.sxs-model-icon:empty { display: none; }
+.sxs-model-icon img, .sxs-model-icon svg { width: 18px; height: 18px; border-radius: 5px; }
+.sxs-model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sxs-chev { width: 16px; height: 16px; }
+.sxs-vocal { display: flex; align-items: center; gap: 5px; height: 34px; padding: 0 10px; border: 1px solid var(--sxs-line); border-radius: 17px; background: none; color: var(--sxs-text); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.sxs-vocal .sxs-i { width: 16px; height: 16px; }
+.sxs-send { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--sxs-send); color: #fff; cursor: pointer; padding: 0; }
+.sxs-send .sxs-i { width: 20px; height: 20px; stroke-width: 2; }
+.sxs-send:disabled { opacity: .55; cursor: default; }
+.sxs-send.is-busy { opacity: .7; }
+
+/* Mode row: 5 icons + the mode's sections as chips. */
+.sxs-modes { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+body.sxs-params-open .sxs-modes { display: none; }
+.sxs-seg-modes { flex: 0 0 auto; display: flex; padding: 3px; border-radius: 16px; background: var(--sxs-surface-2); }
+.sxs-seg-modes button { width: 34px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px; background: none; color: var(--sxs-mute); cursor: pointer; }
+.sxs-seg-modes button svg { width: 18px; height: 18px; }
+.sxs-seg-modes button.on { background: var(--sxs-on-bg); color: var(--sxs-on-text); }
+.sxs-chips { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.sxs-chips::-webkit-scrollbar { display: none; }
+.sxs-chip { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border: 1px solid var(--sxs-line); border-radius: 17px; background: var(--st-bg, #0b0b0c); color: var(--sxs-text); font: inherit; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.sxs-chip svg { width: 16px; height: 16px; }
+.sxs-chip.on { border-color: var(--sxs-mute); }
+
+/* ---------------------------------------------------------------- Standard: «Параметры» */
+.sxs-params { display: none; margin-bottom: 8px; padding: 14px 14px 8px; border-radius: 22px; background: var(--sxs-surface); border: 1px solid var(--sxs-line); }
+body.sxs-params-open .sxs-params { display: block; }
+.sxs-params-title { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+.sxs-prow { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: calc(100% + 20px); min-height: 46px; margin: 0 -10px; padding: 0 10px; border: 0; border-radius: 12px; background: none; color: var(--sxs-text); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+.sxs-prow[aria-disabled="true"] { opacity: .5; }
+.sxs-pval { display: flex; align-items: center; gap: 7px; color: var(--sxs-mute); font-size: 14px; }
+.sxs-pval .sxs-i { width: 17px; height: 17px; }
+.sxs-stepper { display: flex; align-items: center; gap: 10px; }
+.sxs-stepper button { width: 28px; height: 28px; border: 0; background: none; color: var(--sxs-text); font-size: 18px; cursor: pointer; }
+.sxs-stepper button:disabled { opacity: .35; }
+.sxs-stepper b { min-width: 12px; text-align: center; font-weight: 600; }
+.sxs-pfoot { display: flex; justify-content: flex-end; }
+.sxs-list-head { display: flex; align-items: center; gap: 4px; margin: -6px 0 4px -8px; font-size: 15px; font-weight: 700; }
+.sxs-list-head[hidden] { display: none; }
+.sxs-list-head .sxs-dur-val { margin-left: auto; }
+
+/* An existing option list shown inside the panel. */
+.sxs-list { max-height: min(44vh, 320px); overflow-y: auto; }
+.sxs-list #modelPop {
+  position: static !important; display: block !important; inset: auto !important; width: auto !important; min-width: 0 !important; max-width: none !important;
+  max-height: none !important; overflow: visible !important; transform: none !important; margin: 0 !important; padding: 0 !important;
+  border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; opacity: 1 !important; visibility: visible !important; z-index: auto !important; animation: none !important;
+}
+.sxs-list #modelPop > .image-size-sheet-title { display: none !important; }
+.sxs-list #modelPop .image-size-sheet-list { display: flex !important; flex-direction: column !important; gap: 2px !important; flex-wrap: nowrap !important; overflow: visible !important; max-height: none !important; padding: 0 !important; }
+.sxs-list #modelPop .image-size-row { width: 100% !important; min-height: 42px; justify-content: space-between; }
+
+/* Music duration: minutes and seconds scales instead of the wheel. */
+.sxs-dur { margin: 8px 0 4px; }
+.sxs-dur-lbl { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; color: var(--sxs-mute); }
+.sxs-dur-lbl b { color: var(--sxs-text); font-size: 15px; }
+.sxs-dur input[type=range] { width: 100%; height: 30px; margin: 0; accent-color: #4f8bff; }
+.sxs-ticks { position: relative; height: 14px; margin: 0 9px; }
+.sxs-ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--sxs-mute); }
+.sxs-ticks span::before { content: ""; position: absolute; left: 50%; top: -5px; width: 1px; height: 4px; background: var(--sxs-line); }
+.sxs-dur-hint { margin: 10px 0 8px; font-size: 11px; color: var(--sxs-mute); }
+.sxs-save { width: 100%; height: 42px; margin-bottom: 6px; border: 0; border-radius: 14px; background: var(--sxs-on-bg); color: var(--sxs-on-text); font: inherit; font-weight: 700; cursor: pointer; }
+
+/* Text: one slider position per version of the chosen model. */
+.sxs-ver-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.sxs-ver-slider { position: relative; padding: 32px 0 6px; touch-action: none; cursor: pointer; }
+.sxs-ver-slider.is-one { cursor: default; }
+.sxs-ver-track { position: relative; height: 28px; border-radius: 14px; background: var(--sxs-blue); }
+.sxs-ver-slider.is-one .sxs-ver-track { opacity: .7; }
+.sxs-ver-track i, .sxs-ver-thumb, .sxs-ver-label { position: absolute; transform: translateX(-50%); }
+.sxs-ver-track i { top: 11.5px; width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.55); }
+.sxs-ver-thumb { top: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.sxs-ver-label { top: 2px; padding: 3px 8px; border-radius: 8px; background: var(--sxs-surface-2); color: var(--sxs-text); font-size: 12px; font-weight: 600; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- Standard: "+" sheet */
+.sxs-sheet-wrap { position: fixed; inset: 0; z-index: 2147480000; background: rgba(0,0,0,.45); color: var(--sxs-text); }
+.sxs-sheet { position: absolute; left: 6px; right: 6px; top: calc(8px + env(safe-area-inset-top)); bottom: calc(6px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; overflow: hidden; border-radius: 30px; background: var(--st-bg, #0e0e10); border: 1px solid var(--sxs-line); }
+.sxs-sheet-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 12px 10px 0 8px; }
+.sxs-tabs { display: flex; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 3px; border-radius: 20px; background: var(--sxs-surface-2); }
+.sxs-tabs button { flex: 0 0 auto; padding: 8px 10px; border: 0; border-radius: 17px; background: none; color: var(--sxs-mute); font: inherit; font-size: 13px; cursor: pointer; }
+.sxs-tabs button.on { background: var(--sxs-on-bg); color: var(--sxs-on-text); }
+.sxs-close { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: var(--sxs-surface-2); color: var(--sxs-text); cursor: pointer; }
+.sxs-close .sxs-i { width: 18px; height: 18px; stroke-width: 2.2; }
+.sxs-sheet-content { flex: 1 1 55%; min-height: 0; overflow: auto; padding: 10px 8px; border-bottom: 1px solid var(--sxs-line); }
+.sxs-sheet-upload { flex: 1 1 45%; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px 10px; }
+.sxs-frames { display: flex; justify-content: space-between; gap: 10px; padding: 0 8px; }
+.sxs-frames[hidden] { display: none; }
+.sxs-frame { flex: 1 1 0; height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid transparent; border-radius: 12px; background: var(--sxs-surface-2); color: var(--sxs-text); font: inherit; font-size: 11px; cursor: pointer; }
+.sxs-frame .sxs-i { width: 14px; height: 14px; }
+.sxs-frame.on { border-color: var(--sxs-mute); }
+.sxs-frame.has .sxs-i { color: #6fd08c; }
+.sxs-upload-slot { flex: 1 1 auto; min-height: 0; }
+
+/* The borrowed panel parts lose their own frame inside the sheet. */
+body.sxs-sheet-open #uploadPanel,
+body.sxs-sheet-open #imageStylePanel { visibility: hidden !important; pointer-events: none !important; }
+.sxs-sheet .upload-panel-generated, .sxs-sheet .upload-panel-actions { display: block !important; width: auto !important; height: auto !important; max-height: none !important; min-height: 0 !important; border: 0 !important; padding: 0 !important; margin: 0 !important; background: none !important; flex: none !important; }
+.sxs-sheet .image-style-panel-card { position: static !important; width: auto !important; max-width: none !important; height: auto !important; max-height: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important; box-shadow: none !important; transform: none !important; animation: none !important; visibility: visible !important; pointer-events: auto !important; }
+.sxs-sheet .image-style-panel-card .image-style-panel-close { display: none !important; }
+.sxs-sheet .image-style-panel-card .image-style-panel-head { padding: 0 4px 8px !important; }
+body.sxs-std[data-sxs-current="voice"] #studioComposer .studio-voice-full { display: block !important; min-height: 0 !important; height: auto !important; padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; }
+body.sxs-std #studioComposer .studio-voice-full > :not(.voice-tool-panel):not(.voice-horizontal-tools):not(.voice-editor-addons) { display: none !important; }
+.sxs-list #modelPop .image-size-row .image-size-label { flex: 1 1 auto; text-align: left !important; justify-content: flex-start !important; }
+
+/* ---------------------------------------------------------------- Standard: «Фото-инструменты» as icon tiles */
+.photo-tool-catalog.photo-tool-icon-grid { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 18px 6px !important; padding: 8px 2px 4px !important; overflow: visible !important; }
+.photo-tool-icon-tile { display: flex; flex-direction: column; align-items: center; gap: 9px; min-width: 0; padding: 0; border: 0; background: none; color: var(--st-text, #f5f5f7); font: inherit; cursor: pointer; }
+.photo-tool-icon { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px; background: var(--st-bg-3, #2a2b2f); border: 1px solid var(--st-line-2, rgba(255,255,255,.08)); }
+.photo-tool-icon svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.photo-tool-icon-tile b { max-width: 100%; font-size: 12.5px; font-weight: 700; line-height: 1.2; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sxs-sheet #uploadChoosePhotosBtn { position: static !important; display: block; width: 100% !important; margin: 12px 0 0 !important; transform: none !important; }
+.sxs-sheet #uploadChoosePhotosBtn[hidden] { display: none !important; }
+/* Website: Standard has its own mode switch, so the studio toolbar's mode tabs stay hidden on phones. */
+body.sxs-std #sxWebsiteStudioToolbar { display: none !important; }
