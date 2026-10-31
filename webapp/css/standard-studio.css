@@ -46,23 +46,36 @@ body.sxs-std #hdUserCard .hd-user-main { padding-right: 38px; }
 
 /* ---------------------------------------------------------------- Standard: composer area */
 body.sxs-std .sxs-top { display: block; flex: 0 0 auto; padding: 0 8px; color: var(--sxs-text); }
-body.sxs-std #studioComposer .studio-mode-tabs,
-body.sxs-std #studioComposer .studio-video-panel > :not(.studio-voice-full):not(.studio-prompt-column):not(.sxs-atts),
-body.sxs-std #studioComposer .studio-voice-full .vgen-actions,
-body.sxs-std #studioComposer .studio-voice-full .vgen-upload-row,
-body.sxs-std #studioComposer .studio-control-row,
+/* Pro Studio's own composer is not shown in Standard; it only keeps the
+   state Standard reads and writes. Its own parts are hidden; the windows
+   that live in it (side menu, paywall, voice list) keep working. */
+body.sxs-std #studioComposer {
+  position: absolute !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+  height: 0 !important; min-height: 0 !important; max-height: 0 !important; margin: 0 !important; padding: 0 !important;
+  border: 0 !important; background: none !important; box-shadow: none !important; overflow: visible !important;
+}
+body.sxs-std #studioComposer > .studio-mode-tabs,
+body.sxs-std #studioComposer > .studio-video-panel { visibility: hidden !important; pointer-events: none !important; }
+body.sxs-std #studioComposer #voiceToolPanel { visibility: visible; pointer-events: auto; }
 body.sxs-std #studioAudioPlayer { display: none !important; }
 
-body.sxs-std #studioComposer {
-  margin: 0 8px calc(8px + env(safe-area-inset-bottom)) !important; padding: 10px 12px 8px !important;
-  border-radius: 22px !important; background: var(--sxs-surface) !important; border: 1px solid var(--sxs-line) !important;
-  box-shadow: none !important; min-height: 0 !important; max-height: none !important; height: auto !important;
-}
-body.sxs-std #studioComposer .studio-video-panel { display: block !important; padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; min-height: 0 !important; }
-body.sxs-std #studioComposer .studio-prompt-column { display: flex !important; flex-direction: column; position: relative; padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; min-height: 0 !important; }
-body.sxs-std #chatInput { display: block !important; width: 100% !important; min-height: 50px !important; max-height: 34vh; margin: 0 !important; padding: 2px 0 !important; border: 0 !important; background: transparent !important; color: var(--sxs-text) !important; font-size: 16px !important; line-height: 1.35 !important; resize: none; box-shadow: none !important; }
-body.sxs-std #studioComposer .voice-text-estimate { position: absolute; top: 2px; right: 0; font-size: 12px; color: var(--sxs-mute); }
-body.sxs-std[data-sxs-current="voice"] #chatInput { padding-right: 52px !important; }
+/* The composer: one block - attachments, prompt, bottom bar. While typing
+   it rests right on top of the on-screen keyboard (--sxs-kb). */
+body.sxs-std .view[data-view="tools"] .studio { padding-bottom: var(--sxs-kb, 0px) !important; box-sizing: border-box; }
+body.sxs-std .sxs-composer { margin: 0 0 calc(8px + env(safe-area-inset-bottom)); padding: 10px 12px 8px; border-radius: 22px; background: var(--sxs-surface); border: 1px solid var(--sxs-line); }
+body.sxs-std.sxs-typing .sxs-composer { margin-bottom: 8px; }
+.sxs-field { position: relative; }
+.sxs-input { display: block; width: 100%; min-height: 50px; max-height: 34vh; margin: 0; padding: 2px 0; border: 0; outline: 0; background: transparent; color: var(--sxs-text); font: inherit; font-size: 16px; line-height: 1.35; resize: none; box-shadow: none; -webkit-appearance: none; appearance: none; }
+.sxs-input::placeholder { color: var(--sxs-mute); }
+.sxs-composer.has-est .sxs-input { padding-right: 56px; }
+.sxs-est { position: absolute; top: 2px; right: 0; font-size: 12px; color: var(--sxs-mute); }
+.sxs-est[hidden] { display: none; }
+.sxs-dialog:empty { display: none; }
+.sxs-dialog { margin-bottom: 8px; }
+.sxs-dialog #voiceHorizontalTools { display: block !important; visibility: visible !important; pointer-events: auto !important; }
+.sxs-addons:empty, .sxs-addons:has(> .voice-editor-addons > #voiceAddonDrawer[hidden]) { display: none; }
+.sxs-addons { margin-bottom: 8px; }
+.sxs-addons .voice-editor-addons { display: block !important; }
 
 /* Attachments: thumbnails inside the composer, above the prompt. */
 body.sxs-std .sxs-atts { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 0 8px; padding-top: 2px; }
@@ -183,8 +196,6 @@ body.sxs-sheet-open #imageStylePanel { visibility: hidden !important; pointer-ev
 .sxs-sheet .image-style-panel-card { position: static !important; width: auto !important; max-width: none !important; height: auto !important; max-height: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important; box-shadow: none !important; transform: none !important; animation: none !important; visibility: visible !important; pointer-events: auto !important; }
 .sxs-sheet .image-style-panel-card .image-style-panel-close { display: none !important; }
 .sxs-sheet .image-style-panel-card .image-style-panel-head { padding: 0 4px 8px !important; }
-body.sxs-std[data-sxs-current="voice"] #studioComposer .studio-voice-full { display: block !important; min-height: 0 !important; height: auto !important; padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; }
-body.sxs-std #studioComposer .studio-voice-full > :not(.voice-tool-panel):not(.voice-horizontal-tools):not(.voice-editor-addons) { display: none !important; }
 .sxs-list #modelPop .image-size-row .image-size-label { flex: 1 1 auto; text-align: left !important; justify-content: flex-start !important; }
 
 /* ---------------------------------------------------------------- Standard: «Фото-инструменты» as icon tiles */
