@@ -59,11 +59,21 @@ body.sxs-std #studioComposer > .studio-video-panel { visibility: hidden !importa
 body.sxs-std #studioComposer #voiceToolPanel { visibility: visible; pointer-events: auto; }
 body.sxs-std #studioAudioPlayer { display: none !important; }
 
-/* The composer: one block - attachments, prompt, bottom bar. While typing
-   it rests right on top of the on-screen keyboard (--sxs-kb). */
-body.sxs-std .view[data-view="tools"] .studio { padding-bottom: var(--sxs-kb, 0px) !important; box-sizing: border-box; }
+/* Pro Studio is pinned to the part of the screen that is really visible
+   (standard-studio.js layoutKeyboard: --sxs-vv-top / --sxs-vv-h from the
+   visualViewport), so the composer - the last block of the column - ends
+   right above the on-screen keyboard and, with it closed, at its normal
+   place. The only keyboard lift there is: nothing pads the column, and
+   #app-root keeps this above the pages' own height:100vh rules. */
+body.sxs-std #app-root .view[data-view="tools"].active .studio {
+  position: fixed !important; top: var(--sxs-vv-top, 0px) !important; left: var(--sxs-pin-left, 0px) !important; right: auto !important;
+  width: var(--sxs-pin-w, 100%) !important; height: var(--sxs-vv-h, 100%) !important; min-height: 0 !important; max-height: none !important;
+  padding-bottom: 0 !important; box-sizing: border-box;
+}
+/* The composer: one block - attachments, prompt, bottom bar. Over the safe
+   area at rest; 8px above the keyboard while it is open. */
 body.sxs-std .sxs-composer { margin: 0 0 calc(8px + env(safe-area-inset-bottom)); padding: 10px 12px 8px; border-radius: 22px; background: var(--sxs-surface); border: 1px solid var(--sxs-line); }
-body.sxs-std.sxs-typing .sxs-composer { margin-bottom: 8px; }
+body.sxs-std.sxs-kb-open .sxs-composer { margin-bottom: 8px; }
 .sxs-field { position: relative; }
 .sxs-input { display: block; width: 100%; min-height: 50px; max-height: 34vh; margin: 0; padding: 2px 0; border: 0; outline: 0; background: transparent; color: var(--sxs-text); font: inherit; font-size: 16px; line-height: 1.35; resize: none; box-shadow: none; -webkit-appearance: none; appearance: none; }
 .sxs-input::placeholder { color: var(--sxs-mute); }

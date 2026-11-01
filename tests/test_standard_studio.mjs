@@ -89,8 +89,36 @@ test("the composer is Standard's own block, resting on the keyboard by its own r
   // No Pro input window, no keyboard-close button in Standard.
   assert.doesNotMatch(css, /composer-input-window/);
   assert.doesNotMatch(js + css, /mobile-keyboard-close/);
-  // The part of the screen the keyboard covers stays free under Standard.
-  assert.match(js, /window\.innerHeight - vv\.height - vv\.offsetTop/);
-  assert.match(css, /body\.sxs-std \.view\[data-view="tools"\] \.studio \{ padding-bottom: var\(--sxs-kb, 0px\) !important;/);
+});
+
+test('keyboard: one rule, Pro Studio pinned to the visual viewport', () => {
+  // The visible box comes from visualViewport only (layout viewport
+  // coordinates, like position: fixed): never mixed with scrollY or a rect.
+  assert.match(js, /return vv \? \{ top: vv\.offsetTop, height: vv\.height, width: vv\.width \}/);
+  assert.match(js, /var top = Math\.max\(kb\.frameTop, area\.top\);/);
+  assert.match(js, /var height = Math\.max\(0, area\.top \+ area\.height - top\);/);
+  assert.match(css, /body\.sxs-std #app-root \.view\[data-view="tools"\]\.active \.studio \{\s*position: fixed !important; top: var\(--sxs-vv-top, 0px\) !important;/);
+  assert.match(css, /height: var\(--sxs-vv-h, 100%\) !important; min-height: 0 !important;/);
+  // No second lift: the old padding rule and the layout-overlap formula
+  // (0 when iOS pans the visual viewport) are gone.
+  assert.doesNotMatch(js + css, /--sxs-kb\b/);
+  assert.doesNotMatch(js, /window\.innerHeight - vv\.height - vv\.offsetTop/);
+  assert.doesNotMatch(js, /\.style\.(paddingBottom|transform|bottom)\s*=/);
+  // Pro Studio's keyboard rule (--kb, kb-open, input window) yields to Standard.
+  assert.match(cabinet, /function standardOwnsKeyboard\(\) \{\s*return Boolean\(S\.isStandardStudio && S\.isStandardStudio\(\) && document\.querySelector\('\.view\[data-view="tools"\]\.active'\)\);/);
+  assert.match(cabinet, /return Boolean\(S\.device && S\.device\.usesVirtualKeyboard\) && !standardOwnsKeyboard\(\);/);
+  // Keyboard open = shrink against the height taken before it opened (only
+  // the bottom margin depends on it); Telegram's viewport is a second source.
+  assert.match(js, /if \(!kb\.base \|\| area\.height > kb\.base \|\| Date\.now\(\) - kb\.blurAt > 700\) kb\.base = area\.height;/);
+  assert.match(js, /var open = editing && \(kb\.base - area\.height > 80 \|\| tgShrink > 80\);/);
+  assert.match(js, /app\.onEvent\('viewportChanged', keyboardSoon\)/);
+  assert.match(css, /body\.sxs-std \.sxs-composer \{ margin: 0 0 calc\(8px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(css, /body\.sxs-std\.sxs-kb-open \.sxs-composer \{ margin-bottom: 8px; \}/);
+  // A page left shifted by iOS is put back only where the page never scrolls,
+  // and only once no field is focused.
+  assert.match(js, /getComputedStyle\(document\.body\)\.overflowY === 'hidden'/);
+  assert.match(js, /if \(!editing\) \{[\s\S]*?resetPageScroll\(\);/);
+  // A transformed ancestor (the site's view) becomes the fixed containing block.
+  assert.match(js, /function fixedContainer\(node\)/);
 });
 

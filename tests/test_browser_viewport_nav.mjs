@@ -50,8 +50,9 @@ test('browser keyboard: no close button, window fits the visible area, browser c
   assert.match(kb, /chatInput\.addEventListener\('blur'/);
   assert.match(kb, /keyboardSeen && document\.activeElement === chatInput/);
   assert.match(cabinet, /S\.isBrowserApp && S\.isBrowserApp\(\) && browserComposerWindowOpen\(\)\) hideMobileKeyboard\(\);/);
-  // Telegram path untouched: the keyboard layout check still uses the device.
-  assert.match(between(cabinet, 'function usesVirtualKeyboardLayout() {', 'function dismissGenerationInputUi'), /^function usesVirtualKeyboardLayout\(\) \{\s*return Boolean\(S\.device && S\.device\.usesVirtualKeyboard\);/);
+  // Telegram path untouched: the keyboard layout check still uses the device
+  // (and yields only to Standard, which positions its own composer).
+  assert.match(between(cabinet, 'function usesVirtualKeyboardLayout() {', 'function dismissGenerationInputUi'), /^function usesVirtualKeyboardLayout\(\) \{\s*return Boolean\(S\.device && S\.device\.usesVirtualKeyboard\) && !standardOwnsKeyboard\(\);/);
 });
 
 test('browser app Pro Studio workspace has no dot/grid background (Telegram keeps it)', () => {

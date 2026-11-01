@@ -11,7 +11,8 @@
    mirrored into #chatInput, and every button runs the existing Pro Studio
    function (directly, through SYLVEX.studioBridge, or by pressing the
    existing control). The composer rests on the on-screen keyboard by its
-   own rule (visualViewport), not by Pro's input window.
+   own rule (Pro Studio pinned to the visualViewport), not by Pro's input
+   window.
    Grid Mode and Edit are not available on phones in either interface. */
 (function () {
   'use strict';
@@ -243,6 +244,7 @@
     else if (wasStd === undefined) setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 0);
     state.sig = {};
     if (std) sync();
+    if (mounted) layoutKeyboard();
   }
 
   // ---------------------------------------------------------------- render
@@ -289,8 +291,9 @@
   // unchanged. Whatever Pro Studio writes into #chatInput shows up here.
   var fromStandard = false;
   function growInput() {
+    if (!el.input.offsetWidth) return;   // not laid out yet: its scrollHeight means nothing
     el.input.style.height = 'auto';
-    el.input.style.height = Math.min(el.input.scrollHeight, Math.round(window.innerHeight * 0.34)) + 'px';
+    el.input.style.height = Math.min(el.input.scrollHeight, Math.round(viewArea().height * 0.34)) + 'px';
   }
   function mirrorIn() {
     if (el.input.value === pro.input.value) return;
@@ -330,21 +333,135 @@
   }
 
   // ---------------------------------------------------------------- keyboard
-  // The composer sits right on top of the on-screen keyboard: the part of the
-  // screen the keyboard covers (visualViewport) is kept free under Standard.
+  // One rule for the Telegram Mini App, the Browser Mini App and the site.
+  // While Standard is shown, Pro Studio is pinned (position: fixed, see
+  // standard-studio.css) to the part of the screen that is really visible,
+  // so the composer, the last block of the column, always ends right above
+  // the on-screen keyboard, and with the keyboard closed at its normal place
+  // over the safe area.
+  // - visualViewport is the source: offsetTop and height are in layout
+  //   viewport coordinates, exactly what position: fixed uses, so nothing is
+  //   mixed with window.scrollY or getBoundingClientRect. Whether iOS shrinks
+  //   the WebView (innerHeight) or pans the visual viewport (offsetTop), the
+  //   visible box is the same and so is the composer's place.
+  // - Telegram's viewport (viewportChanged, viewportStableHeight) only
+  //   triggers a re-measure and helps tell that the keyboard is open.
+  // - The keyboard is lifted once: Pro Studio's keyboard rule (cabinet.js
+  //   usesVirtualKeyboardLayout: --kb, kb-open, the input window) stays off
+  //   while Standard owns the screen, and nothing pads the column any more.
+  // - "Keyboard open" compares with the visible height taken before it
+  //   opened (never with the shrunk one); it only sets the bottom margin.
+  var kb = { inputWidth: 0, top: 0, frameTop: 0, frameLeft: 0, frameWidth: 0, base: 0, width: 0, blurAt: 0, editing: false, typing: false, open: false, height: 0, frame: 0 };
+  function viewArea() {
+    var vv = window.visualViewport;
+    return vv ? { top: vv.offsetTop, height: vv.height, width: vv.width } : { top: 0, height: window.innerHeight, width: window.innerWidth };
+  }
+  function telegramApp() {
+    var app = window.Telegram && window.Telegram.WebApp;
+    return app && app.initData ? app : null;
+  }
+  // Leftover scroll after the keyboard (iOS keeps the page shifted): only
+  // where the page itself never scrolls (overflow hidden, the Mini App).
+  function resetPageScroll() {
+    var root = document.scrollingElement || document.documentElement;
+    if (getComputedStyle(document.body).overflowY === 'hidden' && (window.scrollY || root.scrollTop)) window.scrollTo(window.scrollX, 0);
+    for (var node = pro.studio.parentElement; node && node !== document.body; node = node.parentElement) {
+      if (node.scrollTop && getComputedStyle(node).overflowY === 'hidden') node.scrollTop = 0;
+    }
+  }
+  function restingBox(node) {
+    var top = 0, left = 0;
+    for (var n = node; n; n = n.offsetParent) { top += n.offsetTop + n.clientTop; left += n.offsetLeft + n.clientLeft; }
+    return { top: top - node.clientTop - window.scrollY, left: left - node.clientLeft - window.scrollX, width: node.offsetWidth };
+  }
+  // position: fixed is relative to the viewport unless an ancestor has a
+  // transform, filter, contain... (the site's view keeps the identity
+  // transform of its entry animation): then it is relative to that one.
+  function fixedContainer(node) {
+    for (var n = node.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+      var cs = getComputedStyle(n);
+      if (cs.transform !== 'none' || cs.perspective !== 'none' || cs.filter !== 'none' || (cs.backdropFilter && cs.backdropFilter !== 'none')
+        || /paint|layout|strict|content/.test(cs.contain || '') || /transform|perspective|filter/.test(cs.willChange || '')
+        || (cs.containerType && cs.containerType !== 'normal')) return n;
+    }
+    return null;
+  }
+  function layoutKeyboard() {
+    kb.frame = 0;
+    var root = document.documentElement;
+    var body = document.body;
+    var host = pro.studio && pro.studio.parentElement;
+    var shown = active() && host && host.getClientRects().length > 0;
+    if (!shown) {
+      ['--sxs-vv-top', '--sxs-vv-h', '--sxs-pin-left', '--sxs-pin-w'].forEach(function (name) { root.style.removeProperty(name); });
+      body.classList.remove('sxs-kb-open');
+      kb.typing = kb.open = kb.editing = false;
+      return;
+    }
+    var area = viewArea();
+    var focused = document.activeElement;
+    var typing = focused === el.input;
+    // Any field may have the keyboard (a rename box, a voice block...):
+    // the resting values are only taken when none is focused.
+    var editing = !!(focused && (focused.tagName === 'TEXTAREA' || focused.isContentEditable
+      || (focused.tagName === 'INPUT' && !/^(button|checkbox|radio|range|file|submit|color|reset|image|hidden)$/i.test(focused.type))));
+    if (kb.editing && !editing) kb.blurAt = Date.now();
+    kb.editing = editing;
+    kb.typing = typing;
+    if (area.width !== kb.width) { kb.width = area.width; kb.base = 0; }   // rotation
+    if (!editing) {
+      // The visible height with the keyboard closed. While a keyboard is
+      // still closing (just after blur) it may only grow.
+      if (!kb.base || area.height > kb.base || Date.now() - kb.blurAt > 700) kb.base = area.height;
+      resetPageScroll();
+      // Where the studio starts at rest: the top of the screen in the Mini
+      // App (below the safe area), below the header on the site. Layout
+      // offsets, not getBoundingClientRect: the view's entry animation
+      // (transform) must not move the frame.
+      var frame = restingBox(host);
+      kb.frameTop = Math.max(0, frame.top);
+      kb.frameLeft = frame.left;
+      kb.frameWidth = frame.width;
+    } else if (!kb.base) kb.base = area.height;
+    var app = telegramApp();
+    var tgShrink = app && app.viewportStableHeight && app.viewportHeight ? app.viewportStableHeight - app.viewportHeight : 0;
+    // Whatever field has it, the keyboard sits right under the composer.
+    var open = editing && (kb.base - area.height > 80 || tgShrink > 80);
+    var top = Math.max(kb.frameTop, area.top);
+    var height = Math.max(0, area.top + area.height - top);
+    var cb = fixedContainer(pro.studio);
+    var cbBox = cb ? restingBox(cb) : { top: 0, left: 0 };
+    var cbTop = cb ? cbBox.top + cb.clientTop : 0;
+    var cbLeft = cb ? cbBox.left + cb.clientLeft : 0;
+    kb.top = top;
+    root.style.setProperty('--sxs-vv-top', Math.round(top - cbTop) + 'px');
+    root.style.setProperty('--sxs-vv-h', Math.round(height) + 'px');
+    root.style.setProperty('--sxs-pin-left', Math.round(kb.frameLeft - cbLeft) + 'px');
+    root.style.setProperty('--sxs-pin-w', Math.round(kb.frameWidth) + 'px');
+    body.classList.toggle('sxs-kb-open', open);
+    kb.open = open;
+    if (Math.abs(height - kb.height) > 1 || kb.inputWidth !== el.input.offsetWidth) { kb.height = height; kb.inputWidth = el.input.offsetWidth; growInput(); }
+  }
+  function keyboardSoon() { if (!kb.frame) kb.frame = requestAnimationFrame(layoutKeyboard); }
+  S.standardKeyboard = function () {
+    return { open: kb.open, typing: kb.typing, baseHeight: Math.round(kb.base), pinTop: Math.round(kb.top || 0), pinHeight: Math.round(kb.height) };
+  };
   function watchKeyboard() {
     var vv = window.visualViewport;
-    var update = function () {
-      var typing = active() && document.activeElement === el.input;
-      var covered = typing && vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
-      document.body.style.setProperty('--sxs-kb', covered + 'px');
-      document.body.classList.toggle('sxs-typing', typing);
-    };
-    if (vv) { vv.addEventListener('resize', update); vv.addEventListener('scroll', update); }
-    window.addEventListener('resize', update);
-    el.input.addEventListener('focus', function () { update(); setTimeout(update, 120); setTimeout(update, 400); });
-    el.input.addEventListener('blur', function () { setTimeout(update, 60); });
-    update();
+    if (vv) { vv.addEventListener('resize', keyboardSoon); vv.addEventListener('scroll', keyboardSoon); }
+    window.addEventListener('resize', keyboardSoon);
+    window.addEventListener('scroll', keyboardSoon, { passive: true });
+    window.addEventListener('orientationchange', function () { keyboardSoon(); setTimeout(keyboardSoon, 400); });
+    var app = telegramApp();
+    if (app && app.onEvent) app.onEvent('viewportChanged', keyboardSoon);
+    // Some WebViews report the keyboard late: one more look once it settled.
+    var settle = function () { keyboardSoon(); setTimeout(keyboardSoon, 350); setTimeout(keyboardSoon, 800); };
+    el.input.addEventListener('focus', settle);
+    el.input.addEventListener('blur', settle);
+    // Opening Pro Studio, switching Standard/Pro or a mode resizes the frame.
+    if (window.ResizeObserver) new ResizeObserver(keyboardSoon).observe(pro.studio.parentElement);
+    pro.studio.parentElement.addEventListener('animationend', keyboardSoon);
+    layoutKeyboard();
   }
   function renderIf(key, sig, fn) {
     if (state.sig[key] === sig) return;

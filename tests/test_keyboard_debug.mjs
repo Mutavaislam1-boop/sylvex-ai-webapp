@@ -102,3 +102,16 @@ test('measures what the task lists and keeps at most 200 events', () => {
   assert.match(js, /if \(state\.events\.length > MAX_EVENTS\) state\.events\.shift\(\);/);
   assert.match(js, /'open \(presumed\)' : 'closed \(presumed\)'/);
 });
+
+test('keyboard state compares with the height taken before the keyboard opened', () => {
+  // Taken only while no field is focused; just after a blur (keyboard still
+  // closing) it may only grow; reset on rotation - never the shrunk height.
+  assert.match(js, /if \(!editable\) \{\s*var settled = Date\.now\(\) - base\.blurAt > 700;\s*if \(!base\.visible \|\| vvH > base\.visible \|\| settled\) base\.visible = vvH;/);
+  assert.match(js, /if \(base\.width !== width\) \{ base\.width = width; base\.visible = 0; base\.inner = 0; \}/);
+  assert.match(js, /var keyboardHeight = Math\.max\(0, Math\.round\(base\.visible - vvH\)\);/);
+  // The layout overlap (0 when iOS pans the visual viewport) never decides alone.
+  assert.match(js, /var keyboardOpen = editable && \(keyboardHeight > 80 \|\| tgShrink > 80\);/);
+  assert.match(js, /state\.base\.blurAt = Date\.now\(\);/);
+  // What Standard's own rule decided is part of the report.
+  assert.match(js, /standard: typeof S\.standardKeyboard === 'function' \? S\.standardKeyboard\(\) : null/);
+});
