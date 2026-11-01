@@ -11154,6 +11154,44 @@ def _admin_resolve_target(cursor, payload: dict):
 ADMIN_BALANCE_SOURCES = frozenset({"admin_api", "support_bot", "telegram_bot_addbalance", "admin_console"})
 
 
+@app.post("/api/public/keyboard-debug/access")
+async def keyboard_debug_access(request: Request):
+    """May this visitor open the Keyboard Debug panel (webapp/js/keyboard-debug.js)?
+    Yes outside production; in production only for an active SYLVEX admin,
+    recognised by verified Telegram initData (Telegram Mini App) or by the
+    SYLVEX web session (Browser Mini App). The answer is only yes/no."""
+    if os.getenv("APP_ENV", "development") != "production":
+        return {"ok": True, "allowed": True}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    init_data = str((payload or {}).get("initData") or "")
+    telegram_id = _telegram_id_from_init_data(init_data) if init_data else 0
+    account_id = None if telegram_id else await _web_session_account_id(request)
+    if not (telegram_id or account_id) or not DATABASE_URL:
+        return {"ok": True, "allowed": False}
+
+    def _sync():
+        ensure_admin_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            if telegram_id:
+                return admin_auth.active_admin_for_telegram(cursor, telegram_id) is not None
+            admin = admin_auth.load_admin(cursor, account_id=account_id)
+            return bool(admin and admin["status"] == "active")
+        finally:
+            cursor.close()
+            conn.close()
+
+    try:
+        allowed = bool(await asyncio.to_thread(_sync))
+    except Exception:
+        allowed = False
+    return {"ok": True, "allowed": allowed}
+
+
 @app.post("/api/admin/me")
 async def admin_me(request: Request):
     actor = _admin_actor(await request.json(), request)
