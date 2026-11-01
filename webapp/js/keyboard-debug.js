@@ -144,12 +144,27 @@
     var editable = isEditable(active) && !(state && state.panel && state.panel.contains(active));
     var sa = safeArea();
     var t = telegramInfo();
+    // Layout overlap only: it reads 0 when iOS pans the visual viewport
+    // (offsetTop grows by what height lost), so it never decides alone.
     var overlap = Math.max(0, Math.round(innerH - vvH - vvTop));
-    if (editable && !state.baseInnerHeight) state.baseInnerHeight = innerH;
-    if (!editable) state.baseInnerHeight = innerH;
-    var shrink = Math.max(0, Math.round((state.baseInnerHeight || innerH) - innerH));
+    // Heights before the keyboard opened: taken only while no field is
+    // focused, never replaced by a shrunk value - just after a blur (the
+    // keyboard still closing) they may only grow - and reset on rotation.
+    var base = state.base;
+    var width = vv ? vv.width : window.innerWidth;
+    if (base.width !== width) { base.width = width; base.visible = 0; base.inner = 0; }
+    if (!editable) {
+      var settled = Date.now() - base.blurAt > 700;
+      if (!base.visible || vvH > base.visible || settled) base.visible = vvH;
+      if (!base.inner || innerH > base.inner || settled) base.inner = innerH;
+    } else {
+      if (!base.visible) base.visible = vvH;
+      if (!base.inner) base.inner = innerH;
+    }
+    var keyboardHeight = Math.max(0, Math.round(base.visible - vvH));
+    var shrink = Math.max(0, Math.round(base.inner - innerH));
     var tgShrink = t && t.viewportStableHeight && t.viewportHeight ? Math.max(0, t.viewportStableHeight - t.viewportHeight) : 0;
-    var keyboardOpen = editable && (overlap > 120 || shrink > 120 || tgShrink > 120);
+    var keyboardOpen = editable && (keyboardHeight > 80 || tgShrink > 80);
     var composer = findComposer();
     var m = {
       innerHeight: innerH,
@@ -157,6 +172,8 @@
       visualViewport: vv ? { height: Math.round(vvH), width: Math.round(vv.width), offsetTop: Math.round(vvTop), pageTop: Math.round(vv.pageTop), scale: Number(vv.scale.toFixed(3)) } : null,
       scrollY: Math.round(window.scrollY),
       visibleBottom: Math.round(visibleBottom),
+      baseVisibleHeight: Math.round(base.visible),
+      keyboardHeight: keyboardHeight,
       keyboardOverlap: overlap,
       innerHeightShrink: shrink,
       telegramViewportShrink: tgShrink,
@@ -164,6 +181,8 @@
       focused: editable ? describe(active) : '',
       safeArea: sa,
       telegram: t,
+      // What Standard's own keyboard rule decided (standard-studio.js).
+      standard: typeof S.standardKeyboard === 'function' ? S.standardKeyboard() : null,
       composer: null,
       issues: [],
     };
@@ -283,7 +302,8 @@
       + row('innerHeight', m.innerHeight + ' · clientHeight ' + m.clientHeight)
       + row('visualViewport', vv.height != null ? vv.height + ' (top ' + vv.offsetTop + ', pageTop ' + vv.pageTop + ', ×' + vv.scale + ')' : '—')
       + row('scrollY', m.scrollY + ' · видимый низ ' + m.visibleBottom)
-      + row('клавиатура*', m.keyboardOverlap + 'px перекрытие · сжатие ' + m.innerHeightShrink + (t ? ' · tg ' + m.telegramViewportShrink : ''))
+      + row('клавиатура*', m.keyboardHeight + 'px (исходно ' + m.baseVisibleHeight + ') · перекрытие ' + m.keyboardOverlap + ' · сжатие ' + m.innerHeightShrink + (t ? ' · tg ' + m.telegramViewportShrink : ''))
+      + (m.standard ? row('Standard', (m.standard.open ? 'клавиатура открыта' : 'клавиатура закрыта') + ' · top ' + m.standard.pinTop + ' · h ' + m.standard.pinHeight) : '')
       + row('фокус', esc(m.focused) || '—')
       + row('блок ввода', c ? esc(c.element) + ' top ' + c.rect.top + ' bottom ' + c.rect.bottom + ' h ' + c.rect.height : 'не найден')
       + row('зазор до низа', c ? c.gapToVisibleBottom + 'px · до safe-area ' + c.gapToSafeFloor + 'px' : '—')
@@ -339,7 +359,7 @@
   // ------------------------------------------------------------ start / stop
   function start() {
     if (state) return;
-    state = { t0: performance.now(), events: [], keyboardOpen: false, baseInnerHeight: 0, offs: [] };
+    state = { t0: performance.now(), events: [], keyboardOpen: false, base: { visible: 0, inner: 0, width: 0, blurAt: 0 }, offs: [] };
     var style = document.createElement('style');
     style.id = 'sxKbDebugStyle';
     style.textContent = CSS;
@@ -378,7 +398,7 @@
 
     var on = function (target, type, fn, opts) { target.addEventListener(type, fn, opts); state.offs.push(function () { target.removeEventListener(type, fn, opts); }); };
     on(document, 'focusin', function (e) { if (!panel.contains(e.target)) log('focusin', describe(e.target)); setTimeout(function () { if (state) soon('after_focus'); }, 350); }, true);
-    on(document, 'focusout', function (e) { if (!panel.contains(e.target)) log('focusout', describe(e.target)); setTimeout(function () { if (state) soon('after_blur'); }, 350); }, true);
+    on(document, 'focusout', function (e) { if (panel.contains(e.target)) return; state.base.blurAt = Date.now(); log('focusout', describe(e.target)); setTimeout(function () { if (state) soon('after_blur'); }, 350); }, true);
     // Typing: only that it happened (never what was typed), at most once a second.
     var lastTyping = 0;
     on(document, 'input', function (e) {

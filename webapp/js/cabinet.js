@@ -3834,8 +3834,14 @@ function initBrowserKeyboard(vv, chatInput) {
   document.addEventListener('click', () => { if (browserComposerWindowOpen() && !editableIsFocused()) restoreIfKeyboardClosed(300); });
 }
 
+// Standard (js/standard-studio.js) pins Pro Studio to the visual viewport
+// itself while it owns the Pro Studio screen; the Pro keyboard rule (--kb,
+// kb-open, the input window) must not lift that screen a second time.
+function standardOwnsKeyboard() {
+  return Boolean(S.isStandardStudio && S.isStandardStudio() && document.querySelector('.view[data-view="tools"].active'));
+}
 function usesVirtualKeyboardLayout() {
-  return Boolean(S.device && S.device.usesVirtualKeyboard);
+  return Boolean(S.device && S.device.usesVirtualKeyboard) && !standardOwnsKeyboard();
 }
 
 function dismissGenerationInputUi() {
