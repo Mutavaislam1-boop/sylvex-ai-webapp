@@ -82,6 +82,9 @@ PUBLIC_POSTS = frozenset({
  # their bell's read receipts and the internal Contact SYLVEX popup. Each
  # validates the server-issued visitor id itself and is rate limited.
  '/api/public/visitor/ping', '/api/public/visitor/notifications/read', '/api/public/visitor/contact',
+ # Keyboard Debug access check (webapp/js/keyboard-debug.js): answers only
+ # yes/no and verifies Telegram initData or the web session itself.
+ '/api/public/keyboard-debug/access',
  # Telegram bot media re-hosting: authenticated inside the handler by the
  # TELEGRAM_MEDIA_SERVICE_TOKEN header, never by a user session.
  '/api/internal/telegram-media',
