@@ -28,11 +28,52 @@ test('phones only: Standard by default, Pro is the existing interface', () => {
     });
 });
 
-test('header: SYLVEX + Standard | Pro, no new-chat pencil; Pro keeps "SYLVEX Pro"', () => {
-  assert.match(js, /<span class="sxs-brand">SYLVEX<\/span>/);
-  assert.match(js, />Standard<\/button><button type="button" data-sxs-ui="pro">Pro<\/button>/);
+test('header: the small "SYLVEX Pro" title and a small Standard/Pro switch without labels', () => {
+  assert.match(js, /<span class="sxs-brand">SYLVEX Pro<\/span>/);
+  assert.match(css, /\.sxs-brand \{ font-weight: 600; font-size: 11px; letter-spacing: \.2px;/);
+  // One switch, the same in both interfaces: off = Standard, on = Pro.
+  assert.match(js, /<button type="button" class="sxs-switch" role="switch" data-sxs-ui="toggle" aria-checked="false" aria-label="Standard \/ Pro"><i aria-hidden="true"><\/i><\/button>/);
+  assert.doesNotMatch(js, />Standard<\/button>|>Pro<\/button>/);
+  assert.match(js, /S\.setStudioUi\(savedUi\(\) === 'pro' \? 'standard' : 'pro'\)/);
+  assert.match(css, /\.sxs-switch \{ position: relative; flex: 0 0 auto; width: 34px; height: 20px;/);
+  assert.doesNotMatch(css, /\.sxs-seg \{|\.sxs-seg button/);
   assert.doesNotMatch(js, /newChat/);
   assert.match(css, /body\.sxs-phone #studioLayoutSwitch,\s*body\.sxs-phone #studioGridWorkspace \{ display: none !important; \}/);
+});
+
+test('mode strip looks like the Pro strip: same sizes and theme colours', () => {
+  assert.match(css, /\.sxs-seg-modes \{[^}]*height: 34px; padding: 3px;[^}]*background: var\(--st-bg-2\); border: 1px solid var\(--st-border\);/);
+  assert.match(css, /\.sxs-seg-modes button\.on \{ background: var\(--st-invert-bg\); color: var\(--st-invert-text\); \}/);
+  assert.match(css, /\.sxs-chip \{[^}]*height: 34px; padding: 0 10px;[^}]*font-size: 11px; line-height: 1; font-weight: 700;/);
+  assert.match(css, /\.sxs-chip\.on \{ background: var\(--st-bg-4\); color: var\(--st-text\); \}/);
+});
+
+test('composer bar: a smaller model name and logo, the logo in the theme ink (black on White)', () => {
+  assert.match(css, /\.sxs-model \{[^}]*font-size: 12px;/);
+  assert.match(css, /\.sxs-model-icon img, \.sxs-model-icon svg \{ width: 14px !important; height: 14px !important;/);
+  assert.match(css, /\.sxs-model-icon \.model-brand-logo \{ filter: brightness\(0\) invert\(var\(--st-logo-invert, 1\)\) !important; \}/);
+});
+
+test('phones: clean workspace, blue selection, notices on top, sent references on the right', () => {
+  assert.match(css, /body\.sxs-phone \.view\[data-view="tools"\]\.active \.studio\.studio\.studio\.studio,\s*body\.sxs-phone \.view\[data-view="tools"\]\.active \.chat-area\.chat-area\.chat-area \{ background-image: none !important; \}/);
+  assert.match(css, /body\.sxs-phone ::selection \{ background: rgba\(47, 111, 232, \.38\); \}/);
+  assert.match(css, /\[contenteditable="true"\] \{ caret-color: #2f6fe8; \}/);
+  assert.match(css, /body\.sxs-phone \.sylvex-toasts \{ top: calc\(10px \+ env\(safe-area-inset-top, 0px\)\); bottom: auto !important; \}/);
+  assert.match(css, /body\.sxs-phone \.toast \{ top: calc\(10px \+ env\(safe-area-inset-top, 0px\)\); bottom: auto !important;/);
+  assert.match(css, /body\.sxs-phone \.view\[data-view="tools"\]\.active \.msg\.user \.bubble \.msg-ref-stack \{ margin-left: auto !important; \}/);
+});
+
+test("the prompt field shows Pro Studio's animated hint and closes the keyboard on a tap outside", () => {
+  // The same hint layer (PromptPlaceholderManager) moves into this field;
+  // focus and blur are passed on to #chatInput, which drives it.
+  assert.match(js, /\$\(':scope > \.animated-prompt-placeholder', pro\.input\.parentNode\)/);
+  assert.match(js, /adopt\('hint', hint, std \? field : null\);/);
+  assert.match(js, /pro\.input\.dispatchEvent\(new FocusEvent\(type\)\)/);
+  assert.match(js, /if \(forwarding \|\| !active\(\)\) return;/);
+  assert.match(css, /\.sxs-field\.has-hint \.sxs-input::placeholder \{ color: transparent; \}/);
+  // Outside the composer (not on another field, not on Keyboard Debug).
+  assert.match(js, /target\.closest\('\.sxs-composer, #sxKbDebug'\)/);
+  assert.match(js, /if \(target\.closest\('textarea,input,select,\[contenteditable="true"\]'\)\) return;\s*el\.input\.blur\(\);/);
 });
 
 test('theme switch moves to the side menu user card in Standard', () => {
@@ -112,7 +153,7 @@ test('keyboard: one rule, Pro Studio pinned to the visual viewport', () => {
   assert.match(js, /if \(!kb\.base \|\| area\.height > kb\.base \|\| Date\.now\(\) - kb\.blurAt > 700\) kb\.base = area\.height;/);
   assert.match(js, /var open = editing && \(kb\.base - area\.height > 80 \|\| tgShrink > 80\);/);
   assert.match(js, /app\.onEvent\('viewportChanged', keyboardSoon\)/);
-  assert.match(css, /body\.sxs-std \.sxs-composer \{ margin: 0 0 calc\(8px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(css, /body\.sxs-std \.sxs-composer \{ margin: 0 0 calc\(16px \+ env\(safe-area-inset-bottom\)\);/);
   assert.match(css, /body\.sxs-std\.sxs-kb-open \.sxs-composer \{ margin-bottom: 8px; \}/);
   // A page left shifted by iOS is put back only where the page never scrolls,
   // and only once no field is focused.

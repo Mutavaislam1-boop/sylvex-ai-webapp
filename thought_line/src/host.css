@@ -7,6 +7,20 @@
   max-width: 100%;
 }
 
+/* The label stacks the working and the done text in one cell, so it was as
+   wide as the longer one and the chevron stayed at that end. The text that
+   is not shown (still fading out) leaves the flow: the label, the timer and
+   the chevron follow the text on screen, success or error. */
+.sx-thought .thought-line__label {
+  position: relative;
+}
+
+.sx-thought .thought-line__text:not([data-active]) {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
 .sx-thought .thought-line__step[data-done] .thought-line__mark {
   color: var(--sx-thought-success, #22c55e);
   opacity: 1;

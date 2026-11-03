@@ -219,3 +219,15 @@ test('notices: green bottom glow for a success, red for an error; nothing else c
   // The SwipeToast settings themselves are untouched; only the fuse colour varies.
   assert.ok(read('swipe_toast/src/main.jsx').includes("  fuseColor: '#51f524',"));
 });
+
+test('the chevron stays next to the label text, working or done (success or error)', () => {
+  // The label stacks both texts in one cell; the hidden one leaves the flow,
+  // so the label is as wide as the text on screen and the timer and chevron
+  // follow it. Done on the SYLVEX side: the provided files stay untouched.
+  const host = read('thought_line/src/host.css');
+  assert.ok(host.includes('.sx-thought .thought-line__label {\n  position: relative;\n}'));
+  assert.ok(host.includes('.sx-thought .thought-line__text:not([data-active]) {\n  position: absolute;\n  top: 0;\n  left: 0;\n}'));
+  const bundle = read('webapp/js/vendor/thought-line/thought-line.css');
+  assert.ok(bundle.includes('.sx-thought .thought-line__text:not([data-active]){position:absolute;top:0;left:0}'));
+  assert.match(cabinet, /const THOUGHT_LINE_VERSION='thought-line-chevron-20261103';/);
+});
