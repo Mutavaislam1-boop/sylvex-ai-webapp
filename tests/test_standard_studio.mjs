@@ -54,13 +54,27 @@ test('composer bar: a smaller model name and logo, the logo in the theme ink (bl
   assert.match(css, /\.sxs-model-icon \.model-brand-logo \{ filter: brightness\(0\) invert\(var\(--st-logo-invert, 1\)\) !important; \}/);
 });
 
-test('phones: clean workspace, blue selection, notices on top, sent references on the right', () => {
-  assert.match(css, /body\.sxs-phone \.view\[data-view="tools"\]\.active \.studio\.studio\.studio\.studio,\s*body\.sxs-phone \.view\[data-view="tools"\]\.active \.chat-area\.chat-area\.chat-area \{ background-image: none !important; \}/);
+test('phones: blue selection and notices on top', () => {
   assert.match(css, /body\.sxs-phone ::selection \{ background: rgba\(47, 111, 232, \.38\); \}/);
   assert.match(css, /\[contenteditable="true"\] \{ caret-color: #2f6fe8; \}/);
   assert.match(css, /body\.sxs-phone \.sylvex-toasts \{ top: calc\(10px \+ env\(safe-area-inset-top, 0px\)\); bottom: auto !important; \}/);
   assert.match(css, /body\.sxs-phone \.toast \{ top: calc\(10px \+ env\(safe-area-inset-top, 0px\)\); bottom: auto !important;/);
-  assert.match(css, /body\.sxs-phone \.view\[data-view="tools"\]\.active \.msg\.user \.bubble \.msg-ref-stack \{ margin-left: auto !important; \}/);
+});
+
+test('every screen: clean classic workspace (Grid Mode keeps its grid), sent references on the right', () => {
+  const page = read('../webapp/css/cabinet.css');
+  // No dotted grid on the classic workspace, idle or generating; the dots
+  // live on Grid Mode only, and the branded generators are clean too.
+  assert.match(page, /\.view\[data-view="tools"\]\.active \.studio\{\n  background-color:#000 !important;\n  background-image:none !important;/);
+  assert.match(page, /\.view\[data-view="tools"\]\.active \.chat-area\{\n  background-color:#000 !important;\n  background-image:none !important;/);
+  assert.match(page, /\.view\[data-view="tools"\]\.active \.studio\.grid-mode\{\n  background-image:\n    radial-gradient\(circle, var\(--st-grid-line\)/);
+  const classicDots = /\.studio(?::not\(\.grid-mode\))?(?:\:has\(\.typing\))?\{\n  background-image:\n    radial-gradient/;
+  assert.doesNotMatch(page, classicDots);
+  assert.doesNotMatch(page, /circle at 1px 1px,color-mix\(in srgb,var\(--brand-accent\)|circle at 1px 1px,rgba\(226,61,89/);
+  assert.doesNotMatch(css, /\.studio\.studio\.studio\.studio/);
+  // The stack of sent references sits at the right (room for its fan kept).
+  assert.match(page, /\.view\[data-view="tools"\]\.active \.msg \.bubble \.msg-ref-stack\{[^}]*margin:14px 30px 10px auto !important;/);
+  assert.match(page, /html\.web-embed \.view\[data-view="tools"\]\.active \.msg \.bubble \.msg-ref-stack\{[^}]*margin:18px 38px 12px auto !important;/);
 });
 
 test("the prompt field shows Pro Studio's animated hint and closes the keyboard on a tap outside", () => {

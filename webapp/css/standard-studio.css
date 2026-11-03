@@ -31,12 +31,6 @@ body.sxs-phone .sxs-pro-seg { display: flex; align-items: center; margin-left: 8
 .sxs-switch.on { background: var(--sxs-on-bg); border-color: transparent; }
 .sxs-switch.on i { transform: translateX(14px); background: var(--sxs-on-text); }
 
-/* The workspace on a phone is clean: no dotted grid, idle or generating
-   (it used to brighten while a generation ran). The same strength as the
-   Browser Mini App rule in cabinet.css, so it wins in Telegram too. */
-body.sxs-phone .view[data-view="tools"].active .studio.studio.studio.studio,
-body.sxs-phone .view[data-view="tools"].active .chat-area.chat-area.chat-area { background-image: none !important; }
-
 /* Selected text is blue in every theme (on iOS a field's selection takes
    the caret colour, which used to be the white text colour). */
 body.sxs-phone ::selection { background: rgba(47, 111, 232, .38); }
@@ -49,10 +43,6 @@ body.sxs-phone .sylvex-toasts { top: calc(10px + env(safe-area-inset-top, 0px));
 body.sxs-phone .toast { top: calc(10px + env(safe-area-inset-top, 0px)); bottom: auto !important; transform: translateY(calc(-100% - 32px)); }
 body.sxs-phone .toast.show { transform: none; }
 @starting-style { body.sxs-phone .sylvex-toasts .swipe-toast__lift { transform: translateY(-100%); } }
-
-/* A sent reference sits at the right, by the screen edge, whatever the
-   length of the prompt (30px on the right stay for the fan of the cards). */
-body.sxs-phone .view[data-view="tools"].active .msg.user .bubble .msg-ref-stack { margin-left: auto !important; }
 
 /* ---------------------------------------------------------------- Standard: header */
 body.sxs-std .studio-bar { position: absolute !important; visibility: hidden; height: 0 !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; border: 0 !important; overflow: visible !important; }

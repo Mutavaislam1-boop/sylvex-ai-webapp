@@ -55,10 +55,11 @@ test('browser keyboard: no close button, window fits the visible area, browser c
   assert.match(between(cabinet, 'function usesVirtualKeyboardLayout() {', 'function dismissGenerationInputUi'), /^function usesVirtualKeyboardLayout\(\) \{\s*return Boolean\(S\.device && S\.device\.usesVirtualKeyboard\) && !standardOwnsKeyboard\(\);/);
 });
 
-test('browser app Pro Studio workspace has no dot/grid background (Telegram keeps it)', () => {
-  assert.match(css, /html\.browser-app body \.view\[data-view="tools"\]\.active \.studio\.studio\.studio\.studio,\s*html\.browser-app body \.view\[data-view="tools"\]\.active \.chat-area\.chat-area,\s*html\.browser-app body \.view\[data-view="tools"\]\.active \.studio-grid-canvas\.studio-grid-canvas\{\s*background-image:none!important\s*\}/);
-  // The original dotted backdrop is still defined for Telegram.
-  assert.match(css, /radial-gradient\(circle, var\(--st-grid-line\) 1px, transparent 1\.3px\)/);
+test('browser app: the Grid board has no dot background either (the classic workspace is clean everywhere)', () => {
+  assert.match(css, /html\.browser-app body \.view\[data-view="tools"\]\.active \.studio-grid-canvas\.studio-grid-canvas\{\s*background-image:none!important\s*\}/);
+  assert.doesNotMatch(css, /html\.browser-app body \.view\[data-view="tools"\]\.active \.studio\.studio\.studio\.studio/);
+  // The dotted backdrop is defined for Grid Mode only.
+  assert.match(css, /\.view\[data-view="tools"\]\.active \.studio\.grid-mode\{\n  background-image:\n    radial-gradient\(circle, var\(--st-grid-line\) 1px, transparent 1\.3px\)/);
 });
 
 test('browser app: no Assistant button/setting; Grid stays off on phones only', () => {
