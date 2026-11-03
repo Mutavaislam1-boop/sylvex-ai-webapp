@@ -177,3 +177,10 @@ test('keyboard: one rule, Pro Studio pinned to the visual viewport', () => {
   assert.match(js, /function fixedContainer\(node\)/);
 });
 
+test("the view's entry animation leaves no transform, so the pinned studio is fixed to the screen", () => {
+  // fadeUp ... both used to leave matrix(1, 0, 0, 1, 0, 0) on the view: the
+  // studio became content of the overflow: hidden .scroll (clipped by it,
+  // moved by iOS focus scrolling).
+  assert.match(css, /body\.sxs-std #app-root \.view\[data-view="tools"\]\.active \{ animation-fill-mode: backwards !important; \}/);
+  assert.match(js, /if \(e\.target === pro\.studio\.parentElement\) layoutKeyboard\(\); else keyboardSoon\(\);/);
+});
