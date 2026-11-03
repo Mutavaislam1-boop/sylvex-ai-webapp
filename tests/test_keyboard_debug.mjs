@@ -115,3 +115,37 @@ test('keyboard state compares with the height taken before the keyboard opened',
   // What Standard's own rule decided is part of the report.
   assert.match(js, /standard: typeof S\.standardKeyboard === 'function' \? S\.standardKeyboard\(\) : null/);
 });
+
+test('layer diagnostics: what is really on top of the composer, and what fixed is relative to', () => {
+  // Top elements at several points of the composer, with the CSS that
+  // decides painting and their parents.
+  assert.match(js, /document\.elementsFromPoint\(p\[0\], p\[1\]\)/);
+  for (const prop of ['position', 'zIndex', 'opacity', 'pointerEvents', 'backgroundColor', 'backdropFilter', 'transform', 'filter']) {
+    assert.ok(js.includes("'" + prop + "'"), prop);
+  }
+  assert.match(js, /parents: parentsOf\(el, 3\)/);
+  // Painted layers hit-testing cannot see (pointer-events: none), full-screen ones too.
+  assert.match(js, /out\.paintedOver = silent;/);
+  // The studio's position: fixed: the screen, or the transformed ancestor.
+  assert.match(js, /return 'viewport';/);
+  assert.match(js, /code: 'fixed_not_screen'/);
+  assert.match(js, /code: 'composer_covered'/);
+  // What fills the bottom of the screen and of the visible area.
+  assert.match(js, /bottomOfScreen: hitAt\(/);
+  assert.match(js, /bottomOfVisible: hitAt\(/);
+});
+
+test('frame snapshots around every keyboard open/close, kept after it closes and across reloads', () => {
+  assert.match(js, /if \(isEditable\(e\.target\)\) startBurst\('focusin'\);/);
+  assert.match(js, /if \(isEditable\(e\.target\)\) startBurst\('focusout'\);/);
+  assert.match(js, /startBurst\('visualViewport_resize'\)/);
+  assert.match(js, /if \(name === 'viewportChanged'\) startBurst\('telegram_viewportChanged'\);/);
+  assert.match(js, /state\.burstFrame = requestAnimationFrame\(step\);/);
+  assert.match(js, /var BURSTS_KEY = 'sylvex-kbdebug-frames';/);
+  assert.match(js, /localStorage\.setItem\(BURSTS_KEY, JSON\.stringify/);
+  assert.match(js, /bursts: saved \? saved\.bursts : \[\]/);
+  assert.match(js, /frames: state\.bursts\.slice\(\),/);
+  // Neither the layer probe nor the frames read what was typed or any token.
+  const probe = js.slice(js.indexOf('// ------------------------------------------------------------ layers'), js.indexOf('// A log entry keeps the layer verdict'));
+  assert.doesNotMatch(probe, /\.value\b|textContent|innerText|initData|cookie/);
+});

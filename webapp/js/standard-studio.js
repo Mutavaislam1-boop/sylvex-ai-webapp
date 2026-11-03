@@ -491,7 +491,12 @@
     }, true);
     // Opening Pro Studio, switching Standard/Pro or a mode resizes the frame.
     if (window.ResizeObserver) new ResizeObserver(keyboardSoon).observe(pro.studio.parentElement);
-    pro.studio.parentElement.addEventListener('animationend', keyboardSoon);
+    // The view's entry animation ends: its transform is gone, so the studio's
+    // position: fixed is relative to the screen again - re-place it in the
+    // same frame (animationend comes before that frame is painted).
+    pro.studio.parentElement.addEventListener('animationend', function (e) {
+      if (e.target === pro.studio.parentElement) layoutKeyboard(); else keyboardSoon();
+    });
     layoutKeyboard();
   }
   function renderIf(key, sig, fn) {

@@ -82,6 +82,13 @@ body.sxs-std #studioAudioPlayer { display: none !important; }
    right above the on-screen keyboard and, with it closed, at its normal
    place. The only keyboard lift there is: nothing pads the column, and
    #app-root keeps this above the pages' own height:100vh rules. */
+/* The view's entry animation (cabinet.css .view: fadeUp .35s ease both)
+   used to leave transform: matrix(1, 0, 0, 1, 0, 0) on the view for good,
+   which turned the pinned studio's position: fixed into a position relative
+   to the view - content of the overflow: hidden .scroll, clipped by it and
+   moved by iOS focus scrolling. The animation still plays; it just leaves
+   no transform behind, so the studio is fixed to the screen. */
+body.sxs-std #app-root .view[data-view="tools"].active { animation-fill-mode: backwards !important; }
 body.sxs-std #app-root .view[data-view="tools"].active .studio {
   position: fixed !important; top: var(--sxs-vv-top, 0px) !important; left: var(--sxs-pin-left, 0px) !important; right: auto !important;
   width: var(--sxs-pin-w, 100%) !important; height: var(--sxs-vv-h, 100%) !important; min-height: 0 !important; max-height: none !important;
