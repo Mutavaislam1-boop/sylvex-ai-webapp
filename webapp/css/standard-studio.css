@@ -24,17 +24,33 @@ body.sxs-phone {
 /* No Grid Mode and no Edit on phones; «Обычный | Сетка» becomes Standard | Pro. */
 body.sxs-phone #studioLayoutSwitch,
 body.sxs-phone #studioGridWorkspace { display: none !important; }
-body.sxs-phone .sxs-pro-seg { display: flex; align-items: center; }
-.sxs-seg { display: flex; padding: 3px; border-radius: 12px; background: var(--sxs-surface-2); border: 1px solid var(--sxs-line); }
-.sxs-seg button { padding: 5px 9px; border: 0; border-radius: 9px; background: none; color: var(--sxs-mute); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
-.sxs-seg button.on { background: var(--sxs-on-bg); color: var(--sxs-on-text); }
+body.sxs-phone .sxs-pro-seg { display: flex; align-items: center; margin-left: 8px; }
+/* Standard/Pro: a small switch without labels (off = Standard, on = Pro). */
+.sxs-switch { position: relative; flex: 0 0 auto; width: 34px; height: 20px; padding: 0; border: 1px solid var(--sxs-line); border-radius: 999px; background: var(--sxs-surface-2); cursor: pointer; transition: background-color .2s ease; }
+.sxs-switch i { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--sxs-mute); transition: transform .2s ease, background-color .2s ease; }
+.sxs-switch.on { background: var(--sxs-on-bg); border-color: transparent; }
+.sxs-switch.on i { transform: translateX(14px); background: var(--sxs-on-text); }
+
+/* Selected text is blue in every theme (on iOS a field's selection takes
+   the caret colour, which used to be the white text colour). */
+body.sxs-phone ::selection { background: rgba(47, 111, 232, .38); }
+body.sxs-phone .view[data-view="tools"] textarea,
+body.sxs-phone .view[data-view="tools"] input,
+body.sxs-phone .view[data-view="tools"] [contenteditable="true"] { caret-color: #2f6fe8; }
+
+/* Notices come from the top on a phone, never over the composer. */
+body.sxs-phone .sylvex-toasts { top: calc(10px + env(safe-area-inset-top, 0px)); bottom: auto !important; }
+body.sxs-phone .toast { top: calc(10px + env(safe-area-inset-top, 0px)); bottom: auto !important; transform: translateY(calc(-100% - 32px)); }
+body.sxs-phone .toast.show { transform: none; }
+@starting-style { body.sxs-phone .sylvex-toasts .swipe-toast__lift { transform: translateY(-100%); } }
 
 /* ---------------------------------------------------------------- Standard: header */
 body.sxs-std .studio-bar { position: absolute !important; visibility: hidden; height: 0 !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; border: 0 !important; overflow: visible !important; }
 body.sxs-std .studio-bar #modelPop { visibility: visible; }
 body.sxs-std .sxs-hdr { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 10px; padding-top: env(safe-area-inset-top); border-bottom: 1px solid var(--st-line, rgba(255,255,255,.06)); color: var(--sxs-text); }
 .sxs-hdr-mid { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
-.sxs-brand { font-weight: 650; font-size: 17px; letter-spacing: .02em; white-space: nowrap; }
+/* «SYLVEX Pro» as small as on the old Pro bar (.sb-brand-name). */
+.sxs-brand { font-weight: 600; font-size: 11px; letter-spacing: .2px; white-space: nowrap; }
 .sxs-ib { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; border: 0; border-radius: 12px; background: none; color: inherit; cursor: pointer; padding: 0; }
 .sxs-ib.on { background: var(--sxs-line); }
 
@@ -45,7 +61,8 @@ body.sxs-std .sxs-theme .sxs-i { width: 18px; height: 18px; }
 body.sxs-std #hdUserCard .hd-user-main { padding-right: 38px; }
 
 /* ---------------------------------------------------------------- Standard: composer area */
-body.sxs-std .sxs-top { display: block; flex: 0 0 auto; padding: 0 8px; color: var(--sxs-text); }
+/* A little in from the screen edges (and up from the bottom, below). */
+body.sxs-std .sxs-top { display: block; flex: 0 0 auto; padding: 0 14px; color: var(--sxs-text); }
 /* Pro Studio's own composer is not shown in Standard; it only keeps the
    state Standard reads and writes. Its own parts are hidden; the windows
    that live in it (side menu, paywall, voice list) keep working. */
@@ -70,13 +87,19 @@ body.sxs-std #app-root .view[data-view="tools"].active .studio {
   width: var(--sxs-pin-w, 100%) !important; height: var(--sxs-vv-h, 100%) !important; min-height: 0 !important; max-height: none !important;
   padding-bottom: 0 !important; box-sizing: border-box;
 }
-/* The composer: one block - attachments, prompt, bottom bar. Over the safe
-   area at rest; 8px above the keyboard while it is open. */
-body.sxs-std .sxs-composer { margin: 0 0 calc(8px + env(safe-area-inset-bottom)); padding: 10px 12px 8px; border-radius: 22px; background: var(--sxs-surface); border: 1px solid var(--sxs-line); }
+/* The composer: one block - attachments, prompt, bottom bar. At rest a
+   little up from the bottom, over the safe area; 8px above the keyboard
+   while it is open. */
+body.sxs-std .sxs-composer { margin: 0 0 calc(16px + env(safe-area-inset-bottom)); padding: 10px 12px 8px; border-radius: 22px; background: var(--sxs-surface); border: 1px solid var(--sxs-line); }
 body.sxs-std.sxs-kb-open .sxs-composer { margin-bottom: 8px; }
 .sxs-field { position: relative; }
 .sxs-input { display: block; width: 100%; min-height: 50px; max-height: 34vh; margin: 0; padding: 2px 0; border: 0; outline: 0; background: transparent; color: var(--sxs-text); font: inherit; font-size: 16px; line-height: 1.35; resize: none; box-shadow: none; -webkit-appearance: none; appearance: none; }
 .sxs-input::placeholder { color: var(--sxs-mute); }
+/* Pro Studio's animated hint (PromptPlaceholderManager), shown over this
+   field in place of the plain placeholder. */
+.sxs-field.has-hint .sxs-input::placeholder { color: transparent; }
+.sxs-field .animated-prompt-placeholder { position: absolute; top: 2px; left: 0; right: 0; z-index: 1; padding: 0; color: var(--sxs-mute); font-size: 16px; line-height: 1.35; white-space: normal; overflow: hidden; text-overflow: clip; pointer-events: none; }
+.sxs-composer.has-est .sxs-field .animated-prompt-placeholder { right: 56px; }
 .sxs-composer.has-est .sxs-input { padding-right: 56px; }
 .sxs-est { position: absolute; top: 2px; right: 0; font-size: 12px; color: var(--sxs-mute); }
 .sxs-est[hidden] { display: none; }
@@ -103,13 +126,17 @@ body.sxs-std .sxs-bar { display: flex; align-items: center; gap: 2px; margin-top
 .sxs-bar .sxs-ib { width: 38px; height: 38px; color: var(--sxs-text); opacity: .85; }
 .sxs-bar .sxs-ib.on { opacity: 1; }
 .sxs-spacer { flex: 1 1 auto; }
-.sxs-model { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 160px; height: 38px; padding: 0 6px; border: 0; background: none; color: var(--sxs-mute); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.sxs-model { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 160px; height: 38px; padding: 0 6px; border: 0; background: none; color: var(--sxs-mute); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .sxs-bar.is-music .sxs-model { max-width: 118px; }
 .sxs-model-icon { display: inline-grid; place-items: center; flex: 0 0 auto; }
 .sxs-model-icon:empty { display: none; }
-.sxs-model-icon img, .sxs-model-icon svg { width: 18px; height: 18px; border-radius: 5px; }
+/* The closed list's logo: smaller, and monochrome in the theme's ink -
+   dark in White, light in Gray/Black (--st-logo-invert), as in the list. */
+.sxs-model-icon img, .sxs-model-icon svg { width: 14px !important; height: 14px !important; max-width: 14px !important; max-height: 14px !important; border-radius: 4px; }
+.sxs-model-icon .model-brand-logo { filter: brightness(0) invert(var(--st-logo-invert, 1)) !important; }
+.sxs-model-icon .model-brand-logo.svg-current { color: var(--st-text, #f3f3f3) !important; filter: none !important; }
 .sxs-model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sxs-chev { width: 16px; height: 16px; }
+.sxs-chev { width: 14px; height: 14px; }
 .sxs-vocal { display: flex; align-items: center; gap: 5px; height: 34px; padding: 0 10px; border: 1px solid var(--sxs-line); border-radius: 17px; background: none; color: var(--sxs-text); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .sxs-vocal .sxs-i { width: 16px; height: 16px; }
 .sxs-send { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--sxs-send); color: #fff; cursor: pointer; padding: 0; }
@@ -117,18 +144,20 @@ body.sxs-std .sxs-bar { display: flex; align-items: center; gap: 2px; margin-top
 .sxs-send:disabled { opacity: .55; cursor: default; }
 .sxs-send.is-busy { opacity: .7; }
 
-/* Mode row: 5 icons + the mode's sections as chips. */
-.sxs-modes { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+/* Mode row: 5 icons + the mode's sections as chips - the look of Pro
+   Studio's own strip on a phone (cabinet.css .studio-mini-tabs and
+   .studio-mode-tab in the tools view), in every theme. */
+.sxs-modes { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 body.sxs-params-open .sxs-modes { display: none; }
-.sxs-seg-modes { flex: 0 0 auto; display: flex; padding: 3px; border-radius: 16px; background: var(--sxs-surface-2); }
-.sxs-seg-modes button { width: 34px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px; background: none; color: var(--sxs-mute); cursor: pointer; }
-.sxs-seg-modes button svg { width: 18px; height: 18px; }
-.sxs-seg-modes button.on { background: var(--sxs-on-bg); color: var(--sxs-on-text); }
+.sxs-seg-modes { flex: 0 0 auto; display: flex; align-items: center; gap: 3px; height: 34px; padding: 3px; box-sizing: border-box; border-radius: 999px; background: var(--st-bg-2); border: 1px solid var(--st-border); box-shadow: var(--st-depth-1); }
+.sxs-seg-modes button { width: 34px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 999px; background: none; color: var(--st-dim); cursor: pointer; }
+.sxs-seg-modes button svg { width: 14px; height: 14px; }
+.sxs-seg-modes button.on { background: var(--st-invert-bg); color: var(--st-invert-text); }
 .sxs-chips { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .sxs-chips::-webkit-scrollbar { display: none; }
-.sxs-chip { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border: 1px solid var(--sxs-line); border-radius: 17px; background: var(--st-bg, #0b0b0c); color: var(--sxs-text); font: inherit; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; }
-.sxs-chip svg { width: 16px; height: 16px; }
-.sxs-chip.on { border-color: var(--sxs-mute); }
+.sxs-chip { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; height: 34px; padding: 0 10px; box-sizing: border-box; border: 1px solid var(--st-border); border-radius: 999px; background: var(--st-bg-2); box-shadow: var(--st-depth-1); color: var(--st-dim); font: inherit; font-size: 11px; line-height: 1; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.sxs-chip svg { width: 15px; height: 15px; }
+.sxs-chip.on { background: var(--st-bg-4); color: var(--st-text); }
 
 /* ---------------------------------------------------------------- Standard: «Параметры» */
 .sxs-params { display: none; margin-bottom: 8px; padding: 14px 14px 8px; border-radius: 22px; background: var(--sxs-surface); border: 1px solid var(--sxs-line); }

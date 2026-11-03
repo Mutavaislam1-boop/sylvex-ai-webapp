@@ -4630,29 +4630,10 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon[data-rat
   animation:none !important;
 }
 
-/* Точки ставим прямо на чёрный фон чата */
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .chat-area
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
+/* The chat area of the classic workspace is clean (no dotted grid). */
 .view[data-view="tools"].active .chat-area{
   background-color:#000 !important;
-  background-image:
-    radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
-    radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
-  background-size:22px 22px,38px 38px !important;
-  background-position:0 0,11px 17px !important;
-  animation:none !important;
-}
-
-/* The dotted chat-area background used to drift via safeStudioDotsMove
-   while generating - removed so it stays visually static, matching the
-   rest of the normal (classic) Pro Studio workspace above. */
-body.ai-generating .view[data-view="tools"].active .chat-area,
-.view[data-view="tools"].active .chat-area:has(.typing){
-  background-image:
-    radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
-    radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
+  background-image:none !important;
   animation:none !important;
 }
 
@@ -4742,19 +4723,19 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-mode-tab svg
     height:15px !important;
   }
 }
-/* ===== SAFE Pro Studio dots on the whole black page background ===== */
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .studio
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
+/* ===== Pro Studio page background: the classic workspace is clean; only
+   Grid Mode keeps its dots ===== */
 .view[data-view="tools"].active .studio{
   background-color:#000 !important;
+  background-image:none !important;
+  animation:none !important;
+}
+.view[data-view="tools"].active .studio.grid-mode{
   background-image:
     radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
     radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
   background-size:22px 22px,38px 38px !important;
   background-position:0 0,11px 17px !important;
-  animation:none !important;
 }
 .view[data-view="tools"].active .studio[data-ps-theme="white"]{background-color:#ffffff !important}
 .view[data-view="tools"].active .studio[data-ps-theme="black"]{background-color:#000000 !important}
@@ -4779,13 +4760,6 @@ body.ai-generating .view[data-view="tools"].active .studio.grid-mode,
   animation:safeStudioDotsMove 8s linear infinite !important;
 }
 
-body.ai-generating .view[data-view="tools"].active .studio:not(.grid-mode),
-.view[data-view="tools"].active .studio:not(.grid-mode):has(.typing){
-  background-image:
-    radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
-    radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
-  animation:none !important;
-}
 
 /* ===== Upload large center panel ===== */
 /* =====================================================
@@ -5458,14 +5432,15 @@ CSS-БЛОК: .composer-image-remove
 
 /* A generation's references as the React Bits Stack (cabinet.js
    renderReferenceStack). The box is the card size; the fan opens up and to
-   the right of it, so it keeps room there. Until the stack is live the
-   previous pile inside stays visible. */
+   the right of it, so it keeps room there. The stack sits at the right, by
+   the screen edge, whatever the length of the prompt (or with none). Until
+   the stack is live the previous pile inside stays visible. */
 .view[data-view="tools"].active .msg .bubble .msg-ref-stack{
   position:relative !important;
   display:block !important;
   width:96px !important;
   height:96px !important;
-  margin:14px 30px 10px 0 !important;
+  margin:14px 30px 10px auto !important;
   touch-action:pan-y !important;
 }
 /* Website Pro Studio only (sylvex.ai, html.web-embed): slightly larger
@@ -5473,7 +5448,7 @@ CSS-БЛОК: .composer-image-remove
 html.web-embed .view[data-view="tools"].active .msg .bubble .msg-ref-stack{
   width:120px !important;
   height:120px !important;
-  margin:18px 38px 12px 0 !important;
+  margin:18px 38px 12px auto !important;
 }
 /* The stack sits on the workspace itself: the message holding it has no
    bubble (background, border, shadow) under the cards. */
@@ -6159,8 +6134,9 @@ CSS-БЛОК: .dot-i
    which used the same two-layer/offset trick) give an evenly distributed,
    brick-like dot pattern rather than a harsh square grid. Colors come from
    --st-grid-line, set per Gray/White/Black theme above, so the dots stay
-   subtle and correctly-contrasted in all three. */
-.view[data-view="tools"].active .studio{
+   subtle and correctly-contrasted in all three. Grid Mode only: the
+   classic workspace is clean. */
+.view[data-view="tools"].active .studio.grid-mode{
   background-image:
     radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px),
     radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px) !important;
@@ -6186,11 +6162,6 @@ body.ai-generating .view[data-view="tools"].active .studio.grid-mode,
 }
 body.ai-generating .view[data-view="tools"].active .studio:not(.grid-mode),
 .view[data-view="tools"].active .studio:not(.grid-mode):has(.typing){
-  background-image:
-    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px),
-    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px) !important;
-  background-size:26px 26px, 26px 26px !important;
-  background-position:0 0, 13px 13px !important;
   animation:none !important;
   filter:none !important;
 }
@@ -7007,7 +6978,7 @@ body[data-brand-generator="heygen"]{--brand-accent:#695dff;--brand-accent-2:#24d
 .brand-generator-head[data-brand="suno"]{min-height:220px;align-items:flex-end;padding:14px 16px;overflow:hidden;background:#09070a}
 .brand-generator-head-video,.brand-generator-head-shade{position:absolute;inset:0;width:100%;height:100%}.brand-generator-head-video{z-index:0;display:block;object-fit:contain;background:#09070a;pointer-events:none}.brand-generator-head-shade{z-index:1;background:linear-gradient(180deg,rgba(10,7,11,.03),rgba(10,7,11,.16) 55%,rgba(10,7,11,.80))}.brand-generator-head[data-brand="suno"] .brand-generator-name,.brand-generator-head[data-brand="suno"] .brand-generator-actions{position:relative;z-index:2}.brand-generator-head[data-brand="suno"] .brand-generator-name b{color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.8)}.brand-generator-head[data-brand="suno"] .brand-generator-actions>button{background:rgba(20,13,20,.62);border-color:rgba(255,255,255,.28);color:#fff;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .brand-generator-name,.brand-generator-actions{display:flex;align-items:center;gap:9px}.brand-generator-name img,.brand-generator-name>span{width:27px;height:27px;border-radius:8px;object-fit:contain;background:color-mix(in srgb,var(--brand-accent) 18%,transparent)}.brand-generator-name>span::before{content:"";display:block;width:100%;height:100%;background:linear-gradient(135deg,var(--brand-accent),var(--brand-accent-2));clip-path:polygon(8% 65%,25% 30%,42% 68%,62% 18%,92% 74%,82% 88%,61% 43%,43% 92%,24% 55%,17% 79%)}.brand-generator-name b{font-size:14px;color:var(--brand-accent-2)}.brand-generator-actions>button{height:36px;border:1px solid color-mix(in srgb,var(--brand-accent) 32%,var(--border));background:color-mix(in srgb,var(--surface) 90%,var(--brand-accent) 10%);color:var(--text);cursor:pointer}.brand-generator-balance{display:flex;align-items:center;gap:7px;padding:0 7px 0 11px;border-radius:13px}.brand-generator-balance i,.brand-generator-balance em{font-style:normal}.brand-generator-balance i{color:#ffd43b}.brand-generator-balance b{font-size:11px}.brand-generator-balance em{width:21px;height:21px;border-radius:50%;display:grid;place-items:center;background:var(--brand-accent);color:#fff;font-size:16px}.brand-generator-avatar,.brand-generator-close{width:36px;border-radius:50%;padding:0;display:grid;place-items:center;overflow:hidden}.brand-generator-avatar{font-size:10px;font-weight:800}.brand-generator-avatar img{width:100%;height:100%;object-fit:cover}.brand-generator-avatar .dot{display:none}.brand-generator-close{font-size:22px;line-height:1}
-body.brand-generator-active [data-view="tools"] .studio{position:relative;min-height:100dvh;background-color:color-mix(in srgb,var(--bg-0) 94%,var(--brand-accent) 6%);background-image:radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--brand-accent) 14%,transparent) 1px,transparent 0);background-size:22px 22px}
+body.brand-generator-active [data-view="tools"] .studio{position:relative;min-height:100dvh;background-color:color-mix(in srgb,var(--bg-0) 94%,var(--brand-accent) 6%)}
 body.brand-generator-active .view[data-view="tools"].active .studio-bar{display:none!important;height:0!important;min-height:0!important;flex-basis:0!important;padding:0!important;border:0!important;overflow:hidden!important}
 body.brand-generator-active [data-view="tools"] .studio-grid-workspace{display:none!important}
 body.brand-generator-active #chatArea .brand-generator-old{display:none!important}
@@ -7019,7 +6990,7 @@ body.brand-generator-active #studioComposer{border-color:color-mix(in srgb,var(-
 body.brand-generator-active .studio-select-pill{border-color:color-mix(in srgb,var(--brand-accent) 30%,var(--border))}
 body.brand-generator-active .send-btn,body.brand-generator-active .studio-send{background:linear-gradient(135deg,var(--brand-accent),var(--brand-accent-2))!important}
 body.brand-generator-active,body.brand-generator-active .app,body.brand-generator-active .scroll,body.brand-generator-active .view[data-view="tools"].active{background-color:color-mix(in srgb,#15161a 92%,var(--brand-accent) 8%)!important}
-body.brand-generator-active .view[data-view="tools"].active .studio,body.brand-generator-active #chatArea{background-color:color-mix(in srgb,#17181c 94%,var(--brand-accent) 6%)!important;background-image:radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--brand-accent) 22%,transparent) 1.15px,transparent 1.25px)!important;background-size:22px 22px!important}
+body.brand-generator-active .view[data-view="tools"].active .studio,body.brand-generator-active #chatArea{background-color:color-mix(in srgb,#17181c 94%,var(--brand-accent) 6%)!important;background-image:none!important}
 body.brand-generator-active #studioComposer,body.brand-generator-active .studio-video-panel{background:linear-gradient(145deg,color-mix(in srgb,#22242a 90%,var(--brand-accent) 10%),color-mix(in srgb,#17191e 94%,var(--brand-accent-2) 6%))!important;border-color:color-mix(in srgb,var(--brand-accent) 38%,rgba(255,255,255,.1))!important}
 body.brand-generator-active .studio-prompt-column textarea{color:#f5f7fa!important}
 body.brand-generator-active .studio-prompt-column textarea::placeholder{color:color-mix(in srgb,var(--brand-accent-2) 42%,#9b9da5)!important}
@@ -8346,7 +8317,7 @@ body.community-menu-visible{overflow:hidden}.community-delete-post{width:32px;he
 @media(max-width:759px){.view[data-view="shop"] .sub-card{min-height:300px;padding:20px 17px 17px;border-radius:22px}.view[data-view="shop"] .sub-title{font-size:18px}.view[data-view="shop"] .sub-period{font-size:13px}.view[data-view="shop"] .sub-price-now{font-size:24px}.view[data-view="shop"] .sub-perks li{font-size:13px;line-height:1.45}.view[data-view="shop"] .sub-cta{min-height:48px;font-size:15px}}
 
 /* Suno standalone generator — live UI based on the supplied Canva/SVG layout. */
-body[data-brand-generator="suno"] .view[data-view="tools"].active .studio{overflow-y:auto;align-content:flex-start;background-color:#181419!important;background-image:radial-gradient(circle at 1px 1px,rgba(226,61,89,.28) 1.15px,transparent 1.3px)!important;background-size:24px 24px!important}
+body[data-brand-generator="suno"] .view[data-view="tools"].active .studio{overflow-y:auto;align-content:flex-start;background-color:#181419!important;background-image:none!important}
 body[data-brand-generator="suno"] .brand-generator-head{position:relative;top:auto;width:100%;min-height:286px;padding:0 22px 16px;border-bottom:1px solid rgba(231,53,82,.5);background:#08060a!important}
 body[data-brand-generator="suno"] .brand-generator-head-video{inset:58px 50% auto auto;width:min(470px,42vw);height:190px;object-fit:contain;transform:translateX(50%)}
 body[data-brand-generator="suno"] .brand-generator-head-shade{background:linear-gradient(180deg,rgba(5,4,7,.04),rgba(5,4,7,.08) 62%,rgba(5,4,7,.75))}
@@ -9394,8 +9365,6 @@ html.browser-app :is(body.device-mobile,body.device-tablet) .view[data-view="too
    dot/grid pattern (classic and Grid Mode, idle or generating). Only the
    pattern layer goes; the background color, nodes, connections and every
    control stay as they are. Telegram keeps the pattern. */
-html.browser-app body .view[data-view="tools"].active .studio.studio.studio.studio,
-html.browser-app body .view[data-view="tools"].active .chat-area.chat-area,
 html.browser-app body .view[data-view="tools"].active .studio-grid-canvas.studio-grid-canvas{
   background-image:none!important
 }

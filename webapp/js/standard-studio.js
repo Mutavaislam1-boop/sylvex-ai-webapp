@@ -136,11 +136,12 @@
     pro.home = $('.studio-bar-right > button:last-child', studio);
     if (!pro.input || !pro.send) return false;
 
-    // Header (Standard): menu, SYLVEX, Standard | Pro, home.
+    // Header (Standard): menu, the small «SYLVEX Pro» title of the old Pro
+    // bar, the small Standard/Pro switch, home.
     el.hdr = document.createElement('header');
     el.hdr.className = 'sxs-hdr';
     el.hdr.innerHTML = '<button type="button" class="sxs-ib" data-sxs="menu" aria-label="' + t('Меню') + '">' + svg('menu') + '</button>'
-      + '<div class="sxs-hdr-mid"><span class="sxs-brand">SYLVEX</span>' + segHtml() + '</div>'
+      + '<div class="sxs-hdr-mid"><span class="sxs-brand">SYLVEX Pro</span>' + segHtml() + '</div>'
       + '<button type="button" class="sxs-ib" data-sxs="home" aria-label="' + t('Домой') + '">' + svg('home') + '</button>';
     studio.insertBefore(el.hdr, studio.firstChild);
 
@@ -213,9 +214,10 @@
     return true;
   }
 
+  // The Standard/Pro switch: a small toggle without labels (off = Standard,
+  // on = Pro), the same in both interfaces.
   function segHtml() {
-    return '<div class="sxs-seg" role="group" aria-label="' + t('Интерфейс') + '">'
-      + '<button type="button" data-sxs-ui="standard">Standard</button><button type="button" data-sxs-ui="pro">Pro</button></div>';
+    return '<button type="button" class="sxs-switch" role="switch" data-sxs-ui="toggle" aria-checked="false" aria-label="Standard / Pro"><i aria-hidden="true"></i></button>';
   }
 
   // ---------------------------------------------------------------- apply
@@ -226,7 +228,7 @@
     body.classList.toggle('sxs-phone', phone);
     body.classList.toggle('sxs-std', std);
     body.classList.toggle('sxs-pro', phone && !std);
-    $$('[data-sxs-ui]').forEach(function (btn) { btn.classList.toggle('on', btn.dataset.sxsUi === (std ? 'standard' : 'pro')); });
+    $$('[data-sxs-ui]').forEach(function (btn) { btn.classList.toggle('on', !std); btn.setAttribute('aria-checked', std ? 'false' : 'true'); });
     // No Grid Mode on phones.
     var grid = $('#studioGridWorkspace');
     if (phone && grid && !grid.hidden && typeof S.setStudioLayout === 'function') S.setStudioLayout('classic');
@@ -244,7 +246,7 @@
     else if (wasStd === undefined) setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 0);
     state.sig = {};
     if (std) sync();
-    if (mounted) layoutKeyboard();
+    if (mounted) { placeHint(std); layoutKeyboard(); }
   }
 
   // ---------------------------------------------------------------- render
@@ -290,6 +292,16 @@
   // text, so everything that reads, saves, fills or clears the prompt works
   // unchanged. Whatever Pro Studio writes into #chatInput shows up here.
   var fromStandard = false;
+  var forwarding = false;
+  // Pro Studio's animated hint layer (inserted after #chatInput) is shown in
+  // this field while Standard is on; the manager keeps driving the same node.
+  function placeHint(std) {
+    var hint = sheetHome.hint ? sheetHome.hint.node : (pro.input.parentNode && $(':scope > .animated-prompt-placeholder', pro.input.parentNode));
+    if (!hint) return;
+    var field = el.input.parentNode;
+    adopt('hint', hint, std ? field : null);
+    field.classList.toggle('has-hint', !!std);
+  }
   function growInput() {
     if (!el.input.offsetWidth) return;   // not laid out yet: its scrollHeight means nothing
     el.input.style.height = 'auto';
@@ -320,10 +332,19 @@
       growInput();
     });
     ['select', 'keyup', 'click'].forEach(function (type) { el.input.addEventListener(type, mirrorSelection); });
+    // The animated hint of Pro Studio (PromptPlaceholderManager) runs on
+    // #chatInput's focus and blur: this field passes them on, so the hint
+    // stops while typing here and starts again after, exactly as in Pro.
+    var forward = function (type) {
+      forwarding = true;
+      try { pro.input.dispatchEvent(new FocusEvent(type)); } finally { forwarding = false; }
+    };
+    el.input.addEventListener('focus', function () { forward('focus'); });
+    el.input.addEventListener('blur', function () { forward('blur'); });
     // Pro Studio tools (voice emotions, pauses…) focus #chatInput after
     // inserting: in Standard the typing continues here, with no input window.
     pro.input.addEventListener('focus', function () {
-      if (!active()) return;
+      if (forwarding || !active()) return;
       var start = pro.input.selectionStart, end = pro.input.selectionEnd;
       document.body.classList.remove('composer-input-window-open');
       pro.composer.classList.remove('composer-input-window');
@@ -458,6 +479,16 @@
     var settle = function () { keyboardSoon(); setTimeout(keyboardSoon, 350); setTimeout(keyboardSoon, 800); };
     el.input.addEventListener('focus', settle);
     el.input.addEventListener('blur', settle);
+    // A tap anywhere outside the composer while typing closes the keyboard
+    // (a tap on another field just moves the focus there).
+    document.addEventListener('pointerdown', function (e) {
+      if (!active() || document.activeElement !== el.input) return;
+      var target = e.target;
+      // The Keyboard Debug panel (Mini App) measures with the keyboard open.
+      if (!target || !target.closest || target.closest('.sxs-composer, #sxKbDebug')) return;
+      if (target.closest('textarea,input,select,[contenteditable="true"]')) return;
+      el.input.blur();
+    }, true);
     // Opening Pro Studio, switching Standard/Pro or a mode resizes the frame.
     if (window.ResizeObserver) new ResizeObserver(keyboardSoon).observe(pro.studio.parentElement);
     pro.studio.parentElement.addEventListener('animationend', keyboardSoon);
@@ -812,7 +843,7 @@
     var tg = e.target;
     if (!tg || !tg.closest) return;
     var ui = tg.closest('[data-sxs-ui]');
-    if (ui) { stop(e); S.setStudioUi(ui.dataset.sxsUi); return; }
+    if (ui) { stop(e); S.setStudioUi(savedUi() === 'pro' ? 'standard' : 'pro'); return; }
     if (!active()) return;
     if (tg.closest('.sxs-theme')) { stop(e); if (S.cycleStudioTheme) S.cycleStudioTheme(e); return; }
 

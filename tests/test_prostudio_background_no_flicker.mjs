@@ -39,10 +39,9 @@ test('grid-mode ::before/::after keep their original aiParticles animation untou
   assert.match(block, /animation:aiParticlesMove 10s linear infinite, aiParticlesGlow 2\.2s ease-in-out infinite !important/);
 });
 
-test('classic workspace .chat-area dots no longer drift on generation', () => {
-  const block = blockFor('body.ai-generating .view[data-view="tools"].active .chat-area,');
-  assert.match(block, /animation:none !important/);
-  assert.doesNotMatch(block, /safeStudioDotsMove/);
+test('classic workspace .chat-area has no dots at all, idle or generating', () => {
+  assert.ok(!css.includes('body.ai-generating .view[data-view="tools"].active .chat-area,'));
+  assert.match(css, /\.view\[data-view="tools"\]\.active \.chat-area\{\n  background-color:#000 !important;\n  background-image:none !important;\n  animation:none !important;\n\}/);
 });
 
 test('classic workspace .studio background-image no longer animates via safeStudioDotsMove', () => {
