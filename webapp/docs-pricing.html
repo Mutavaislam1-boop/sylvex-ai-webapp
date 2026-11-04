@@ -1,17 +1,80 @@
-<!doctype html>
-<html lang="ru" data-theme="dark">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Прайс · SYLVEX</title><link rel="stylesheet" href="css/docs-center.css">
-  <style>html,body{height:auto;min-height:100%;overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}body{padding:28px;max-width:1120px;margin:auto}.lead{color:var(--muted,#8d94a7)}table{width:100%;border-collapse:collapse;margin:22px 0;font-size:14px}th,td{padding:11px;border-bottom:1px solid rgba(128,140,165,.22);text-align:left;vertical-align:top}th{color:#aeb6c8}h2{margin-top:34px}.notice{padding:14px 16px;border-radius:12px;background:rgba(100,130,255,.12);line-height:1.5}.providers{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.providers a{color:inherit;text-decoration:none;padding:8px 11px;border:1px solid rgba(128,140,165,.3);border-radius:999px}.providers a.active{background:#5b7cff;border-color:#5b7cff;color:#fff}.error{color:#ff8b8b}@media(max-width:640px){body{padding:20px 14px 36px}table{font-size:12px}th,td{padding:9px 6px;overflow-wrap:anywhere}}</style>
-</head>
-<body>
-  <h1>Прайс SYLVEX</h1>
-  <p class="lead">Полный каталог цен SYLVEX. Для каждой модели указаны инструмент, единица тарификации и стоимость в ⚡.</p>
-  <div class="notice">Перед запуском сервер только применяет опубликованный тариф к выбранным параметрам — длительности, разрешению, звуку и референсам — и показывает итог. При ошибке провайдера резерв возвращается.</div>
-  <nav class="providers" id="providers" aria-label="Страницы прайса по провайдерам"></nav>
-  <div id="catalog">Загружаем прайс…</div>
-  <script>
+<!doctype html><html lang="en" data-theme="dark" data-document-id="10"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Pricing &amp; Plans · SYLVEX</title><link rel="stylesheet" href="/webapp/css/terms.css"><link rel="stylesheet" href="/webapp/css/document-page.css?v=docs-030"></head><body>
+<header class="legal-header"><a id="document-close" class="back" href="/webapp/index.html" aria-label="Close documentation">×</a><a class="brand" href="/webapp/docs.html"><img src="/webapp/assets/logo.png" alt=""><b>SYLVEX</b><span>SYLVEX</span></a><div class="header-actions"><button class="theme-toggle" id="document-theme" type="button" aria-label="Toggle color theme"><span class="sun">☀</span><span class="moon">☾</span></button></div></header>
+<div class="legal-layout"><aside class="legal-toc"><span data-document-label="toc">On this page</span><nav><ul id="document-toc" class="document-toc-list"></ul></nav></aside><main><div class="legal-intro"><h1 data-document-title>Pricing &amp; Plans</h1><p id="document-version" class="document-version">Version: 0.3.0-editorial</p><div class="document-actions"><label class="document-picker"><span data-document-label="documents">Documents</span><select id="document-picker" aria-label="Documents"><option value="01">Privacy Policy</option><option value="02">Terms of Use</option><option value="03">Payments, Refunds &amp; Cancellation Policy</option><option value="04">Credits &amp; Subscriptions Policy</option><option value="05">AI Acceptable Use Policy</option><option value="06">Intellectual Property &amp; Copyright Policy</option><option value="07">Cookie Policy</option><option value="08">Account &amp; Data Deletion Policy</option><option value="09">About Us</option><option value="10" selected>Pricing &amp; Plans</option><option value="11">User Documentation</option><option value="12">Help &amp; FAQ</option><option value="13">Contact &amp; Support</option><option value="14">Legal Notices &amp; Policy Updates</option><option value="15">Telegram Addendum</option></select></label><label><span data-document-label="language">Language</span><select id="document-language" aria-label="Language"><option value="en">English</option><option value="ru">Русский</option></select></label></div></div><article id="document-content"><section id="section-1"><h2>1. Temporary equal-access offer</h2>
+<p>During the test period, <strong>all five subscriptions provide the same access to technically available and permitted models and tools</strong>. Prices and included credits differ. Paid generation requires an active qualifying subscription and sufficient available ⚡ credits. Technical capabilities, provider availability and lawful-use restrictions still apply.</p>
+<p>After this period, access to models will be allocated by subscription level, primarily according to model versions, complexity, capabilities and quality. All models will remain visible in the catalog even where a subscription level restricts launching them. The final allocation and transition date have not been announced. We will disclose the applicable rules before they take effect and protect rights already paid for.</p>
+<p>The temporary offer does not guarantee unlimited generations, inclusion of every future model or identical access forever. It introduces no new plan-based limits on characters, storage, concurrent generations or Grid Mode.</p>
+</section>
+<section id="section-2"><h2>2. Subscription catalog</h2>
+<div class="document-table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Plan</th>
+<th align="right">Web USD/month</th>
+<th align="right">Web USD/year</th>
+<th align="right">Included ⚡ per monthly period</th>
+<th align="right">Included ⚡ per year, upfront</th>
+<th align="right">XTR per 30 days</th>
+<th align="right">XTR per year, one-off</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Starter</td>
+<td align="right">5</td>
+<td align="right">48</td>
+<td align="right">100</td>
+<td align="right">1200</td>
+<td align="right">499</td>
+<td align="right">4791</td>
+</tr>
+<tr>
+<td>Pro</td>
+<td align="right">10</td>
+<td align="right">96</td>
+<td align="right">300</td>
+<td align="right">3600</td>
+<td align="right">998</td>
+<td align="right">9581</td>
+</tr>
+<tr>
+<td>Max</td>
+<td align="right">25</td>
+<td align="right">240</td>
+<td align="right">1000</td>
+<td align="right">12000</td>
+<td align="right">2495</td>
+<td align="right">23952</td>
+</tr>
+<tr>
+<td>Ultra</td>
+<td align="right">50</td>
+<td align="right">480</td>
+<td align="right">2500</td>
+<td align="right">30000</td>
+<td align="right">4990</td>
+<td align="right">47904</td>
+</tr>
+<tr>
+<td>Creator</td>
+<td align="right">100</td>
+<td align="right">960</td>
+<td align="right">5500</td>
+<td align="right">66000</td>
+<td align="right">9980</td>
+<td align="right">95808</td>
+</tr>
+</tbody></table></div>
+<p>Web monthly and annual periods follow the confirmed subscription dates. Native recurring Telegram monthly periods are <strong>30 days</strong>; annual Telegram purchases provide <strong>365-day access without automatic annual renewal</strong>. Annual included credits are granted once upfront after confirmed payment, not as further monthly grants on top of the annual amount.</p>
+<p>USD prices are base catalog amounts. Applicable taxes and other charges are disclosed in the final purchase summary. For purchases offered on the website or Browser Mini App, Stripe Checkout handles payment processing and shows available methods and the total. Digital purchases within Telegram use Stars (XTR). The cost of acquiring Stars can vary; the USD columns do not establish a fixed Stars exchange rate.</p>
+</section>
+<section id="section-3"><h2>3. Additional credits and usage prices</h2>
+<p>The web top-up catalog offers USD 5, 10, 20, 30, 40, 50, 100 and 200, plus a custom amount from USD 1 to 1,000, at <strong>100 ⚡ per USD 1</strong>. Telegram top-ups use the offered Stars invoices and limits. A top-up adds credits after payment confirmation but does not create or extend a subscription.</p>
+<p>Operation prices depend on the model, output count, resolution, duration, references or metered use. Review the price or disclosed estimate before starting. Included credits are not a fixed number of identical outputs across all models.</p>
+</section>
+<section id="section-4"><h2>4. Credit treatment and changes</h2>
+<p>Credits appear in one balance. Ending subscription access does not by itself erase unused credits, but paid generation requires active qualifying access. Full allocation and charging rules are in <a data-document-link="04" href="/webapp/credits-subscriptions.html?lang=en">Credits &amp; Subscriptions</a>; renewal, cancellation and mandatory remedies are in <a data-document-link="03" href="/webapp/payments-refunds.html?lang=en">Payments, Refunds &amp; Cancellation</a>.</p>
+<p>The end of the temporary offer or a future plan structure will not retrospectively reduce already-paid rights or remove granted credits merely to introduce new rules. Material changes identify the affected purchases or renewals and follow <a data-document-link="14" href="/webapp/notices.html?lang=en">Legal Notices &amp; Policy Updates</a>.</p>
+</section></article><div id="model-pricing" class="document-extra"><nav class="providers" id="providers" aria-label="Model pricing"></nav><div id="catalog"></div></div></main></div><script src="/webapp/js/documents-data.js?v=docs-030"></script><script src="/webapp/js/document-page.js?v=docs-030"></script>  <script>
   (async () => {
     const target = document.getElementById('catalog');
     try {
@@ -33,5 +96,4 @@
       target.innerHTML = `<h2>${esc(current)}</h2><p class="lead">Страница ${esc(current)}. Формат: <b>Модель · Инструмент · Единица · Цена SYLVEX</b>.</p><table><thead><tr><th>Модель</th><th>Инструмент</th><th>Единица</th><th>Цена SYLVEX</th></tr></thead><tbody>${rows.map(row => `<tr><td>${esc(row.model)}</td><td>${esc(row.category)}</td><td>${esc(row.mode)}</td><td>${esc(row.price)}</td></tr>`).join('')}</tbody></table>`;
     } catch (_) { target.innerHTML = '<p class="error">Не удалось загрузить каталог. Обновите страницу.</p>'; }
   })();
-  </script>
-</body></html>
+  </script></body></html>
