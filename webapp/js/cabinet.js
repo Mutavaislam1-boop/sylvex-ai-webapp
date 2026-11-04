@@ -32075,7 +32075,7 @@ async function waitGenerationJob(jobId, options) {
       }),
     };
     const load=src=>new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});
-    load('js/media.js?v=media-fix-20261030').then(()=>load('js/media-page.js?v=media-fix-20261030')).catch(()=>toast('Could not load Media'));
+    load('js/media.js?v=media-fix-20261030').then(()=>load('js/media-page.js?v=media-layout-20261104')).catch(()=>toast('Could not load Media'));
   };
 
   S.openVideoTemplatesCatalog = openVideoTemplatesCatalog;

@@ -66,6 +66,7 @@
   // ---------- featured row: slowly moving right to left ----------
   function renderFeatured() {
     var track = $('sxMediaMarqueeTrack');
+    if (!track) return;
     var list = state.featured;
     $('sxMediaFeaturedEmpty').hidden = list.length > 0;
     $('sxMediaMarquee').hidden = !list.length;
@@ -91,6 +92,7 @@
   var BATCH = 36;
   var wallList = [];
   var shown = 0;
+  var wallNeedsLayout = false;
 
   function columnCount() {
     var width = $('sxMediaWall').clientWidth || window.innerWidth;
@@ -100,6 +102,8 @@
   function renderWall() {
     wallList = MEDIA.interleave(state.items.filter(function (item) { return wallKind === 'all' || item.kind === wallKind; }));
     var wall = $('sxMediaWall');
+    if (!wall.clientWidth) { wallNeedsLayout = true; return; }
+    wallNeedsLayout = false;
     wall.classList.remove('is-loading');
     var columns = '';
     for (var i = 0; i < columnCount(); i += 1) columns += '<div class="sx-media-col"></div>';
@@ -112,6 +116,8 @@
 
   function appendBatch() {
     var wall = $('sxMediaWall');
+    if (!wall.clientWidth) { wallNeedsLayout = true; return; }
+    if (wallNeedsLayout) { renderWall(); return; }
     var columns = Array.prototype.slice.call(wall.querySelectorAll('.sx-media-col'));
     var holder = document.createElement('div');
     wallList.slice(shown, shown + BATCH).forEach(function (entry) {
@@ -235,12 +241,19 @@
   }, { rootMargin: '900px 0px' }) : null;
 
   var resizeTimer = 0;
+  function refreshWallLayout() {
+    var wall = $('sxMediaWall');
+    if (!wall.clientWidth) { wallNeedsLayout = true; return; }
+    if (wallList.length && (wallNeedsLayout || String(columnCount()) !== wall.dataset.columns)) renderWall();
+  }
   window.addEventListener('resize', function () {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function () {
-      if (wallList.length && String(columnCount()) !== $('sxMediaWall').dataset.columns) renderWall();
-    }, 200);
+    resizeTimer = setTimeout(refreshWallLayout, 200);
   });
+  // Mini App loads Media while its view is hidden. Measure again when its
+  // own container becomes visible, even if the column count stays the same.
+  var wallSizeObserver = 'ResizeObserver' in window ? new ResizeObserver(refreshWallLayout) : null;
+  if (wallSizeObserver) wallSizeObserver.observe($('sxMediaWall'));
 
   function renderLoading() {
     var heights = [260, 180, 320, 220, 280, 200, 340, 240, 190, 300, 230, 270];

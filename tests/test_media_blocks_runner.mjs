@@ -74,7 +74,7 @@ test("the Mini App's Media page opens a block instead of the GPT Image catalog f
   assert.match(page, /if \(entry\.block\) \{ openBlock\(entry\.block\); return; \}/);
   assert.match(page, /bridge && typeof bridge\.openBlock === 'function'\) \{ bridge\.openBlock\(block\); return; \}/);
   assert.match(cabinet, /openBlock:block=>openMediaBlock\(block\),/);
-  assert.match(cabinet, /load\('js\/media\.js\?v=media-fix-20261030'\)\.then\(\(\)=>load\('js\/media-page\.js\?v=media-fix-20261030'\)\)/);
+  assert.match(cabinet, /load\('js\/media\.js\?v=media-fix-20261030'\)\.then\(\(\)=>load\('js\/media-page\.js\?v=media-layout-20261104'\)\)/);
   // One file for both apps.
   if (site('js/media.js')) {
     assert.equal(media, site('js/media.js'));
