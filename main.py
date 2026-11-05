@@ -10319,6 +10319,8 @@ async def public_prostudio_upload_media_init(request: Request):
     if not upload_url:
         return {"ok": True, "direct": False}
     expires = int(time.time()) + 900
+    from services.account_erasure import register_direct_upload
+    await asyncio.to_thread(register_direct_upload,DATABASE_URL,owner,key,expires)
     token = _direct_upload_capability(owner, key, size, spec["content_type"], expires)
     return {
         "ok": True, "direct": True, "upload_url": upload_url, "object_key": key,
@@ -10359,6 +10361,8 @@ async def public_prostudio_upload_media_complete(request: Request):
                 video_probe.sidecar_key(key), "application/json",
             )
         public_url = await asyncio.to_thread(storage_register_existing_object, key, validated_type, size)
+        from services.account_erasure import finish_direct_upload
+        await asyncio.to_thread(finish_direct_upload,DATABASE_URL,owner,key)
         return {
             "ok": True, "kind": spec["uploaded_kind"], "url": public_url,
             "path": key, "content_type": validated_type, "bytes": size,
@@ -10379,6 +10383,21 @@ async def internal_telegram_media(request: Request):
         return JSONResponse({"ok": False, "error": "telegram_media_not_configured"}, status_code=503)
     if not presented or not hmac.compare_digest(presented, TELEGRAM_MEDIA_SERVICE_TOKEN):
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from services import account_erasure
+    owner_value=request.headers.get("x-sylvex-media-owner","")
+    try:
+        media_owner=int(owner_value or 0)
+        if media_owner<0 or media_owner>=account_erasure.WEB_STORAGE_FLOOR:
+            raise ValueError()
+    except ValueError:
+        return JSONResponse({"ok":False,"error":"invalid_media_owner"},status_code=400)
+    if account_erasure.enabled() and os.getenv("SYLVEX_ERASURE_TELEGRAM_READY","").lower() in ("1","true","yes") and not media_owner:
+        return JSONResponse({"ok":False,"error":"media_owner_required"},status_code=400)
+    if media_owner:
+        try:
+            await asyncio.to_thread(account_erasure.check_subject_access,DATABASE_URL,media_owner)
+        except account_erasure.ErasureError as exc:
+            return JSONResponse({"ok":False,"error":exc.code},status_code=exc.status)
     form = await request.form()
     file = form.get("file")
     if not file or not hasattr(file, "read"):
@@ -10391,7 +10410,11 @@ async def internal_telegram_media(request: Request):
         return JSONResponse({"ok": False, "error": "empty_file"}, status_code=400)
     content_type = validated_upload_type(content, suffix)
     key = generated_key("telegram-inputs", f"{uuid4().hex}{suffix}")
-    url = await asyncio.to_thread(storage_put_bytes, content, key, content_type)
+    owner_context=actor_id.set(media_owner)
+    try:
+        url = await asyncio.to_thread(storage_put_bytes, content, key, content_type)
+    finally:
+        actor_id.reset(owner_context)
     print("TELEGRAM MEDIA REHOSTED:", {"key": key, "content_type": content_type, "bytes": len(content)})
     return {"ok": True, "url": url, "content_type": content_type, "bytes": len(content)}
 
@@ -16993,6 +17016,9 @@ async def _web_session_account_id(request: Request):
     current_generation = await asyncio.to_thread(current_web_session_generation, account_id)
     if generation < current_generation:
         return None
+    from services.account_erasure import pending_account
+    if await asyncio.to_thread(pending_account, DATABASE_URL, account_id):
+        return None
     return account_id
 
 
@@ -17556,14 +17582,16 @@ async def web_assistant_message(request: Request):
 
             def worker():
                 try:
-                    for delta in stream_assistant_reply(OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_ASSISTANT_MODEL, messages,
-                                                        max_output_tokens=ASSISTANT_MAX_OUTPUT_TOKENS, usage_sink=stream_usage):
-                        q.put(("delta", delta))
-                        with _ASSISTANT_STOP_LOCK:
-                            if _ASSISTANT_STOP_FLAGS.get(stream_id):
-                                q.put(("cancelled", None))
-                                return
-                    q.put(("done", None))
+                    from services.account_erasure import subject_operation
+                    with subject_operation(telegram_id,assistant_generation_id):
+                        for delta in stream_assistant_reply(OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_ASSISTANT_MODEL, messages,
+                                                            max_output_tokens=ASSISTANT_MAX_OUTPUT_TOKENS, usage_sink=stream_usage):
+                            q.put(("delta", delta))
+                            with _ASSISTANT_STOP_LOCK:
+                                if _ASSISTANT_STOP_FLAGS.get(stream_id):
+                                    q.put(("cancelled", None))
+                                    return
+                        q.put(("done", None))
                 except Exception as exc:
                     q.put(("error", str(exc) or "ai_temporarily_unavailable"))
 
@@ -18074,6 +18102,9 @@ async def web_account_delete_start(request: Request):
     account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    if not isinstance(payload,dict) or payload.get("erasure_scope")!="web_account_content_v1":
+        return JSONResponse({"ok":False,"error":"erasure_scope_confirmation_required"},status_code=409)
     try:
         result = await asyncio.to_thread(account_identity_service.start_account_deletion, DATABASE_URL, account_id)
     except AccountError as exc:
@@ -18097,28 +18128,23 @@ async def web_account_delete_verify(request: Request):
 
 @app.post("/api/web/account/delete")
 async def web_account_delete(request: Request):
-    # Deletes this website identity (email/Google/Apple/Telegram-login),
-    # freeing the email and any linked Google/Apple accounts to register
-    # again - see account_identity.delete_account for exactly what is and
-    # isn't removed. Needs the confirm token from /delete/verify when the
-    # account has an email.
+    # Confirmation accepts an erasure request. Completion is reported only
+    # after the processor verifies all data and media in the confirmed scope.
     account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
     payload = await request.json()
+    if not isinstance(payload,dict) or payload.get("erasure_scope")!="web_account_content_v1":
+        return JSONResponse({"ok":False,"error":"erasure_scope_confirmation_required"},status_code=409)
     try:
-        await asyncio.to_thread(
+        receipt = await asyncio.to_thread(
             account_identity_service.delete_account,
             DATABASE_URL, account_id, payload.get("confirm_token"),
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    # COOKIE-2: revoke every session of this account. When the account is
-    # still used through Telegram its row (and SYLVEX ID) stays, so this
-    # bumps its generation; when the row was removed it is a no-op, and
-    # every lookup on the deleted account_id comes up empty anyway.
-    await asyncio.to_thread(revoke_web_sessions, account_id)
-    response = JSONResponse({"ok": True})
+    # Revocation and the receipt are committed in the same transaction.
+    response = JSONResponse({"ok": True, **receipt}, status_code=202)
     response.delete_cookie(
         WEB_SESSION_COOKIE, path="/", secure=True, samesite="none", httponly=True,
         domain=WEB_SESSION_COOKIE_DOMAIN,
@@ -29657,6 +29683,9 @@ async def start_prostudio_generation_worker():
         except Exception as exc:
             prostudio_error("SHOP_ORDER_TABLES_STARTUP_FAILED", exc)
         db_pool_status()
+    from services import account_erasure
+    if account_erasure.enabled():
+        await asyncio.to_thread(account_erasure.validate_runtime, DATABASE_URL)
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
         if DATABASE_URL:

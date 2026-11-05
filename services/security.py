@@ -895,6 +895,14 @@ class SecurityMiddleware:
      telegram_user=user if auth_kind=='telegram' else None,
      telegram_init_data=init_data if auth_kind=='telegram' else '',
     )
+    if uid and not admin and auth_kind!='service':
+     from services.account_erasure import check_subject_access
+     try:
+      await asyncio.to_thread(check_subject_access,os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL'),uid,account_id=web_account_id or None)
+     except Exception as exc:
+      from services.account_erasure import ErasureError
+      if isinstance(exc,ErasureError):raise SecurityError(exc.code,exc.status) from exc
+      raise SecurityError('account_access_unavailable',503) from exc
     # An account an admin blocked keeps only its status, bell and contact
     # form (services/user_access.py); everything else is refused here, for
     # every surface at once.

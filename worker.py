@@ -34,6 +34,9 @@ async def run_worker() -> None:
 
     await asyncio.to_thread(start_db_pool, DATABASE_URL)
     db_pool_status()
+    from services import account_erasure
+    if account_erasure.enabled():
+        await asyncio.to_thread(account_erasure.validate_runtime, DATABASE_URL)
 
     tasks: list[asyncio.Task] = []
     if PROSTUDIO_WORKER_ENABLED:

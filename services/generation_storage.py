@@ -214,6 +214,11 @@ class MediaOutbox:
 
     def process(self, job, persist, verify):
         """persist(entry, verify_only) must adopt an existing key before download."""
+        from services.account_erasure import media_job_scope
+        with media_job_scope(self.connect, job['job_id']):
+            return self._process_scoped(job, persist, verify)
+
+    def _process_scoped(self, job, persist, verify):
         try:
             for entry in sorted(job['plan'].values(), key=lambda item: item.get('order', 0)):
                 if not entry.get('url'):

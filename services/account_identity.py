@@ -960,6 +960,9 @@ def get_account_summary(database_url, account_id):
     """Everything the website's "Linked Accounts" panel and session payload
     need beyond balance/subscription (which still comes from get_user_state
     on the account's active_telegram_id)."""
+    from services.account_erasure import pending_account
+    if pending_account(database_url, account_id):
+        return None
     checkout_start = time.monotonic()
     conn = db_connect(database_url)
     print("SESSION_ME_TIMING:", {"stage": "get_account_summary.checkout", "ms": round((time.monotonic() - checkout_start) * 1000), "account_id": account_id})
@@ -1301,18 +1304,11 @@ def verify_account_deletion(database_url, account_id, code):
 
 
 def delete_account(database_url, account_id, confirm_token=None):
-    """Deletes the website identity (email/Google/Apple/Telegram-login) for
-    account_id, freeing its email and any linked Google/Apple identities to
-    register again. An account with an email needs the confirm token from
-    verify_account_deletion (the code emailed to that address); one with no
-    email has nothing to check beyond the caller holding a valid session.
+    """Accept a confirmed full erasure request, never report login-only removal.
 
-    Deliberately does NOT touch the underlying business data (balance,
-    generations, purchases, subscriptions) or the `users` row it lives
-    under. When the account is also used through Telegram, the account row
-    and its SYLVEX ID stay exactly as they are (invariant 3) - only the
-    website logins go. An account with no Telegram identity has nothing
-    left after this, so its row is removed; its ID is never reissued."""
+    The existing email confirmation remains mandatory. Actual erasure is
+    performed by the bounded processor after operations and ownership checks.
+    """
     ensure_account_tables(database_url)
     conn = db_connect(database_url)
     cur = conn.cursor()
@@ -1326,17 +1322,14 @@ def delete_account(database_url, account_id, confirm_token=None):
             row = cur.fetchone()
             if not row or not hmac.compare_digest(_code_hash(confirm_token or ""), row[0]):
                 raise AccountError("deletion_not_confirmed", 403)
-        cur.execute("SELECT active_telegram_id FROM sylvex_accounts WHERE account_id = %s FOR UPDATE", (account_id,))
-        active_row = cur.fetchone()
-        still_used_by_telegram = bool(active_row) and real_telegram_id(active_row[0]) is not None
-        cur.execute("DELETE FROM account_deletion_codes WHERE account_id = %s", (account_id,))
-        cur.execute("DELETE FROM account_link_codes WHERE account_id = %s", (account_id,))
-        cur.execute("DELETE FROM account_oauth WHERE account_id = %s", (account_id,))
-        cur.execute("DELETE FROM account_emails WHERE account_id = %s", (account_id,))
-        if not still_used_by_telegram:
-            cur.execute("DELETE FROM sylvex_accounts WHERE account_id = %s", (account_id,))
+        from services import account_erasure
+        try:
+            result = account_erasure.accept_confirmed_request(cur, account_id)
+        except account_erasure.ErasureError as exc:
+            raise AccountError(exc.code, exc.status) from exc
         conn.commit()
-    except AccountError:
+        return result
+    except BaseException:
         conn.rollback()
         raise
     finally:
@@ -1510,6 +1503,8 @@ def _retire_account(cur, retired, survivor, telegram_id):
 
 
 def preview_merge(database_url, account_id, real_telegram_id):
+    # Cross-ecosystem changes require verified support approval.
+    raise AccountError("support_review_required", 409)
     real_telegram_id = int(real_telegram_id)
     if real_telegram_id <= 0:
         raise AccountError("invalid_telegram_id")
@@ -1651,6 +1646,8 @@ def confirm_merge_via_widget(database_url, account_id, real_telegram_id, usernam
     """Website-initiated direction (Connect Telegram in Settings). Ownership
     of `real_telegram_id` was already proven by the caller verifying a
     Telegram Login Widget payload (services.security.verify_telegram_login_widget)."""
+    # Cross-ecosystem changes require verified support approval.
+    raise AccountError("support_review_required", 409)
     return _do_merge(database_url, account_id, real_telegram_id, username, first_name, confirmed_subscription_merge)
 
 
@@ -1663,6 +1660,8 @@ def confirm_merge_via_widget(database_url, account_id, real_telegram_id, usernam
 
 def request_email_link_code(database_url, email):
     # Always returns normally (never reveals whether the email exists).
+    # Cross-ecosystem changes require verified support approval.
+    raise AccountError("support_review_required", 409)
     email = normalize_email(email or "")
     if not email:
         return
@@ -1739,12 +1738,16 @@ def resolve_email_link_code(database_url, email, code):
     """Validates a code without consuming it, for showing the merge preview
     before the user commits. Wrong guesses still count against the attempt
     limit."""
+    # Cross-ecosystem changes require verified support approval.
+    raise AccountError("support_review_required", 409)
     return _consume_email_link_code(database_url, email, code, consume=False)
 
 
 def confirm_merge_via_email_code(database_url, real_telegram_id, email, code, username=None, first_name=None, confirmed_subscription_merge=False):
     """Mini-App-initiated direction. Consumes the emailed code (single-use)
     and, only if that succeeds, performs the merge."""
+    # Cross-ecosystem changes require verified support approval.
+    raise AccountError("support_review_required", 409)
     account_id = _consume_email_link_code(database_url, email, code, consume=True)
     return _do_merge(database_url, account_id, real_telegram_id, username, first_name, confirmed_subscription_merge)
 
