@@ -19,6 +19,7 @@ def app(monkeypatch):
     monkeypatch.setattr(main, "circuit_before_request", lambda *a, **k: {"allowed": True})
     monkeypatch.setattr(main, "circuit_release_probe", lambda *a, **k: None)
     monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda *a, **k: None)
+    monkeypatch.setattr(main, "record_prostudio_job_stage", lambda *a, **k: None)
     monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
     monkeypatch.setattr(main, "save_generation", lambda *a, **k: None)
     monkeypatch.setattr(main, "build_prostudio_metadata", lambda *a, **k: {})
@@ -86,17 +87,6 @@ async def test_video_completion_does_not_wait_for_large_r2_upload(app, monkeypat
     assert completed, "video generation must commit completed as soon as the provider responds"
     assert completed[0]["result"]["video_url"] == "https://kling.provider.example/tmp-video.mp4"
     assert completed[0]["result"]["storage_status"] == "pending"
-    assert len(background_tasks) == 1
-
-    merge_calls = []
-    monkeypatch.setattr(
-        app, "_merge_prostudio_storage_result",
-        lambda job_id, fields, status: merge_calls.append((job_id, fields, status)),
-    )
-    await background_tasks[0]
-    assert r2_upload_started["value"] is True, "the background task must still actually persist to R2"
-    assert len(merge_calls) == 1
-    job_id, fields, status = merge_calls[0]
-    assert job_id == "job-video-1"
-    assert status == "completed"
-    assert fields["video_url"] == "https://r2.example/permanent-video.mp4"
+    assert background_tasks == [], "Persistence belongs to the durable outbox worker, not a detached task"
+    # The outbox's actual transfer/restart behavior is covered by
+    # test_generation_storage_recovery.py.

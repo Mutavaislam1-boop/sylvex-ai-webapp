@@ -50,7 +50,7 @@ def result_database(monkeypatch):
 
     try:
         query('''CREATE TABLE prostudio_generation_jobs (
-            id TEXT PRIMARY KEY, status TEXT, conversation_id TEXT,
+            id TEXT PRIMARY KEY, telegram_id BIGINT, mode TEXT, status TEXT, conversation_id TEXT,
             response_json JSONB, result_json JSONB, error_json JSONB, cost INTEGER,
             updated_at TIMESTAMPTZ, completed_at TIMESTAMPTZ)''')
         query('''CREATE TABLE prostudio_messages (
@@ -83,12 +83,13 @@ def test_real_postgres_job_and_background_merge_preserve_all_outputs(result_data
     assert main.update_prostudio_generation_job('long-job','completed',result)
     status,response,saved,cost=db.query('SELECT status,response_json,result_json,cost FROM prostudio_generation_jobs')[0]
     assert status=='completed' and cost==19
-    assert response==saved==result
+    expected={**result,'storage_status':'pending'}
+    assert response==saved==expected
     main._merge_prostudio_result_fields('long-job',{'thumbnail_status':'completed'})
     status,saved,cost=db.query('SELECT status,result_json,cost FROM prostudio_generation_jobs')[0]
     assert status=='completed' and cost==19
     assert saved['thumbnail_status']=='completed'
-    for key,value in result.items():
+    for key,value in expected.items():
         if key=='metadata':
             assert all(saved['metadata'][name]==item for name,item in value.items())
         else:assert saved[key]==value

@@ -7,6 +7,7 @@ MEDIA_FIELDS = (
     'svg_url','svg_download_url','svg_urls','video_url','videos',
     'audio_url','audio_urls','audios','music_url','result_url','full_url','url',
     'file_url','files','cover_url','artwork_url','storage_status','thumbnail_status',
+    'resource',
 )
 
 

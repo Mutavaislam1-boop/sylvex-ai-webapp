@@ -23,6 +23,7 @@ def app(monkeypatch):
     monkeypatch.setattr(main, "circuit_before_request", lambda *a, **k: {"allowed": True})
     monkeypatch.setattr(main, "circuit_release_probe", lambda *a, **k: None)
     monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda *a, **k: None)
+    monkeypatch.setattr(main, "record_prostudio_job_stage", lambda *a, **k: None)
     monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
     monkeypatch.setattr(main, "save_generation", lambda *a, **k: None)
     monkeypatch.setattr(main, "build_prostudio_metadata", lambda *a, **k: {})

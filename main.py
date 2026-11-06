@@ -5529,7 +5529,7 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         ensure_reservations(lambda: db_connect(DATABASE_URL))
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
-        cursor.execute("SELECT status, result_json FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+        cursor.execute("SELECT status, result_json, mode FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
         current = cursor.fetchone()
         if not current:
             conn.rollback()
@@ -5548,6 +5548,16 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
             # provider URLs must never replace media those tasks committed.
             previous_result = _json_obj(current[1]) if len(current) > 1 else {}
             result = merge_generation_result_fields(previous_result, result or {}, preserve_existing_media=True)
+        first_completion = current[0] != "completed" and status == "completed"
+        job_mode = str(current[2] or (result or {}).get("type") or "").strip().lower()
+        if first_completion and isinstance(result, dict) and job_mode not in {"text", "chat", "pro", "lite"}:
+            # Every media-producing completion enters the same durable R2
+            # outbox, including special jobs (Grid montage, Character and
+            # Object creation) whose callers do not know about storage.
+            if generation_storage.media_plan(job_id, result, job_mode):
+                result = dict(result)
+                if result.get("storage_status") != "completed":
+                    result["storage_status"] = "pending"
         if status in {"failed", "cancelled", "canceled"}:
             release_generation(cursor, job_id)
         cursor.execute("""
@@ -5573,9 +5583,9 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
             job_id,
         ))
         rowcount = cursor.rowcount
-        if (current[0] != "completed" and status == "completed" and isinstance(result, dict)
+        if (first_completion and isinstance(result, dict)
                 and result.get("storage_status") == "pending"):
-            generation_storage.enqueue(cursor, job_id, str(result.get("type") or ""), result)
+            generation_storage.enqueue(cursor, job_id, job_mode, result)
         conn.commit()
         prostudio_debug("JOB_UPDATE_DONE", job_id=job_id, status=status, rowcount=rowcount)
         return rowcount > 0
@@ -5893,7 +5903,7 @@ def generation_result_urls(result: Optional[dict], mode: str = "") -> list:
     if not isinstance(result, dict):
         return []
     urls = []
-    if mode == "image" or result.get("type") == "image":
+    if mode in {"image", "character_creation", "object_creation"} or result.get("type") in {"image", "character", "object"}:
         urls.extend(_json_list(result.get("images")))
         for key in ("image_url", "result_url", "full_url", "url", "file_url"):
             if result.get(key):
@@ -5905,6 +5915,7 @@ def generation_result_urls(result: Optional[dict], mode: str = "") -> list:
                 urls.append(result.get(key))
     elif mode in {"music", "voice"} or result.get("type") in {"music", "voice", "audio"}:
         urls.extend(_json_list(result.get("audios")))
+        urls.extend(_json_list(result.get("audio_urls")))
         for key in ("audio_url", "music_url", "song_url", "result_url", "full_url", "url", "file_url"):
             if result.get(key):
                 urls.append(result.get(key))
@@ -6688,6 +6699,7 @@ def persist_generation_media(result: dict, mode: str) -> dict:
         "image_url": "images", "thumbnail_url": "thumbs", "video_url": "videos",
         "audio_url": "audio", "music_url": "audio", "file_url": "documents",
         "svg_url": "documents", "svg_download_url": "documents",
+        "cover_url": "images", "artwork_url": "images",
     }
     list_fields = {
         "images": "images", "thumbnails": "thumbs", "videos": "videos",
@@ -6718,7 +6730,8 @@ def persist_generation_media(result: dict, mode: str) -> dict:
 def verify_persisted_generation_media(result: dict, mode: str) -> list[str]:
     """Require durable R2 objects before a production media job can complete."""
     normalized_mode = str(mode or "").strip().lower()
-    if normalized_mode not in {"image", "video", "music", "voice"}:
+    verify_mode = "image" if normalized_mode in {"character_creation", "object_creation"} else normalized_mode
+    if verify_mode not in {"image", "video", "music", "voice"}:
         return []
 
     if not r2_enabled():
@@ -6952,7 +6965,8 @@ def build_completed_job_result(result: dict, mode: str) -> dict:
         "image_url", "images", "thumbnail_url", "thumb_url", "thumbnails",
         "svg_url", "svg_download_url", "svg_urls",
         "video_url", "videos", "audio_url", "audio_urls", "audios", "music_url",
-        "result_url", "full_url", "url", "file_url", "title", "text", "duration",
+        "result_url", "full_url", "url", "file_url", "files", "song_url",
+        "cover_url", "artwork_url", "title", "text", "duration",
         "cost", "price", "cost_credits", "generation_cost", "unit_cost_credits",
         "balance_charged", "balance_after", "charge_id", "storage_status",
         "thumbnail_status",
@@ -6977,6 +6991,7 @@ def build_completed_job_result(result: dict, mode: str) -> dict:
         "thumbnail_url": final_result.get("thumbnail_url") or final_result.get("thumb_url") or "",
         "video_url": final_result.get("video_url") or "",
         "audio_url": final_result.get("audio_url") or final_result.get("music_url") or "",
+        "cover_url": final_result.get("cover_url") or final_result.get("artwork_url") or "",
         "sent_to_telegram": False,
     }
     return final_result
@@ -7621,11 +7636,32 @@ def _load_history_stored_media(telegram_id: int, rows: list, metadata_index: int
     try:
         with db_connection(DATABASE_URL) as conn:
             with conn.cursor() as cursor:
-                cursor.execute("""SELECT id, result_json FROM prostudio_generation_jobs
-                    WHERE telegram_id=%s AND id=ANY(%s) AND status='completed'
-                      AND (result_json->>'storage_status'='completed'
-                           OR result_json->>'storage_recovery_version'='1')""", (telegram_id, job_ids))
-                return {str(row[0]): _json_obj(row[1]) for row in cursor.fetchall()}
+                cursor.execute("""SELECT id,mode,result_json FROM prostudio_generation_jobs
+                    WHERE telegram_id=%s AND id=ANY(%s) AND status='completed'""",
+                    (telegram_id, job_ids))
+                stored = {}
+                queued = 0
+                for job_id, mode, raw_result in cursor.fetchall():
+                    result = _json_obj(raw_result)
+                    if (result.get("storage_status") == "completed"
+                            or result.get("storage_recovery_version") == 1):
+                        stored[str(job_id)] = result
+                        continue
+                    # Recover only a few provider-only legacy rows per opened
+                    # history page; this is deliberately not a bulk migration.
+                    if queued >= 4 or result.get("storage_status") in {"pending", "processing", "failed"}:
+                        continue
+                    normalized_mode = str(mode or result.get("type") or "").lower()
+                    if normalized_mode in {"text", "chat", "pro", "lite"}:
+                        continue
+                    if generation_storage.media_plan(str(job_id), result, normalized_mode):
+                        result["storage_status"] = "pending"
+                        cursor.execute("""UPDATE prostudio_generation_jobs
+                            SET result_json=%s::jsonb,updated_at=NOW() WHERE id=%s""",
+                            (_safe_json_dumps(result), job_id))
+                        generation_storage.enqueue(cursor, str(job_id), normalized_mode, result)
+                        queued += 1
+                return stored
     except Exception as exc:
         prostudio_error("HISTORY_STORED_MEDIA_LOOKUP_FAILED", exc)
         return {}
@@ -9476,6 +9512,8 @@ async def _run_character_creation_job_billed(job_id: str, telegram_id: int, name
             "type": "character",
             "character_id": final_resource["id"],
             "resource": final_resource,
+            "image_url": images[0] if images else "",
+            "images": images,
             # generation_result_urls() falls back to this generic key for
             # any mode it doesn't specifically recognise (ours included),
             # which is what lets the poll endpoint see this job as
@@ -9841,6 +9879,8 @@ async def _run_object_creation_job_billed(job_id: str, telegram_id: int, name: s
             "type": "object",
             "object_id": final_resource["id"],
             "resource": final_resource,
+            "image_url": final_resource["previewUrl"],
+            "images": [final_resource["previewUrl"]],
             "result_url": final_resource["previewUrl"],
         }
         if not await _settle_creation_job(job_id, telegram_id, object_creation_settled_credits(credits, vision_usage), "object_creation", result):
@@ -10735,6 +10775,36 @@ async def public_prostudio_request_job(client_request_id: str):
     return {"ok": True, "job_id": job_id}
 
 
+def ensure_prostudio_job_media_storage(job_id: str, owner_id: int = 0, retry_failed: bool = False) -> bool:
+    """Queue one completed legacy/failed media job for R2 without regenerating it.
+
+    This is intentionally job-scoped: opening or downloading an old result
+    can recover that result while no bulk history migration is started.
+    """
+    if not DATABASE_URL or not job_id:
+        return False
+    with db_connection(DATABASE_URL) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""SELECT status,mode,result_json,telegram_id
+                FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE""", (job_id,))
+            row = cursor.fetchone()
+            if not row or row[0] != "completed" or (owner_id and int(row[3] or 0) != int(owner_id)):
+                return False
+            result = _json_obj(row[2])
+            storage_status = str(result.get("storage_status") or "").lower()
+            if storage_status == "completed" or (storage_status == "failed" and not retry_failed):
+                return False
+            mode = str(row[1] or result.get("type") or "").strip().lower()
+            if mode in {"text", "chat", "pro", "lite"} or not generation_storage.media_plan(job_id, result, mode):
+                return False
+            result["storage_status"] = "pending"
+            cursor.execute("""UPDATE prostudio_generation_jobs
+                SET result_json=%s::jsonb,updated_at=NOW() WHERE id=%s""",
+                (_safe_json_dumps(result), job_id))
+            generation_storage.enqueue(cursor, job_id, mode, result)
+            return True
+
+
 
 @app.get("/api/public/prostudio/job/{job_id}")
 async def public_prostudio_job(job_id: str):
@@ -10780,6 +10850,15 @@ async def public_prostudio_job(job_id: str):
                 status_code=404,
             )
         result_json = grid_projects_service.refresh_media(_json_obj(row[1]))
+        if row[0] == "completed" and not result_json.get("storage_status"):
+            # Opportunistic, one-job recovery for old provider-only history.
+            # It never regenerates media and never touches billing.
+            queued = await asyncio.to_thread(
+                ensure_prostudio_job_media_storage, job_id, int(actor_id.get() or 0), False
+            )
+            if queued:
+                row = await asyncio.to_thread(_fetch_job_row)
+                result_json = grid_projects_service.refresh_media(_json_obj(row[1]))
         error_json = _public_error_json(_json_obj(row[2]))
         if error_json:
             normalized_error = user_generation_error_text(error_json.get("error") or error_json.get("message") or error_json)
@@ -10790,6 +10869,16 @@ async def public_prostudio_job(job_id: str):
         if effective_status == "completed" and not generation_has_completed_result(result_json, job_mode):
             effective_status = "provider_processing"
             prostudio_debug("JOB_GET_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=job_mode)
+        storage_status = str(result_json.get("storage_status") or "").lower()
+        if effective_status == "completed" and storage_status in {"pending", "processing"}:
+            # The provider finished, but the durable result is not ready yet.
+            # All clients keep polling and therefore never adopt an expiring
+            # provider URL as the final Pro Studio/Grid/Edit result.
+            effective_status = "provider_processing"
+            prostudio_debug("JOB_GET_WAITING_FOR_R2", job_id=job_id, mode=job_mode)
+        elif effective_status == "completed" and storage_status == "failed":
+            effective_status = "failed"
+            error_json = {"error": "media_storage_failed", "message": "media_storage_failed", "retryable": True}
         image_url = result_json.get("image_url") if isinstance(result_json, dict) else ""
         thumb_url = result_json.get("thumbnail_url") if isinstance(result_json, dict) else ""
         image_exists = None
@@ -10832,6 +10921,18 @@ async def public_prostudio_job(job_id: str):
             {"ok": False, "error": "job_read_failed"},
             status_code=500,
         )
+
+
+@app.post("/api/public/prostudio/job/{job_id}/retry-storage")
+async def public_prostudio_retry_job_storage(job_id: str):
+    """Retry R2 persistence only; provider generation and billing are untouched."""
+    owner = int(actor_id.get() or 0)
+    if not owner:
+        return telegram_id_required_response()
+    queued = await asyncio.to_thread(ensure_prostudio_job_media_storage, job_id, owner, True)
+    if not queued:
+        return JSONResponse({"ok": False, "error": "storage_retry_not_available"}, status_code=409)
+    return {"ok": True, "job_id": job_id, "storage_status": "pending"}
 
 
 def _telegram_id_from_init_data(init_data: str) -> int:
@@ -15235,6 +15336,20 @@ async def public_prostudio_download(request: Request, job_id: str, telegram_id: 
     if mode not in {"image", "video", "music", "voice"}:
         raise HTTPException(status_code=400, detail="job_has_no_downloadable_media")
     result = _json_obj(row[3])
+    if str(result.get("storage_status") or "").lower() != "completed":
+        # An explicit download is also a safe, one-result recovery point for
+        # legacy provider-only links and exhausted storage retries. This only
+        # transfers the already-generated bytes to R2; no provider generation
+        # or credit operation can run here.
+        queued = await asyncio.to_thread(
+            ensure_prostudio_job_media_storage, job_id, owner_id, True
+        )
+        if queued:
+            await finalize_prostudio_media_storage_background(job_id, mode, result)
+            row = await asyncio.to_thread(_fetch_job_row)
+            result = _json_obj(row[3]) if row else {}
+        if str(result.get("storage_status") or "").lower() != "completed":
+            raise HTTPException(status_code=409, detail="generation_results_not_ready")
     if str(asset or "").strip().lower() == "svg":
         media_url = str(result.get("svg_url") or result.get("svg_download_url") or "").strip()
         if mode != "image" or not media_url:
@@ -28872,13 +28987,10 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             prostudio_debug("JOB_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=mode)
             return
 
-        # Non-negotiable rule: the provider's own response is the critical
-        # user-facing result. R2 persistence, thumbnails, history, and
-        # Telegram delivery are side effects and must never delay or
-        # invalidate an already-successful provider result. The provider's
-        # own (possibly temporary/ephemeral) URLs are used immediately;
-        # durable R2 persistence happens afterward in the background and can
-        # only upgrade those URLs later, never flip generation_status.
+        # The provider result is charged and committed once. Durable R2
+        # persistence remains a restart-safe background side effect, while
+        # the public job endpoint keeps clients polling until that side effect
+        # has replaced every temporary provider URL.
         provider_ready_at = time.monotonic()
         # Admin timeline: the provider's result really arrived.
         await asyncio.to_thread(record_prostudio_job_stage, job_id, "result")
@@ -28937,10 +29049,9 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             elapsed_ms_since_provider_ready=round((charge_done_at - provider_ready_at) * 1000),
         )
 
-        # This is the only result Mini App needs to stop polling. It carries
-        # the provider's own (possibly temporary) URLs immediately - durable
-        # R2 persistence is a background side effect, never a precondition
-        # for showing the user their already-successful result.
+        # The completion transaction atomically records both the successful
+        # provider result and its R2 outbox work. Public clients only observe
+        # `completed` after storage_status advances to completed.
         completed_result = build_completed_job_result(result, mode)
         completed_result["storage_status"] = "pending"
         if not update_prostudio_generation_job(job_id, "completed", result=completed_result):
@@ -28955,8 +29066,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         prostudio_debug(
             "JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id="", status="completed",
             # End-to-end time from this worker picking up the job to the
-            # completed status being committed (client-visible on its next
-            # poll) - the number to compare against the provider's own
+            # completed status being committed (storage workers can now claim
+            # it) - the number to compare against the provider's own
             # documented generation time to see whether SYLVEX or the
             # provider dominates total latency for this job.
             total_pipeline_ms=round((time.monotonic() - pipeline_started_at) * 1000),

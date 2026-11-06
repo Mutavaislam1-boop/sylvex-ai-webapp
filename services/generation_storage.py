@@ -38,8 +38,9 @@ class LeaseLost(RuntimeError):
 def media_plan(job_id, result, mode):
     """Choose each key before any upload; aliases share the same object."""
     plan = {}
-    primary = {'image': 'images', 'video': 'videos', 'music': 'audio',
-               'voice': 'audio'}.get(mode, 'documents')
+    primary = {'image': 'images', 'character_creation': 'images',
+               'object_creation': 'images', 'video': 'videos',
+               'music': 'audio', 'voice': 'audio'}.get(mode, 'documents')
     scalar = {**SCALAR_FIELDS, **dict.fromkeys(('result_url', 'full_url', 'url', 'song_url'), primary)}
 
     def add(source, category):
@@ -69,6 +70,16 @@ def media_plan(job_id, result, mode):
         for field, category in LIST_FIELDS.items():
             for value in container.get(field) or [] if isinstance(container.get(field), list) else []:
                 add(value, category)
+    resource = result.get('resource')
+    if isinstance(resource, dict):
+        for field in ('previewUrl', 'avatarUrl', 'primaryReferenceUrl'):
+            add(resource.get(field), 'images')
+        for field in ('referenceImages', 'sourceImages'):
+            for value in resource.get(field) or [] if isinstance(resource.get(field), list) else []:
+                add(value, 'images')
+        for reference in resource.get('referenceLibrary') or [] if isinstance(resource.get('referenceLibrary'), list) else []:
+            if isinstance(reference, dict):
+                add(reference.get('url'), 'images')
     return plan
 
 
@@ -83,6 +94,21 @@ def replace_planned_media(result, plan):
                 container[field] = replacements.get(value, value)
             elif isinstance(value, list):
                 container[field] = [replacements.get(item, item) if isinstance(item, str) else item for item in value]
+    resource = result.get('resource')
+    if isinstance(resource, dict):
+        for field in ('previewUrl', 'avatarUrl', 'primaryReferenceUrl'):
+            value = resource.get(field)
+            if isinstance(value, str):
+                resource[field] = replacements.get(value, value)
+        for field in ('referenceImages', 'sourceImages'):
+            value = resource.get(field)
+            if isinstance(value, list):
+                resource[field] = [replacements.get(item, item) if isinstance(item, str) else item for item in value]
+        library = resource.get('referenceLibrary')
+        if isinstance(library, list):
+            for reference in library:
+                if isinstance(reference, dict) and isinstance(reference.get('url'), str):
+                    reference['url'] = replacements.get(reference['url'], reference['url'])
     return result
 
 
@@ -108,9 +134,17 @@ def ensure_table(cursor):
 
 def enqueue(cursor, job_id, mode, result):
     plan = media_plan(job_id, result, mode)
+    if not plan:
+        return False
     cursor.execute('''INSERT INTO prostudio_media_outbox(job_id,mode,source_json,progress_json)
-        VALUES (%s,%s,%s::jsonb,%s::jsonb) ON CONFLICT (job_id) DO NOTHING''',
+        VALUES (%s,%s,%s::jsonb,%s::jsonb)
+        ON CONFLICT (job_id) DO UPDATE SET
+            mode=EXCLUDED.mode,source_json=EXCLUDED.source_json,progress_json=EXCLUDED.progress_json,
+            status='pending',attempts=0,run_after=NOW(),lease_token=NULL,lease_until=NULL,
+            last_error='',updated_at=NOW()
+        WHERE prostudio_media_outbox.status='failed' ''',
         (job_id, mode, json.dumps(result, ensure_ascii=False), json.dumps(plan, ensure_ascii=False)))
+    return bool(cursor.rowcount)
 
 
 class MediaOutbox:
@@ -181,7 +215,7 @@ class MediaOutbox:
                 (job['job_id'], job['token']))
             if not cursor.fetchone():
                 raise LeaseLost('storage_lease_lost')
-            cursor.execute('SELECT status,result_json FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE',
+            cursor.execute('SELECT status,result_json,telegram_id FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE',
                            (job['job_id'],))
             current = cursor.fetchone()
             if not current or current[0] != 'completed':
@@ -192,6 +226,24 @@ class MediaOutbox:
             merged = align_media_metadata(merge_generation_result_fields(current[1] or {}, fields))
             cursor.execute('UPDATE prostudio_generation_jobs SET result_json=%s::jsonb WHERE id=%s',
                            (json.dumps(merged, ensure_ascii=False), job['job_id']))
+            resource = merged.get('resource')
+            if isinstance(resource, dict) and resource.get('id') and current[2]:
+                cursor.execute('SELECT metadata_json FROM prostudio_resources WHERE id=%s AND telegram_id=%s FOR UPDATE',
+                               (resource['id'], current[2]))
+                existing = cursor.fetchone()
+                if existing:
+                    metadata = dict(existing[0] or {})
+                    for field in ('previewUrl', 'avatarUrl', 'primaryReferenceUrl',
+                                  'referenceImages', 'referenceLibrary', 'sourceImages'):
+                        if resource.get(field):
+                            metadata[field] = resource[field]
+                    photos = resource.get('sourceImages') or resource.get('referenceImages') or []
+                    preview = resource.get('previewUrl') or resource.get('primaryReferenceUrl') or ''
+                    cursor.execute('''UPDATE prostudio_resources
+                        SET preview_url=%s,photos_json=%s::jsonb,metadata_json=%s::jsonb,updated_at=NOW()
+                        WHERE id=%s AND telegram_id=%s''',
+                        (preview, json.dumps(photos, ensure_ascii=False),
+                         json.dumps(metadata, ensure_ascii=False), resource['id'], current[2]))
             cursor.execute('''UPDATE prostudio_media_outbox SET status='completed',progress_json=%s::jsonb,
                 lease_token=NULL,lease_until=NULL,last_error='',updated_at=NOW() WHERE job_id=%s''',
                 (json.dumps(job['plan'], ensure_ascii=False), job['job_id']))
