@@ -155,6 +155,11 @@
   .sx-media-fields{grid-template-columns:1fr;gap:8px}
   .sx-media-field input{height:40px;border-radius:12px;font-size:13px}
   .sx-media-generate{min-height:42px;border-radius:14px;font-size:13px}
+  /* One column: the reference small on top, its details and buttons under it. */
+  .sx-media-viewer{width:calc(100vw - 16px);max-height:calc(100dvh - 24px)}
+  .sx-media-viewer[open]{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .sx-media-viewer-media{min-height:0;height:min(30vh,220px);border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}
+  .sx-media-viewer-body{max-height:none}
 }
 @media (prefers-reduced-motion:reduce){
   .sx-media-marquee .sx-media-marquee-track{animation:none}
