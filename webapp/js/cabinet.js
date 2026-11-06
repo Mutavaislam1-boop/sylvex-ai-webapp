@@ -7215,7 +7215,7 @@ function publishStudioWorkspaceMode(mode,revision){
   if(typeof window!=='undefined'&&typeof window.dispatchEvent==='function'&&typeof CustomEvent==='function')window.dispatchEvent(new CustomEvent('sylvex:studio-mode',{detail:{mode,revision}}));
 }
 function beginStudioModeNavigation(mode){const revision=++studioModeNavigationRevision;publishStudioWorkspaceMode(mode,revision);return revision}
-function navigateStudioMode(mode,e){
+function navigateStudioMode(mode,e,options={}){
   if(e){e.preventDefault();e.stopPropagation();}
   mode=['studio','grid','edit'].includes(mode)?mode:'studio';
   if(mode!=='edit'&&editWorkspaceLocked())return false;
@@ -7228,7 +7228,17 @@ function navigateStudioMode(mode,e){
     switchView('tools');
     const revision=beginStudioModeNavigation(mode);
     if(mode==='edit')openEditWorkspace(null,{navigationRevision:revision});
-    else setStudioLayout(mode==='grid'?'grid':'classic',{navigationRevision:revision,preserveStudioMode:true});
+    else{
+      // A workspace route owns both its canvas and composer. Resetting the
+      // composer here prevents controls from the previous media mode from
+      // leaking into Pro Studio after a Grid/Edit transition.
+      if(mode==='studio'){
+        const requested=chatTypeForMode(options.composerMode||'');
+        const composerMode=CHAT_SPACE_TYPES.includes(requested)?requested:(CHAT_SPACE_TYPES.includes(currentChatType())?currentChatType():'image');
+        updateComposerMode(composerMode);
+      }
+      setStudioLayout(mode==='grid'?'grid':'classic',{navigationRevision:revision,preserveStudioMode:true});
+    }
     if(revision===studioModeNavigationRevision)publishStudioWorkspaceMode(mode,revision);
     return true;
   }finally{studioModeNavigationIntent=previousIntent}
@@ -25613,7 +25623,7 @@ async function waitGenerationJob(jobId, options) {
     if (title) title.textContent = state === 'expired' ? 'Подписка закончилась' : state === 'renewal_unconfirmed' && !d.active ? 'Продление не подтверждено' : 'Ваша подписка';
     const awaitingRenewal = state === 'renewal_unconfirmed' && !d.active;
     if (subtitle) subtitle.textContent = awaitingRenewal ? 'Доступ продолжится после подтверждённой оплаты' : (SUB_STATES[state] || '');
-    const cell = (k, v, id) => '<div><div class="k">' + k + '</div><div class="v"' + (id ? ' id="' + id + '"' : '') + '>' + S.escapeHtml(String(v)) + '</div></div>';
+    const cell = (k, v, id, html) => '<div><div class="k">' + k + '</div><div class="v"' + (id ? ' id="' + id + '"' : '') + '>' + (html ? String(v) : S.escapeHtml(String(v))) + '</div></div>';
     const billing = SUB_BILLING[p.billing || d.billing] || '—';
     const monthly = (p.billing || d.billing) === 'monthly';
     const price = p.price_stars ? Number(p.price_stars).toLocaleString('ru-RU') + ' ⭐' + (monthly ? ' / 30 дней' : '') : '—';
@@ -25628,8 +25638,10 @@ async function waitGenerationJob(jobId, options) {
       + cell('Оплачено до', fmtDate(exp), 'saExpires')
       + cell('Следующее списание', d.next_renewal_at ? fmtDate(d.next_renewal_at) : '—', 'saNextRenewal')
       + cell('Осталось', exp && d.active !== false ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—', 'saCountdown')
-      + cell('⚡ за период', p.period_credits ? Number(p.period_credits).toLocaleString('ru-RU') + ' ⚡' : '—')
-      + cell('Доступно ⚡', Number(u.balance || 0).toLocaleString('ru-RU') + ' ⚡', 'saBalance');
+      + cell('Кредиты за период', p.period_credits ? spendingCredits(p.period_credits) : '—', '', !!p.period_credits)
+      + cell('Купленные кредиты', spendingCredits(u.purchased_credits ?? u.balance ?? 0), '', true)
+      + cell('Подписочные кредиты', spendingCredits(u.subscription_credits || 0) + (u.subscription_credit_expires_at ? ' · до ' + S.escapeHtml(fmtDate(u.subscription_credit_expires_at)) : ''), '', true)
+      + cell('Доступно', spendingCredits(u.balance || 0), 'saBalance', true);
     const notes = [];
     if (state === 'active_recurring') notes.push(SUB_RENEWS_NOTE);
     if (r && r.plan_key !== plan && r.auto_renew) {
@@ -27889,7 +27901,22 @@ async function waitGenerationJob(jobId, options) {
   }
 
   function switchShopTab(tab){const selected=tab==='tokens'?'tokens':'subscriptions';document.querySelectorAll('[data-shop-tab]').forEach(button=>button.classList.toggle('active',button.dataset.shopTab===selected));document.querySelectorAll('[data-shop-panel]').forEach(panel=>panel.hidden=panel.dataset.shopPanel!==selected)}
-  function openSpendingStats(){let modal=document.getElementById('spendingStatsModal');if(!modal){modal=document.createElement('div');modal.id='spendingStatsModal';modal.className='community-modal spending-stats-modal';document.body.appendChild(modal)}const spent=Number((S.user&&S.user.tokens_spent)||0);modal.innerHTML='<section><header><div><small>Статистика расходов</small><h3>Токены SYLVEX</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><div class="spending-total"><small>Потрачено за всё время</small><b>'+spent.toLocaleString()+' ⚡️</b></div><div class="spending-chart-empty"><span style="height:22%"></span><span style="height:38%"></span><span style="height:31%"></span><span style="height:54%"></span><span style="height:44%"></span><span style="height:70%"></span><span style="height:62%"></span></div><p class="spending-note">Детализация по дням появится после подключения серверной истории списаний. Текущая сумма взята из реальных данных профиля.</p><button class="community-publish-submit" type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\');switchView(\'history\')">Открыть историю генераций</button></section>';modal.classList.add('show')}
+  function spendingDate(value){const date=new Date(value);return Number.isNaN(date.getTime())?'—':new Intl.DateTimeFormat(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(date)}
+  function spendingCredits(value){const shown=Math.max(0,Number(value)||0).toLocaleString();return window.SYLVEX_CREDIT?window.SYLVEX_CREDIT.amount(shown):shown+' ⚡'}
+  function spendingModal(){let modal=document.getElementById('spendingStatsModal');if(!modal){modal=document.createElement('div');modal.id='spendingStatsModal';modal.className='community-modal spending-stats-modal';document.body.appendChild(modal)}return modal}
+  function renderSpendingStats(modal,data,period){
+    const summary=data.summary||{},points=data.timeline||[],models=(data.models||[]).slice(0,8),payments=(data.payments||[]).slice(0,8),max=Math.max(1,...points.map(item=>Number(item.credits)||0));
+    const periods=[['1d','24H'],['7d','7D'],['30d','30D'],['365d','1Y']].map(item=>'<button type="button" class="'+(item[0]===period?'active':'')+'" onclick="SYLVEX.openSpendingStats(\''+item[0]+'\')">'+item[1]+'</button>').join('');
+    const bars=points.map(item=>'<i style="height:'+Math.max(3,(Number(item.credits)||0)/max*100).toFixed(1)+'%" title="'+S.escapeHtml(spendingDate(item.at)+' · '+Number(item.credits||0).toLocaleString()+' credits')+'"></i>').join('');
+    const modelRows=models.map(item=>'<div><span class="notranslate" translate="no">'+S.escapeHtml(item.model||'Model')+'</span><b>'+spendingCredits(item.credits)+'</b><small>'+Number(item.requests||0).toLocaleString()+' generations</small></div>').join('')||'<p class="spending-note">No model charges in this period.</p>';
+    const paymentRows=payments.map(item=>'<div><span>'+S.escapeHtml(item.kind==='subscription'?(item.plan||'Subscription'):'Balance top-up')+'</span><b>'+spendingCredits(item.credits)+'</b><small>'+S.escapeHtml(spendingDate(item.created_at))+'</small></div>').join('')||'<p class="spending-note">No confirmed payments in this period.</p>';
+    modal.innerHTML='<section><header><div><small>Usage &amp; Billing</small><h3>SYLVEX account statistics</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><nav class="spending-periods">'+periods+'</nav><div class="spending-summary"><article><span>Spent</span><b>'+spendingCredits(summary.spent_credits)+'</b><small>'+Number(summary.generation_requests||0).toLocaleString()+' generations</small></article><article><span>Purchased</span><b>'+spendingCredits(summary.purchased_credits)+'</b><small>Never expires</small></article><article><span>Subscription</span><b>'+spendingCredits(summary.subscription_credits)+'</b><small>'+(summary.subscription_expires_at?'Until '+S.escapeHtml(spendingDate(summary.subscription_expires_at)):'No expiring credits')+'</small></article><article><span>Total balance</span><b>'+spendingCredits(summary.balance)+'</b><small>Available now</small></article></div><article class="spending-panel"><h4>Generation spending</h4><div class="spending-chart-real">'+bars+'</div></article><div class="spending-columns"><article class="spending-panel"><h4>Models &amp; tools</h4><div class="spending-list">'+modelRows+'</div></article><article class="spending-panel"><h4>Payments &amp; subscriptions</h4><div class="spending-list">'+paymentRows+'</div></article></div><button class="community-publish-submit" type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\');switchView(\'history\')">Open generated files</button></section>';
+  }
+  async function openSpendingStats(period='30d'){
+    const modal=spendingModal();modal.innerHTML='<section><header><div><small>Usage &amp; Billing</small><h3>Loading statistics…</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><div class="spending-loading"><i></i><span>Reading confirmed charges and payments</span></div></section>';modal.classList.add('show');
+    if(!isBrowserApp()){const spent=Number((S.user&&S.user.tokens_spent)||0);renderSpendingStats(modal,{summary:{spent_credits:spent,balance:Number((S.user&&S.user.balance)||0),purchased_credits:Number((S.user&&S.user.purchased_credits)||0),subscription_credits:Number((S.user&&S.user.subscription_credits)||0),subscription_expires_at:(S.user&&S.user.subscription_credit_expires_at)||null},timeline:[],models:[],payments:[]},period);return}
+    try{const response=await fetch('/api/web/account/usage?period='+encodeURIComponent(period),{credentials:'include'});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'usage_unavailable');renderSpendingStats(modal,data,period)}catch(_){modal.querySelector('section').innerHTML='<header><div><small>Usage &amp; Billing</small><h3>Statistics unavailable</h3></div><button type="button" onclick="this.closest(\'.community-modal\').classList.remove(\'show\')">×</button></header><p class="spending-note">Your balance and history are safe. Check the connection and try again.</p><button class="community-publish-submit" type="button" onclick="SYLVEX.openSpendingStats(\''+period+'\')">Try again</button>'}
+  }
 
   /* ===== Hero carousel ===== */
   let slideIdx = 0;

@@ -92,7 +92,7 @@ from services.account_identity import AccountError
 from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
-from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, billing_scope, require_billing_scope, assert_reserved
+from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, billing_scope, require_billing_scope, assert_reserved, wallet_snapshot
 from services.generation_media_state import merge_generation_result_fields, history_generation_id, overlay_stored_history_media
 from services import generation_storage
 from services.storage import find_generated_object, put_generated_file_once
@@ -2223,11 +2223,24 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             prostudio_error("USER_STATE_SUBSCRIPTION_DETAILS_FAILED", exc, telegram_id=telegram_id)
     last_subscription_expires_at = _to_iso(latest_sub[1]) if latest_sub and latest_sub[1] else None
     subscription_expired = bool(latest_sub and latest_sub[1] and not active_sub and latest_sub[1].timestamp() <= time.time())
+    try:
+        wallet = wallet_snapshot(lambda: db_connect(DATABASE_URL), telegram_id)
+    except Exception as exc:
+        prostudio_error("USER_STATE_WALLET_FAILED", exc, telegram_id=telegram_id)
+        wallet = {
+            "balance": user_row[3] or 0,
+            "purchased_credits": user_row[3] or 0,
+            "subscription_credits": 0,
+            "subscription_expires_at": None,
+        }
     result = {
         "telegram_id": user_row[0],
         "username": user_row[1],
         "first_name": user_row[2],
-        "balance": user_row[3] or 0,
+        "balance": wallet.get("balance", user_row[3] or 0),
+        "purchased_credits": wallet.get("purchased_credits", 0),
+        "subscription_credits": wallet.get("subscription_credits", 0),
+        "subscription_credit_expires_at": _to_iso(wallet.get("subscription_expires_at")),
         "status": "active" if active_sub else (user_row[4] or "free"),
         "subscription_status": subscription_status,
         "subscription_plan": active_sub[0] if active_sub else None,
@@ -16155,9 +16168,18 @@ async def public_store_order_status(request: Request):
     if not order or int(order["telegram_id"]) != telegram_id:
         return JSONResponse({"ok": False, "error": "order_not_found"}, status_code=404)
     user = None
+    confirmation = None
     if order and order["status"] == shop_orders.STATUS_PAID:
         user = await asyncio.to_thread(get_user_state, telegram_id)
-    return {"ok": True, "order": store_order_public(order), "user": user}
+        confirmation = {
+            "user_id": telegram_id,
+            "order_id": order.get("order_id"),
+            "credits": int(order.get("credits") or 0),
+            "balance": int((user or {}).get("balance") or 0),
+            "confirmed_at": _to_iso(order.get("paid_at")),
+            "status": "paid",
+        }
+    return {"ok": True, "order": store_order_public(order), "user": user, "confirmation": confirmation}
 
 
 # ---------------------------------------------------------------------------
@@ -17050,6 +17072,9 @@ def _web_session_payload(account_id: int) -> dict:
         "username": state.get("username"),
         "avatar_url": state.get("custom_avatar_url"),
         "balance": state.get("balance", 0),
+        "purchased_credits": state.get("purchased_credits", 0),
+        "subscription_credits": state.get("subscription_credits", 0),
+        "subscription_credit_expires_at": state.get("subscription_credit_expires_at"),
         "subscription_plan": state.get("subscription_plan"),
         "subscription_expires_at": state.get("subscription_expires_at"),
         "generations_count": state.get("generations_count", 0),
@@ -17172,6 +17197,14 @@ async def web_account_usage(request: Request, period: str = "30d"):
             account_usage_service.load_usage_snapshot,
             lambda: db_connect(DATABASE_URL), telegram_id, period,
         )
+        wallet = await asyncio.to_thread(wallet_snapshot, lambda: db_connect(DATABASE_URL), telegram_id)
+        payload["wallet"] = {
+            "balance": int(wallet.get("balance") or 0),
+            "purchased_credits": int(wallet.get("purchased_credits") or 0),
+            "subscription_credits": int(wallet.get("subscription_credits") or 0),
+            "subscription_expires_at": _to_iso(wallet.get("subscription_expires_at")),
+        }
+        payload.setdefault("summary", {}).update(payload["wallet"])
         return JSONResponse({"ok": True, **payload}, headers={"Cache-Control": "private, no-store"})
     except Exception as exc:
         prostudio_error("ACCOUNT_USAGE_FAILED", exc, account_id=account_id, period=period)

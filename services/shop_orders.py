@@ -569,8 +569,45 @@ def _record_purchase(cur, uid, order, provider, currency, charge_id):
     return cur.fetchone() is not None
 
 
-def _add_credits(cur, uid, credits):
-    cur.execute("UPDATE users SET balance = COALESCE(balance, 0) + %s WHERE telegram_id = %s", (int(credits), uid))
+def _add_credits(cur, uid, credits, source="purchased", expires_at=None):
+    """Add confirmed credits to the correct wallet bucket."""
+    credits = max(0, int(credits or 0))
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS user_credit_wallets (
+             telegram_id BIGINT PRIMARY KEY REFERENCES users(telegram_id) ON DELETE CASCADE,
+             purchased_credits INTEGER NOT NULL DEFAULT 0 CHECK (purchased_credits >= 0),
+             subscription_credits INTEGER NOT NULL DEFAULT 0 CHECK (subscription_credits >= 0),
+             subscription_expires_at TIMESTAMPTZ,
+             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"""
+    )
+    cur.execute("SELECT COALESCE(balance, 0) FROM users WHERE telegram_id = %s FOR UPDATE", (uid,))
+    balance = int((cur.fetchone() or (0,))[0] or 0)
+    cur.execute(
+        "INSERT INTO user_credit_wallets(telegram_id, purchased_credits) VALUES(%s,%s) "
+        "ON CONFLICT(telegram_id) DO NOTHING", (uid, max(0, balance)),
+    )
+    if source == "subscription":
+        cur.execute(
+            """UPDATE user_credit_wallets
+                  SET subscription_credits = subscription_credits + %s,
+                      subscription_expires_at = CASE
+                        WHEN %s::timestamptz IS NULL THEN subscription_expires_at
+                        WHEN subscription_expires_at IS NULL THEN %s::timestamptz
+                        ELSE GREATEST(subscription_expires_at, %s::timestamptz) END,
+                      updated_at = NOW()
+                WHERE telegram_id = %s
+            RETURNING purchased_credits + subscription_credits""",
+            (credits, expires_at, expires_at, expires_at, uid),
+        )
+    else:
+        cur.execute(
+            """UPDATE user_credit_wallets
+                  SET purchased_credits = purchased_credits + %s, updated_at = NOW()
+                WHERE telegram_id = %s
+            RETURNING purchased_credits + subscription_credits""", (credits, uid),
+        )
+    total = int(cur.fetchone()[0] or 0)
+    cur.execute("UPDATE users SET balance = %s WHERE telegram_id = %s", (total, uid))
 
 
 def _mark_order_paid(cur, order, charge_id, amount, currency):
@@ -616,7 +653,7 @@ def _grant_one_time(cur, order, provider, currency, amount, charge_id):
         )
         subscription_id, period_end = cur.fetchone()
         result["cancel_renewals"] = _stop_other_agreements(cur, uid, None)
-        _add_credits(cur, uid, order["credits"])
+        _add_credits(cur, uid, order["credits"], "subscription", period_end)
         result.update(subscription_id=subscription_id, period_end=period_end,
                       effective_plan=_sync_effective_plan(cur, uid, before, f"primary:{charge_id}", charge_id))
         record_event(cur, f"purchase:{charge_id}", "subscription_purchased", uid, plan_key=order["plan_key"],
@@ -636,18 +673,18 @@ def _grant_one_time(cur, order, provider, currency, amount, charge_id):
                        FROM subscriptions
                       WHERE telegram_id = %s AND status = 'active' AND expires_at::timestamp > CURRENT_TIMESTAMP),
                     'active', %s)
-            RETURNING id
+            RETURNING id, expires_at::timestamp
             """,
             (uid, order["plan_key"], provider, payment_amount, currency, int(order["days"]), uid, str(charge_id)),
         )
-        subscription_id = cur.fetchone()[0]
+        subscription_id, period_end = cur.fetchone()
         cur.execute("UPDATE subscriptions SET status = 'cancelled' WHERE telegram_id = %s AND status = 'active' AND id <> %s",
                     (uid, subscription_id))
         cur.execute("UPDATE users SET subscription = %s WHERE telegram_id = %s", (order["plan_key"], uid))
         result["cancel_renewals"] = _stop_other_agreements(cur, uid, None)
-        _add_credits(cur, uid, order["credits"])
+        _add_credits(cur, uid, order["credits"], "subscription", period_end)
     else:
-        _add_credits(cur, uid, order["credits"])
+        _add_credits(cur, uid, order["credits"], "purchased")
     _mark_order_paid(cur, order, charge_id, amount, currency)
     return result
 
@@ -698,7 +735,7 @@ def _grant_initial_recurring(cur, order, provider, currency, amount, charge_id, 
          int(order["credits"]), period_end),
     )
     cancel = _stop_other_agreements(cur, uid, agreement_id)
-    _add_credits(cur, uid, order["credits"])
+    _add_credits(cur, uid, order["credits"], "subscription", period_end)
     _mark_order_paid(cur, order, charge_id, amount, currency)
     effective = _sync_effective_plan(cur, uid, before, f"primary:{charge_id}", charge_id)
     record_event(cur, f"purchase:{charge_id}", "subscription_purchased", uid, plan_key=order["plan_key"],
@@ -785,7 +822,7 @@ def _grant_renewal(cur, order, provider, currency, charge_id, expiration, first_
         (agreement["id"], subscription_id, uid, order["order_id"], str(charge_id), int(order["stars"]), currency,
          int(order["credits"]), period_end),
     )
-    _add_credits(cur, uid, order["credits"])
+    _add_credits(cur, uid, order["credits"], "subscription", period_end)
     effective = _sync_effective_plan(cur, uid, before, f"primary:{charge_id}", charge_id)
     record_event(cur, f"renewal:{charge_id}", "subscription_renewed", uid, plan_key=order["plan_key"],
                  amount=order["stars"], currency=currency, status=new_status, reference=charge_id,
