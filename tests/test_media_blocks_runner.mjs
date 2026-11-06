@@ -31,9 +31,8 @@ test('catalog items with a block open the block window', () => {
   assert.match(cabinet, /mediaBlock:item\.media_block \|\| null/);
   // Admin-built tools follow the built-in photo tools.
   assert.match(cabinet, /window\.SylvexMediaBlocks\.list\('ai_tools'\)/);
-  // The home composer panel keeps to the plain catalog items.
-  assert.match(cabinet, /!template\.is_kling_effect && !template\.media_block/);
-  assert.match(cabinet, /item\.source === 'prostudio_style' \|\| item\.mediaBlock/);
+  // The home composer panel lists them too, and a pick opens the block window.
+  assert.match(cabinet, /if \(item && item\.block\) \{ window\.SylvexRefPanel\?\.close\(\); openMediaBlock\(item\.block\); return; \}/);
 });
 
 test('a block runs through its own endpoint and the ordinary job polling', () => {

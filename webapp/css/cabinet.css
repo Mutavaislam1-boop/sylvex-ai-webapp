@@ -9674,6 +9674,14 @@ fields and Generate (no aspect ratio for a picture).
   .quick-image-detail-modal textarea{height:auto;min-height:60px}
   .quick-image-extra-upload{min-height:54px;border-radius:12px;font-size:12px}
 }
+/* Phones: the reference viewer is one column - the picture on top, small,
+   and its description, fields and buttons under it. */
+@media(max-width:560px){
+  .video-template-modal{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);width:calc(100% - 16px);max-width:420px;max-height:calc(100vh - 24px)}
+  .video-template-preview{min-height:0;height:min(30vh,220px)}
+  .video-template-details,.quick-image-detail-modal .video-template-details{min-height:0;max-height:none;overflow-y:auto}
+  .sxmb-sheet .sxmb-media{aspect-ratio:auto;height:min(30vh,220px);max-height:none}
+}
 
 /* =====================================================
 CSS-БЛОК: photo tool windows
@@ -9715,10 +9723,6 @@ the right. Everything fits on one screen, no scrolling.
 .ptool-ref img{display:block;width:100%;height:100%;object-fit:cover}
 .ptool-ref.is-openable{cursor:zoom-in}
 .ptool-ref-x{position:absolute;top:6px;right:6px;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:14px;line-height:22px;text-align:center;cursor:pointer}
-.ptool-chooser{display:none;position:absolute;inset:0;z-index:2;align-items:center;justify-content:center;gap:8px;background:var(--st-bg, var(--surface))}
-.ptool-zone.is-choosing .ptool-chooser{display:flex}
-.ptool-chooser button{padding:11px 18px;border:0;border-radius:999px;background:var(--st-bg-2, var(--surface-2));color:var(--st-text, var(--text));font:inherit;font-size:13px;font-weight:600;cursor:pointer}
-.ptool-chooser button:hover{background:var(--st-bg-3, var(--surface-2))}
 .ptool-zone-hint{flex:0 0 auto;font-size:11px;text-align:center;color:var(--st-dim, var(--text-mute))}
 .ptool-zone-tag{position:absolute;left:6px;bottom:6px;padding:3px 9px;border-radius:999px;background:#0e8a60;color:#fff;font-size:10px;font-weight:700;pointer-events:none}
 .ptool-zone-badge{position:absolute;left:6px;bottom:6px;z-index:1;width:42px;height:42px;border-radius:11px;overflow:hidden;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.28)}
@@ -9736,7 +9740,8 @@ the right. Everything fits on one screen, no scrolling.
 .ptool-work .photo-tool-generate{flex:0 0 auto;align-self:flex-end;width:auto;min-width:190px;height:50px;margin:0;padding:0 34px;border:0;border-radius:999px;background:var(--ptool-grad);color:#fff;font-size:17px;font-weight:600;letter-spacing:.01em}
 .ptool-work .photo-tool-generate:disabled{opacity:1;background:var(--st-bg-3, var(--surface-2));color:var(--st-dim, var(--text-mute))}
 #uploadPanel.for-photo-tool{z-index:1000006 !important}
-body.photo-tool-picking #imageStylePanel{z-index:1000006 !important}
+#studioGridReferencePanel.for-photo-tool{z-index:1000006 !important}
+body:has(#photoToolModal.show) #visualCreateModal{z-index:1000007 !important}
 
 /* Built-in references: a row of portrait cards with page dots. */
 .ptool-work :is(.tattoo-catalog,.logo-reference-catalog,.hair-beard-catalog,.replace-object-objects-row){flex:0 0 auto;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
