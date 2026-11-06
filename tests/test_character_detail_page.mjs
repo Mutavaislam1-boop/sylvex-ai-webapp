@@ -80,7 +80,6 @@ function makeContext(imageState, opts) {
     // null means this picker session is a normal (non-redirected) pick -
     // see confirmCharacterDetailSelection's Replace Character redirect
     // branch, which these tests never exercise.
-    visualPickerRedirectTarget: null,
     photoToolState: {},
     getModelCapabilities: options.getModelCapabilities || (() => ({ maxReferences: null })),
     isVideoMode: options.isVideoMode || (() => false),

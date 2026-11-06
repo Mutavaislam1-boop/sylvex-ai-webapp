@@ -377,14 +377,6 @@ photoToolState.replace_character = {
   characterId: null,
   characterReferenceUrls: [],
 };
-// Set only while Replace Character's "choose a Character" action has the
-// normal Pro Studio Character picker/detail page open on its behalf -
-// confirmCharacterDetailSelection then commits the pick into
-// photoToolState.replace_character above instead of imageState (see
-// choosePhotoToolZoneSource). null everywhere else, so
-// every other caller of that picker keeps writing to imageState exactly
-// as before.
-let visualPickerRedirectTarget = null;
 
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
 const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, colorPart: 'hair', colorHue: 24, customPresets: [], referencePrompt: '', generatingReference: false };
@@ -9918,7 +9910,7 @@ function photoToolBannerHtml(tool, config) {
 }
 
 // The upload areas of a tool, read from its own state. Each area:
-// { key, label, max, items: [{ url }], chooser, openable, hint, extra }.
+// { key, label, max, items: [{ url }], openable, hint, extra }.
 function photoToolZones(tool) {
   const config = PHOTO_TOOL_CONFIG[tool];
   const state = photoToolStateFor(tool);
@@ -9926,12 +9918,12 @@ function photoToolZones(tool) {
   const one = (url) => (url ? [{ url }] : []);
   const file = (index) => one(state.files[index] && state.files[index].url);
   if (tool === 'try_on') return [
-    { key:'person', label:'Человек', max:1, chooser:true, items:one(state.personImage) },
+    { key:'person', label:'Человек', max:1, items:one(state.personImage) },
     { key:'garments', label:'Одежда', max:3, items:state.garments.filter(Boolean).map((item) => ({ url:item.url })) },
   ];
   if (tool === 'replace_character') return [
     { key:'source', label:'Основное фото', max:1, items:one(state.sourceImage) },
-    { key:'identity', label:'Новый персонаж', max:1, chooser:true, items:one(state.identityImage) },
+    { key:'identity', label:'Новый персонаж', max:1, items:one(state.identityImage) },
   ];
   if (tool === 'tattoo') {
     const selected = tattooState.selectedReferenceId ? tattooReferenceById(tattooState.selectedReferenceId) : null;
@@ -9966,14 +9958,10 @@ function photoToolZoneHtml(zone) {
       + '<button type="button" class="ptool-ref-x" aria-label="Убрать" onclick="SYLVEX.removePhotoToolZoneItem(event,\'' + zone.key + '\',' + index + ')">×</button>'
       + '</figure>').join('');
   const add = full ? '' : '<button type="button" class="ptool-add" aria-label="Добавить: ' + S.escapeHtml(zone.label) + '" onclick="SYLVEX.addPhotoToolZoneItem(event,\'' + zone.key + '\')"><span aria-hidden="true">＋</span></button>';
-  const chooser = zone.chooser && !full
-    ? '<div class="ptool-chooser" onclick="this.closest(\'.ptool-zone\').classList.remove(\'is-choosing\')"><button type="button" onclick="SYLVEX.choosePhotoToolZoneSource(event,\'' + zone.key + '\',\'character\')">Персонаж</button>'
-      + '<button type="button" onclick="SYLVEX.choosePhotoToolZoneSource(event,\'' + zone.key + '\',\'upload\')">Загрузить</button></div>'
-    : '';
   const hint = zone.hint && (zone.openable ? items.length : !items.length) ? '<small class="ptool-zone-hint">' + S.escapeHtml(zone.hint) + '</small>' : '';
   return '<section class="ptool-zone' + (items.length ? ' has-items' : '') + '" data-zone="' + zone.key + '" data-max="' + zone.max + '">'
     + '<header class="ptool-zone-head"><b>' + S.escapeHtml(zone.label) + '</b>' + (zone.max > 1 ? '<small>' + items.length + ' / ' + zone.max + '</small>' : '') + '</header>'
-    + '<div class="ptool-zone-body">' + refs + add + chooser + (zone.extra || '') + '</div>'
+    + '<div class="ptool-zone-body">' + refs + add + (zone.extra || '') + '</div>'
     + hint
     + '</section>';
 }
@@ -9993,33 +9981,54 @@ function photoToolZoneByKey(key) {
   return photoToolZones(activePhotoTool).find((zone) => zone.key === key) || null;
 }
 
-// ＋: an area that takes a person first asks where it comes from.
+// The tabs of the unified reference window (Grid Mode's "+ Референс":
+// История / Персонажи / Объекты, the upload of a file under them) that an
+// upload area of a tool shows. Areas not listed keep the standard upload
+// panel.
+const PHOTO_TOOL_REFERENCE_TABS = {
+  try_on: { person:['history', 'character'], garments:['history'] },
+  replace_character: { identity:['history', 'character'] },
+  animate_photo: { photo:['history', 'character', 'object'] },
+  tattoo: { photo:['history', 'character'], tattoo:['history'] },
+  replace_object: { object:['history', 'object'] },
+  hair_beard: { photo:['history', 'character'] },
+};
+
+// ＋ of an upload area.
 function addPhotoToolZoneItem(e, key) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const zone = photoToolZoneByKey(key);
   const state = photoToolStateFor(activePhotoTool);
   if (!zone || !state || state.generating) return;
-  if (zone.chooser) {
-    const host = e && e.currentTarget && e.currentTarget.closest('.ptool-zone');
-    if (host) host.classList.toggle('is-choosing');
-    return;
-  }
+  const tabs = (PHOTO_TOOL_REFERENCE_TABS[activePhotoTool] || {})[key];
+  if (tabs) { pickPhotoToolZoneReference(activePhotoTool, key, tabs); return; }
   openPhotoToolUploadPanel(key);
 }
 
-function choosePhotoToolZoneSource(e, key, source) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const host = e && e.currentTarget && e.currentTarget.closest('.ptool-zone');
-  if (host) host.classList.remove('is-choosing');
-  if (source === 'upload') { openPhotoToolUploadPanel(key); return; }
-  // Character: the same Pro Studio Character picker Image mode uses; its
-  // "Use Character" lands back in this tool (confirmCharacterDetailSelection).
-  if (activePhotoTool === 'try_on' && key === 'person') visualPickerRedirectTarget = 'try_on';
-  else if (activePhotoTool === 'replace_character' && key === 'identity') visualPickerRedirectTarget = 'replace_character';
-  else return;
-  // Above the tool window while it picks for it (closeImageStylePanel ends it).
-  document.body.classList.add('photo-tool-picking');
-  openVisualPicker(null, 'character');
+async function pickPhotoToolZoneReference(tool, key, tabs) {
+  const item = await S.openCatalogReferencePicker(tabs[0], tabs);
+  if (!item || !item.url || activePhotoTool !== tool) return;
+  // A Character for the person of Try-On / the new face of Replace
+  // Character goes in with its own references, into the tool's own state.
+  if (item.character_id && ((tool === 'try_on' && key === 'person') || (tool === 'replace_character' && key === 'identity'))) {
+    setPhotoToolZoneCharacter(tool, item.character_id);
+    return;
+  }
+  setPhotoToolZoneItems(tool, key, [item.url]);
+  if (tool === 'replace_object' && key === 'object' && item.object_id) {
+    replaceObjectState.selectedObjectId = item.object_id;
+    updatePresetCardSelection('.replace-object-object-card', 'data-object-id', item.object_id);
+  }
+}
+
+function setPhotoToolZoneCharacter(tool, id) {
+  const state = photoToolStateFor(tool);
+  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === id);
+  if (!state || !item) return;
+  const picked = { characterId:item.id, characterReferenceUrls:visualGenerationReferences(item, 'character').slice(0, 3) };
+  if (tool === 'try_on') Object.assign(state, picked, { personSource:'character', personImage:visualPreviewUrl(item), personLabel:item.name || '' });
+  else Object.assign(state, picked, { identitySource:'character', identityImage:visualPreviewUrl(item), identityLabel:item.name || '' });
+  renderPhotoToolModal();
 }
 
 function removePhotoToolZoneItem(e, key, index) {
@@ -11982,55 +11991,6 @@ function cancelCharacterDetail(e) {
 function confirmCharacterDetailSelection(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
-  // Replace Character borrowed this exact picker/detail page - commit into
-  // its own isolated state instead of the normal imageState path below,
-  // same shape pickCharacterReplaceIdentityCharacter() used to write by
-  // hand, capped at 3 reference URLs like that one always was.
-  if (visualPickerRedirectTarget === 'replace_character') {
-    const target = photoToolState.replace_character;
-    if (item && target) {
-      const library = characterReferenceLibraryFor(item);
-      const urls = characterDetailPendingIds
-        .map((id) => { const entry = library.find((ref) => ref.id === id); return entry ? entry.url : ''; })
-        .filter(Boolean);
-      target.identitySource = 'character';
-      target.characterId = item.id;
-      target.identityImage = visualPreviewUrl(item);
-      target.identityLabel = item.name || '';
-      target.characterReferenceUrls = urls.slice(0, 3);
-    }
-    visualPickerRedirectTarget = null;
-    closeCharacterDetail(e);
-    closeImageStylePanel(e);
-    renderPhotoToolModal();
-    return;
-  }
-  // Try-On borrowed this exact picker/detail page too (DUP-1) - same shape
-  // pickTryOnCharacter() used to write by hand, into its own isolated
-  // photoToolState.try_on instead of photoToolState.replace_character or
-  // imageState. Try-On's FASHN request still only ever sends personImage
-  // (the primary preview), but the full reference set is captured here too
-  // (capped at 3, same as Replace Character) so it is never lost by the
-  // migration even though the current generation request doesn't consume it.
-  if (visualPickerRedirectTarget === 'try_on') {
-    const target = photoToolState.try_on;
-    if (item && target) {
-      const library = characterReferenceLibraryFor(item);
-      const urls = characterDetailPendingIds
-        .map((id) => { const entry = library.find((ref) => ref.id === id); return entry ? entry.url : ''; })
-        .filter(Boolean);
-      target.personSource = 'character';
-      target.characterId = item.id;
-      target.personImage = visualPreviewUrl(item);
-      target.personLabel = item.name || '';
-      target.characterReferenceUrls = urls.slice(0, 3);
-    }
-    visualPickerRedirectTarget = null;
-    closeCharacterDetail(e);
-    closeImageStylePanel(e);
-    renderPhotoToolModal();
-    return;
-  }
   if (item && isVideoMode()) {
     const library = characterReferenceLibraryFor(item);
     const urls = characterDetailPendingIds
@@ -14840,13 +14800,8 @@ function closeImageStylePanel(e) {
     e.preventDefault();
     e.stopPropagation();
   }
-  document.body.classList.remove('photo-tool-picking');
-
   hideImageStyleInfo();
   closeCharacterDetail();
-  // Closing without confirming (Cancel/×/backdrop) must not leave a stray
-  // redirect armed for the next, unrelated time this picker opens.
-  visualPickerRedirectTarget = null;
 
   const panel = document.getElementById('imageStylePanel');
   if (panel) panel.classList.remove('show');
@@ -26833,17 +26788,18 @@ async function waitGenerationJob(jobId, options) {
     if (homeIdeaRefItems[mode]) return homeIdeaRefItems[mode];
     const items = [];
     if (mode === 'video') {
+      // The one catalog of the video templates, the blocks made in the
+      // admin Media constructor among them (their cards look the same).
       (await loadVideoTemplates()).forEach((template) => {
-        // Media blocks have their own fields and window, not this panel.
-        if (!template.is_kling_effect && !template.media_block) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || ''), video:videoTemplateReferenceVideo(template) });
+        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || ''), video:videoTemplateReferenceVideo(template), block:template.media_block || null });
       });
     } else {
       // The same sections, in the same order, that mediaImageItem() looks in.
       const catalog = await loadPhotoCatalog(false), seen = new Set();
       ['styles', 'references', 'popular_references'].forEach((section) => (catalog[section] || []).forEach((item) => {
-        if (item.source === 'prostudio_style' || item.mediaBlock || seen.has(item.id)) return;
+        if (item.source === 'prostudio_style' || seen.has(item.id)) return;
         seen.add(item.id);
-        items.push({ id: item.id, image: item.url, title: item.title });
+        items.push({ id: item.id, image: item.url, title: item.title, block: item.mediaBlock || null });
       }));
     }
     homeIdeaRefItems[mode] = items.filter((item) => item.id && item.image);
@@ -26877,6 +26833,9 @@ async function waitGenerationJob(jobId, options) {
 
   function pickHomeIdeaRef(item) {
     if(activeGenerationLocked()||document.getElementById('homeIdeaForm')?.classList.contains('loading'))return;
+    // A Media constructor block runs in its own window, with the fields,
+    // model and prompt its admin gave it.
+    if (item && item.block) { window.SylvexRefPanel?.close(); openMediaBlock(item.block); return; }
     homeIdeaRef = Object.assign({ kind: homeIdeaMode }, item);
     // A reference takes the place of a plain attached photo.
     homeIdeaAttachment = null;
@@ -30770,12 +30729,20 @@ async function waitGenerationJob(jobId, options) {
   // one: History (the user's generations), Characters and Objects as tabs in
   // the same area, and the upload of a new file under them.
   let studioGridReferenceTab='history';
+  // The tabs shown (null: all three) - a photo tool asks only for those its
+  // upload area takes (PHOTO_TOOL_REFERENCE_TABS).
+  let studioGridReferenceTabs=null;
   let catalogReferenceResolve = null;
-  function openCatalogReferencePicker(kind) {
+  function openCatalogReferencePicker(kind, tabs) {
     if (guestNeedsAccount('create')) return Promise.resolve(null);
     if (catalogReferenceResolve) return Promise.resolve(null);
+    studioGridReferenceTabs = Array.isArray(tabs) && tabs.length ? tabs.filter(tab => ['history','character','object'].includes(tab)) : null;
     studioGridReferenceTab = ['character','object'].includes(kind) ? kind : 'history';
+    if (studioGridReferenceTabs && !studioGridReferenceTabs.includes(studioGridReferenceTab)) studioGridReferenceTab = studioGridReferenceTabs[0];
+    studioGridMediaNodeId = ''; studioGridMediaReferenceId = '';
     const panel = ensureStudioGridReferencePanel();
+    // Above a tool window it picks for.
+    panel.classList.toggle('for-photo-tool', !!document.getElementById('photoToolModal')?.classList.contains('show'));
     renderStudioGridReferencePanel(); panel.classList.add('show');
     return new Promise(resolve => { catalogReferenceResolve = resolve; });
   }
@@ -30783,6 +30750,8 @@ async function waitGenerationJob(jobId, options) {
     const resolve = catalogReferenceResolve;
     catalogReferenceResolve = null;
     closeStudioGridReferencePanel();
+    studioGridReferenceTabs = null;
+    document.getElementById('studioGridReferencePanel')?.classList.remove('for-photo-tool');
     if (resolve) resolve(item || null);
   }
 
@@ -30809,9 +30778,9 @@ async function waitGenerationJob(jobId, options) {
   }
   function renderStudioGridReferencePanel(){
     const panel=document.getElementById('studioGridReferencePanel');if(!panel)return;
-    const tabs=[['history','История'],['character','Персонажи'],['object','Объекты']];
+    const tabs=[['history','История'],['character','Персонажи'],['object','Объекты']].filter(([key])=>!studioGridReferenceTabs||studioGridReferenceTabs.includes(key));
     panel.querySelector('.grid-ref-tabs').innerHTML=tabs.map(([key,label])=>`<button type="button" role="tab" aria-selected="${studioGridReferenceTab===key}" class="${studioGridReferenceTab===key?'active':''}" onclick="SYLVEX.setStudioGridReferenceTab(event,'${key}')">${label}</button>`).join('');
-    const hint=document.getElementById('studioGridReferenceUploadHint');if(hint)hint.textContent=studioGridMediaReferenceId?'Фото с устройства':'Фото, видео, аудио или документ';
+    const hint=document.getElementById('studioGridReferenceUploadHint');if(hint)hint.textContent=studioGridMediaReferenceId||!studioGridMediaNodeId?'Фото с устройства':'Фото, видео, аудио или документ';
     const grid=document.getElementById('studioGridReferenceGrid');if(!grid)return;
     if(studioGridReferenceTab==='history'){
       const items=getGeneratedPhotoHistoryItems().map(entry=>normalizeGeneratedImageItem(entry)).filter(item=>item&&item.url);
@@ -30823,7 +30792,7 @@ async function waitGenerationJob(jobId, options) {
     const create=`<button class="upload-generated-thumb grid-ref-create" type="button" onclick="SYLVEX.openVisualCreateModal(event,'${isCharacter?'character':'object'}')"><span aria-hidden="true">+</span><b>${isCharacter?'Новый персонаж':'Новый объект'}</b></button>`;
     grid.innerHTML=create+items.map(item=>{const preview=visualPreviewUrl(item);const pending=isCharacter?characterCardPendingStatus(item):objectCardPendingStatus(item);return `<button class="upload-generated-thumb grid-ref-visual" type="button" ${pending||!preview?'disabled':''} onclick="SYLVEX.pickStudioGridReference(event,'${isCharacter?'character':'object'}','${S.escapeHtml(item.id)}')">${preview?`<img src="${S.escapeHtml(preview)}" alt="" loading="lazy" decoding="async">`:''}<b>${S.escapeHtml(item.name||item.label||'')}</b></button>`}).join('');
   }
-  function setStudioGridReferenceTab(e,tab){if(e){e.preventDefault();e.stopPropagation()}studioGridReferenceTab=['history','character','object'].includes(tab)?tab:'history';renderStudioGridReferencePanel()}
+  function setStudioGridReferenceTab(e,tab){if(e){e.preventDefault();e.stopPropagation()}studioGridReferenceTab=(studioGridReferenceTabs||['history','character','object']).includes(tab)?tab:'history';renderStudioGridReferencePanel()}
   function closeStudioGridReferencePanel(e){if(e){e.preventDefault();e.stopPropagation()}if(catalogReferenceResolve){finishCatalogReferencePicker(null);return;}const panel=document.getElementById('studioGridReferencePanel');if(panel)panel.classList.remove('show')}
   function pickStudioGridReference(e,kind,value){
     if(e){e.preventDefault();e.stopPropagation()}
@@ -31859,7 +31828,6 @@ async function waitGenerationJob(jobId, options) {
   S.clearTryOnPerson = clearTryOnPerson;
   S.generateTryOnTool = generateTryOnTool;
   S.addPhotoToolZoneItem = addPhotoToolZoneItem;
-  S.choosePhotoToolZoneSource = choosePhotoToolZoneSource;
   S.removePhotoToolZoneItem = removePhotoToolZoneItem;
   S.openPhotoToolReference = openPhotoToolReference;
   S.clearHairBeardPreset = clearHairBeardPreset;
