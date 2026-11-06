@@ -21,8 +21,8 @@ function load() {
 }
 
 test('the module and its stylesheet are loaded before the Mini App code', () => {
-  assert.match(index, /<link rel="stylesheet" href="css\/media-blocks\.css\?v=media-c-20261029" \/>/);
-  assert.match(index, /<script src="js\/media-blocks\.js\?v=media-fix-20261030"><\/script>\n<script src="js\/cabinet\.js/);
+  assert.match(index, /<link rel="stylesheet" href="css\/media-blocks\.css\?v=one-viewer-20261106" \/>/);
+  assert.match(index, /<script src="js\/media-blocks\.js\?v=one-viewer-20261106"><\/script>\n(?:<script src="js\/credit-icon\.js[^"]*"><\/script>\n)?<script src="js\/cabinet\.js/);
 });
 
 test('catalog items with a block open the block window', () => {
@@ -31,17 +31,17 @@ test('catalog items with a block open the block window', () => {
   assert.match(cabinet, /mediaBlock:item\.media_block \|\| null/);
   // Admin-built tools follow the built-in photo tools.
   assert.match(cabinet, /window\.SylvexMediaBlocks\.list\('ai_tools'\)/);
-  // The home composer panel lists them too, and a pick opens the block window.
-  assert.match(cabinet, /if \(item && item\.block\) \{ window\.SylvexRefPanel\?\.close\(\); openMediaBlock\(item\.block\); return; \}/);
+  // On Home a block is picked into the composer as every reference and runs its own generation.
+  assert.match(cabinet, /if \(ref\.block\) return generateHomeIdeaBlock\(ref, photo, form\);/);
 });
 
 test('a block runs through its own endpoint and the ordinary job polling', () => {
-  assert.match(runner, /'\/api\/public\/media-blocks\/' \+ encodeURIComponent\(current\.block\.id\) \+ '\/generate'/);
-  assert.match(runner, /JSON\.stringify\(\{ uploads: uploads \}\)/);
+  assert.match(runner, /'\/api\/public\/media-blocks\/' \+ encodeURIComponent\(block\.id\) \+ '\/generate'/);
+  assert.match(runner, /JSON\.stringify\(\{ uploads: uploads \|\| \{\} \}\)/);
   assert.match(runner, /'\/api\/public\/prostudio\/job\/' \+ encodeURIComponent\(jobId\)/);
   assert.match(runner, /'\/api\/public\/prostudio\/upload-media\?kind=' \+ kind/);
   // The client never sends a prompt or a model: the server builds them.
-  assert.doesNotMatch(runner.slice(runner.indexOf('function generate()')), /prompt:|model:/);
+  assert.doesNotMatch(runner.slice(runner.indexOf('function run('), runner.indexOf('function waitJob(')), /prompt:|model:/);
 });
 
 test('helpers: the block of an item and the result of a job', () => {

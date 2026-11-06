@@ -9683,7 +9683,6 @@ fields and Generate (no aspect ratio for a picture).
   .video-template-modal{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);width:calc(100% - 16px);max-width:420px;max-height:calc(100vh - 24px)}
   .video-template-preview{min-height:0;height:min(30vh,220px)}
   .video-template-details,.quick-image-detail-modal .video-template-details{min-height:0;max-height:none;overflow-y:auto}
-  .sxmb-sheet .sxmb-media{aspect-ratio:auto;height:min(30vh,220px);max-height:none}
 }
 
 /* =====================================================

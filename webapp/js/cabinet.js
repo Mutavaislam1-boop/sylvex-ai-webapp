@@ -9508,14 +9508,14 @@ function openMediaToolBlock(e, id) {
 
 // A Media block (js/media-blocks.js): its own window over the current
 // screen; the result also lands in the Pro Studio history.
-function openMediaBlock(block) {
+function openMediaBlock(block, extra) {
   globalThis.SylvexAnalytics?.track('item_select', { item: 'block:' + block.id, kind: block.block_type === 'tool' ? 'tool' : block.block_type === 'style' ? 'style' : block.block_type === 'video' ? 'template' : 'reference' });
   if (!window.SylvexMediaBlocks) { toast('Обновите приложение, чтобы открыть этот блок', 'error'); return; }
-  window.SylvexMediaBlocks.open(block, {
+  window.SylvexMediaBlocks.open(block, Object.assign({}, extra || {}, {
     lang: uiLang(),
     onShop: () => switchView('shop'),
     onLogin: () => { if (typeof guestNeedsAccount === 'function') guestNeedsAccount('create'); },
-  });
+  }));
 }
 
 function photoToolStateFor(kind) {
@@ -26845,9 +26845,6 @@ async function waitGenerationJob(jobId, options) {
 
   function pickHomeIdeaRef(item) {
     if(activeGenerationLocked()||document.getElementById('homeIdeaForm')?.classList.contains('loading'))return;
-    // A Media constructor block runs in its own window, with the fields,
-    // model and prompt its admin gave it.
-    if (item && item.block) { window.SylvexRefPanel?.close(); openMediaBlock(item.block); return; }
     homeIdeaRef = Object.assign({ kind: homeIdeaMode }, item);
     // A reference takes the place of a plain attached photo.
     homeIdeaAttachment = null;
@@ -26935,6 +26932,7 @@ async function waitGenerationJob(jobId, options) {
     if (homeIdeaRefPhoto.uploading) { toast('Фото ещё загружается'); return; }
     if (form?.classList.contains('loading') || activeGenerationLocked()) return;
     const ref = homeIdeaRef, photo = homeIdeaRefPhoto;
+    if (ref.block) return generateHomeIdeaBlock(ref, photo, form);
     const kind = ref.kind === 'video' ? 'video' : 'image';
     const request = kind === 'video'
       ? { kind: 'video_template', itemId: ref.id, upload: photo.url, aspect: ref.aspect }
@@ -26952,6 +26950,37 @@ async function waitGenerationJob(jobId, options) {
       resetHomeIdea();
       switchView('tools');
       updateComposerMode(kind);
+    } finally {
+      form?.classList.remove('loading');
+    }
+  }
+
+  // A reference made in the admin Media constructor is picked and used as
+  // every other one; it runs its own generation (its model, prompt and
+  // fields) with the user's photo, and the accepted job moves into Pro
+  // Studio the same way. A block that needs more than that one photo opens
+  // its window with the photo already in.
+  async function generateHomeIdeaBlock(ref, photo, form) {
+    const blocks = window.SylvexMediaBlocks;
+    if (!blocks) return;
+    const block = ref.block, field = blocks.mainField(block);
+    if (!blocks.onePhotoIsEnough(block)) {
+      window.SylvexRefPanel?.close();
+      openMediaBlock(block, field ? { files: { [field.key]: { url: photo.url, preview: photo.preview || photo.url } } } : {});
+      return;
+    }
+    const kind = block.generation === 'video' ? 'video' : 'image';
+    form?.classList.add('loading');
+    window.SylvexRefPanel?.close();
+    try {
+      const jobId = await blocks.run(block, { [field.key]: photo.url }, { lang: uiLang() });
+      await window.SylvexHandoff?.play({ images: [ref.image, photo.url], video: kind === 'video' ? ref.video : '', kind, lang: uiLang() === 'ru' ? 'ru' : 'en' });
+      resetHomeIdea();
+      await openMediaHandoff({ jobId, kind: kind === 'video' ? 'video_reference' : 'image_reference', title: ref.title || block.name || '' });
+    } catch (error) {
+      // A refusal starts nothing; the paywall window explains a payment one.
+      if (error && error.action === 'login') { guestNeedsAccount('create'); return; }
+      if (!window.SylvexPaywall?.isOpen()) toast((error && error.message) || 'Генерация не запустилась', 'error');
     } finally {
       form?.classList.remove('loading');
     }

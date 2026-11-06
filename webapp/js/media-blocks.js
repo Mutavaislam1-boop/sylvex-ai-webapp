@@ -11,9 +11,14 @@
  *   SylvexMediaBlocks.of(item)                  the block of a catalog item, or null
  *   SylvexMediaBlocks.list(placement, options)  -> Promise of published blocks
  *   SylvexMediaBlocks.renderTiles(host, blocks, options)
+ *   SylvexMediaBlocks.run(block, uploads, options) -> Promise of the accepted job id
+ *   SylvexMediaBlocks.waitJob(options, jobId)  -> Promise of the result URL
+ *   SylvexMediaBlocks.mainField(block)          the field a single photo goes into
+ *   SylvexMediaBlocks.onePhotoIsEnough(block)   whether that one photo is all it needs
  *
  * options: base (API origin, '' = same origin), lang ('ru' | 'en'),
- * onLogin(), onShop(), onResult(url, block).
+ * onLogin(), onShop(), onResult(url, block), files (open() only: files
+ * already given, { field key: { url, preview } }).
  * The Mini Apps add their auth to /api/ requests themselves (js/api-auth.js);
  * the website sends its session cookie (credentials: 'include').
  */
@@ -23,8 +28,9 @@
 
   var TEXT = {
     en: {
-      generate: 'Generate', generating: 'Generating…', upload: 'Upload', photo: 'Photo', video: 'Video', required: 'required',
-      uploading: 'Uploading…', replace: 'Replace', close: 'Close', done: 'Done. The result is also saved to your Pro Studio history.',
+      generate: 'Generate', generating: 'Generating…', photo: 'Photo', video: 'Video', remove: 'Remove',
+      uploadImage: 'Upload image', uploadVideo: 'Upload video', hintImage: 'PNG, JPG or paste from clipboard', hintVideo: 'MP4 or MOV',
+      close: 'Close', done: 'Done. The result is also saved to your Pro Studio history.',
       waitImage: 'Creating your image…', waitVideo: 'Creating your video. This can take a few minutes.',
       failed: 'The generation did not go through. Please try again.', uploadFailed: 'The file could not be uploaded. Please try again.',
       missing: 'Add the files marked as required.', balance: 'Not enough credits for this generation.', topUp: 'Top up',
@@ -34,8 +40,9 @@
       modelUnavailable: 'This block is temporarily unavailable: its AI model cannot generate right now. Nothing was charged.',
     },
     ru: {
-      generate: 'Сгенерировать', generating: 'Генерация…', upload: 'Загрузить', photo: 'Фото', video: 'Видео', required: 'обязательно',
-      uploading: 'Загрузка…', replace: 'Заменить', close: 'Закрыть', done: 'Готово. Результат также сохранён в истории Pro Studio.',
+      generate: 'Сгенерировать', generating: 'Генерация…', photo: 'Фото', video: 'Видео', remove: 'Убрать',
+      uploadImage: 'Загрузить изображение', uploadVideo: 'Загрузить видео', hintImage: 'PNG, JPG или вставьте из буфера обмена', hintVideo: 'MP4 или MOV',
+      close: 'Закрыть', done: 'Готово. Результат также сохранён в истории Pro Studio.',
       waitImage: 'Создаём изображение…', waitVideo: 'Создаём видео. Это может занять несколько минут.',
       failed: 'Генерация не прошла. Попробуйте ещё раз.', uploadFailed: 'Не удалось загрузить файл. Попробуйте ещё раз.',
       missing: 'Добавьте обязательные файлы.', balance: 'Недостаточно токенов для генерации.', topUp: 'Пополнить',
@@ -117,7 +124,64 @@
     };
   }
 
+  // ---------- running a block ----------
+  // The block's own generation with the files of its fields
+  // ({ field key: uploaded URL }): resolves with the job id once the server
+  // has accepted it; a refusal rejects with the reason (error.action:
+  // 'login', 'shop' or 'plans' when there is something to do about it).
+  function run(block, uploads, options) {
+    var opts = options || {};
+    var lang = langOf(opts);
+    var t = function (key) { return (TEXT[lang] || TEXT.en)[key] || TEXT.en[key]; };
+    var fail = function (key, action) { var error = new Error(t(key)); if (action) error.action = action; return error; };
+    return request(opts, '/api/public/media-blocks/' + encodeURIComponent(block.id) + '/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uploads: uploads || {} }),
+    }).then(function (r) {
+      var body = r.body || {};
+      if (needsSignIn(r)) throw fail('signIn', 'login');
+      if (body.subscription_required) throw fail('subscription', 'plans');
+      if (r.status === 402 || body.insufficient_balance) throw fail('balance', 'shop');
+      if (r.status === 404) throw fail('unavailable');
+      if (body.error === 'model_disabled') throw fail('modelOff');
+      if (body.error === 'model_unavailable') throw fail('modelUnavailable');
+      if (body.error === 'upload_required') throw fail('missing');
+      if (!r.ok || !body.job_id) throw new Error(humanError(body, t('failed')));
+      return String(body.job_id);
+    });
+  }
+
+  // The finished job's result URL; alive() false stops waiting (null).
+  function waitJob(options, jobId, alive) {
+    var check = typeof alive === 'function' ? alive : function () { return true; };
+    return request(options || {}, '/api/public/prostudio/job/' + encodeURIComponent(jobId)).then(function (r) {
+      if (!check()) return null;
+      var job = r.body || {};
+      var status = String(job.status || '').toLowerCase();
+      if (status === 'completed') return resultUrl(job.result);
+      if (['failed', 'cancelled', 'canceled', 'timeout', 'timed_out'].indexOf(status) >= 0) {
+        throw new Error((job.error && (job.error.message || job.error.error)) || (TEXT[langOf(options)] || TEXT.en).failed);
+      }
+      return new Promise(function (resolve) { setTimeout(resolve, 2000); }).then(function () { return waitJob(options, jobId, check); });
+    });
+  }
+
+  // The field a single photo goes into, and whether that one photo is all
+  // the block needs.
+  function mainField(block) {
+    var fields = (block && block.fields) || [];
+    return fields.filter(function (f) { return f.accept !== 'video'; })[0] || fields[0] || null;
+  }
+  function onePhotoIsEnough(block) {
+    var main = mainField(block);
+    return !!main && main.accept !== 'video' && ((block.fields || []).every(function (f) { return f === main || !f.required; }));
+  }
+
   // ---------- the block window ----------
+  // The same window as every catalog reference (the Media viewer, the Pro
+  // Studio reference and video template windows): the reference on the
+  // left over its own blurred picture, the title, the description, the
+  // dashed upload area and Generate on the right; on a phone the picture
+  // sits small on top.
   function root() {
     var node = document.getElementById('sxmbWindow');
     if (node) return node;
@@ -142,13 +206,22 @@
       event.target.value = '';
     });
     document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && state) close(); });
+    // "Paste from clipboard": a pasted picture goes into the first empty photo field.
+    document.addEventListener('paste', function (event) {
+      if (!state || state.busy || node.hidden) return;
+      var items = (event.clipboardData && event.clipboardData.items) || [];
+      var file = null;
+      for (var i = 0; i < items.length && !file; i += 1) if (/^image\//.test(items[i].type || '')) file = items[i].getAsFile();
+      var field = (state.block.fields || []).filter(function (f) { return f.accept !== 'video' && !state.files[f.key]; })[0];
+      if (file && field) { event.preventDefault(); addFile(field.key, file); }
+    });
     return node;
   }
 
   function open(block, options) {
     if (!block) return;
     var opts = options || {};
-    state = { block: block, options: opts, lang: langOf(opts), files: {}, busy: false, result: '', pending: '' };
+    state = { block: block, options: opts, lang: langOf(opts), files: Object.assign({}, opts.files || {}), busy: false, result: '', pending: '' };
     var node = root();
     node.querySelector('.sxmb-close').setAttribute('aria-label', say('close'));
     node.querySelector('#sxmbTitle').textContent = block.name || '';
@@ -173,24 +246,41 @@
     var base = state.options.base;
     var url = state.result || (block.block_type === 'video' && block.source_url) || block.preview_url;
     var isVideo = VIDEO_URL.test(String(url || '').split('?')[0]) || (!state.result && block.block_type === 'video' && !!block.source_url);
-    document.getElementById('sxmbMedia').innerHTML = !url ? ''
+    var media = document.getElementById('sxmbMedia');
+    // Under the fitted reference: the same picture (a video's cover), blurred.
+    var backdrop = state.result && !isVideo ? state.result : block.preview_url;
+    if (backdrop) media.style.setProperty('--catalog-backdrop', 'url("' + String(absolute(base, backdrop)).replace(/["\\]/g, '\\$&') + '")');
+    else media.style.removeProperty('--catalog-backdrop');
+    media.innerHTML = !url ? ''
       : isVideo ? '<video src="' + esc(absolute(base, url)) + '"' + (block.preview_url && !state.result ? ' poster="' + esc(absolute(base, block.preview_url)) + '"' : '')
         + ' autoplay muted loop playsinline' + (state.result ? ' controls' : '') + '></video>'
         : '<img src="' + esc(absolute(base, url)) + '" alt="">';
   }
 
+  // The first field is the large dashed upload area of every catalog
+  // reference; any further ones are the smaller extra areas under it.
+  function fieldHtml(field, main) {
+    var file = state.files[field.key];
+    var video = field.accept === 'video';
+    var cls = main ? 'sxmb-upload' : 'sxmb-extra';
+    var label = esc(field.label || (video ? say('video') : say('photo'))) + (field.required ? ' <i>*</i>' : '');
+    if (file) {
+      var preview = video ? '<video src="' + esc(file.preview || file.url) + '" muted playsinline></video>' : '<img src="' + esc(file.preview || file.url) + '" alt="">';
+      return '<div class="' + cls + ' has-file' + (file.url ? '' : ' is-uploading') + '">' + preview
+        + (main ? '' : '<b>' + label + '</b>')
+        + '<button type="button" class="sxmb-x" data-sxmb-remove="' + esc(field.key) + '" aria-label="' + esc(say('remove')) + '">×</button></div>';
+    }
+    return main
+      ? '<button type="button" class="sxmb-upload" data-sxmb-field="' + esc(field.key) + '"><span class="sxmb-upload-icon" aria-hidden="true">▧</span>'
+        + '<b>' + esc(video ? say('uploadVideo') : say('uploadImage')) + '</b><small>' + esc(video ? say('hintVideo') : say('hintImage')) + '</small></button>'
+      : '<button type="button" class="sxmb-extra" data-sxmb-field="' + esc(field.key) + '"><span aria-hidden="true">＋</span><b>' + label + '</b></button>';
+  }
+
   function renderFields() {
+    var fields = state.block.fields || [];
     var host = document.getElementById('sxmbFields');
-    host.innerHTML = (state.block.fields || []).map(function (field) {
-      var file = state.files[field.key];
-      var kind = field.accept === 'video' ? say('video') : say('photo');
-      var thumb = file ? (field.accept === 'video' ? '<video src="' + esc(file.preview) + '" muted playsinline></video>' : '<img src="' + esc(file.preview) + '" alt="">') : '<span class="sxmb-plus">+</span>';
-      return '<button type="button" class="sxmb-field' + (file ? ' has-file' : '') + (file && !file.url ? ' is-uploading' : '') + '" data-sxmb-field="' + esc(field.key) + '">'
-        + '<span class="sxmb-thumb">' + thumb + '</span>'
-        + '<span class="sxmb-label"><b>' + esc(field.label || kind) + (field.required ? ' <i>*</i>' : '') + '</b>'
-        + '<small>' + esc(file && !file.url ? say('uploading') : field.purpose || kind) + '</small></span>'
-        + '<span class="sxmb-action">' + esc(file ? say('replace') : say('upload')) + '</span></button>';
-    }).join('');
+    host.innerHTML = (fields.length ? fieldHtml(fields[0], true) : '')
+      + (fields.length > 1 ? '<div class="sxmb-extras">' + fields.slice(1).map(function (field) { return fieldHtml(field, false); }).join('') + '</div>' : '');
     renderGo();
   }
 
@@ -254,19 +344,6 @@
     return r.video_url || first || r.image_url || r.url || '';
   }
 
-  function wait(current, jobId) {
-    return request(current.options, '/api/public/prostudio/job/' + encodeURIComponent(jobId)).then(function (r) {
-      if (state !== current) return null;
-      var job = r.body || {};
-      var status = String(job.status || '').toLowerCase();
-      if (status === 'completed') return resultUrl(job.result);
-      if (['failed', 'cancelled', 'canceled', 'timeout', 'timed_out'].indexOf(status) >= 0) {
-        throw new Error((job.error && (job.error.message || job.error.error)) || say('failed'));
-      }
-      return new Promise(function (resolve) { setTimeout(resolve, 2000); }).then(function () { return wait(current, jobId); });
-    });
-  }
-
   function generate() {
     if (!state || state.busy || !ready()) return;
     var current = state;
@@ -275,25 +352,9 @@
     current.busy = true;
     renderGo();
     setStatus(current.block.generation === 'video' ? say('waitVideo') : say('waitImage'), '');
-    request(current.options, '/api/public/media-blocks/' + encodeURIComponent(current.block.id) + '/generate', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uploads: uploads }),
-    }).then(function (r) {
-      var body = r.body || {};
-      if (needsSignIn(r)) {
-        var login = new Error(say('signIn')); login.action = 'login'; throw login;
-      }
-      if (body.subscription_required) {
-        var plan = new Error(say('subscription')); plan.action = 'plans'; throw plan;
-      }
-      if (r.status === 402 || body.insufficient_balance) {
-        var shop = new Error(say('balance')); shop.action = 'shop'; throw shop;
-      }
-      if (r.status === 404) throw new Error(say('unavailable'));
-      if (body.error === 'model_disabled') throw new Error(say('modelOff'));
-      if (body.error === 'model_unavailable') throw new Error(say('modelUnavailable'));
-      if (body.error === 'upload_required') throw new Error(say('missing'));
-      if (!r.ok || !body.job_id) throw new Error(humanError(body, say('failed')));
-      return wait(current, body.job_id);
+    run(current.block, uploads, current.options).then(function (jobId) {
+      if (state !== current) return null;
+      return waitJob(current.options, jobId, function () { return state === current; });
     }).then(function (url) {
       if (state !== current || url == null) return;
       current.busy = false;
@@ -316,6 +377,8 @@
   function onClick(event) {
     if (!state) return;
     if (event.target === event.currentTarget || event.target.closest('[data-sxmb-close]')) { close(); return; }
+    var remove = event.target.closest('[data-sxmb-remove]');
+    if (remove && !state.busy) { delete state.files[remove.dataset.sxmbRemove]; renderFields(); return; }
     var field = event.target.closest('[data-sxmb-field]');
     if (field && !state.busy) {
       var def = (state.block.fields || []).filter(function (f) { return f.key === field.dataset.sxmbField; })[0];
@@ -331,5 +394,8 @@
     if (handler && typeof state.options[handler] === 'function') { var opts = state.options; close(); opts[handler](); }
   }
 
-  global.SylvexMediaBlocks = { open: open, close: close, of: of, list: list, renderTiles: renderTiles, _resultUrl: resultUrl };
+  global.SylvexMediaBlocks = {
+    open: open, close: close, of: of, list: list, renderTiles: renderTiles,
+    run: run, waitJob: waitJob, mainField: mainField, onePhotoIsEnough: onePhotoIsEnough, _resultUrl: resultUrl,
+  };
 })(typeof window !== 'undefined' ? window : globalThis);
