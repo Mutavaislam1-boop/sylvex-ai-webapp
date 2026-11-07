@@ -22,7 +22,7 @@ def connect():
 @pytest.fixture(autouse=True)
 def tables(connect):
  statements=[
- 'DROP TABLE IF EXISTS generation_reservations,generation_charges,purchases,subscriptions,users CASCADE',
+ 'DROP TABLE IF EXISTS user_credit_wallets,generation_reservations,generation_charges,purchases,subscriptions,users CASCADE',
  'CREATE TABLE users(telegram_id BIGINT PRIMARY KEY,balance INTEGER,subscription TEXT)',
  'CREATE TABLE purchases(id SERIAL PRIMARY KEY,telegram_id BIGINT,provider TEXT,credits INTEGER,amount INTEGER,currency TEXT,payload TEXT,charge_id TEXT UNIQUE,status TEXT)',
  'CREATE TABLE subscriptions(id SERIAL PRIMARY KEY,telegram_id BIGINT,subscription_type TEXT,payment_method TEXT,amount INTEGER,currency TEXT,expires_at TIMESTAMP,status TEXT,charge_id TEXT UNIQUE)',

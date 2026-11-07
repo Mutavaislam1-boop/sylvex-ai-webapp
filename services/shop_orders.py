@@ -580,34 +580,10 @@ def _add_credits(cur, uid, credits, source="purchased", expires_at=None):
              subscription_expires_at TIMESTAMPTZ,
              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"""
     )
-    cur.execute("SELECT COALESCE(balance, 0) FROM users WHERE telegram_id = %s FOR UPDATE", (uid,))
-    balance = int((cur.fetchone() or (0,))[0] or 0)
-    cur.execute(
-        "INSERT INTO user_credit_wallets(telegram_id, purchased_credits) VALUES(%s,%s) "
-        "ON CONFLICT(telegram_id) DO NOTHING", (uid, max(0, balance)),
-    )
-    if source == "subscription":
-        cur.execute(
-            """UPDATE user_credit_wallets
-                  SET subscription_credits = subscription_credits + %s,
-                      subscription_expires_at = CASE
-                        WHEN %s::timestamptz IS NULL THEN subscription_expires_at
-                        WHEN subscription_expires_at IS NULL THEN %s::timestamptz
-                        ELSE GREATEST(subscription_expires_at, %s::timestamptz) END,
-                      updated_at = NOW()
-                WHERE telegram_id = %s
-            RETURNING purchased_credits + subscription_credits""",
-            (credits, expires_at, expires_at, expires_at, uid),
-        )
-    else:
-        cur.execute(
-            """UPDATE user_credit_wallets
-                  SET purchased_credits = purchased_credits + %s, updated_at = NOW()
-                WHERE telegram_id = %s
-            RETURNING purchased_credits + subscription_credits""", (credits, uid),
-        )
-    total = int(cur.fetchone()[0] or 0)
-    cur.execute("UPDATE users SET balance = %s WHERE telegram_id = %s", (total, uid))
+    # Reconcile legacy debits and expire the previous allocation before any
+    # top-up/renewal. The payment's existing transaction and idempotency stay intact.
+    from services.billing_safety import grant_credits
+    grant_credits(cur, uid, credits, source, expires_at)
 
 
 def _mark_order_paid(cur, order, charge_id, amount, currency):
