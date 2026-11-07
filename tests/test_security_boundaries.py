@@ -271,6 +271,20 @@ def test_old_public_r2_url_is_reissued_through_private_proxy(monkeypatch):
  new=sign_response_media({'image_url':old})['image_url']
  assert '/api/public/storage/generated/images/old.png?' in new and 'old-bucket.example' not in new
 
+def test_stored_block_links_get_a_fresh_signature(monkeypatch):
+ # An admin block keeps the signed link it was saved with; the video
+ # catalog shows it as poster_url, the runner gets source_url and a
+ # generation keeps it as catalog_reference_url. Each must come back valid.
+ import time
+ from services.media_access import sign_response_media, valid_media_url
+ monkeypatch.setenv('BOT_TOKEN',TOKEN)
+ monkeypatch.setenv('WEBAPP_URL','https://api.example')
+ stale='https://api.example/api/public/storage/generated/references/preview/a.png?media_exp=1000&media_sig=old'
+ assert not valid_media_url(stale)
+ out=sign_response_media({'poster_url':stale,'media_block':{'source_url':stale},'metadata':{'catalog_reference_url':stale}})
+ for url in (out['poster_url'],out['media_block']['source_url'],out['metadata']['catalog_reference_url']):
+  assert valid_media_url(url) and int(url.split('media_exp=')[1].split('&')[0])>time.time()
+
 @pytest.mark.asyncio
 async def test_multipart_header_cannot_bypass_json_identity(client,monkeypatch):
  import main

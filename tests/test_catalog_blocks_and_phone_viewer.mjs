@@ -24,7 +24,7 @@ test('Home: an admin reference of the one catalog is picked into the composer an
   assert.match(cabinet, /items\.push\(\{ id: item\.id, image: item\.url, title: item\.title, block: item\.mediaBlock \|\| null \}\);/);
   assert.match(cabinet, /if \(ref\.block\) return generateHomeIdeaBlock\(ref, photo, form\);/);
   assert.match(cabinet, /const jobId = await blocks\.run\(block, \{ \[field\.key\]: photo\.url \}, \{ lang: uiLang\(\) \}\);/);
-  assert.match(cabinet, /await openMediaHandoff\(\{ jobId, kind: kind === 'video' \? 'video_reference' : 'image_reference', title: ref\.title \|\| block\.name \|\| '' \}\);/);
+  assert.match(cabinet, /await openMediaHandoff\(\{ jobId, kind: kind === 'video' \? 'video_reference' : 'image_reference', title: ref\.title \|\| block\.name \|\| '', refs: \[ref\.image, photo\.url\] \}\);/);
   // More than the one photo: its window opens with the photo already in.
   assert.match(cabinet, /openMediaBlock\(block, field \? \{ files: \{ \[field\.key\]: \{ url: photo\.url, preview: photo\.preview \|\| photo\.url \} \} \} : \{\}\);/);
 });

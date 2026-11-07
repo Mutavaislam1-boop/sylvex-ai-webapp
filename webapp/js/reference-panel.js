@@ -43,9 +43,51 @@
     var ratio = Number(item.ratio) > 0 ? ' style="aspect-ratio:' + Number(item.ratio).toFixed(4) + '"' : '';
     return '<button type="button" class="ref-panel-card' + (on ? ' is-selected' : '') + '" data-ref-id="' + esc(item.id) + '" aria-pressed="' + on + '"'
       + (item.title ? ' aria-label="' + esc(item.title) + '"' : '') + '>'
-      + '<span class="ref-panel-frame"' + ratio + '><img src="' + esc(item.image) + '" alt="" loading="lazy" decoding="async"></span>'
+      + '<span class="ref-panel-frame"' + ratio + '><img src="' + esc(item.image) + '" alt="" loading="lazy" decoding="async">'
+      + (state.kind === 'video' && movie(item) ? '<video class="ref-panel-video" data-src="' + esc(movie(item)) + '" muted loop playsinline preload="none" aria-hidden="true"></video>' : '')
+      + '</span>'
       + (state.kind === 'video' ? '<i class="ref-panel-play" aria-hidden="true"></i>' : '')
       + '<i class="ref-panel-check" aria-hidden="true">' + CHECK_ICON + '</i></button>';
+  }
+
+  function movie(item) { return String(item.preview || item.video || ''); }
+
+  // Video cards play while they are on screen in the panel (silent, looping)
+  // and stop once scrolled away; the picture stays until the video runs.
+  function stopVideos(target) {
+    if (!target) return;
+    if (target.videoObserver) { target.videoObserver.disconnect(); target.videoObserver = null; }
+    Array.prototype.forEach.call(target.grid.querySelectorAll('.ref-panel-video'), function (video) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    });
+  }
+
+  function playVideos() {
+    var videos = state.grid.querySelectorAll('.ref-panel-video');
+    if (!videos.length) return;
+    var play = function (video) {
+      if (!video.getAttribute('src')) {
+        video.addEventListener('playing', function () {
+          var card = video.closest('.ref-panel-card');
+          if (card) card.classList.add('is-playing');
+        }, { once: true });
+        video.src = video.getAttribute('data-src');
+      }
+      video.muted = true;
+      var started = video.play();
+      if (started && typeof started.catch === 'function') started.catch(function () {});
+    };
+    if (!global.IntersectionObserver) { Array.prototype.forEach.call(videos, play); return; }
+    var observer = new global.IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) play(entry.target);
+        else if (entry.target.getAttribute('src')) entry.target.pause();
+      });
+    }, { root: state.grid, rootMargin: '120px 0px' });
+    Array.prototype.forEach.call(videos, function (video) { observer.observe(video); });
+    state.videoObserver = observer;
   }
 
   // Masonry: a picture without a known ratio takes its own once loaded.
@@ -68,6 +110,7 @@
 
   function render(animate) {
     var grid = state.grid, items = state.items, opts = state.opts;
+    stopVideos(state);
     state.panel.querySelector('.ref-panel-head h3').textContent = state.title;
     state.panel.setAttribute('aria-label', state.title);
     state.panel.classList.toggle('is-photo', state.kind !== 'video');
@@ -107,6 +150,7 @@
       layoutRows();
     }
     if (animate) reveal(cards);
+    playVideos();
   }
 
   // Grid: `rows` rows fill the room above the composer; the rest scrolls.
@@ -181,7 +225,8 @@
   }
 
   // opts: anchor, title, kind ('video' | 'photo'), items ([{ id, image,
-  // title, ratio }] or null while loading), selected, layout, cols (a number
+  // title, ratio, preview }] or null while loading; preview - the video a
+  // video card plays, else its `video`), selected, layout, cols (a number
   // or width => number), rows, closeLabel, emptyText, onPick(item), onClose().
   function open(opts) {
     if (!opts || !opts.anchor) return;
@@ -238,6 +283,7 @@
     state = null;
     listen(false);
     if (closing.observer) closing.observer.disconnect();
+    stopVideos(closing);
     var remove = function () { closing.panel.remove(); closing.shade.remove(); };
     if (reduceMotion) remove();
     else {

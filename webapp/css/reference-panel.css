@@ -14,10 +14,13 @@
 .ref-panel-grid.is-masonry{display:flex;align-items:flex-start;gap:8px}
 .ref-panel-col{display:flex;flex:1 1 0;min-width:0;flex-direction:column;gap:8px}
 .ref-panel-card{position:relative;display:block;width:100%;margin:0;padding:0;overflow:hidden;border:0;border-radius:14px;background:color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 8%,#111);cursor:pointer;-webkit-tap-highlight-color:transparent}
-.ref-panel-frame{display:block;width:100%;height:100%;overflow:hidden}
-.ref-panel-frame img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .8s cubic-bezier(.2,.8,.2,1)}
+.ref-panel-frame{position:relative;display:block;width:100%;height:100%;overflow:hidden}
+.ref-panel-frame img,.ref-panel-video{display:block;width:100%;height:100%;object-fit:cover;transition:transform .8s cubic-bezier(.2,.8,.2,1)}
+.ref-panel-video{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .25s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
+.ref-panel-card.is-playing .ref-panel-video{opacity:1}
+.ref-panel-card.is-playing .ref-panel-play{display:none}
 .is-masonry .ref-panel-frame{height:auto}
-@media (hover:hover){.ref-panel-card:hover .ref-panel-frame img{transform:scale(1.07)}}
+@media (hover:hover){.ref-panel-card:hover .ref-panel-frame img,.ref-panel-card:hover .ref-panel-video{transform:scale(1.07)}}
 .ref-panel-card:focus-visible{outline:2px solid var(--ref-panel-ink,#f5f5f5);outline-offset:-2px}
 .ref-panel-card.is-selected{outline:2.5px solid var(--ref-panel-ink,#f5f5f5);outline-offset:-2.5px}
 .ref-panel-play,.ref-panel-check{position:absolute;top:7px;right:7px;z-index:1;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;pointer-events:none}
@@ -29,4 +32,4 @@
 .ref-panel-skeleton{border-radius:14px;background:linear-gradient(100deg,color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 6%,transparent) 30%,color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 12%,transparent) 50%,color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 6%,transparent) 70%);background-size:300% 100%;animation:ref-panel-shimmer 1.4s linear infinite}
 @keyframes ref-panel-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 .ref-panel-empty{margin:24px 8px;color:color-mix(in srgb,var(--ref-panel-ink,#f5f5f5) 55%,transparent);font-size:13px;text-align:center}
-@media (prefers-reduced-motion:reduce){.ref-panel-skeleton{animation:none}.ref-panel-frame img{transition:none}}
+@media (prefers-reduced-motion:reduce){.ref-panel-skeleton{animation:none}.ref-panel-frame img,.ref-panel-video{transition:none}}
