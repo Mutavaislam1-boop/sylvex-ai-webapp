@@ -93,6 +93,7 @@ test('an accepted job is restored only by GET and uses its original id',async()=
     fetch:async(url,options)=>{calls.push([url,options]);return {ok:true,json:async()=>({ok:true,status:'processing'})};},
     loadVideoTemplates:async()=>[],mediaVideoTemplate:()=>null,saveComposerDraftIfChanged:()=>{},updateSendButton:()=>{},isActiveGenerationStatus:s=>s==='processing',applyActiveProStudioJob:()=>{},ensureActiveGenerationPlaceholder:()=>{},
     watchGenerationJob:(id,info)=>watched.push([id,info])});
+  vm.runInContext(fn('handedOffRequest'),c);
   vm.runInContext(fn('restoreMediaAcceptedJob'),c);
   vm.runInContext(fn('openMediaHandoff'),c);
   await c.openMediaHandoff({kind:'video_template',jobId:'same-job-1'});
@@ -143,4 +144,28 @@ test('catalog edit uses Omni input limits while standalone Motion retains image-
   assert.equal(c.currentReferenceVideoLimits().video_max_seconds,15.5);
   c.videoState.section='motion';c.videoState.videoTemplate=null;
   assert.equal(c.currentReferenceVideoLimits().video_max_seconds,10);
+});
+
+test('a handed-off block request shows its picture and the user photo at once, once per job, before the loader',async()=>{
+  let remembered=0;
+  const c=context({chatMessages:[{role:'ai',text:'old'},{role:'ai',loader:true}],fetch:async()=>({ok:true,json:async()=>({ok:true,status:'processing'})}),
+    switchView:()=>{},closeVideoTemplatesCatalog:()=>{},closePhotoCatalog:()=>{},updateComposerMode:()=>{},
+    loadVideoTemplates:async()=>[],mediaVideoTemplate:()=>null,saveComposerDraftIfChanged:()=>{},updateSendButton:()=>{},renderChat:()=>{},
+    activeGenerationPlaceholderIndex:()=>1,rememberCurrentChatSpace:()=>{remembered++;},
+    isActiveGenerationStatus:s=>s==='processing',applyActiveProStudioJob:()=>{},ensureActiveGenerationPlaceholder:()=>{},watchGenerationJob:()=>{}});
+  vm.runInContext(fn('handedOffRequest'),c);
+  vm.runInContext(fn('showHandedOffRequest'),c);
+  vm.runInContext(fn('restoreMediaAcceptedJob'),c);
+  vm.runInContext(fn('openMediaHandoff'),c);
+  const r={kind:'video_template',jobId:'job-9',title:'Neon',refs:['https://cdn/block.png','https://up/me.png']};
+  await c.openMediaHandoff(r);await c.openMediaHandoff(r);
+  assert.equal(c.chatMessages.length,3);assert.equal(remembered,1);
+  const m=c.chatMessages[1];
+  assert.equal(m.role,'user');assert.equal(m.handoffJobId,'job-9');assert.equal(c.chatMessages[2].loader,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(m.displayRefs)),[{src:'https://cdn/block.png',kind:'image'},{src:'https://up/me.png',kind:'image'}]);
+});
+
+test('a handed-off result lists what its request showed and keeps the request after the chat reloads',()=>{
+  assert.match(source,/if \(jobInfo\.handoff\) \{\n[^\n]*\n      if \(chatMessages\[index\] && chatMessages\[index\]\.metadata\) chatMessages\[index\]\.metadata\.display_references = jobInfo\.handoff\.refs\.slice\(\);\n      showHandedOffRequest\(jobInfo\.handoff, index\);/);
+  assert.match(source,/if \(Array\.isArray\(meta\.display_references\) && meta\.display_references\.length\) return meta\.display_references\.map\(referenceItem\)/);
 });

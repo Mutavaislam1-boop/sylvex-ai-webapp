@@ -74,7 +74,10 @@ def sign_media_url(value):
  base=os.getenv('WEBAPP_URL','').rstrip('/')
  return f'{base}/api/public/storage/{quote(key,safe="/")}?' + urlencode({'media_exp':exp,'media_sig':sig})
 
-MEDIA_FIELDS = frozenset({'url','image_url','video_url','audio_url','music_url','file_url','document_url','media_url','thumbnail_url','thumb_url','full_url','result_url','song_url','avatar_url','custom_avatar_url','photo_url','preview_url','preview_video','reference_video','images','videos','audios','audio_urls','thumbnails','files','src','avatar_path'})
+# Stored links (an admin block's picture and source, a catalog reference kept
+# in a generation's metadata) carry a signature that expires; every response
+# gives them a fresh one under these field names.
+MEDIA_FIELDS = frozenset({'url','image_url','video_url','audio_url','music_url','file_url','document_url','media_url','thumbnail_url','thumb_url','full_url','result_url','song_url','avatar_url','custom_avatar_url','photo_url','preview_url','preview_video','reference_video','poster_url','source_url','catalog_reference_url','images','videos','audios','audio_urls','thumbnails','files','src','avatar_path'})
 
 def sign_response_media(value, field='', _cache=None):
  if _cache is None:_cache={}

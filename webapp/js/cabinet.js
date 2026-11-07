@@ -5451,7 +5451,7 @@ function localizedGreeting() {
       chatMessages[index] = {
         role: 'ai',
         imageResultMini: true,
-        metadata: imageGenerationMetadata(prompt, [], data, null),
+        metadata: imageGenerationMetadata(prompt, [], data, jobInfo.handoff ? {} : null),
       };
     } else if (mode === 'text' && data.text) {
       chatMessages[index] = {
@@ -5465,7 +5465,7 @@ function localizedGreeting() {
         ? {
             role: 'ai',
             imageResultMini: true,
-            metadata: generationResultMetadata(type, prompt, data, [], null),
+            metadata: generationResultMetadata(type, prompt, data, [], jobInfo.handoff ? {} : null),
           }
         : {
             role: 'ai',
@@ -5473,6 +5473,11 @@ function localizedGreeting() {
               ? 'Готово ✅\nРезультат отправлен в Telegram-чат.'
               : 'Готово ✅\nГенерация завершена.',
           };
+    }
+    if (jobInfo.handoff) {
+      // Its card lists what the request showed, not the composer's state.
+      if (chatMessages[index] && chatMessages[index].metadata) chatMessages[index].metadata.display_references = jobInfo.handoff.refs.slice();
+      showHandedOffRequest(jobInfo.handoff, index);
     }
     renderChat();
     rememberCurrentChatSpace();
@@ -17201,6 +17206,7 @@ function imageModelButton(model) {
   // { src, kind } with kind 'image' or 'video'.
   function requestDisplayReferences(meta) {
     if (!meta) return [];
+    if (Array.isArray(meta.display_references) && meta.display_references.length) return meta.display_references.map(referenceItem).filter((item) => item.src);
     const type = meta.type;
     const options = (type === 'image'
       ? (meta.image_options && Object.keys(meta.image_options).length ? meta.image_options : meta.settings)
@@ -20457,7 +20463,7 @@ function openGenerationInfoDrawer(e, index) {
         ? '<div class="generation-info-preview generation-info-preview-logo">' + previewImgHtml(previewUrl, 'generated logo', previewFallbackUrl) + '</div>'
         : '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-generation-job-id="' + S.escapeHtml(jobId) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>')
     : type === 'video' && videoUrl
-      ? '<video class="generation-info-media-player generation-info-video-player" src="' + S.escapeHtml(videoUrl) + '" controls playsinline preload="metadata"></video>'
+      ? generationInfoVideoHtml(videoUrl, videoThumb)
       : type === 'music' && audioUrl
         ? (imageUrl ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated cover') + '</div>' : '<div class="generation-info-preview generation-info-audio-preview"><span>♪</span></div>')
           + '<audio class="generation-result-inline-audio generation-info-inline-audio" src="' + S.escapeHtml(audioUrl) + '" controls preload="metadata" controlsList="nodownload"></audio>'
@@ -20491,6 +20497,7 @@ function openGenerationInfoDrawer(e, index) {
     }
   }
   const usedRefs = requestDisplayReferences(meta);
+  stopGenerationInfoVideo();
   body.innerHTML = '<div class="generation-info-layout"><div class="generation-info-media">'
     + previewHtml
     + '</div><div class="generation-info-details">'
@@ -20523,6 +20530,7 @@ function openGenerationInfoDrawer(e, index) {
     + '</div></div>';
 
   drawer.classList.add('show');
+  watchGenerationInfoVideoSound();
 }
 
 // =====================================================
@@ -20536,6 +20544,82 @@ function closeGenerationInfoDrawer(e) {
   }
   const drawer = document.getElementById('generationInfoDrawer');
   if (drawer) drawer.classList.remove('show');
+  stopGenerationInfoVideo();
+}
+
+// A video in the generation card plays at once, silent and looping, with no
+// player: full screen in the top left corner (the player is there), and the
+// sound in the top right one when the video has any.
+const GENERATION_VIDEO_ICONS = {
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>',
+  muted: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="m17 9 4 6M21 9l-4 6"/></svg>',
+  sound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M17 8.5a5 5 0 0 1 0 7M19.5 6a8.5 8.5 0 0 1 0 12"/></svg>',
+};
+function generationInfoVideoHtml(url, poster) {
+  return '<div class="generation-info-video">'
+    + '<video class="generation-info-video-player" src="' + S.escapeHtml(url) + '"' + (poster ? ' poster="' + S.escapeHtml(poster) + '"' : '') + ' autoplay muted loop playsinline preload="auto"></video>'
+    + '<button type="button" class="generation-info-video-btn is-open" aria-label="Открыть видео" title="Открыть видео" onclick="SYLVEX.openGenerationInfoVideo(event)">' + GENERATION_VIDEO_ICONS.open + '</button>'
+    + '<button type="button" class="generation-info-video-btn is-sound" hidden aria-pressed="false" aria-label="Включить звук" title="Включить звук" onclick="SYLVEX.toggleGenerationInfoVideoSound(event)">' + GENERATION_VIDEO_ICONS.muted + '</button>'
+    + '</div>';
+}
+function generationInfoVideo() {
+  return document.querySelector('#generationInfoDrawer .generation-info-video-player');
+}
+function stopGenerationInfoVideo() {
+  const video = generationInfoVideo();
+  if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+}
+// The sound button appears once the video turns out to have a sound track.
+function watchGenerationInfoVideoSound() {
+  const video = generationInfoVideo();
+  const button = document.querySelector('#generationInfoDrawer .generation-info-video-btn.is-sound');
+  if (!video || !button) return;
+  const hasSound = () => !!(video.mozHasAudio || Number(video.webkitAudioDecodedByteCount || 0) > 0 || (video.audioTracks && video.audioTracks.length));
+  const check = () => {
+    if (!hasSound()) return;
+    button.hidden = false;
+    video.removeEventListener('timeupdate', check);
+  };
+  video.addEventListener('loadeddata', check);
+  video.addEventListener('timeupdate', check);
+  const started = video.play();
+  if (started && typeof started.catch === 'function') started.catch(() => {});
+}
+function toggleGenerationInfoVideoSound(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const video = generationInfoVideo();
+  const button = e && e.currentTarget;
+  if (!video || !button) return;
+  video.muted = !video.muted;
+  if (!video.muted && video.paused) video.play().catch(() => {});
+  button.setAttribute('aria-pressed', String(!video.muted));
+  button.setAttribute('aria-label', video.muted ? 'Включить звук' : 'Выключить звук');
+  button.title = button.getAttribute('aria-label');
+  button.innerHTML = video.muted ? GENERATION_VIDEO_ICONS.muted : GENERATION_VIDEO_ICONS.sound;
+}
+// Full screen: the video with its player; back in the card it plays on
+// without one.
+function openGenerationInfoVideo(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const video = generationInfoVideo();
+  if (!video) return;
+  video.controls = true;
+  const done = () => {
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    video.controls = false;
+    document.removeEventListener('fullscreenchange', done);
+    document.removeEventListener('webkitfullscreenchange', done);
+    video.removeEventListener('webkitendfullscreen', done);
+  };
+  document.addEventListener('fullscreenchange', done);
+  document.addEventListener('webkitfullscreenchange', done);
+  video.addEventListener('webkitendfullscreen', done);
+  const request = video.requestFullscreen || video.webkitRequestFullscreen;
+  if (request) {
+    const opened = request.call(video);
+    if (opened && typeof opened.catch === 'function') opened.catch(() => { video.controls = false; });
+  } else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+  else video.controls = false;
 }
 
   // =====================================================
@@ -22163,15 +22247,39 @@ function maybeShowVideoTemplateIntro(force) {
     return restore;
   }
 
+  // A job started outside Pro Studio's own composer (a Media constructor
+  // block from Home) arrives with what it was made from: the request shows
+  // in the workspace at once - the reference and the user's photo, as a
+  // catalog generation shows them - and the job runs under it.
+  // A generation handed over from the home screen or the Media page (an admin
+  // block with the user's photo) shows its request in the workspace at once:
+  // the block's picture and the photo, as a catalog generation's request.
+  function handedOffRequest(r) {
+    const refs = (Array.isArray(r.refs) ? r.refs : []).map((src) => String(src || '')).filter(Boolean);
+    return refs.length ? { jobId: r.jobId, title: String(r.title || ''), refs } : null;
+  }
+  // The request goes right before its result (or the loader) and is kept
+  // with the chat, so a later reload of the mode's chat brings it back.
+  function showHandedOffRequest(h, beforeIndex) {
+    if (!h || chatMessages.some((m) => m && m.role === 'user' && m.handoffJobId === h.jobId)) return;
+    const at = Number.isInteger(beforeIndex) && beforeIndex >= 0 ? beforeIndex : activeGenerationPlaceholderIndex();
+    const message = { role: 'user', text: h.title, handoffJobId: h.jobId, referenceImages: h.refs.slice(),
+      displayRefs: h.refs.map((src) => ({ src, kind: 'image' })) };
+    if (at >= 0) chatMessages.splice(at, 0, message); else chatMessages.push(message);
+    rememberCurrentChatSpace();
+  }
+
+
   async function restoreMediaAcceptedJob(r, mode) {
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(r.jobId || '')) return false;
       const res = await fetch('/api/public/prostudio/job/' + encodeURIComponent(r.jobId), {cache:'no-store'});
       const job = await res.json();
       if (!res.ok || !job.ok) { toast('Could not restore this generation', 'error'); return false; }
-      const info = Object.assign({}, job, {id:r.jobId, mode, prompt:r.title || ''});
+      const info = Object.assign({}, job, {id:r.jobId, mode, prompt:r.title || '', handoff:handedOffRequest(r)});
       if (isActiveGenerationStatus(job.status)) {
         applyActiveProStudioJob(info);
         ensureActiveGenerationPlaceholder(true);
+        if (info.handoff) { showHandedOffRequest(info.handoff); renderChat(); }
         watchGenerationJob(r.jobId, info);
       } else if (job.status === 'completed') {
         transitionActiveGeneration('restore', Object.assign({}, info, {status:'processing'}));
@@ -22187,6 +22295,7 @@ function maybeShowVideoTemplateIntro(force) {
     await S.whenProStudioReady();
     const r = Object.assign({}, request || {});
     if (typeof window.__sylvexWebsiteAssetUrl === 'function') ['upload','image','video','resultUrl'].forEach(key => { if (r[key]) r[key] = window.__sylvexWebsiteAssetUrl(r[key]); });
+    if (typeof window.__sylvexWebsiteAssetUrl === 'function' && Array.isArray(r.refs)) r.refs = r.refs.map((url) => window.__sylvexWebsiteAssetUrl(url));
     const mode = /^video_/.test(String(r.kind || '')) ? 'video' : 'image';
     switchView('tools');
     closeVideoTemplatesCatalog();
@@ -26803,7 +26912,7 @@ async function waitGenerationJob(jobId, options) {
       // The one catalog of the video templates, the blocks made in the
       // admin Media constructor among them (their cards look the same).
       (await loadVideoTemplates()).forEach((template) => {
-        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || ''), video:videoTemplateReferenceVideo(template), block:template.media_block || null });
+        if (!template.is_kling_effect) items.push({ id: String(template.id || ''), image: String(template.poster_url || ''), title: String(template.title || ''), aspect: String(template.aspect_ratio || ''), video:videoTemplateReferenceVideo(template), preview:String(template.preview_video || ''), block:template.media_block || null });
       });
     } else {
       // The same sections, in the same order, that mediaImageItem() looks in.
@@ -26976,7 +27085,7 @@ async function waitGenerationJob(jobId, options) {
       const jobId = await blocks.run(block, { [field.key]: photo.url }, { lang: uiLang() });
       await window.SylvexHandoff?.play({ images: [ref.image, photo.url], video: kind === 'video' ? ref.video : '', kind, lang: uiLang() === 'ru' ? 'ru' : 'en' });
       resetHomeIdea();
-      await openMediaHandoff({ jobId, kind: kind === 'video' ? 'video_reference' : 'image_reference', title: ref.title || block.name || '' });
+      await openMediaHandoff({ jobId, kind: kind === 'video' ? 'video_reference' : 'image_reference', title: ref.title || block.name || '', refs: [ref.image, photo.url] });
     } catch (error) {
       // A refusal starts nothing; the paywall window explains a payment one.
       if (error && error.action === 'login') { guestNeedsAccount('create'); return; }
@@ -32050,6 +32159,8 @@ async function waitGenerationJob(jobId, options) {
   S.playMusicTrackFromMessage = playMusicTrackFromMessage;
   S.playVoiceInCard = playVoiceInCard;
   S.playVideoInGenerationCard = playVideoInGenerationCard;
+  S.openGenerationInfoVideo = openGenerationInfoVideo;
+  S.toggleGenerationInfoVideoSound = toggleGenerationInfoVideoSound;
   S.toggleStudioAudioPlayer = toggleStudioAudioPlayer;
   S.PlayerManager = PlayerManager;
   S.audioPlayer = {

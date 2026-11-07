@@ -249,6 +249,9 @@ def generation_payload(block, uploads):
     model = block.get("model") or ""
     base = {"prompt": prompt, "model": model, "media_block_id": block.get("id"),
             "source": "media_block"}
+    # The block's own picture shown with the request and its result, as a
+    # catalog reference is (display only: the model gets the lists below).
+    shown = (own_images(block) or [block.get("preview_url") or ""])[0]
     if config.get("generation") == "video":
         reference_video = block.get("source_url") or (user_videos[0] if user_videos else "")
         images = user_images
@@ -264,6 +267,7 @@ def generation_payload(block, uploads):
             "model": model, "ratio": template["aspect_ratio"], "duration": template["duration"],
             "resolution": template["resolution"], "reference_images": images, "referenceImageUrls": images,
             "video_template": template if block.get("block_type") == "video" else {},
+            "catalog_reference_url": shown,
         }
         if block.get("block_type") != "video" and reference_video:
             options["input_video"] = reference_video
@@ -275,7 +279,8 @@ def generation_payload(block, uploads):
             options["character_image"] = images[0]
         return dict(base, mode="video", category="video", video_options=options)
     references = own_images(block) + user_images
-    options = {"model": model, "modelId": model, "referenceImageUrls": references, "referenceImages": references}
+    options = {"model": model, "modelId": model, "referenceImageUrls": references, "referenceImages": references,
+               "catalog_reference_url": shown}
     if config.get("aspect"):
         options["aspect_ratio"] = config["aspect"]
         options["aspectRatio"] = config["aspect"]

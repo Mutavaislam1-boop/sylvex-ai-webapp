@@ -71,6 +71,9 @@ def test_modes_a_b_c_decide_what_reaches_the_model():
         p = mb.generation_payload(b, uploads)
         assert p["mode"] == "image" and p["model"] == "seedream_5_0" and p["prompt"] == prompt
         assert p["image_options"]["referenceImageUrls"] == refs, mode
+        # The block's own picture is shown with the request, as a catalog
+        # reference is; the model gets only the list above.
+        assert p["image_options"]["catalog_reference_url"] == ("https://cdn/x.png" if mode == "B" else "https://cdn/ref.png"), mode
     with pytest.raises(mb.BlockError) as err:
         mb.generation_payload(block(), {})
     assert err.value.code == "upload_required"
@@ -85,6 +88,7 @@ def test_video_template_payload_uses_the_catalog_video_and_each_person():
     assert p["mode"] == "video" and opts["video_template"]["reference_video"] == "https://cdn/dance.mp4"
     assert opts["reference_images"] == ["https://up/1.png", "https://up/2.png"] and opts["video_template"]["input_count"] == 2
     assert opts["video_template"]["preferred_model"] == "kling_o3_omni" and opts["ratio"] == "9:16"
+    assert opts["catalog_reference_url"] == "https://cdn/x.png"
 
 
 def test_published_blocks_join_the_existing_catalogs():

@@ -21,10 +21,10 @@ const html = read('webapp/cabinet.html');
 const index = read('webapp/index.html');
 
 test('the Mini App loads the reference panel with fresh pins', () => {
-  assert.match(index, /<link rel="stylesheet" href="css\/reference-panel\.css\?v=ref-panel-20261027" \/>/);
-  assert.match(index, /<script src="js\/reference-panel\.js\?v=ref-panel-20261027"><\/script>/);
-  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=one-viewer-20261106" \/>/);
-  assert.match(index, /<script src="js\/cabinet\.js\?v=one-viewer-20261106"><\/script>/);
+  assert.match(index, /<link rel="stylesheet" href="css\/reference-panel\.css\?v=card-video-20261107" \/>/);
+  assert.match(index, /<script src="js\/reference-panel\.js\?v=card-video-20261107"><\/script>/);
+  assert.match(index, /<link rel="stylesheet" href="css\/cabinet\.css\?v=card-video-20261107" \/>/);
+  assert.match(index, /<script src="js\/cabinet\.js\?v=card-video-20261107"><\/script>/);
 });
 
 test('the composer: prompt first, then +, Video / Photo (video by default), mic, send; tools below', () => {
@@ -104,4 +104,33 @@ test('Pro Studio wide: catalogs in the workspace, 6 and 7 columns, a still trans
   assert.match(css, /\.catalog-in-workspace:not\(\.kling-effects-overlay\) \.video-templates-grid\{column-count:7\}/);
   assert.match(css, /\.catalog-in-workspace>\.catalog-workspace-close\{position:fixed!important;[^}]*background:transparent!important;box-shadow:none!important;/);
   assert.match(css, /\.catalog-in-workspace:is\(\.photo-catalog-modal,\.video-templates-overlay\)\{background:transparent!important;[^}]*pointer-events:none\}/);
+});
+
+test('reference panel: video cards play while on screen and stop on close', () => {
+  assert.match(panel, /<video class="ref-panel-video" data-src="' \+ esc\(movie\(item\)\) \+ '" muted loop playsinline preload="none" aria-hidden="true"><\/video>/);
+  assert.match(panel, /function movie\(item\) \{ return String\(item\.preview \|\| item\.video \|\| ''\); \}/);
+  assert.match(panel, /new global\.IntersectionObserver\([\s\S]*?\{ root: state\.grid, rootMargin: '120px 0px' \}\)/);
+  assert.match(panel, /if \(animate\) reveal\(cards\);\n    playVideos\(\);/);
+  assert.match(panel, /stopVideos\(closing\);/);
+  assert.match(panelCss, /\.ref-panel-card\.is-playing \.ref-panel-video\{opacity:1\}/);
+  assert.match(panelCss, /\.ref-panel-card\.is-playing \.ref-panel-play\{display:none\}/);
+  assert.match(js, /video:videoTemplateReferenceVideo\(template\), preview:String\(template\.preview_video \|\| ''\)/);
+});
+
+test('generation card: the picture fills its block, a video plays with corner buttons only', () => {
+  assert.match(js, /\? generationInfoVideoHtml\(videoUrl, videoThumb\)/);
+  assert.match(js, / autoplay muted loop playsinline preload="auto"><\/video>'/);
+  assert.match(js, /generation-info-video-btn is-open[^\n]*SYLVEX\.openGenerationInfoVideo\(event\)/);
+  assert.match(js, /generation-info-video-btn is-sound" hidden[^\n]*SYLVEX\.toggleGenerationInfoVideoSound\(event\)/);
+  assert.match(js, /drawer\.classList\.add\('show'\);\n  watchGenerationInfoVideoSound\(\);/);
+  assert.match(js, /S\.openGenerationInfoVideo = openGenerationInfoVideo;/);
+  assert.doesNotMatch(js + css, /generation-info-media-player/);
+  assert.match(css, /\.generation-info-media>\.generation-info-preview-button,\.generation-info-media>\.generation-info-video\{position:absolute;inset:0;width:100%;height:100%/);
+  assert.match(css, /\.generation-info-video-btn\.is-open\{left:10px\}/);
+  assert.match(css, /\.generation-info-video-btn\.is-sound\{right:10px\}/);
+});
+
+test('home block generation shows the block picture and the user photo in the workspace at once', () => {
+  assert.match(js, /function showHandedOffRequest\(h, beforeIndex\) \{/);
+  assert.match(js, /refs: \[ref\.image, photo\.url\] \}\);/);
 });
