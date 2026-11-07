@@ -86,7 +86,7 @@ def shop(monkeypatch):
 
     conn = connect()
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS payment_inbox, payment_reconcile_state, subscription_events, subscription_payments, subscription_agreements, shop_orders, "
+        cur.execute("DROP TABLE IF EXISTS user_credit_wallets, payment_inbox, payment_reconcile_state, subscription_events, subscription_payments, subscription_agreements, shop_orders, "
                     "purchases, subscriptions, users CASCADE")
         # Production shape (main.py ensure_payment_tables), before migration.
         cur.execute("CREATE TABLE users (telegram_id BIGINT PRIMARY KEY, first_name TEXT, balance INTEGER DEFAULT 0, subscription TEXT DEFAULT 'free')")
