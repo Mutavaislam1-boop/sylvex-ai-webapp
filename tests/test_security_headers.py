@@ -142,3 +142,50 @@ async def test_unprotected_static_route_reflects_configured_website_origins(monk
     async with _client(_app()) as client:
         r = await client.get('/webapp/index.html')
         assert 'https://sylvex.ai' in r.headers['content-security-policy']
+
+
+# ---------------------------------------------------------------------------
+# S1-09 / B13: the static/webapp path also carries nosniff and an explicit
+# Referrer-Policy, without overriding a route's own stricter value and
+# without duplicating a header the route already set.
+# ---------------------------------------------------------------------------
+
+def _static_app():
+    from fastapi.responses import HTMLResponse, Response
+    app = FastAPI()
+    app.add_middleware(SecurityMiddleware)
+
+    @app.get('/webapp/page.html')
+    async def page():
+        return HTMLResponse('<!doctype html><title>x</title>')
+
+    @app.get('/admin-like/')
+    async def own_policy():
+        return Response('x', headers={'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'})
+
+    return app
+
+
+@pytest.mark.asyncio
+async def test_unprotected_static_route_has_nosniff_and_referrer_policy():
+    async with _client(_static_app()) as client:
+        r = await client.get('/webapp/page.html')
+        assert r.headers['x-content-type-options'] == 'nosniff'
+        assert r.headers['referrer-policy'] == 'strict-origin-when-cross-origin'
+        assert "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org" in r.headers['content-security-policy']
+
+
+@pytest.mark.asyncio
+async def test_unprotected_route_keeps_its_own_referrer_policy_and_sends_each_once():
+    async with _client(_static_app()) as client:
+        r = await client.get('/admin-like/')
+        assert r.headers.get_list('referrer-policy') == ['no-referrer']
+        assert r.headers.get_list('x-content-type-options') == ['nosniff']
+
+
+@pytest.mark.asyncio
+async def test_protected_api_route_headers_unchanged():
+    async with _client(_app()) as client:
+        r = await client.get('/api/public/prostudio/pricing-catalog')
+        assert r.headers.get_list('referrer-policy') == ['same-origin']
+        assert r.headers.get_list('x-content-type-options') == ['nosniff']

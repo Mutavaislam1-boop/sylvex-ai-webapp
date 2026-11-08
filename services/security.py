@@ -705,7 +705,16 @@ class SecurityMiddleware:
    # secured_send machinery (no body buffering/signing needed here).
    async def unprotected_send(message):
     if message['type']=='http.response.start':
-     message=dict(message);hs=list(message.get('headers',[]));hs.extend(security_response_headers());message['headers']=hs
+     message=dict(message);hs=list(message.get('headers',[]));hs.extend(security_response_headers())
+     # S1-09: the /webapp/ pages and static files got CSP/HSTS but not these
+     # two; added only when the route did not set its own (the admin console
+     # sends Referrer-Policy: no-referrer, which must stay the only one).
+     # strict-origin-when-cross-origin is the browsers' default, so outbound
+     # requests to media/CDN/OAuth hosts behave exactly as before.
+     present={k.lower() for k,v in hs}
+     if b'x-content-type-options' not in present: hs.append((b'x-content-type-options',b'nosniff'))
+     if b'referrer-policy' not in present: hs.append((b'referrer-policy',b'strict-origin-when-cross-origin'))
+     message['headers']=hs
     await send(message)
    return await self.app(scope,receive,unprotected_send)
   is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS))) or (method=='POST' and path in PUBLIC_POSTS)
