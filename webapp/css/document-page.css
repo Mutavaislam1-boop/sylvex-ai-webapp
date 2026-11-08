@@ -1,0 +1,25 @@
+/* Document layout only; use the existing website and Mini App themes. */
+.document-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:20px 0}
+.document-actions label{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.document-actions select{max-width:100%;padding:9px 12px;border:1px solid var(--sx-border,var(--line,#303136));border-radius:7px;background:var(--sx-surface,var(--panel,#121316));color:var(--sx-text,var(--text,#f1f1f1));font:inherit}
+.document-picker{min-width:0;flex:1 1 220px;max-width:520px}
+.document-table{overflow-x:auto;max-width:100%;margin:20px 0}
+#document-content{min-width:0;overflow-wrap:anywhere}
+[data-document-id] h1{overflow-wrap:anywhere}
+#document-content table{width:100%;border-collapse:collapse;font-size:14px}
+#document-content th,#document-content td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--sx-border,var(--line,#303136))}
+#document-content th{color:var(--sx-text,var(--text,#f1f1f1))}
+#document-content section{scroll-margin-top:100px}
+.document-toc-list{list-style:none;margin:0;padding:0}
+.document-version{color:var(--sx-text-mute,var(--muted,#aaa));font-size:13px}
+.document-extra{margin-top:40px;max-width:100%;overflow-x:auto}
+.document-extra table{width:100%;border-collapse:collapse;font-size:14px}
+.document-extra th,.document-extra td{padding:11px;text-align:left;vertical-align:top;border-bottom:1px solid var(--sx-border,var(--line,#303136));overflow-wrap:anywhere}
+.document-extra .providers{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
+.document-extra .providers a{color:inherit;text-decoration:none;padding:8px 11px;border:1px solid var(--line,#303136);border-radius:999px}
+.document-extra .providers a.active{background:#5b7cff;border-color:#5b7cff;color:#fff}
+.document-embedded .legal-header{display:none}
+.document-embedded .legal-layout{display:block;padding:24px 20px 60px}
+.document-embedded .legal-toc{position:static;margin-bottom:24px}
+.document-embedded .legal-intro{padding-bottom:24px}
+@media(max-width:760px){.document-actions{align-items:stretch}.document-actions label{max-width:100%}#document-content th,#document-content td{padding:8px;font-size:12px}.legal-layout>main{min-width:0}.legal-header .brand span{display:none}[data-document-id="01"] .legal-intro h1{font-size:clamp(26px,7.2vw,38px)}}

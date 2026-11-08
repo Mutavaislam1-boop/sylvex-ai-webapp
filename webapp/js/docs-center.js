@@ -6,6 +6,8 @@
   const title = document.getElementById('currentTitle');
   const theme = document.getElementById('centerTheme');
   const pages = { pricing: 'docs-pricing.html', general: 'docs-general.html', images: 'docs-images.html', video: 'docs-video.html', music: 'docs-music.html', voice: 'docs-voice.html', text: 'docs-text.html' };
+  const documentData = window.SYLVEX_DOCUMENTS;
+  if (documentData) Object.keys(documentData.paths).forEach((id) => { if (!['10','11'].includes(id)) pages['doc' + id] = documentData.paths[id].replace('/webapp/', ''); });
   document.documentElement.dataset.theme = localStorage.getItem('sylvex-theme') || 'dark';
   function applyTheme(value) {
     document.documentElement.dataset.theme = value;
@@ -26,9 +28,13 @@
   function openPage(page, anchor) {
     if (!pages[page]) return;
     const pageTitles = { pricing: 'Прайс', general: 'Общее', images: 'Изображения', video: 'Видео', music: 'Музыка', voice: 'Голос', text: 'Текст' };
-    title.textContent = pageTitles[page];
+    const documentId = page.startsWith('doc') ? page.slice(3) : page === 'general' ? '11' : page === 'pricing' ? '10' : null;
+    const queryLanguage = new URLSearchParams(location.search).get('lang');
+    let savedLanguage; try { savedLanguage = localStorage.getItem('sylvex-documents-language'); } catch (_) {}
+    const lang = ['en','ru'].includes(queryLanguage) ? queryLanguage : ['en','ru'].includes(savedLanguage) ? savedLanguage : 'ru';
+    title.textContent = documentId && documentData ? documentData.documents[documentId][lang].title : pageTitles[page];
     document.querySelectorAll('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
-    const target = pages[page] + '?embed=1';
+    const target = pages[page] + '?embed=1' + (documentId ? '&lang=' + lang : '');
     if (!frame.getAttribute('src').startsWith(target)) frame.src = target;
     const url = new URL(location.href);
     url.searchParams.set('section', page);
