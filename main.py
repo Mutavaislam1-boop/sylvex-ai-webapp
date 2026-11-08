@@ -2376,8 +2376,8 @@ def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: 
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'completed')
+            INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id, status, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'completed', CURRENT_TIMESTAMP)
             ON CONFLICT (charge_id) DO NOTHING
         """, (telegram_id, provider, credits, amount, currency, payload, charge_id))
         created = cursor.rowcount > 0

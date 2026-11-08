@@ -644,8 +644,8 @@ def grant_renewal(connect, link: dict, invoice_id: str, amount_cents: int, curre
                 "ON CONFLICT (telegram_id) DO NOTHING", (uid,))
             cur.execute("SELECT telegram_id FROM users WHERE telegram_id = %s FOR UPDATE", (uid,))
             cur.execute("""
-                INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id, status)
-                VALUES (%s, %s, %s, %s, 'USD', %s, %s, 'completed')
+                INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id, status, created_at)
+                VALUES (%s, %s, %s, %s, 'USD', %s, %s, 'completed', CURRENT_TIMESTAMP)
                 ON CONFLICT (charge_id) DO NOTHING
                 RETURNING id
             """, (uid, PROVIDER, int(product["credits"]), int(amount_cents), f"stripe_invoice:{invoice_id}", str(invoice_id)))

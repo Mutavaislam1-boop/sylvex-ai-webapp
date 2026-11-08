@@ -15,6 +15,10 @@ PERIODS = {
     "30d": {"days": 30, "bucket": "day", "steps": 30},
     "365d": {"days": 365, "bucket": "month", "steps": 12},
 }
+# Confirmed purchases recorded without a date cannot be placed in any period.
+# They are listed only in the longest one, as a separate "date unknown" group,
+# outside the period's charts and totals; no date is ever made up for them.
+UNDATED_PAYMENTS_PERIOD = "365d"
 CATEGORIES = ("image", "video", "music", "voice", "text")
 
 
@@ -71,7 +75,8 @@ def _bucket_sequence(period: str, now: datetime):
     return values
 
 
-def build_usage_snapshot(grouped_charges, recent_charges, purchases, subscriptions, balance, period="30d", now=None):
+def build_usage_snapshot(grouped_charges, recent_charges, purchases, subscriptions, balance, period="30d", now=None,
+                         undated_purchases=()):
     if period not in PERIODS:
         raise ValueError("invalid_period")
     now = _utc(now or datetime.now(timezone.utc))
@@ -147,6 +152,15 @@ def build_usage_snapshot(grouped_charges, recent_charges, purchases, subscriptio
             "plan": str(subscription_type or ""),
         })
 
+    undated_items = []
+    for payment_id, provider, credits, amount, currency, status, subscription_type in undated_purchases:
+        undated_items.append({
+            "id": int(payment_id), "provider": str(provider or ""), "credits": max(0, int(credits or 0)),
+            "amount": max(0, int(amount or 0)), "currency": str(currency or "").upper(),
+            "status": str(status or "completed"), "created_at": None,
+            "kind": "subscription" if subscription_type else "credits", "plan": str(subscription_type or ""),
+        })
+
     subscription_items = []
     for row in subscriptions:
         sub_id, plan, method, amount, currency, status, starts_at, expires_at, created_at = row
@@ -166,7 +180,8 @@ def build_usage_snapshot(grouped_charges, recent_charges, purchases, subscriptio
         "summary": {
             "balance": max(0, int(balance or 0)), "spent_credits": total_credits,
             "generation_requests": total_requests, "added_credits": payment_credits,
-            "payments": len(payment_items), "active_subscription": current_subscription,
+            "payments": len(payment_items), "undated_payments": len(undated_items),
+            "active_subscription": current_subscription,
             "payment_amounts": dict(sorted(payment_currencies.items())),
         },
         "timeline": list(timeline.values()),
@@ -175,6 +190,7 @@ def build_usage_snapshot(grouped_charges, recent_charges, purchases, subscriptio
         "models": model_rows,
         "activity": activity,
         "payments": payment_items,
+        "undated_payments": undated_items,
         "subscriptions": subscription_items,
     }
 
@@ -220,6 +236,19 @@ def load_usage_snapshot(connect, telegram_id, period="30d"):
                 (int(telegram_id), start_at),
             )
             purchases = cur.fetchall()
+            undated = []
+            if period == UNDATED_PAYMENTS_PERIOD:
+                cur.execute(
+                    """SELECT p.id, p.provider, p.credits, p.amount, p.currency, p.status, s.subscription_type
+                         FROM purchases p
+                         LEFT JOIN subscriptions s ON s.charge_id = p.charge_id
+                        WHERE p.telegram_id = %s
+                          AND NULLIF(p.created_at::text, '') IS NULL
+                          AND p.status = 'completed'
+                        ORDER BY p.id DESC LIMIT 250""",
+                    (int(telegram_id),),
+                )
+                undated = cur.fetchall()
             cur.execute(
                 """SELECT id, subscription_type, payment_method, amount, currency, status,
                           NULLIF(starts_at::text, '')::timestamp,
@@ -232,6 +261,7 @@ def load_usage_snapshot(connect, telegram_id, period="30d"):
             subscriptions = cur.fetchall()
             cur.execute("SELECT COALESCE(balance, 0) FROM users WHERE telegram_id = %s", (int(telegram_id),))
             row = cur.fetchone()
-        return build_usage_snapshot(grouped, recent, purchases, subscriptions, row[0] if row else 0, period, now)
+        return build_usage_snapshot(grouped, recent, purchases, subscriptions, row[0] if row else 0, period, now,
+                                    undated_purchases=undated)
     finally:
         conn.close()

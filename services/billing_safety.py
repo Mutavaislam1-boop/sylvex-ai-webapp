@@ -217,8 +217,8 @@ def apply_payment(connect,uid,provider,item,amount,currency,payload,charge_id):
   with conn.cursor() as cur:
    cur.execute('SELECT telegram_id FROM users WHERE telegram_id=%s FOR UPDATE',(uid,))
    if not cur.fetchone():raise SecurityError('user_not_found',404)
-   cur.execute('''INSERT INTO purchases(telegram_id,provider,credits,amount,currency,payload,charge_id,status)
-    VALUES(%s,%s,%s,%s,%s,%s,%s,'completed') ON CONFLICT(charge_id) DO NOTHING RETURNING id''',(uid,provider,credits or bonus,amount,currency,payload,charge_id))
+   cur.execute('''INSERT INTO purchases(telegram_id,provider,credits,amount,currency,payload,charge_id,status,created_at)
+    VALUES(%s,%s,%s,%s,%s,%s,%s,'completed',CURRENT_TIMESTAMP) ON CONFLICT(charge_id) DO NOTHING RETURNING id''',(uid,provider,credits or bonus,amount,currency,payload,charge_id))
    if not cur.fetchone():return False
    if item['kind']=='subscription':
     cur.execute('''INSERT INTO subscriptions(telegram_id,subscription_type,payment_method,amount,currency,expires_at,status,charge_id)

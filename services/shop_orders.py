@@ -558,8 +558,8 @@ def _record_purchase(cur, uid, order, provider, currency, charge_id):
     """Insert the payment into purchases; False if this charge is already recorded."""
     cur.execute(
         """
-        INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'completed')
+        INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id, status, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'completed', CURRENT_TIMESTAMP)
         ON CONFLICT (charge_id) DO NOTHING
         RETURNING id
         """,

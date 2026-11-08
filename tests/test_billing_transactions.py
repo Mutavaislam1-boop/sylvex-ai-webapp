@@ -24,7 +24,7 @@ def tables(connect):
  statements=[
  'DROP TABLE IF EXISTS user_credit_wallets,generation_reservations,generation_charges,purchases,subscriptions,users CASCADE',
  'CREATE TABLE users(telegram_id BIGINT PRIMARY KEY,balance INTEGER,subscription TEXT)',
- 'CREATE TABLE purchases(id SERIAL PRIMARY KEY,telegram_id BIGINT,provider TEXT,credits INTEGER,amount INTEGER,currency TEXT,payload TEXT,charge_id TEXT UNIQUE,status TEXT)',
+ 'CREATE TABLE purchases(id SERIAL PRIMARY KEY,telegram_id BIGINT,provider TEXT,credits INTEGER,amount INTEGER,currency TEXT,payload TEXT,charge_id TEXT UNIQUE,status TEXT,created_at TEXT)',
  'CREATE TABLE subscriptions(id SERIAL PRIMARY KEY,telegram_id BIGINT,subscription_type TEXT,payment_method TEXT,amount INTEGER,currency TEXT,expires_at TIMESTAMP,status TEXT,charge_id TEXT UNIQUE)',
  'CREATE TABLE generation_charges(id SERIAL PRIMARY KEY,generation_id TEXT UNIQUE,telegram_id BIGINT,mode TEXT,model TEXT,provider TEXT,credits INTEGER,balance_after INTEGER)',
  'INSERT INTO users(telegram_id,balance) VALUES(101,100)',
