@@ -5037,6 +5037,7 @@ def create_prostudio_generation_job(payload: dict) -> str:
             raise ActiveProstudioJobError(active[0], active[1])
         price = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else calculate_generation_price(payload).get("price_snapshot", {})
         payload["price_snapshot"] = price
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, job_id, int(price.get("final_credits") or 0))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
@@ -5067,6 +5068,22 @@ def create_prostudio_generation_job(payload: dict) -> str:
     return job_id
 
 
+def require_generation_subscription(cursor, telegram_id: int) -> None:
+    """Admit new paid work under the existing paid entitlement contract.
+
+    User and entitlement locks share the reservation transaction. Renewal
+    cancellation does not shorten a paid period; existing held jobs settle
+    or refund normally after expiry, without a second admission.
+    """
+    cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = %s FOR UPDATE", (telegram_id,))
+    if not cursor.fetchone():
+        raise SecurityError("user_not_found", 404)
+    cursor.execute("SELECT 1 FROM subscriptions s WHERE s.telegram_id = %s AND "
+                   + shop_orders.VALID_ENTITLEMENT_SQL + " LIMIT 1 FOR SHARE OF s", (telegram_id,))
+    if not cursor.fetchone():
+        raise SecurityError("subscription_required", 403)
+
+
 def reserve_direct_text_generation(telegram_id: int, credits: int, generation_id: str = "") -> str:
     """Reserve credits before calling a provider for work that is not queued
     as a media job (direct text, priced helpers). A caller-supplied
@@ -5083,6 +5100,7 @@ def reserve_direct_text_generation(telegram_id: int, credits: int, generation_id
         cursor.execute("SELECT 1 FROM generation_reservations WHERE generation_id = %s", (generation_id,))
         if cursor.fetchone():
             raise SecurityError("duplicate_request", 409)
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, generation_id, credits)
         conn.commit()
         return generation_id
@@ -9329,6 +9347,7 @@ def create_character_creation_job(telegram_id: int, name: str, gender: str, desc
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, job_id, int(credits))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
@@ -9779,6 +9798,7 @@ def create_object_creation_job(telegram_id: int, name: str, description: str, ph
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, job_id, int(credits))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
