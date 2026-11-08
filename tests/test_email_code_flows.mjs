@@ -51,7 +51,7 @@ test('code slots: wrong code drains red, right code washes with a tick', () => {
 
 test('the Mini App delete sheet: Russian, code then hold, no password or DELETE', () => {
   assert.match(cabinet, /'<h3 style="margin:6px 0 10px;font-size:17px">Удалить аккаунт SYLVEX\?<\/h3>'/);
-  assert.match(cabinet, /label: 'Удерживайте, чтобы удалить', doneLabel: 'Аккаунт удалён'/);
+  assert.match(cabinet, /label: 'Удерживайте для отправки запроса', doneLabel: 'Запрос принят'/);
   assert.match(cabinet, /backgroundColor: '#27272a', fillColor: '#f60303', textColor: '#f5f5f5', fillTextColor: '#ffffff',/);
   assert.match(cabinet, /invalid_code: \(d\) => d\.attempts_left \? `Неверный код\. Осталось попыток: \$\{d\.attempts_left\}\.` : 'Неверный код\.',/);
   assert.match(hold, /if \(phase !== 'holding' \|\| performance\.now\(\) - start < holdTime - 50\) return;/);
