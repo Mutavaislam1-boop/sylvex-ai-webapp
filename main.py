@@ -32,6 +32,7 @@ from typing import Optional
 from uuid import uuid4
 import requests
 import psycopg2
+from services import payment_reviews, stripe_reversals
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from routers.video_templates import router as video_templates_router
 
@@ -5037,6 +5038,7 @@ def create_prostudio_generation_job(payload: dict) -> str:
             raise ActiveProstudioJobError(active[0], active[1])
         price = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else calculate_generation_price(payload).get("price_snapshot", {})
         payload["price_snapshot"] = price
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, job_id, int(price.get("final_credits") or 0))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
@@ -5067,6 +5069,24 @@ def create_prostudio_generation_job(payload: dict) -> str:
     return job_id
 
 
+def require_generation_subscription(cursor, telegram_id: int) -> None:
+    """Admit new paid work under the existing paid entitlement contract.
+
+    User and entitlement locks share the reservation transaction. Renewal
+    cancellation does not shorten a paid period; existing held jobs settle
+    or refund normally after expiry, without a second admission.
+    """
+    cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = %s FOR UPDATE", (telegram_id,))
+    if not cursor.fetchone():
+        raise SecurityError("user_not_found", 404)
+    if payment_reviews.blocked_for(cursor, telegram_id, stripe_billing.key_livemode(STRIPE_SECRET_KEY)):
+        raise SecurityError("payment_review_required", 403)
+    cursor.execute("SELECT 1 FROM subscriptions s WHERE s.telegram_id = %s AND "
+                   + shop_orders.VALID_ENTITLEMENT_SQL + " LIMIT 1 FOR SHARE OF s", (telegram_id,))
+    if not cursor.fetchone():
+        raise SecurityError("subscription_required", 403)
+
+
 def reserve_direct_text_generation(telegram_id: int, credits: int, generation_id: str = "") -> str:
     """Reserve credits before calling a provider for work that is not queued
     as a media job (direct text, priced helpers). A caller-supplied
@@ -5083,6 +5103,7 @@ def reserve_direct_text_generation(telegram_id: int, credits: int, generation_id
         cursor.execute("SELECT 1 FROM generation_reservations WHERE generation_id = %s", (generation_id,))
         if cursor.fetchone():
             raise SecurityError("duplicate_request", 409)
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, generation_id, credits)
         conn.commit()
         return generation_id
@@ -9329,6 +9350,7 @@ def create_character_creation_job(telegram_id: int, name: str, gender: str, desc
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, job_id, int(credits))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
@@ -9779,6 +9801,7 @@ def create_object_creation_job(telegram_id: int, name: str, description: str, ph
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        require_generation_subscription(cursor, telegram_id)
         reserve_generation(cursor, telegram_id, job_id, int(credits))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
@@ -16503,6 +16526,10 @@ def create_stripe_checkout(telegram_id: int, product: dict, miniapp_base=None) -
 
 def process_stripe_event(event: dict) -> dict:
     ensure_stripe_tables()
+    if event.get("type") in stripe_reversals.EVENT_TYPES:
+        # Old stripe_events rows marked unhandled must not suppress reversals.
+        payment_reviews.ensure_tables(shop_db)
+        return stripe_reversals.receive_verified(shop_db, stripe_client(), event)
     if stripe_billing.event_processed(shop_db, event["id"]):
         return {"outcome": "duplicate_event"}
     client = stripe_client()
@@ -16767,6 +16794,19 @@ async def public_stars_webhook(request: Request):
         return {"ok": answered, "approved": valid}
 
     message = update.get("message") or update.get("edited_message") or {}
+    refund = message.get("refunded_payment")
+    if refund is not None:
+        try:
+            payment_reviews.stars_refund_record(refund)
+        except payment_reviews.ReviewError:
+            return JSONResponse({"ok": False, "error": "invalid_refunded_payment"}, status_code=400)
+        try:
+            await asyncio.to_thread(payment_reviews.ensure_tables, shop_db)
+            result = await asyncio.to_thread(payment_reviews.record_stars_refund, shop_db, refund)
+        except Exception as exc:
+            print("STARS REFUND NOT DURABLE:", type(exc).__name__)
+            return JSONResponse({"ok": False, "error": "refund_not_recorded"}, status_code=503)
+        return {"ok": True, "outcome": result["outcome"]}
     payment = message.get("successful_payment") or {}
     if not payment:
         return {"ok": True, "ignored": True}
@@ -16853,7 +16893,8 @@ def replay_star_payments() -> dict:
 
 def reconcile_star_payments() -> dict:
     ensure_shop_orders()
-    return payment_inbox.reconcile_star_transactions(shop_db, fetch_star_transactions)
+    return payment_inbox.reconcile_star_transactions(shop_db, fetch_star_transactions,
+        on_refund=lambda tx: payment_reviews.record_star_transaction_refund(shop_db, tx))
 
 
 # =====================================================
@@ -29732,14 +29773,32 @@ async def subscription_events_worker_loop():
         await asyncio.sleep(max(5, SUBSCRIPTION_EVENTS_INTERVAL_SECONDS))
 
 
+def recover_financial_reviews():
+    payment_reviews.reconcile_uncertain_requests(shop_db)
+    payment_reviews.replay_stars_refunds(shop_db)
+    payment_reviews.refresh_mappings(shop_db)
+    if stripe_enabled():
+        stripe_reversals.replay(shop_db, stripe_client())
+    return payment_reviews.summary(shop_db)
+
+
 async def payment_recovery_worker_loop():
     """Always on (independent of notifications): replay confirmed Telegram
     Stars payments that are stored but unprocessed - after an outage, crash or
     restart - and reconcile with Telegram's Star transaction history."""
     print("PAYMENT RECOVERY WORKER STARTED")
     last_reconcile = 0.0
+    last_review_notice = 0.0
     while True:
         try:
+            try:
+                reviews = await asyncio.to_thread(recover_financial_reviews)
+            except Exception as exc:
+                print("FINANCIAL REVIEW RECOVERY FAILED:", type(exc).__name__)
+                reviews = {}
+            if any(reviews.values()) and time.monotonic() - last_review_notice >= 300:
+                print("FINANCIAL REVIEW REQUIRED:", reviews)
+                last_review_notice = time.monotonic()
             replayed = await asyncio.to_thread(replay_star_payments)
             if replayed.get("spooled") or replayed.get("processed") or replayed.get("rejected") or replayed.get("error"):
                 prostudio_debug("STARS_PAYMENTS_REPLAYED", **replayed)
@@ -29792,6 +29851,7 @@ async def start_prostudio_generation_worker():
         # after a deploy would still hit the old full-scan behavior until
         # some other endpoint happened to run first.
         await asyncio.to_thread(ensure_payment_tables)
+        await asyncio.to_thread(payment_reviews.ensure_tables, shop_db)
         await asyncio.to_thread(ensure_user_events_table)
         await asyncio.to_thread(ensure_generations_index)
         await asyncio.to_thread(account_identity_service.ensure_account_tables, DATABASE_URL)
@@ -30186,8 +30246,8 @@ async def health_ready():
         conn = db_connect(DATABASE_URL)
         try:
             with conn.cursor() as cursor:
-                cursor.execute("SELECT 1")
-                return cursor.fetchone()[0] == 1
+                cursor.execute("SELECT to_regclass('public.financial_review_events')IS NOT NULL AND to_regclass('public.financial_review_cases')IS NOT NULL AND to_regclass('public.financial_review_resolutions')IS NOT NULL AND to_regclass('public.payment_refund_requests')IS NOT NULL")
+                return cursor.fetchone()[0] is True
         finally:
             conn.close()
     try:
@@ -30200,6 +30260,9 @@ async def health_ready():
 
 @app.exception_handler(SecurityError)
 async def security_error_handler(request: Request, exc: SecurityError):
+    if exc.code == "payment_review_required":
+        return JSONResponse({"ok": False, "error": exc.code, "support_email": "support@sylvex.ai",
+            "message": "Платёж находится на проверке. Обратитесь в support@sylvex.ai. / Payment review: contact support@sylvex.ai."}, status_code=403)
     return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
 
 

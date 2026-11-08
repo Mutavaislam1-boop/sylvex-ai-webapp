@@ -6,6 +6,8 @@ import psycopg2
 import pytest
 from services import billing_safety as billing
 
+pytestmark = pytest.mark.skipif(not os.getenv("SYLVEX_TEST_DATABASE_URL"), reason="Set SYLVEX_TEST_DATABASE_URL to a disposable wallet_fix_test_ database")
+
 @pytest.fixture
 def connect():
     url = os.environ['SYLVEX_TEST_DATABASE_URL']

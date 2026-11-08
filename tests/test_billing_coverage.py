@@ -131,14 +131,18 @@ def ledger(monkeypatch):
             conn.close()
 
     for statement in (
-        "DROP TABLE IF EXISTS generation_reservations, generation_charges, users, prostudio_generation_jobs CASCADE",
+        "DROP TABLE IF EXISTS subscriptions, user_credit_wallets, generation_reservations, generation_charges, users, prostudio_generation_jobs CASCADE",
         "CREATE TABLE users(telegram_id BIGINT PRIMARY KEY, balance INTEGER)",
         "CREATE TABLE generation_charges(id SERIAL PRIMARY KEY, generation_id TEXT UNIQUE, telegram_id BIGINT, mode TEXT, model TEXT, provider TEXT, credits INTEGER, balance_after INTEGER)",
         "CREATE TABLE prostudio_generation_jobs(id TEXT PRIMARY KEY, telegram_id BIGINT, mode TEXT, model TEXT, provider TEXT, prompt TEXT, status TEXT, request_json JSONB, heartbeat_at TIMESTAMPTZ)",
         "INSERT INTO users VALUES (101, 100), (202, 1), (303, 500)",
+        "CREATE TABLE subscriptions(id SERIAL PRIMARY KEY, telegram_id BIGINT, subscription_type TEXT, starts_at TIMESTAMP, expires_at TIMESTAMP, status TEXT)",
+        "INSERT INTO subscriptions(telegram_id,subscription_type,starts_at,expires_at,status) SELECT telegram_id,'starter_month',NOW()-INTERVAL '1 day',NOW()+INTERVAL '30 days','active' FROM users",
     ):
         run(statement)
     billing_safety.ensure_reservations(connect)
+    from test_payment_reviews import install_payment_tables
+    install_payment_tables(connect)
     monkeypatch.setattr(main, "DATABASE_URL", DATABASE)
     monkeypatch.setattr(main, "db_connect", connect)
     monkeypatch.setattr(main, "ensure_user_exists", lambda telegram_id: None)
