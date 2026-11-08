@@ -24,7 +24,10 @@ def billing_scope(generation_id, credits, *, free=False):
  credits=int(credits or 0)
  if credits<=0 and not free:raise SecurityError('pricing_not_configured',402)
  token=_BILLING_SCOPE.set({'generation_id':generation_id,'credits':max(0,credits),'free':bool(free)})
- try:yield _BILLING_SCOPE.get()
+ try:
+  from services.account_erasure import operation_scope
+  with operation_scope(generation_id):
+   yield _BILLING_SCOPE.get()
  finally:_BILLING_SCOPE.reset(token)
 
 

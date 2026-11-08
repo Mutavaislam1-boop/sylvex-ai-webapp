@@ -16,10 +16,13 @@ PASSWORD = "correct horse battery"
 
 
 @pytest.fixture
-def env(monkeypatch):
-    if not (os.getenv("SYLVEX_TEST_NODE") and os.getenv("SYLVEX_PGLITE_MODULE")):
-        pytest.skip("Set SYLVEX_TEST_NODE and SYLVEX_PGLITE_MODULE to run real-SQL tests")
-    from pglite_adapter import Database
+def env(monkeypatch, tmp_path):
+    if "@sx001c3-postgres:" in os.getenv("SYLVEX_TEST_DATABASE_URL","") and "/policy_erasure_test_" in os.getenv("SYLVEX_TEST_DATABASE_URL",""):
+        from postgres_adapter import Database
+    elif os.getenv("SYLVEX_TEST_NODE") and os.getenv("SYLVEX_PGLITE_MODULE"):
+        from pglite_adapter import Database
+    else:
+        pytest.skip("Configure disposable PostgreSQL or PGlite for real-SQL confirmation tests")
     from services import account_identity as ai
     from services import login_rate_limit as rl
 
@@ -37,6 +40,14 @@ def env(monkeypatch):
                 "username TEXT, balance INTEGER, subscription TEXT, created_at TEXT)"
             )
     ai.ensure_account_tables("pglite://test")
+    from services import account_erasure as erasure, account_erasure_guards as guards
+    monkeypatch.setattr(erasure,"db_connect",lambda *a,**k:database.connect())
+    monkeypatch.setenv("SYLVEX_ERASURE_JOURNAL_DIR",str(tmp_path/"erasure-journal"))
+    monkeypatch.setenv("SYLVEX_ERASURE_ACCEPTING","1")
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            erasure.ensure_schema(cur)
+            guards.install(cur)
     account_id = ai.register_email_account("pglite://test", "Anna@Example.com", PASSWORD)
     yield database, ai, sent, account_id
     database.close()
@@ -67,10 +78,13 @@ def test_the_code_goes_to_the_account_email_and_deletes_only_once_confirmed(env)
     with pytest.raises(ai.AccountError) as exc:
         ai.verify_account_deletion("pglite://test", account_id, sent[0][1])
     assert exc.value.code == "code_expired"
-    ai.delete_account("pglite://test", account_id, token)
-    assert _query(database, "SELECT COUNT(*) FROM account_emails")[0][0] == 0
-    assert _query(database, "SELECT COUNT(*) FROM sylvex_accounts WHERE account_id = %s", (account_id,))[0][0] == 0
-    assert _query(database, "SELECT COUNT(*) FROM account_deletion_codes")[0][0] == 0
+    receipt = ai.delete_account("pglite://test", account_id, token)
+    assert receipt["accepted"] and not receipt["complete"]
+    # Confirmation queues full erasure; identity/content survive until its
+    # checked processor completes, with every session already revoked.
+    assert _query(database, "SELECT COUNT(*) FROM account_emails")[0][0] == 1
+    assert _query(database, "SELECT state FROM sylvex_erasure_requests")[0][0] == "queued"
+    assert _query(database, "SELECT session_generation FROM sylvex_accounts WHERE account_id = %s", (account_id,))[0][0] == 1
 
 
 def test_wrong_codes_count_down_then_lock(env):
@@ -110,5 +124,6 @@ def test_an_account_without_any_email_needs_no_code(env):
     _query(database, "DELETE FROM account_emails WHERE account_id = %s", (account_id,))
     assert ai.start_account_deletion("pglite://test", account_id) == {"code_required": False}
     assert not sent
-    ai.delete_account("pglite://test", account_id)
-    assert _query(database, "SELECT COUNT(*) FROM sylvex_accounts WHERE account_id = %s", (account_id,))[0][0] == 0
+    receipt = ai.delete_account("pglite://test", account_id)
+    assert receipt["accepted"] and not receipt["complete"]
+    assert _query(database, "SELECT state FROM sylvex_erasure_requests")[0][0] == "queued"

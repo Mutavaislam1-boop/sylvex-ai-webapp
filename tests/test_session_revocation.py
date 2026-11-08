@@ -138,7 +138,9 @@ class _FakeCursor:
         self._last = None
 
     def execute(self, sql, params=None):
-        if 'ALTER TABLE' in sql or 'CREATE TABLE' in sql or 'CREATE UNIQUE INDEX' in sql or 'CREATE INDEX' in sql or 'CREATE SEQUENCE' in sql:
+        if "to_regclass('sylvex_erasure_requests')" in sql:
+            self._last = (None,)  # no deletion queue in this revocation-only fixture
+        elif 'ALTER TABLE' in sql or 'CREATE TABLE' in sql or 'CREATE UNIQUE INDEX' in sql or 'CREATE INDEX' in sql or 'CREATE SEQUENCE' in sql:
             self._last = None
         elif 'SELECT session_generation FROM sylvex_accounts' in sql:
             (account_id,) = params
@@ -163,6 +165,12 @@ class _FakeCursor:
     def close(self):
         pass
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self,*args):
+        self.close()
+
 
 class _FakeConnection:
     def __init__(self, store):
@@ -177,6 +185,15 @@ class _FakeConnection:
     def close(self):
         pass
 
+    def rollback(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self,*args):
+        self.close()
+
 
 @pytest.fixture
 def fake_db(monkeypatch):
@@ -185,6 +202,8 @@ def fake_db(monkeypatch):
     store = {}
     connection = _FakeConnection(store)
     monkeypatch.setattr(db_pool, 'db_connect', lambda *a, **k: connection)
+    from services import account_erasure
+    monkeypatch.setattr(account_erasure,'db_connect',lambda *a,**k:connection)
     # Skip the real schema migration entirely - the fake connection has no
     # real sylvex_accounts table for it to touch.
     monkeypatch.setattr(account_identity_module, 'ensure_account_tables', lambda database_url: None)
@@ -356,6 +375,9 @@ async def test_password_change_http_flow_rejects_old_cookie_and_accepts_the_reis
 def me_app(monkeypatch):
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
     import main
+    # These tests fake generation/session state, with no application DB.
+    # Do not reuse a module constant captured from an earlier fake-db test.
+    monkeypatch.setattr(main,'DATABASE_URL',None)
     main.app.middleware_stack = None
     for mw in main.app.user_middleware:
         if mw.cls is SecurityMiddleware:
@@ -407,6 +429,9 @@ async def test_unrevoked_account_is_unaffected(monkeypatch, me_app):
 def account_routes_app(monkeypatch):
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
     import main
+    # These tests fake generation/session state, with no application DB.
+    # Do not reuse a module constant captured from an earlier fake-db test.
+    monkeypatch.setattr(main,'DATABASE_URL',None)
     main.app.middleware_stack = None
     for mw in main.app.user_middleware:
         if mw.cls is SecurityMiddleware:
@@ -461,19 +486,30 @@ async def test_password_change_reissues_a_cookie_at_the_returned_generation(monk
 
 
 @pytest.mark.asyncio
-async def test_account_delete_revokes_the_session(monkeypatch, account_routes_app):
+async def test_account_delete_returns_the_atomic_revocation_receipt(monkeypatch, account_routes_app):
     import main
     revoked = []
-    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id) or 1)
-    monkeypatch.setattr(main.account_identity_service, 'delete_account', lambda *a, **k: None)
+    route_revocations=[]
+    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: route_revocations.append(account_id) or 1)
+    receipt={'accepted':True,'complete':False,'request_id':'11111111-1111-4111-8111-111111111111','state':'queued'}
+    def confirmed_request(database_url,account_id,confirm_token):
+        assert confirm_token=='whatever'
+        # The real service commits this counter with the request; its SQL
+        # regression verifies it. A second route-side revocation is a bug.
+        revoked.append(account_id)
+        return receipt
+    monkeypatch.setattr(main.account_identity_service, 'delete_account', confirmed_request)
     token = create_web_session_token(42)
     async with _client(account_routes_app) as client:
         r = await client.post(
-            '/api/web/account/delete', json={'confirm_token': 'whatever'},
+            '/api/web/account/delete', json={'confirm_token': 'whatever','erasure_scope':'web_account_content_v1'},
             headers={'Cookie': f'sylvex_web_session={token}'},
         )
-        assert r.status_code == 200, r.text
+        assert r.status_code == 202, r.text
+        assert r.json()=={'ok':True,**receipt}
+        assert 'Max-Age=0' in r.headers['set-cookie']
     assert revoked == [42]
+    assert route_revocations == []
 
 
 # ---------------------------------------------------------------------------

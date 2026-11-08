@@ -26161,6 +26161,10 @@ async function waitGenerationJob(jobId, options) {
     code_recently_sent: (d) => `Код уже отправлен. Новый можно запросить через ${d.retry_after || 60} с.`,
     too_many_codes: () => 'Слишком много кодов за час. Попробуйте позже.',
     deletion_not_confirmed: () => 'Подтверждение истекло. Начните заново.',
+    erasure_scope_confirmation_required: () => 'Обновите страницу и подтвердите запрос заново.',
+    erasure_intake_not_ready: () => 'Для удаления аккаунта обратитесь в support@sylvex.ai.',
+    erasure_journal_not_configured: () => 'Для удаления аккаунта обратитесь в support@sylvex.ai.',
+    erasure_guards_not_installed: () => 'Для удаления аккаунта обратитесь в support@sylvex.ai.',
   };
   function openDeleteAccount() {
     if (!isBrowserApp() || guestNeedsAccount('account')) return;
@@ -26184,7 +26188,7 @@ async function waitGenerationJob(jobId, options) {
     const post = async (path, body) => {
       try {
         const response = await fetch(path, {
-          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({}, body || {}, { erasure_scope: 'web_account_content_v1' })),
         });
         return { ok: response.ok, data: await response.json().catch(() => ({})) };
       } catch { return { ok: false, data: { error: 'network_error' } }; }
@@ -26200,7 +26204,8 @@ async function waitGenerationJob(jobId, options) {
     const clock = (ms) => { const t = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 
     function intro() {
-      step.innerHTML = '<p>Вход в SYLVEX (email и Google) будет удалён, вы выйдете здесь и на sylvex.ai. Это нельзя отменить.</p>'
+      step.innerHTML = '<p>Вы отправляете запрос на удаление аккаунта веб-платформы, его истории и личных файлов. Доступ к аккаунту будет закрыт. Отдельный Telegram-аккаунт не удаляется.</p>'
+        + '<p>Проверьте отмену продления отдельно. Удаление не выполняет автоматический возврат. Необходимые по закону платёжные записи сохраняются.</p>'
         + '<p>Для подтверждения мы отправим 6-значный код на почту аккаунта.</p>'
         + '<p class="ep-error" id="daError" role="alert" hidden></p>'
         + '<button class="da-send" type="button" id="daSend">Отправить код</button>' + cancelButton;
@@ -26265,18 +26270,18 @@ async function waitGenerationJob(jobId, options) {
     }
     function holdStep(confirmToken) {
       if (confirmToken === null) {
-        step.innerHTML = '<p>Вход в SYLVEX будет удалён, вы выйдете здесь и на sylvex.ai. Это нельзя отменить.</p>'
+        step.innerHTML = '<p>Вы отправляете запрос на удаление аккаунта веб-платформы, его истории и личных файлов. Доступ будет закрыт. Необходимые по закону записи сохраняются.</p>'
           + '<p class="ep-error" id="daError" role="alert" hidden></p><div id="daHold"></div>' + cancelButton;
         bindCancel();
       }
       const hold = window.SylvexHoldButton.create({
-        label: 'Удерживайте, чтобы удалить', doneLabel: 'Аккаунт удалён', hint: 'Нажмите и удерживайте 2 секунды, чтобы удалить аккаунт',
+        label: 'Удерживайте для отправки запроса', doneLabel: 'Запрос принят', hint: 'Удерживайте 2 секунды для подтверждения запроса на удаление',
         size: 'lg', block: true, backgroundColor: '#27272a', fillColor: '#f60303', textColor: '#f5f5f5', fillTextColor: '#ffffff',
         radius: 14, holdTime: 2000, releaseTime: 200, pressScale: 0.97, waveAmplitude: 6,
         onHold: async () => {
           const res = await post('/api/web/account/delete', confirmToken ? { confirm_token: confirmToken } : {});
-          if (res.ok && res.data.ok) {
-            setTimeout(() => { clearBrowserAccountState('guest'); window.location.reload(); }, 900);
+          if (res.ok && res.data.ok && res.data.accepted) {
+            setTimeout(() => { clearBrowserAccountState('guest'); window.location.reload(); }, 1800);
             return;
           }
           hold.reset();

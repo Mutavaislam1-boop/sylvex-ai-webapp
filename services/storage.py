@@ -18,6 +18,7 @@ from db_pool import db_connect
 from services.safe_io import safe_local_path
 from services.security import SecurityError
 from services.media_access import sign_media_url
+from services.account_erasure import storage_write, storage_registry_cursor
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -44,6 +45,20 @@ _direct_upload_cors_ready = False
 def _record_object(key: str, url: str, content_type: str, size: int) -> None:
     global _registry_ready
     if not DATABASE_URL:
+        return
+    guarded = storage_registry_cursor()
+    if guarded is not None:
+        guarded.execute("""
+            INSERT INTO sylvex_storage_objects
+                (object_key, file_url, content_type, size_bytes, storage_backend, updated_at)
+            VALUES (%s,%s,%s,%s,%s,NOW())
+            ON CONFLICT (object_key) DO UPDATE SET
+                file_url=EXCLUDED.file_url,
+                content_type=EXCLUDED.content_type,
+                size_bytes=EXCLUDED.size_bytes,
+                storage_backend=EXCLUDED.storage_backend,
+                updated_at=NOW()
+        """, (key, url, content_type, int(size or 0), "r2" if r2_enabled() else "local"))
         return
     try:
         with _registry_lock:
@@ -225,6 +240,7 @@ def head_object(key: str) -> dict:
     return {"content_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream", "size": path.stat().st_size, "etag": ""}
 
 
+@storage_write
 def register_existing_object(key: str, content_type: str, size: int) -> str:
     """Register a browser-uploaded object after server-side validation."""
     clean = normalize_key(key)
@@ -265,6 +281,7 @@ def key_from_url(url: str) -> str:
     return ""
 
 
+@storage_write
 def put_bytes(data: bytes, key: str, content_type: str = "", cache_control: str = "public, max-age=31536000, immutable") -> str:
     clean = normalize_key(key)
     if not clean or not data:
@@ -281,6 +298,7 @@ def put_bytes(data: bytes, key: str, content_type: str = "", cache_control: str 
     return url
 
 
+@storage_write
 def put_file(path: pathlib.Path | str, key: str, content_type: str = "", remove_local: bool = False) -> str:
     source = pathlib.Path(path)
     clean = normalize_key(key)
@@ -323,6 +341,7 @@ def find_generated_object(key: str, fingerprint: str) -> str:
     return register_existing_object(clean, head.get("ContentType") or "application/octet-stream", head["ContentLength"])
 
 
+@storage_write
 def put_generated_file_once(path: pathlib.Path | str, key: str, fingerprint: str, content_type: str = "") -> str:
     """Conditional PUT: an interrupted upload can be retried without overwrite.
 
