@@ -397,7 +397,7 @@ def _known_charge(cur, charge_id):
     return cur.fetchone() is not None
 
 
-def reconcile_star_transactions(connect, fetch_page, page_size=100, max_pages=20, settle_seconds=600, now=None):
+def reconcile_star_transactions(connect, fetch_page, page_size=100, max_pages=20, settle_seconds=600, now=None, on_refund=None):
     """Ingest confirmed payments that Telegram recorded but SYLVEX never
     received (e.g. an update lost after Telegram stopped redelivering it).
 
@@ -429,6 +429,9 @@ def reconcile_star_transactions(connect, fetch_page, page_size=100, max_pages=20
             if _int_or_none(tx.get("date")) and _int_or_none(tx.get("date")) > now - settle_seconds:
                 break
             settled.append(tx)
+        if on_refund is not None:
+            for tx in settled:
+                on_refund(tx)  # Durable before advancing the reconciliation cursor.
         conn = connect()
         try:
             with conn.cursor() as cur:

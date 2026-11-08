@@ -141,6 +141,8 @@ def ledger(monkeypatch):
     ):
         run(statement)
     billing_safety.ensure_reservations(connect)
+    from test_payment_reviews import install_payment_tables
+    install_payment_tables(connect)
     monkeypatch.setattr(main, "DATABASE_URL", DATABASE)
     monkeypatch.setattr(main, "db_connect", connect)
     monkeypatch.setattr(main, "ensure_user_exists", lambda telegram_id: None)
