@@ -93,7 +93,7 @@ from services.account_identity import AccountError
 from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
-from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, billing_scope, require_billing_scope, assert_reserved, wallet_snapshot
+from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, settle_generation_in, refund_charged_generation, billing_scope, require_billing_scope, assert_reserved, wallet_snapshot
 from services.generation_media_state import merge_generation_result_fields, history_generation_id, overlay_stored_history_media
 from services import generation_storage
 from services.storage import find_generated_object, put_generated_file_once
@@ -366,6 +366,8 @@ SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_IN
 # the 60s job heartbeat interval while cutting the previous 30-minute
 # worst-case stuck time down to something a user won't just give up on.
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "5"))
+# B15: bounded in-process retries of the atomic charge+completed write.
+PROSTUDIO_COMPLETION_ATTEMPTS = 4
 PROSTUDIO_MAX_JOB_RUNTIME_SECONDS = max(60, int(os.getenv("PROSTUDIO_MAX_JOB_RUNTIME_SECONDS", "480")))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
@@ -2489,9 +2491,92 @@ def add_user_balance(telegram_id: int, credits: int):
 # БАЛАНС И СТОИМОСТЬ: charge_generation_balance
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
-def charge_generation_balance(telegram_id: int, generation_id: str, result: dict, payload: dict) -> dict:
+def _generation_charge_credits(result: dict, payload: dict) -> int:
     snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
-    credits = int(snapshot.get("final_credits") or result.get("cost_credits") or result.get("cost") or result.get("price") or 0)
+    return int(snapshot.get("final_credits") or result.get("cost_credits") or result.get("cost") or result.get("price") or 0)
+
+
+def queued_job_charge(telegram_id: int, generation_id: str, result: dict, payload: dict):
+    """settle(cursor) for update_prostudio_generation_job(..., settle=...).
+
+    B15: a queued job's charge commits in the same transaction as its first
+    completed status, so a failed completion write can never leave a failed
+    job with its credits kept. The last attempt's outcome is on .outcome.
+    """
+    credits = _generation_charge_credits(result, payload)
+    outcome = {}
+
+    def settle(cursor):
+        outcome.clear()
+        try:
+            outcome.update(settle_generation_in(cursor, telegram_id, generation_id, credits, payload, result))
+        except SecurityError as exc:
+            outcome.update({"charged": False, "credits": max(0, credits), "balance_after": None,
+                            "error": exc.code, "insufficient_balance": exc.status == 402})
+        return outcome
+
+    settle.outcome = outcome
+    return settle
+
+
+def checkpoint_prostudio_completion(job_id: str, completed_result: dict, payload: dict) -> bool:
+    """Keep a provider result that is about to be completed on the job row.
+
+    Stored under result_json.completion_checkpoint of a still-active job, so
+    clients (which read top-level result fields only after completion) see
+    nothing new. Stale recovery completes the job from it - charge and
+    completed status in one transaction - instead of failing a job whose
+    provider result had arrived. The completed write replaces result_json.
+    """
+    if not DATABASE_URL or not job_id:
+        return False
+    snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
+    checkpoint = {
+        "result": completed_result,
+        "charge_payload": {key: payload.get(key) for key in ("mode", "category", "model", "provider") if payload.get(key)},
+        "price_snapshot": snapshot,
+    }
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE prostudio_generation_jobs
+                    SET result_json = COALESCE(result_json, '{}'::jsonb)
+                                      || jsonb_build_object('completion_checkpoint', %s::jsonb),
+                        heartbeat_at = NOW(), updated_at = NOW()
+                    WHERE id = %s AND status IN ('queued', 'processing', 'provider_processing')
+                """, (_safe_json_dumps(checkpoint), job_id))
+                saved = cursor.rowcount == 1
+            conn.commit()
+        return saved
+    except Exception as exc:
+        prostudio_error("JOB_COMPLETION_CHECKPOINT_FAILED", exc, job_id=job_id)
+        return False
+
+
+def complete_prostudio_job_from_checkpoint(job_id: str, telegram_id: int, checkpoint: dict) -> bool:
+    """Charge and complete a job from its completion checkpoint, atomically."""
+    result = checkpoint.get("result") if isinstance(checkpoint.get("result"), dict) else None
+    if not result or not telegram_id:
+        return False
+    payload = dict(checkpoint.get("charge_payload") or {})
+    payload["price_snapshot"] = dict(checkpoint.get("price_snapshot") or {})
+    result = dict(result)
+    result["storage_status"] = "pending"
+    try:
+        ensure_user_exists(telegram_id)
+    except Exception as exc:
+        prostudio_error("JOB_CHECKPOINT_USER_FAILED", exc, job_id=job_id)
+        return False
+    settle = queued_job_charge(telegram_id, job_id, result, payload)
+    completed = update_prostudio_generation_job(job_id, "completed", result=result, settle=settle)
+    prostudio_debug("JOB_COMPLETED_FROM_CHECKPOINT", job_id=job_id, completed=bool(completed),
+                    charge=dict(settle.outcome))
+    return bool(completed)
+
+
+def charge_generation_balance(telegram_id: int, generation_id: str, result: dict, payload: dict) -> dict:
+    credits = _generation_charge_credits(result, payload)
     if not DATABASE_URL or not telegram_id or not generation_id:
         return {"charged": False, "credits": max(0, credits), "balance_after": None, "error": "billing_unavailable"}
     ensure_user_exists(telegram_id)
@@ -5535,7 +5620,7 @@ def prostudio_job_progress(status: str, stage_json, created_at, completed_at, se
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: update_prostudio_generation_job
 # Записывает состояние пользователя, job, metadata или результат генерации в общую базу Mini App и Telegram Bot.
 # =====================================================
-def update_prostudio_generation_job(job_id: str, status: str, result: Optional[dict] = None, error: Optional[dict] = None, conversation_id: str = ""):
+def update_prostudio_generation_job(job_id: str, status: str, result: Optional[dict] = None, error: Optional[dict] = None, conversation_id: str = "", settle=None):
     prostudio_debug(
         "JOB_UPDATE_START",
         job_id=job_id,
@@ -5582,8 +5667,26 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
                 result = dict(result)
                 if result.get("storage_status") != "completed":
                     result["storage_status"] = "pending"
+        if first_completion and settle is not None:
+            # B15: the charge joins this transaction - it commits only with
+            # the completed status and rolls back with it.
+            charge = settle(cursor)
+            if charge.get("error"):
+                conn.rollback()
+                prostudio_debug("JOB_UPDATE_CHARGE_REFUSED", job_id=job_id, error=charge.get("error"))
+                return False
+            result = dict(result or {})
+            result["balance_charged"] = bool(charge.get("charged") or charge.get("already_charged"))
+            result["balance_after"] = charge.get("balance_after")
+            result["charge_id"] = job_id
         if status in {"failed", "cancelled", "canceled"}:
             release_generation(cursor, job_id)
+            # Terminal states never move from completed to failed, so a
+            # charge here belongs to a completion that never committed (the
+            # pre-B15 order). Give it back once.
+            refunded = refund_charged_generation(cursor, job_id)
+            if refunded:
+                prostudio_debug("JOB_FAILED_CHARGE_REFUNDED", job_id=job_id, credits=refunded)
         cursor.execute("""
             UPDATE prostudio_generation_jobs
             SET status = %s,
@@ -5716,6 +5819,23 @@ def requeue_stale_prostudio_jobs():
 
 
 def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
+    """Recover an abandoned job only when no live provider lease exists.
+
+    A job whose provider result was checkpointed before its completion
+    committed is completed from that checkpoint (charge and status in one
+    transaction). Otherwise, or if that completion fails, it is failed and
+    its reservation released, as before.
+    """
+    outcome = _recover_stale_prostudio_job_tx(job_id, force=force, use_checkpoint=True)
+    if outcome.get("reason") != "completion_checkpoint":
+        return outcome
+    if complete_prostudio_job_from_checkpoint(job_id, int(outcome.get("telegram_id") or 0), outcome["checkpoint"]):
+        prostudio_debug("PROSTUDIO_STALE_JOB_COMPLETED_FROM_CHECKPOINT", job_id=job_id)
+        return {"recovered": True, "status": "completed", "reason": "completed_from_checkpoint", "job_id": job_id}
+    return _recover_stale_prostudio_job_tx(job_id, force=force, use_checkpoint=False)
+
+
+def _recover_stale_prostudio_job_tx(job_id: str, force: bool = False, use_checkpoint: bool = False) -> dict:
     """Atomically fail an abandoned job only when no live provider lease exists."""
     if not DATABASE_URL or not job_id:
         return {"recovered": False, "reason": "database_or_job_missing"}
@@ -5780,6 +5900,13 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
         )
         has_charge = bool(cursor.fetchone()[0])
         has_final_result = generation_has_completed_result(saved_result, "")
+        checkpoint = saved_result.get("completion_checkpoint") if isinstance(saved_result, dict) else None
+        if use_checkpoint and isinstance(checkpoint, dict) and not has_charge:
+            cursor.execute("SELECT telegram_id FROM prostudio_generation_jobs WHERE id = %s", (job_id,))
+            owner = cursor.fetchone()
+            conn.rollback()
+            return {"recovered": False, "reason": "completion_checkpoint", "checkpoint": checkpoint,
+                    "telegram_id": int((owner or [0])[0] or 0), "status": old_status}
         reason = "stale_worker_recovered"
         detected = {
             "job_id": job_id, "old_status": old_status,
@@ -5812,6 +5939,9 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
             conn.rollback()
             return {"recovered": False, "reason": "job_changed_concurrently"}
         release_generation(cursor, job_id)
+        # A charge without a committed completion (pre-B15 order, or a worker
+        # that died between the two commits) is returned once.
+        detected["refunded_credits"] = refund_charged_generation(cursor, job_id)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -29072,12 +29202,51 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             "cost_credits": result.get("cost_credits"),
             "generation_cost": result.get("generation_cost"),
         })
-        charge = charge_generation_balance(telegram_id, job_id or result.get("generation_id") or str(uuid4()), result, payload)
-        if charge.get("error") or charge.get("insufficient_balance"):
-            raise RuntimeError(charge.get("error") or "Insufficient balance while finalizing generation")
+        if not DATABASE_URL or not telegram_id or not job_id:
+            raise RuntimeError("billing_unavailable")
+
+        # B15: the completion transaction atomically records the charge, the
+        # completed status and its R2 outbox work, so a failed write can never
+        # leave a failed job with its credits kept. Public clients only
+        # observe `completed` after storage_status advances to completed.
+        # The result is checkpointed first: if this process cannot commit the
+        # completion, stale recovery completes the job from the checkpoint
+        # instead of discarding a result the provider already delivered.
+        completed_result = build_completed_job_result(result, mode)
+        completed_result["storage_status"] = "pending"
+        checkpoint_saved = await asyncio.to_thread(checkpoint_prostudio_completion, job_id, completed_result, payload)
+        settle = queued_job_charge(telegram_id, job_id, result, payload)
+        committed = False
+        job_status_now = None
+        for completion_attempt in range(1, PROSTUDIO_COMPLETION_ATTEMPTS + 1):
+            if update_prostudio_generation_job(job_id, "completed", result=completed_result, settle=settle):
+                committed = True
+                break
+            if settle.outcome.get("error"):
+                # Nothing was charged; the failed path releases the hold.
+                raise RuntimeError(settle.outcome.get("error") or "Insufficient balance while finalizing generation")
+            job_status_now = await asyncio.to_thread(get_prostudio_generation_job_status, job_id)
+            if job_status_now in {"completed", "failed", "cancelled", "canceled"}:
+                break
+            if completion_attempt < PROSTUDIO_COMPLETION_ATTEMPTS:
+                await asyncio.sleep(min(4.0, 0.5 * (2 ** (completion_attempt - 1))))
+        if not committed and job_status_now == "completed":
+            # Committed after all (lost acknowledgement) or by stale recovery
+            # from the checkpoint: one transaction charged and completed it.
+            committed = True
+        if not committed:
+            if job_status_now in {"failed", "cancelled", "canceled"}:
+                prostudio_debug("JOB_COMPLETION_SKIPPED_TERMINAL", job_id=job_id, status=job_status_now)
+                return
+            if checkpoint_saved:
+                prostudio_debug("JOB_COMPLETION_DEFERRED_TO_RECOVERY", job_id=job_id,
+                                attempts=PROSTUDIO_COMPLETION_ATTEMPTS)
+                return
+            raise RuntimeError("Failed to commit completed Pro Studio job")
+        charge = dict(settle.outcome)
         result["balance_charged"] = bool(charge.get("charged") or charge.get("already_charged"))
         result["balance_after"] = charge.get("balance_after")
-        result["charge_id"] = job_id or result.get("generation_id") or ""
+        result["charge_id"] = job_id
         print("PROSTUDIO CHARGE RESULT:", {
             "job_id": job_id,
             "telegram_id": telegram_id,
@@ -29092,14 +29261,6 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             timestamp=round(charge_done_at, 6),
             elapsed_ms_since_provider_ready=round((charge_done_at - provider_ready_at) * 1000),
         )
-
-        # The completion transaction atomically records both the successful
-        # provider result and its R2 outbox work. Public clients only observe
-        # `completed` after storage_status advances to completed.
-        completed_result = build_completed_job_result(result, mode)
-        completed_result["storage_status"] = "pending"
-        if not update_prostudio_generation_job(job_id, "completed", result=completed_result):
-            raise RuntimeError("Failed to commit completed Pro Studio job")
         completed_committed_at = time.monotonic()
         prostudio_debug(
             "JOB_COMPLETED_COMMITTED",
