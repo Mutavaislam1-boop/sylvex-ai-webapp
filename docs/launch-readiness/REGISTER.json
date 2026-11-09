@@ -5,7 +5,7 @@
   "assessed_on": "2026-11-09",
   "timezone": "Asia/Almaty",
   "production_source_commits": {
-    "sylvex-ai-webapp": "ccde13ebcb8772ae48cec7f99ded0f38002b1efe",
+    "sylvex-ai-webapp": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
     "sylvex-website": "821d15193e3b788ace8f6d75ea966c806aee98af",
     "sylvex-ai-bot": "b7e1b906f5beb702683b9556c0f1e2590638347d",
     "silvex-support-bot": "04b85ba5c93b9fbeb8551ad6ce04e147735f044b"
@@ -17,10 +17,10 @@
     "Отложено"
   ],
   "counts": {
-    "Подтверждено": 41,
-    "Не проверено": 24,
-    "Ошибка": 6,
-    "Отложено": 8
+    "Подтверждено": 46,
+    "Не проверено": 23,
+    "Ошибка": 3,
+    "Отложено": 7
   },
   "requirements": [
     {
@@ -1579,20 +1579,18 @@
       "section": 2,
       "name": "Billing History",
       "requirement": "все покупки, списания, возвраты и подписки отражены в истории с точным временем.",
-      "status": "Ошибка",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": false,
-      "confirmed_scope": "SX-010 частично: код внедрён (API 60eb6c2d, 20:37Z 08.11; бот d3987200, 20:39Z; оба сохранены в текущем Production: API ccde13e, бот b7e1b90). Новые покупки получают дату во всех 5 местах записи; повтор платежа сохраняет первую дату; покупки без даты видны в режиме «365 дней» группой «Дата неизвестна», без вымышленных дат. Тесты: API 14/14, бот 3/3. Не сделано: проверка после деплоя, 4 read-only SQL-запроса (production_readonly_checks.sql), восстановление дат 72 старых записей из достоверного источника.",
+      "confirmed_scope": "Даты новых покупок и подписок работают, подтверждено владельцем. Исторические 72 записи без даты по решению владельца не восстанавливаются и повторно не проверяются; они видны в режиме «365 дней» группой «Дата неизвестна», без вымышленных дат.",
       "evidence_ids": [
         "DB",
         "IMPACT",
         "C2",
         "SX010_PRODUCTION"
       ],
-      "blocker_ids": [
-        "B14"
-      ],
-      "next_action": "Закрыть SX-010: выполнить 4 read-only SQL-запроса, проверить историю после деплоя, отдельно решить восстановление старых дат. Новые покупки для теста не делать.",
+      "blocker_ids": [],
+      "next_action": "Не требуется.",
       "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -1622,6 +1620,13 @@
           "api_commit": "60eb6c2d83ae9b7a887e54a822001b1adca89434",
           "bot_commit": "d3987200484795b9d828de293d68a2675a302690",
           "reason": "SX-010 внедрён, но не проверен после деплоя; статус не меняется."
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:05:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Ошибка",
+          "reason": "SX-010 закрыт владельцем."
         }
       ]
     },
@@ -2062,19 +2067,18 @@
       "section": 3,
       "name": "Generation States",
       "requirement": "корректные состояния `queued → processing → completed / failed`.",
-      "status": "Не проверено",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Состояния и terminal guards имеются; последний R2 релиз изменил публичное ожидание storage. Полный client/state контракт этого изменения не закрыт.",
+      "confirmed_scope": "Серверные состояния queued → processing → provider_processing → completed/failed проверены на реальной PostgreSQL: финальный статус не перезаписывается; completed фиксируется вместе со списанием; принятое провайдером задание после 480 с остаётся provider_processing (фоновое ожидание) и завершается один раз. B15 в Production: API 5dbcde1 (деплой be0686d8) и 5 workers dde6dea (c5c8fb40, fe64902c, 70345486, 142d6925, 9caab3df), все SUCCESS 09.11 21:39–21:47Z; до выкатки активных генераций не было; после — без новых ошибок и 5xx. Клиентский контракт опроса не менялся.",
       "evidence_ids": [
         "SRC",
-        "TEST"
+        "TEST",
+        "B15_PRODUCTION"
       ],
-      "blocker_ids": [
-        "B15"
-      ],
-      "next_action": "Проверить только pending/failed/retry-storage/complete на текущем коде и клиентах.",
-      "assessed_on": "2026-11-07",
+      "blocker_ids": [],
+      "next_action": "Не требуется. Перепроверять только при изменении машины состояний.",
+      "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -2107,6 +2111,15 @@
           "date": "2026-11-07",
           "status": "Не проверено",
           "reason": "Состояния и terminal guards имеются; последний R2 релиз изменил публичное ожидание storage. Полный client/state контракт этого изменения не закрыт."
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:05:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Не проверено",
+          "api_commit": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
+          "workers_commit": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
+          "reason": "B15 развёрнут; адресные тесты состояний PASS."
         }
       ]
     },
@@ -2115,22 +2128,21 @@
       "section": 3,
       "name": "Failure Recovery",
       "requirement": "при сбое сервера задания и зарезервированные кредиты не теряются.",
-      "status": "Не проверено",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Потеря финансового резерва бота при crash устранена; состояние задания/отправки хранится и неизвестный исход поступает на сверку. Полное восстановление media-результатов всех провайдеров остаётся непроверенной частью B15.",
+      "confirmed_scope": "Сбой БД или падение процесса не оставляют failed со списанием: списание атомарно с completed; результат сохраняется контрольной точкой и восстанавливается после перезапуска; списание по старому порядку возвращается один раз; восстановленные задания попадают в историю и Telegram. B15 в Production: API 5dbcde1 (деплой be0686d8) и 5 workers dde6dea (c5c8fb40, fe64902c, 70345486, 142d6925, 9caab3df), все SUCCESS 09.11 21:39–21:47Z; до выкатки активных генераций не было; после — без новых ошибок и 5xx.",
       "evidence_ids": [
         "R2",
         "BOT",
         "BOTVALID",
         "SX002_LOCAL",
-        "SX002_PRODUCTION"
+        "SX002_PRODUCTION",
+        "B15_PRODUCTION"
       ],
-      "blocker_ids": [
-        "B15"
-      ],
-      "next_action": "В рамках существующего B15 подтвердить недостающие result/terminal recovery случаи; не повторять SX-002.",
-      "assessed_on": "2026-11-07",
+      "blocker_ids": [],
+      "next_action": "Не требуется в принятом объёме.",
+      "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -2209,6 +2221,15 @@
           "reason": "Потеря финансового резерва бота при crash устранена; состояние задания/отправки хранится и неизвестный исход поступает на сверку. Полное восстановление media-результатов всех провайдеров остаётся непроверенной частью B15.",
           "evidence_id": "SX002_PRODUCTION",
           "bot_commit": "e35bac70bd90cb104db336758b66b8d6b5857c39"
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:05:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Не проверено",
+          "api_commit": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
+          "workers_commit": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
+          "reason": "B15 развёрнут; тесты сбоев и восстановления PASS."
         }
       ]
     },
@@ -2217,19 +2238,20 @@
       "section": 3,
       "name": "Provider Timeout / Retry",
       "requirement": "ошибки и тайм-ауты провайдера обрабатываются без неконтролируемых повторов.",
-      "status": "Отложено",
+      "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Есть bounded retry/circuit/provider lease код и прежние mock-проверки; реальная матрица timeout/ambiguous acknowledgement не полна.",
+      "confirmed_scope": "Локальная матрица таймаутов пройдена: один вызов провайдера, ограниченные опросы; после 480 с принятое задание ждёт в фоне до 25 мин и завершается одним списанием или одним возвратом; поздний результат после возврата доставляется без списания. B15 в Production: API 5dbcde1 (деплой be0686d8) и 5 workers dde6dea (c5c8fb40, fe64902c, 70345486, 142d6925, 9caab3df), все SUCCESS 09.11 21:39–21:47Z; до выкатки активных генераций не было; после — без новых ошибок и 5xx. Поведение Kling после 480 с НЕ подтверждено реальной генерацией.",
       "evidence_ids": [
         "IMPACT",
-        "PRIOR"
+        "PRIOR",
+        "B15_PRODUCTION"
       ],
       "blocker_ids": [
         "B15"
       ],
-      "next_action": "Отдельная ограниченная fault matrix; не оплачивать повторные provider запросы без разрешения.",
-      "assessed_on": "2026-11-07",
+      "next_action": "Подтвердить на первой естественной генерации видео дольше 480 с по логам (JOB_PROVIDER_BACKGROUND_WAIT, BACKGROUND_PROVIDER_JOB_COMPLETED). Платные тестовые генерации не запускать.",
+      "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -2262,6 +2284,15 @@
           "date": "2026-11-07",
           "status": "Отложено",
           "reason": "Есть bounded retry/circuit/provider lease код и прежние mock-проверки; реальная матрица timeout/ambiguous acknowledgement не полна."
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:05:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Отложено",
+          "api_commit": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
+          "workers_commit": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
+          "reason": "Исправление развёрнуто; ожидается подтверждение реальной генерацией."
         }
       ]
     },
@@ -2326,16 +2357,17 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Условная запись R2 одного изображения подтверждена. Новые планы audio/cover/character PASS, но все media types end-to-end и новые resource SQL пути не приняты.",
+      "confirmed_scope": "Условная запись R2 одного изображения подтверждена. Новые планы audio/cover/character PASS, но все media types end-to-end и новые resource SQL пути не приняты. B15: R2 SQL-восстановление 11/11 на текущем коде; поздние и восстановленные результаты проходят через ту же R2-очередь. Все типы медиа end-to-end по-прежнему не приняты.",
       "evidence_ids": [
         "R2",
-        "TEST"
+        "TEST",
+        "B15_PRODUCTION"
       ],
       "blocker_ids": [
         "B15"
       ],
       "next_action": "Только непроверенные media/storage пути, без повторения уже выполненного PNG roundtrip.",
-      "assessed_on": "2026-11-07",
+      "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -3694,10 +3726,10 @@
       "section": 7,
       "name": "Website",
       "requirement": "регистрация, вход, покупка, генерация, история, скачивание.",
-      "status": "Ошибка",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": false,
-      "confirmed_scope": "Вход/сессии/раздельное скачивание ранее приняты; сайт Online. SX-010 частично: код внедрён (API 60eb6c2d, 20:37Z 08.11; бот d3987200, 20:39Z; оба сохранены в текущем Production: API ccde13e, бот b7e1b90). Новые покупки получают дату во всех 5 местах записи; повтор платежа сохраняет первую дату; покупки без даты видны в режиме «365 дней» группой «Дата неизвестна», без вымышленных дат. Тесты: API 14/14, бот 3/3. Не сделано: проверка после деплоя, 4 read-only SQL-запроса (production_readonly_checks.sql), восстановление дат 72 старых записей из достоверного источника.",
+      "confirmed_scope": "Вход/сессии/раздельное скачивание ранее приняты. Даты новых покупок и подписок работают, подтверждено владельцем. Исторические 72 записи без даты по решению владельца не восстанавливаются и повторно не проверяются; они видны в режиме «365 дней» группой «Дата неизвестна», без вымышленных дат.",
       "evidence_ids": [
         "C2",
         "GF6",
@@ -3705,10 +3737,8 @@
         "DB",
         "SX010_PRODUCTION"
       ],
-      "blocker_ids": [
-        "B14"
-      ],
-      "next_action": "Закрыть SX-010: выполнить 4 read-only SQL-запроса, проверить историю после деплоя, отдельно решить восстановление старых дат. Новые покупки для теста не делать.",
+      "blocker_ids": [],
+      "next_action": "Не требуется.",
       "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -3738,6 +3768,13 @@
           "api_commit": "60eb6c2d83ae9b7a887e54a822001b1adca89434",
           "bot_commit": "d3987200484795b9d828de293d68a2675a302690",
           "reason": "SX-010 внедрён, но не проверен после деплоя; статус не меняется."
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:05:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Ошибка",
+          "reason": "SX-010 закрыт владельцем."
         }
       ]
     },
@@ -3746,10 +3783,10 @@
       "section": 7,
       "name": "Browser Mini App",
       "requirement": "те же основные рабочие функции.",
-      "status": "Ошибка",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": false,
-      "confirmed_scope": "Web-сессия и общий баланс ранее подтверждены; документы Mini App восстановлены (B16 закрыт). SX-010 частично: код внедрён (API 60eb6c2d, 20:37Z 08.11; бот d3987200, 20:39Z; оба сохранены в текущем Production: API ccde13e, бот b7e1b90). Новые покупки получают дату во всех 5 местах записи; повтор платежа сохраняет первую дату; покупки без даты видны в режиме «365 дней» группой «Дата неизвестна», без вымышленных дат. Тесты: API 14/14, бот 3/3. Не сделано: проверка после деплоя, 4 read-only SQL-запроса (production_readonly_checks.sql), восстановление дат 72 старых записей из достоверного источника.",
+      "confirmed_scope": "Web-сессия, общий баланс и документы Mini App подтверждены. Даты новых покупок и подписок работают, подтверждено владельцем. Исторические 72 записи без даты по решению владельца не восстанавливаются и повторно не проверяются; они видны в режиме «365 дней» группой «Дата неизвестна», без вымышленных дат.",
       "evidence_ids": [
         "C1",
         "C2",
@@ -3759,10 +3796,8 @@
         "SX010_PRODUCTION",
         "B16_PRODUCTION"
       ],
-      "blocker_ids": [
-        "B14"
-      ],
-      "next_action": "Закрыть SX-010: выполнить 4 read-only SQL-запроса, проверить историю после деплоя, отдельно решить восстановление старых дат. Новые покупки для теста не делать.",
+      "blocker_ids": [],
+      "next_action": "Не требуется.",
       "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -3792,6 +3827,13 @@
           "api_commit": "60eb6c2d83ae9b7a887e54a822001b1adca89434",
           "bot_commit": "d3987200484795b9d828de293d68a2675a302690",
           "reason": "SX-010 внедрён, но не проверен после деплоя; статус не меняется. B16 снят с блокеров."
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:05:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Ошибка",
+          "reason": "SX-010 закрыт владельцем."
         }
       ]
     },
@@ -4061,17 +4103,18 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Wallet rollback/once refund/settlement и expiry исправлены и проверены. Полный UX provider/storage failures и terminal UI остаётся отдельным B15.",
+      "confirmed_scope": "Серверная часть: задание не зависает (фоновое ожидание ограничено 25 мин, затем возврат и одно уведомление); уведомление о неудаче не отправляется, пока провайдер работает. B15 в Production: API 5dbcde1 (деплой be0686d8) и 5 workers dde6dea (c5c8fb40, fe64902c, 70345486, 142d6925, 9caab3df), все SUCCESS 09.11 21:39–21:47Z; до выкатки активных генераций не было; после — без новых ошибок и 5xx. Полный UX ошибок провайдера/хранилища в клиентах не проверялся.",
       "evidence_ids": [
         "TEST",
         "SRC",
-        "WALLET_FIX"
+        "WALLET_FIX",
+        "B15_PRODUCTION"
       ],
       "blocker_ids": [
         "B15"
       ],
-      "next_action": "Проверять только прежние непокрытые terminal/provider/storage сценарии.",
-      "assessed_on": "2026-11-07",
+      "next_action": "Только клиентский UX ошибок и терминальных экранов; серверную часть B15 не повторять.",
+      "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -4102,6 +4145,12 @@
           "evidence_id": "WALLET_FIX",
           "api_commit": "0328d7328c2095d1314b6afca970f23dc5ad245d",
           "workers_commit": "8fa41d1d2f8b9a6c34673ee04438d116f058d4da"
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:05:00+00:00",
+          "status": "Не проверено",
+          "reason": "Серверная часть B15 развёрнута; статус не меняется до проверки клиентов."
         }
       ]
     },
@@ -5029,6 +5078,10 @@
     "SX010_PRODUCTION": {
       "path": "fixes/SX-010-production/RESULT.md",
       "scope": "Код внедрён (API 60eb6c2d, бот d3987200); проверка после деплоя и SQL не выполнены — частично"
+    },
+    "B15_PRODUCTION": {
+      "path": "fixes/B15-production/RESULT.md",
+      "scope": "Деплой API 5dbcde1 и 5 workers dde6dea, SUCCESS; тесты 31/31 и регрессия без новых падений; Kling >480 с live не подтверждён"
     }
   },
   "launch_blocker_groups": [
@@ -5142,35 +5195,20 @@
       "kind": "evidence_gap_or_owner_decision"
     },
     {
-      "id": "B14",
-      "priority": "P1",
-      "title": "Не отображаются покупки без timestamps",
-      "related_issue": "SX-010",
-      "requirements": [
-        "S2-14",
-        "S7-01",
-        "S7-02"
-      ],
-      "closing_criterion": "72 completed NULL created_at, read-only подтверждение. Запись/отображение исправлять без вымышленных дат.",
-      "kind": "confirmed_defect",
-      "production_progress": "Код SX-010 в Production с 08.11 20:37Z (API 60eb6c2d, бот d3987200), сохранён в ccde13e / b7e1b90. Проверка после деплоя, 4 read-only SQL и восстановление дат 72 записей не выполнены.",
-      "progress_evidence": "SX010_PRODUCTION",
-      "awaiting": "Результаты production_readonly_checks.sql (Claude не имеет доступа к значениям переменных Postgres), проверка истории владельцем, затем решение о восстановлении старых дат."
-    },
-    {
       "id": "B15",
       "priority": "P0",
       "title": "Недостаточно подтверждения новых terminal/media/recovery сценариев",
       "related_issue": "S3-07/09 / S4-01 / S7-07",
       "requirements": [
-        "S3-07",
-        "S3-08",
         "S3-09",
         "S4-01",
         "S7-07"
       ],
-      "closing_criterion": "Только изменённые ветви после 1daa4086; восемь SQL-случаев в текущем прогоне SKIP не считать PASS.",
-      "kind": "evidence_gap_or_owner_decision"
+      "closing_criterion": "Закрыто S3-07/S3-08. Остаток: реальное подтверждение фонового ожидания Kling, приёмка всех типов медиа в R2 и клиентский UX ошибок. B15 не возобновлять без новой ошибки.",
+      "kind": "evidence_gap_or_owner_decision",
+      "production_progress": "Атомарное списание, контрольная точка, поздние результаты и фоновое ожидание после 480 с в Production (API 5dbcde1, workers dde6dea), все 6 деплоев SUCCESS.",
+      "progress_evidence": "B15_PRODUCTION",
+      "awaiting": "S3-09: подтверждение на реальной генерации видео дольше 480 с (без платных тестов); S4-01: все типы медиа end-to-end; S7-07: клиентский UX ошибок."
     },
     {
       "id": "B17",
@@ -5369,22 +5407,49 @@
         "closing_criterion": "Готовы ровно 20 утверждённых статических файлов, current-base пересечений нет; production ещё не восстановлен.",
         "kind": "confirmed_defect"
       }
+    },
+    {
+      "id": "SX-010",
+      "former_blocker": "B14",
+      "status": "CLOSED_BY_OWNER_DECISION",
+      "closedAtUTC": "2026-11-09T22:05:00+00:00",
+      "api_commit": "60eb6c2d83ae9b7a887e54a822001b1adca89434",
+      "bot_commit": "d3987200484795b9d828de293d68a2675a302690",
+      "evidence_id": "SX010_PRODUCTION",
+      "scope": "Даты новых покупок и подписок работают, подтверждено владельцем. Исторические 72 записи без даты по решению владельца не восстанавливаются и повторно не проверяются; они видны в режиме «365 дней» группой «Дата неизвестна», без вымышленных дат.",
+      "historical_rows_restored": false,
+      "closed_blocker_snapshot": {
+        "id": "B14",
+        "priority": "P1",
+        "title": "Не отображаются покупки без timestamps",
+        "related_issue": "SX-010",
+        "requirements": [
+          "S2-14",
+          "S7-01",
+          "S7-02"
+        ],
+        "closing_criterion": "72 completed NULL created_at, read-only подтверждение. Запись/отображение исправлять без вымышленных дат.",
+        "kind": "confirmed_defect",
+        "production_progress": "Код SX-010 в Production с 08.11 20:37Z (API 60eb6c2d, бот d3987200), сохранён в ccde13e / b7e1b90. Проверка после деплоя, 4 read-only SQL и восстановление дат 72 записей не выполнены.",
+        "progress_evidence": "SX010_PRODUCTION",
+        "awaiting": "Результаты production_readonly_checks.sql (Claude не имеет доступа к значениям переменных Postgres), проверка истории владельцем, затем решение о восстановлении старых дат."
+      }
     }
   ],
   "production_role_commits": {
-    "api": "ccde13ebcb8772ae48cec7f99ded0f38002b1efe",
-    "worker": "8b08994a889919c44c04a6b8d5f7423ab7458d2a",
-    "worker2": "8b08994a889919c44c04a6b8d5f7423ab7458d2a",
-    "worker3": "8b08994a889919c44c04a6b8d5f7423ab7458d2a",
-    "worker4": "8b08994a889919c44c04a6b8d5f7423ab7458d2a",
-    "worker5": "8b08994a889919c44c04a6b8d5f7423ab7458d2a",
+    "api": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
+    "worker": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
+    "worker2": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
+    "worker3": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
+    "worker4": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
+    "worker5": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "main_telegram_bot": "b7e1b906f5beb702683b9556c0f1e2590638347d"
   },
   "github_main_commits": {
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "Register catch-up: B13 and B16 closed; S8-08 7-day part fixed (requirement open); SX-010 deployed, verification pending; bot b7e1b90. No code or Production change",
-  "last_updated_atUTC": "2026-11-09T18:10:00+00:00",
-  "latest_work_phase": "REGISTER_CATCH_UP_B13_B16_S808_SX010"
+  "last_controlled_change": "B15 deployed: API 5dbcde1 + 5 workers dde6dea, all SUCCESS; SX-010 closed by owner. No paid generations or purchases",
+  "last_updated_atUTC": "2026-11-09T22:05:00+00:00",
+  "latest_work_phase": "B15_DEPLOYED_SX010_CLOSED"
 }
