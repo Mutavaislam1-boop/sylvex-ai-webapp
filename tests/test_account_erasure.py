@@ -1107,3 +1107,19 @@ def test_new_tables_are_classified_so_erasure_is_not_held(case):
     [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
     assert result["complete"], result
     assert case.execute("SELECT COUNT(*) FROM bot_generation_operations")[0][0] == 1
+
+
+def test_fences_alone_never_process_earlier_requests(case, monkeypatch):
+    receipt = case.accept()
+    monkeypatch.delenv("SYLVEX_ERASURE_ACCEPTING")
+    assert runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe()) == []
+    assert case.execute("SELECT state FROM sylvex_erasure_requests WHERE request_id=%s",(receipt["request_id"],)) == [("queued",)]
+    assert case.execute("SELECT COUNT(*) FROM account_emails WHERE account_id=%s",(A,))[0][0] == 1
+
+
+def test_activation_reports_request_counts_without_ids(case, monkeypatch):
+    case.accept()
+    monkeypatch.setattr(erasure, "validate_runtime", lambda url: None)
+    status = erasure.activate_runtime("synthetic-only")
+    assert status["enabled"] and status["requests_by_state"] == {"queued": 1}
+    assert "request_id" not in json.dumps(status)

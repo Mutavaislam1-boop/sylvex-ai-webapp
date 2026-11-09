@@ -712,6 +712,10 @@ def runtime_block():
     return _RUNTIME_BLOCK
 
 
+def accepting():
+    return os.getenv("SYLVEX_ERASURE_ACCEPTING", "").lower() in ("1", "true", "yes")
+
+
 def activate_runtime(database_url):
     """API startup: install the schema and write fences once, then validate.
 
@@ -739,7 +743,13 @@ def activate_runtime(database_url):
                 installed = True
         _RUNTIME_BLOCK = ""
         validate_runtime(database_url)
-        return {"enabled": True, "configured": True, "guards_installed_now": installed}
+        # Aggregate counts only (no ids): lets the operator see requests left
+        # from an earlier activation before intake/processing is switched on.
+        with transaction(database_url) as cur:
+            cur.execute("SELECT state,COUNT(*) FROM sylvex_erasure_requests GROUP BY state ORDER BY state")
+            requests = {state: count for state, count in cur.fetchall()}
+        return {"enabled": True, "configured": True, "guards_installed_now": installed,
+                "accepting": accepting(), "requests_by_state": requests}
     except Exception as exc:
         _RUNTIME_BLOCK = exc.code if isinstance(exc, ErasureError) else type(exc).__name__
         return {"enabled": False, "configured": True, "error": _RUNTIME_BLOCK}

@@ -394,7 +394,12 @@ def process_pending(database_url, *, storage=None, journal=None, stripe=None, li
     Holds that protect other people or in-flight work (another account's
     reference, a running job, staff access) stay held and are retried on the
     next pass; nothing outside the confirmed subject is touched.
+
+    Runs only while intake is on (SYLVEX_ERASURE_ACCEPTING): enabling the
+    fences alone never processes requests left from an earlier activation.
     """
+    if not core.accepting():
+        return []
     with core.transaction(database_url) as cur:
         if not core._has_requests(cur):
             return []
