@@ -5508,7 +5508,10 @@ def record_prostudio_job_stage(job_id: str, stage: str) -> None:
             conn.commit()
             cursor.close()
     except Exception as exc:
-        prostudio_error("JOB_STAGE_RECORD_FAILED", exc, job_id=job_id, stage=stage)
+        # prostudio_error's first parameter is already named "stage" (the log
+        # event); passing stage= again raised TypeError out of this handler
+        # and failed a generation whose provider result had arrived.
+        prostudio_error("JOB_STAGE_RECORD_FAILED", exc, job_id=job_id, job_stage=stage)
 
 
 def prostudio_job_progress(status: str, stage_json, created_at, completed_at, server_time) -> dict:
