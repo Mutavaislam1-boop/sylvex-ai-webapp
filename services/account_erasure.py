@@ -36,6 +36,9 @@ WEB_STORAGE_FLOOR = 900000000000
 SCHEMA_VERSION = 1
 _storage_cursor = contextvars.ContextVar("sylvex_erasure_storage_cursor", default=None)
 _media_job = contextvars.ContextVar("sylvex_erasure_media_job", default=None)
+# Set by the self-service processor: a lock it cannot get within this time
+# ends the pass (rolled back, retried next pass) instead of waiting forever.
+_lock_timeout = contextvars.ContextVar("sylvex_erasure_lock_timeout", default="")
 REQUEST_COLUMNS = (
     "request_id, account_id, subject_key, ecosystem, state, requested_at, "
     "completed_at, hold_code, updated_at"
@@ -451,6 +454,8 @@ def transaction(database_url):
     conn = db_connect(database_url)
     try:
         with conn.cursor() as cur:
+            if _lock_timeout.get():
+                cur.execute("SELECT set_config('lock_timeout',%s,true)", (_lock_timeout.get(),))
             yield cur
         conn.commit()
     except BaseException:

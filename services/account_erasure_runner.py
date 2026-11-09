@@ -18,6 +18,7 @@ OWNED_PROOFS = frozenset({"recorded_owner", "verified_upload_record", "verified_
 # references, results, support attachments). Anything else is not attributed
 # to an account automatically.
 ACCOUNT_MEDIA_PREFIX = "generated/"
+PROCESSOR_LOCK_TIMEOUT = "30s"
 
 
 class ObjectStore:
@@ -448,6 +449,14 @@ def process_pending(database_url, *, storage=None, journal=None, stripe=None, li
     """
     if not core.accepting():
         return []
+    token = core._lock_timeout.set(PROCESSOR_LOCK_TIMEOUT)
+    try:
+        return _process_pending(database_url, storage=storage, journal=journal, stripe=stripe, limit=limit)
+    finally:
+        core._lock_timeout.reset(token)
+
+
+def _process_pending(database_url, *, storage, journal, stripe, limit):
     with core.transaction(database_url) as cur:
         if not core._has_requests(cur):
             return []

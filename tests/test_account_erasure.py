@@ -1312,3 +1312,22 @@ def test_failed_activation_is_retried_then_processing_starts(monkeypatch):
     exec(compile(ast.Module(body=[node],type_ignores=[]),'erasure-supervisor-fixture','exec'),env)
     aio.run(env["account_erasure_supervisor"]({"enabled": False, "configured": True, "error": "LockNotAvailable"}))
     assert len(calls) == 2 and started == [True] and len(printed) == 1
+
+
+def test_processor_does_not_wait_forever_for_a_held_subject_lock(case, monkeypatch):
+    import time
+    receipt = case.accept()
+    monkeypatch.setattr(runner, "PROCESSOR_LOCK_TIMEOUT", "300ms")
+    holder = psycopg2.connect(os.environ["SYLVEX_TEST_DATABASE_URL"])  # advisory locks are database-wide
+    try:
+        with holder.cursor() as cur:
+            # Another session's open write to this subject (write-guard lock).
+            cur.execute("SELECT pg_advisory_xact_lock_shared(61181,hashtext(%s))", (str(U),))
+        started = time.monotonic()
+        [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
+        assert time.monotonic() - started < 10
+        assert not result["complete"] and result["hold_code"] == "LockNotAvailable", result
+    finally:
+        holder.rollback(); holder.close()
+    [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and result["request_id"] == receipt["request_id"]
