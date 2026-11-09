@@ -8,7 +8,7 @@
     "sylvex-ai-webapp": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
     "sylvex-website": "821d15193e3b788ace8f6d75ea966c806aee98af",
     "sylvex-ai-bot": "b7e1b906f5beb702683b9556c0f1e2590638347d",
-    "silvex-support-bot": "04b85ba5c93b9fbeb8551ad6ce04e147735f044b"
+    "silvex-support-bot": "f9cd89ec007540ac4acefc8f3720d604b27c8d03"
   },
   "status_vocabulary": [
     "Подтверждено",
@@ -17,9 +17,9 @@
     "Отложено"
   ],
   "counts": {
-    "Подтверждено": 46,
+    "Подтверждено": 47,
     "Не проверено": 23,
-    "Ошибка": 3,
+    "Ошибка": 2,
     "Отложено": 7
   },
   "requirements": [
@@ -517,10 +517,10 @@
       "section": 1,
       "name": "Dependencies Security",
       "requirement": "нет известных критических уязвимостей в используемых библиотеках.",
-      "status": "Ошибка",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "certifi/Pillow внедрены: API 20fc48e0 и 5 workers b65a3a50, 6/6 SUCCESS и фактических runtime PASS. Все 54 pins проверены; изображения, HTTPS и read-only R2 работают. Полных DB hashes не было; короткие финансовые показатели равны. Остальные прежние dependency findings остаются открыты.",
+      "confirmed_scope": "Все прежние dependency findings S1-10 закрыты и внедрены 08.11: certifi 2026.10.23 / Pillow 13.0.0; pyasn1 0.6.5 / pypdf 6.21.4 (API c7d3e18b, workers 079b4dec → 6b7cd54b); основной бот 13551664 (aiogram 3.29.1, aiohttp 3.14.4, pyasn1, requests, python-dotenv); support-бот f9cd89ec (aiogram 3.29.1, aiohttp 3.14.4, python-dotenv 1.2.3). 8 сервисов SUCCESS/Online. Все коммиты входят в текущий Production: API 5dbcde1, workers dde6dea, бот b7e1b90, support-бот f9cd89ec. Ограничение: pip check внутри Production-контейнеров не выполнялся.",
       "evidence_ids": [
         "DEP",
         "SRC",
@@ -528,11 +528,9 @@
         "S110_PRODUCTION_STOP",
         "S110_PRODUCTION"
       ],
-      "blocker_ids": [
-        "B02"
-      ],
-      "next_action": "certifi/Pillow закрыты в указанной области; не повторять без прямого изменения. Последовательно закрыть остальные прежние findings из DEP, начиная с одного согласованного минимального исправления.",
-      "assessed_on": "2026-11-08",
+      "blocker_ids": [],
+      "next_action": "Не требуется. Новые advisory рассматривать отдельно, по мере появления.",
+      "assessed_on": "2026-11-09",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -577,6 +575,13 @@
           "previous_status": "Ошибка",
           "evidence_id": "S110_PRODUCTION",
           "reason": "Two-package production patch verified 6/6; no heavy hashes, no republishing. Other prior dependency findings remain."
+        },
+        {
+          "date": "2026-11-09",
+          "atUTC": "2026-11-09T22:20:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Ошибка",
+          "reason": "Восстановлено закрытие 08.11 (реестр был получен из снимка 13:07 08.11); коммиты сверены с текущим Production."
         }
       ],
       "local_fix": {
@@ -5097,21 +5102,6 @@
       "kind": "evidence_gap_or_owner_decision"
     },
     {
-      "id": "B02",
-      "priority": "P0",
-      "title": "Не закрыты остальные прежние advisory зависимостей",
-      "related_issue": "LR-001",
-      "requirements": [
-        "S1-10"
-      ],
-      "closing_criterion": "Контролируемые версии и совместимость API/ботов; advisory не равен факту эксплуатации.",
-      "kind": "confirmed_defect",
-      "local_progress": "certifi/Pillow local ready: 50 API + 15 main PASS; 17 new cases; pip check/startup PASS",
-      "progress_evidence": "S110_PRODUCTION",
-      "awaiting": "One remaining prior dependency finding at a time; do not recheck resolved certifi/Pillow without relevant change",
-      "production_progress": "certifi/Pillow deployed and runtime verified 6/6. Other prior findings remain open."
-    },
-    {
       "id": "B07",
       "priority": "P0",
       "title": "Коммерческий Stripe Live ещё не включён/не проверен",
@@ -5434,6 +5424,34 @@
         "progress_evidence": "SX010_PRODUCTION",
         "awaiting": "Результаты production_readonly_checks.sql (Claude не имеет доступа к значениям переменных Postgres), проверка истории владельцем, затем решение о восстановлении старых дат."
       }
+    },
+    {
+      "id": "LR-001",
+      "former_blocker": "B02",
+      "status": "CLOSED_DEPLOYED_AND_CONTROL_CHECKED",
+      "closedAtUTC": "2026-11-08T19:50:00+00:00",
+      "commits": {
+        "api": "c7d3e18b",
+        "workers": "6b7cd54b",
+        "main_telegram_bot": "13551664",
+        "support_bot": "f9cd89ec"
+      },
+      "scope": "Все прежние dependency findings S1-10; pip check в Production-контейнерах не выполнялся.",
+      "closed_blocker_snapshot": {
+        "id": "B02",
+        "priority": "P0",
+        "title": "Не закрыты остальные прежние advisory зависимостей",
+        "related_issue": "LR-001",
+        "requirements": [
+          "S1-10"
+        ],
+        "closing_criterion": "Контролируемые версии и совместимость API/ботов; advisory не равен факту эксплуатации.",
+        "kind": "confirmed_defect",
+        "local_progress": "certifi/Pillow local ready: 50 API + 15 main PASS; 17 new cases; pip check/startup PASS",
+        "progress_evidence": "S110_PRODUCTION",
+        "awaiting": "One remaining prior dependency finding at a time; do not recheck resolved certifi/Pillow without relevant change",
+        "production_progress": "certifi/Pillow deployed and runtime verified 6/6. Other prior findings remain open."
+      }
     }
   ],
   "production_role_commits": {
@@ -5449,7 +5467,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B15 deployed: API 5dbcde1 + 5 workers dde6dea, all SUCCESS; SX-010 closed by owner. No paid generations or purchases",
-  "last_updated_atUTC": "2026-11-09T22:05:00+00:00",
+  "last_controlled_change": "B15 deployed: API 5dbcde1 + 5 workers dde6dea, all SUCCESS; SX-010 closed by owner. No paid generations or purchases; S1-10/B02 closure of 08.11 restored",
+  "last_updated_atUTC": "2026-11-09T22:20:00+00:00",
   "latest_work_phase": "B15_DEPLOYED_SX010_CLOSED"
 }
