@@ -1313,7 +1313,7 @@ def test_failed_activation_is_retried_then_processing_starts(monkeypatch):
     monkeypatch.setitem(sys.modules, "services.account_erasure", fake)
     async def no_wait(seconds): return None
     async def worker(): started.append(True)
-    env = {"asyncio": SimpleNamespace(sleep=no_wait, to_thread=aio.to_thread), "json": json,
+    env = {"asyncio": SimpleNamespace(sleep=no_wait, to_thread=aio.to_thread), "json": json, "os": os,
            "DATABASE_URL": "synthetic-only", "print": lambda *a, **k: printed.append(a),
            "account_erasure_worker_loop": worker}
     exec(compile(ast.Module(body=[node],type_ignores=[]),'erasure-supervisor-fixture','exec'),env)
@@ -1583,3 +1583,26 @@ def test_operator_cli_installs_and_backfills_the_reference_index_only_with_apply
     out = json.loads(capsys.readouterr().out)
     assert out["pending"] == [] and out["tables"] == out["backfilled"] + out["without_primary_key"] and out["trusted"] >= 3
     assert case.execute("SELECT COUNT(*) FROM sylvex_storage_references WHERE object_key='generated/images/cli-ref.png'")[0][0] == 1
+
+
+def test_reference_index_switch_runs_the_migration_before_processing(case, monkeypatch):
+    import ast, asyncio as aio
+    tree = ast.parse((Path(__file__).parents[1]/'main.py').read_text())
+    nodes = [n for n in tree.body if isinstance(n,(ast.AsyncFunctionDef,ast.FunctionDef))
+             and n.name in ("account_erasure_supervisor","_install_reference_index")]
+    case.execute("DROP TABLE IF EXISTS sylvex_storage_reference_tables,sylvex_storage_references")
+    add_media(case, "generated/images/switch.png", owner=None, user=V)
+    printed, order = [], []
+    async def worker(): order.append("worker")
+    env = {"asyncio": aio, "json": json, "os": os, "DATABASE_URL": "synthetic-only",
+           "print": lambda *a, **k: (printed.append(a), order.append("index")), "account_erasure_worker_loop": worker}
+    exec(compile(ast.Module(body=nodes,type_ignores=[]),'reference-switch-fixture','exec'),env)
+    monkeypatch.delenv("SYLVEX_ERASURE_REFERENCE_INDEX", raising=False)
+    aio.run(env["account_erasure_supervisor"]({"enabled": True}))
+    assert order == ["worker"] and not case.execute("SELECT to_regclass('sylvex_storage_references')")[0][0]
+    monkeypatch.setenv("SYLVEX_ERASURE_REFERENCE_INDEX", "1")
+    order.clear()
+    aio.run(env["account_erasure_supervisor"]({"enabled": True}))
+    assert order == ["index", "worker"]
+    result = json.loads(printed[-1][1])
+    assert result["pending"] == [] and result["trusted_tables"] >= 3
