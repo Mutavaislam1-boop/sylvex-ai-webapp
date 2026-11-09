@@ -18370,7 +18370,8 @@ async def account_erasure_supervisor(status):
         status = retried
     if os.getenv("SYLVEX_ERASURE_REFERENCE_INDEX", "").lower() in ("1", "true", "yes"):
         # Migration switch (owner approval): install the reference index and
-        # run its resumable backfill before processing; counts only in logs.
+        # run its resumable backfill before processing (100 rows per
+        # transaction, 0.2 s pause); counts only in logs.
         try:
             result = await asyncio.to_thread(_install_reference_index)
         except Exception as exc:
@@ -18385,7 +18386,9 @@ def _install_reference_index():
         cur.execute("SELECT to_regclass('sylvex_storage_reference_tables')")
         if cur.fetchone()[0] is None:
             guards.install_reference_index(cur)
-    result = guards.backfill_reference_index(DATABASE_URL, batch=500, pause=0.05)
+    # Small batches with a pause: rows can hold multi-MB inline images; one
+    # core at most, short read transactions, no locks on user rows.
+    result = guards.backfill_reference_index(DATABASE_URL, batch=100, pause=0.2)
     with account_erasure.transaction(DATABASE_URL) as cur:
         result["trusted_tables"] = len(guards.trusted_reference_tables(cur))
     return result
