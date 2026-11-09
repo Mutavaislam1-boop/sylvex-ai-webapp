@@ -11,7 +11,10 @@ from services import account_erasure_runner as runner
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=('init','status','process','restore'))
+    parser.add_argument('command',choices=('init','status','process','restore','reference-index'))
+    parser.add_argument('--batch',type=int,default=500,help='reference-index backfill rows per transaction')
+    parser.add_argument('--pause',type=float,default=0.05,help='reference-index backfill pause between batches (s)')
+    parser.add_argument('--max-seconds',type=float,default=None)
     parser.add_argument('--request-id')
     parser.add_argument('--batch-size',type=int,default=50)
     parser.add_argument('--apply',action='store_true')
@@ -32,6 +35,25 @@ def main(argv=None):
                     installed=guards.install(cur)
                     guards.require_installed(cur,verify_coverage=True)
                 result={'ok':True,'applied':True,'guarded_tables':len(installed)}
+        elif args.command=='reference-index':
+            # Migration (owner approval): without --apply only reports state.
+            with core.transaction(database_url) as cur:
+                cur.execute("SELECT to_regclass('sylvex_storage_reference_tables')")
+                installed=cur.fetchone()[0] is not None
+            if args.apply:
+                if not installed:
+                    with core.transaction(database_url) as cur:
+                        guards.install_reference_index(cur)
+                result=guards.backfill_reference_index(database_url,batch=args.batch,pause=args.pause,max_seconds=args.max_seconds)
+            else:
+                result={'installed':installed,'applied':False}
+            if installed or args.apply:
+                with core.transaction(database_url) as cur:
+                    cur.execute("SELECT COUNT(*),COUNT(backfilled_at),COUNT(*) FILTER (WHERE pk_columns='') "
+                                "FROM sylvex_storage_reference_tables")
+                    total,done,no_pk=cur.fetchone()
+                    trusted=guards.trusted_reference_tables(cur)
+                result.update(tables=total,backfilled=done,without_primary_key=no_pk,trusted=len(trusted))
         elif args.command=='status':
             result=restore.readiness(database_url,journal=journal)
         elif args.command=='restore':
@@ -42,7 +64,7 @@ def main(argv=None):
             result=runner.process_request(database_url,args.request_id,journal=journal,apply=args.apply,batch_size=args.batch_size)
         # No media keys, credentials, email or creative content in output.
         print(json.dumps(result,default=str,sort_keys=True))
-        return 0 if not result.get('holds') and not result.get('hold_code') else 3
+        return 0 if not result.get('holds') and not result.get('hold_code') and not result.get('pending') else 3
     except Exception as exc:
         code=exc.code if isinstance(exc,core.ErasureError) else type(exc).__name__
         print(json.dumps({'ok':False,'error':code}))

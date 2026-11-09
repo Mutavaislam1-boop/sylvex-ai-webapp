@@ -56,6 +56,7 @@ CREATE OR REPLACE FUNCTION sylvex_erasure_write_guard() RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
 DECLARE document JSONB := to_jsonb(NEW); owner_column TEXT; owner_value TEXT; owner_values TEXT[];
         keys TEXT[]; candidate_key TEXT; r RECORD; internal_request TEXT;
+        pk_list TEXT; pk_column TEXT; row_ref JSONB;
 BEGIN
     internal_request := current_setting('sylvex.erasure_request',true);
     FOREACH owner_column IN ARRAY string_to_array(TG_ARGV[0],',') LOOP
@@ -95,13 +96,32 @@ BEGIN
     END LOOP;
     keys := sylvex_erasure_reference_keys(document);
     FOREACH candidate_key IN ARRAY keys LOOP
-        PERFORM pg_advisory_xact_lock_shared(61182,hashtext(candidate_key));
+        -- 64 lock buckets (class 61184), not one lock per key: a bulk write
+        -- of many rows with many keys must not fill the shared lock table.
+        -- The executor takes the same bucket exclusively per object.
+        PERFORM pg_advisory_xact_lock_shared(61184,hashtext(candidate_key) & 63);
         IF EXISTS(SELECT 1 FROM sylvex_erasure_media m
                   WHERE m.object_key=candidate_key AND m.state IN ('deleting','deleted')
                     AND (internal_request IS NULL OR internal_request<>m.request_id::text)) THEN
             RAISE EXCEPTION USING ERRCODE='55000',MESSAGE='erased_media_reference';
         END IF;
     END LOOP;
+    -- Reference index (installed only by install_reference_index): the row
+    -- that references an application object, in the same transaction as the
+    -- write. Entries are candidates; readers re-verify the row itself.
+    IF to_regclass('sylvex_storage_reference_tables') IS NOT NULL THEN
+        SELECT pk_columns INTO pk_list FROM sylvex_storage_reference_tables WHERE table_name=TG_TABLE_NAME;
+        IF COALESCE(pk_list,'')<>'' THEN
+            row_ref := '[]'::jsonb;
+            FOREACH pk_column IN ARRAY string_to_array(pk_list,',') LOOP
+                row_ref := row_ref || jsonb_build_array(document->pk_column);
+            END LOOP;
+            INSERT INTO sylvex_storage_references(object_key,source_table,source_row)
+                SELECT k,TG_TABLE_NAME,row_ref::text FROM unnest(keys) k
+                WHERE left(k,10)='generated/' AND length(k)<=1024
+                ON CONFLICT DO NOTHING;
+        END IF;
+    END IF;
     RETURN NEW;
 END $$;
 """
@@ -144,6 +164,149 @@ def install(cur):
     cur.execute("INSERT INTO sylvex_erasure_runtime(singleton,guards_version) VALUES(TRUE,2) "
                 "ON CONFLICT(singleton) DO UPDATE SET guards_version=2,installed_at=NOW()")
     return installed
+
+
+REFERENCE_PREFIX = "generated/"
+REFERENCE_MAX_KEY = 1024
+
+
+def reference_tables(schema):
+    """Every table _shared_reference reads (all of them carry the guard)."""
+    tables = set(policy.PERSONAL) | set(policy.REVIEW) | policy.SHARED_CATALOG | {
+        "prostudio_generation_jobs", "support_messages", "prostudio_media_outbox"}
+    return sorted(tables & set(schema))
+
+
+def primary_key(cur, table):
+    cur.execute("SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey) "
+                "WHERE i.indrelid=to_regclass(%s) AND i.indisprimary ORDER BY array_position(i.indkey::int2[],a.attnum)",
+                (table,))
+    return [row[0] for row in cur.fetchall()]
+
+
+def install_reference_index(cur):
+    """Migration (owner approval): reference index tables + recording.
+
+    No trigger is dropped or re-created and no existing table is altered:
+    the already installed guard function starts recording as soon as a
+    table has a control row. Lookups trust a table only after its backfill.
+    """
+    from services.account_erasure import columns
+    cur.execute("SET LOCAL lock_timeout='5s'")
+    cur.execute("""CREATE TABLE IF NOT EXISTS sylvex_storage_references (
+        object_key TEXT NOT NULL, source_table TEXT NOT NULL, source_row TEXT NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY(object_key,source_table,source_row))""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS sylvex_storage_reference_tables (
+        table_name TEXT PRIMARY KEY, pk_columns TEXT NOT NULL,
+        recording_since TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        backfill_cursor TEXT, backfilled_at TIMESTAMPTZ)""")
+    cur.execute(SQL)
+    tables = {}
+    for table in reference_tables(columns(cur)):
+        tables[table] = ",".join(primary_key(cur, table))
+        cur.execute("INSERT INTO sylvex_storage_reference_tables(table_name,pk_columns) VALUES(%s,%s) "
+                    "ON CONFLICT(table_name) DO NOTHING", (table, tables[table]))
+    return tables
+
+
+def _guard_records_references(cur):
+    cur.execute("SELECT p.prosrc FROM pg_proc p WHERE p.proname='sylvex_erasure_write_guard' "
+                "AND p.pronamespace=(SELECT oid FROM pg_namespace WHERE nspname=current_schema())")
+    row = cur.fetchone()
+    return bool(row and "sylvex_storage_references" in row[0])
+
+
+def invalidate_reference_index_if_unrecorded(cur):
+    """Before re-creating the functions: if the installed guard does not
+    record references (an older release ran), entries may be missing, so
+    every table needs a new backfill before lookups trust it again."""
+    cur.execute("SELECT to_regclass('sylvex_storage_reference_tables')")
+    if cur.fetchone()[0] is None or _guard_records_references(cur):
+        return False
+    cur.execute("UPDATE sylvex_storage_reference_tables SET backfilled_at=NULL,backfill_cursor=NULL,recording_since=NOW()")
+    return True
+
+
+def trusted_reference_tables(cur, cached=None):
+    """{table: pk columns} whose reference index is complete and current.
+
+    cached: an earlier result in the same run; only the cheap check that the
+    installed guard still records references is repeated (a rollback to an
+    older release stops recording at once).
+    """
+    if cached is not None:
+        return cached if cached and _guard_records_references(cur) else {}
+    cur.execute("SELECT to_regclass('sylvex_storage_reference_tables')")
+    if cur.fetchone()[0] is None or not _guard_records_references(cur):
+        return {}
+    cur.execute("SELECT table_name,pk_columns FROM sylvex_storage_reference_tables "
+                "WHERE backfilled_at IS NOT NULL AND pk_columns<>''")
+    trusted = {}
+    for table, pk in cur.fetchall():
+        if primary_key(cur, table) == pk.split(","):
+            trusted[table] = pk.split(",")
+    return trusted
+
+
+def backfill_reference_index(database_url, *, batch=500, wait_for_older=True, wait_seconds=600, pause=0.0, max_seconds=None):
+    """Resumable backfill of rows written before recording started.
+
+    Per table: wait until no transaction that began before recording_since
+    can still commit an unrecorded write, then walk the primary key in
+    batches (one short transaction each, cursor saved), then mark the table
+    complete. Safe to stop and re-run at any point.
+    """
+    import json, time
+    from psycopg2.extras import execute_values
+    from services.account_erasure import transaction, ident
+    started, totals = time.monotonic(), {"rows": 0, "entries": 0, "tables_done": 0}
+    with transaction(database_url) as cur:
+        cur.execute("SELECT table_name,pk_columns,recording_since,backfill_cursor FROM sylvex_storage_reference_tables "
+                    "WHERE backfilled_at IS NULL AND pk_columns<>'' ORDER BY table_name")
+        pending = cur.fetchall()
+    for table, pk_list, since, cursor in pending:
+        pk = pk_list.split(",")
+        if wait_for_older:
+            deadline = time.monotonic() + wait_seconds
+            while True:
+                with transaction(database_url) as cur:
+                    cur.execute("SELECT COUNT(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() "
+                                "AND datname=current_database() AND xact_start<%s "
+                                "AND (backend_xid IS NOT NULL OR state='active')", (since,))
+                    if cur.fetchone()[0] == 0:
+                        break
+                if time.monotonic() > deadline:
+                    return {**totals, "pending": [table], "blocked_by_older_transactions": True}
+                time.sleep(1)
+        order = ",".join("t." + ident(c) for c in pk)
+        ref = "jsonb_build_array(" + ",".join("to_jsonb(t)->" + "'" + c.replace("'", "''") + "'" for c in pk) + ")::text"
+        while True:
+            if max_seconds is not None and time.monotonic() - started > max_seconds:
+                return {**totals, "pending": [table], "stopped": "max_seconds"}
+            with transaction(database_url) as cur:
+                where, params = "TRUE", []
+                if cursor:
+                    where = "(" + order + ")>(" + ",".join(["%s"] * len(pk)) + ")"
+                    params = json.loads(cursor)
+                cur.execute("SELECT " + ref + ",sylvex_erasure_reference_keys(to_jsonb(t)) FROM " + ident(table) + " t WHERE " +
+                            where + " ORDER BY " + order + " LIMIT %s", params + [int(batch)])
+                rows = cur.fetchall()
+                if not rows:
+                    cur.execute("UPDATE sylvex_storage_reference_tables SET backfilled_at=NOW() WHERE table_name=%s", (table,))
+                    totals["tables_done"] += 1
+                    break
+                entries = [(key, table, row_ref) for row_ref, keys in rows for key in (keys or [])
+                           if key.startswith(REFERENCE_PREFIX) and len(key) <= REFERENCE_MAX_KEY]
+                if entries:
+                    execute_values(cur, "INSERT INTO sylvex_storage_references(object_key,source_table,source_row) VALUES %s "
+                                   "ON CONFLICT DO NOTHING", entries, page_size=1000)
+                cursor = rows[-1][0]
+                cur.execute("UPDATE sylvex_storage_reference_tables SET backfill_cursor=%s WHERE table_name=%s", (cursor, table))
+                totals["rows"] += len(rows); totals["entries"] += len(entries)
+            if pause:
+                time.sleep(pause)
+    return {**totals, "pending": []}
 
 
 def refresh_functions(cur):

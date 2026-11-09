@@ -5,7 +5,10 @@ manifest and never produce complete=True. No payment or model dispatcher here.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+import json
 import re
+import time
 from pathlib import Path
 
 from services import account_erasure as core
@@ -19,6 +22,12 @@ OWNED_PROOFS = frozenset({"recorded_owner", "verified_upload_record", "verified_
 # to an account automatically.
 ACCOUNT_MEDIA_PREFIX = "generated/"
 PROCESSOR_LOCK_TIMEOUT = "30s"
+# One processor at a time for the whole database (every API instance): a
+# session advisory lock on a dedicated connection, released by the server
+# when that connection ends, also on a crash.
+PROCESSOR_LEASE = (61183, 1)
+PASS_BUDGET_SECONDS = 120
+MEDIA_BATCH = 200
 
 
 class ObjectStore:
@@ -86,32 +95,57 @@ def _reference_marker(key):
     return marker if len(marker) >= 6 else ""
 
 
-def _shared_reference(cur, key, schema, request):
+def _shared_reference(cur, key, schema, request, trusted=None):
     # Reference triggers take the same per-key SHARED lock before any insert
     # or update, including a reference to a not-yet-registered upload. The
     # executor holds EXCLUSIVE while checking and deleting this one object.
-    tables = set(policy.PERSONAL) | set(policy.REVIEW) | policy.SHARED_CATALOG | {
-        "prostudio_generation_jobs", "support_messages",
-    }
-    # The literal pre-filter keeps the full parse to the few rows that can
-    # match; without it every row of every table is parsed once per key.
+    #
+    # A table whose reference index is complete (trusted) is checked only at
+    # the rows the index names, each re-verified by primary key with the
+    # same predicate as the scan; an index entry is never trusted alone.
+    # Every other table, and any key the index does not cover, is scanned.
+    from services import account_erasure_guards as guards
+    tables = (set(policy.PERSONAL) | set(policy.REVIEW) | policy.SHARED_CATALOG | {
+        "prostudio_generation_jobs", "support_messages"}) & set(schema)
+    trusted = guards.trusted_reference_tables(cur, trusted)
+    if not (key.startswith(guards.REFERENCE_PREFIX) and len(key) <= guards.REFERENCE_MAX_KEY):
+        trusted = {}
+    candidates = {}
+    if trusted:
+        cur.execute("SELECT source_table,source_row FROM sylvex_storage_references WHERE object_key=%s", (key,))
+        for table, row in cur.fetchall():
+            candidates.setdefault(table, []).append(json.loads(row))
     marker = _reference_marker(key)
     prefilter, prefilter_params = ("strpos(t::text,%s)>0 AND ", [marker]) if marker else ("", [])
-    for table in sorted(tables & set(schema)):
+    outbox = {"prostudio_media_outbox", "prostudio_generation_jobs"} <= set(schema)
+
+    def check(table, sql_from, where, params):
+        if table in trusted:
+            pk = trusted[table]
+            for values in candidates.get(table, []):
+                if len(values) != len(pk):
+                    return True  # unreadable entry: keep the object
+                cond = " AND ".join("t." + core.ident(c) + "=%s" for c in pk)
+                cur.execute("SELECT 1 FROM " + sql_from + " WHERE " + cond + " AND " + where +
+                            " AND %s=ANY(sylvex_erasure_reference_keys(to_jsonb(t))) LIMIT 1", list(values)+params+[key])
+                if cur.fetchone():
+                    return True
+            return False
+        cur.execute("SELECT 1 FROM " + sql_from + " WHERE " + where + " AND " + prefilter +
+                    "%s=ANY(sylvex_erasure_reference_keys(to_jsonb(t))) LIMIT 1", params+prefilter_params+[key])
+        return cur.fetchone() is not None
+
+    for table in sorted(tables):
         where, params = "TRUE", []
         if table in policy.PERSONAL or table == "prostudio_generation_jobs":
             owned, owner_params = core.owner_clause(table, schema, request)
-            where, params = "NOT " + owned, owner_params
-        cur.execute("SELECT 1 FROM " + core.ident(table) + " t WHERE " + where + " AND " + prefilter +
-                    "%s=ANY(sylvex_erasure_reference_keys(to_jsonb(t))) LIMIT 1", params+prefilter_params+[key])
-        if cur.fetchone():
+            where, params = core.not_owned(owned), owner_params
+        if check(table, core.ident(table) + " t", where, params):
             return True
-    if {"prostudio_media_outbox", "prostudio_generation_jobs"} <= set(schema):
-        cur.execute("SELECT 1 FROM prostudio_media_outbox t JOIN prostudio_generation_jobs j ON j.id=t.job_id "
-                    "WHERE j.telegram_id<>%s AND " + prefilter + "%s=ANY(sylvex_erasure_reference_keys(to_jsonb(t))) LIMIT 1",
-                    [request["subject_key"]]+prefilter_params+[key])
-        if cur.fetchone():
-            return True
+    if outbox and check("prostudio_media_outbox",
+                        "prostudio_media_outbox t JOIN prostudio_generation_jobs j ON j.id=t.job_id",
+                        "j.telegram_id<>%s", [request["subject_key"]]):
+        return True
     return False
 
 
@@ -124,15 +158,19 @@ def attribute_account_media(cur, schema, request):
     repeats this check under the exclusive per-key lock before deleting.
     Anything else is kept (state 'shared') and never deleted.
     """
+    # No per-key lock here: holding one per key for a whole account would
+    # fill the shared lock table. The executor re-checks each key under its
+    # exclusive lock before any deletion, so this decision cannot be stale.
+    from services import account_erasure_guards as guards
+    trusted = guards.trusted_reference_tables(cur) or None
     cur.execute("SELECT object_key FROM sylvex_erasure_media WHERE request_id=%s AND state='review' ORDER BY object_key",
                 (str(request["request_id"]),))
     for (key,) in cur.fetchall():
-        cur.execute("SELECT pg_advisory_xact_lock_shared(61182,hashtext(%s))", (key,))
         cur.execute("SELECT owner_key FROM sylvex_storage_ownership WHERE object_key=%s", (key,))
         owner = cur.fetchone()
         if owner and int(owner[0]) != int(request["subject_key"]):
             state, proof = "shared", "other_owner"
-        elif _shared_reference(cur, key, schema, request):
+        elif _shared_reference(cur, key, schema, request, trusted):
             state, proof = "shared", "other_reference"
         elif SAFE_KEY.fullmatch(key) and key.startswith(ACCOUNT_MEDIA_PREFIX) and ".." not in key.split("/"):
             state, proof = "owned", "account_reference"
@@ -216,7 +254,7 @@ def _related_scope_hold(cur, schema, request):
                 continue
             owned,params=core.owner_clause(table,schema,request,alias="t")
             cur.execute("SELECT 1 FROM "+core.ident(table)+" t JOIN prostudio_generation_jobs j ON j.id=t.job_id "
-                        "WHERE j.telegram_id=%s AND NOT "+owned+" LIMIT 1",[uid]+params)
+                        "WHERE j.telegram_id=%s AND "+core.not_owned(owned)+" LIMIT 1",[uid]+params)
             if cur.fetchone():
                 return "job_in_use_by_other_account"
     return ""
@@ -322,6 +360,10 @@ def process_request(database_url, request_id, *, storage=None, journal=None, app
     if frozen.get('hold_code'):
         return frozen
 
+    from services import account_erasure_guards as guards
+    with core.transaction(database_url) as cur:
+        schema = core.columns(cur)
+        trusted = guards.trusted_reference_tables(cur) or None
     processed = 0
     while processed < max(1, min(int(batch_size),500)):
         key = None
@@ -337,11 +379,11 @@ def process_request(database_url, request_id, *, storage=None, journal=None, app
                 key, proof = item
                 if not SAFE_KEY.fullmatch(key) or proof not in OWNED_PROOFS:
                     raise core.ErasureError("erasure_storage_key_requires_review")
-                cur.execute("SELECT pg_advisory_xact_lock(61182,hashtext(%s))", (key,))
-                schema = core.columns(cur)
+                # Same bucket as the write guard (see account_erasure_guards).
+                cur.execute("SELECT pg_advisory_xact_lock(61184,hashtext(%s) & 63)", (key,))
                 cur.execute("SELECT owner_key FROM sylvex_storage_ownership WHERE object_key=%s", (key,))
                 owner = cur.fetchone()
-                shared = bool(owner and int(owner[0]) != int(request["subject_key"])) or _shared_reference(cur,key,schema,request)
+                shared = bool(owner and int(owner[0]) != int(request["subject_key"])) or _shared_reference(cur,key,schema,request,trusted)
                 if shared:
                     journal.append_decision(request_id,key,"shared")
                     cur.execute("UPDATE sylvex_erasure_media SET state='shared',proof_kind='other_reference',updated_at=NOW() "
@@ -382,6 +424,11 @@ def process_request(database_url, request_id, *, storage=None, journal=None, app
             return {**core.receipt(request),"hold_code":"unclassified_owned_table"}
         _internal(cur,request_id)
         _purge_personal(cur,schema,request)
+        cur.execute("SELECT to_regclass('sylvex_storage_references')")
+        if cur.fetchone()[0] is not None:
+            # Index entries of objects that no longer exist.
+            cur.execute("DELETE FROM sylvex_storage_references r USING sylvex_erasure_media m "
+                        "WHERE m.request_id=%s AND m.state='deleted' AND r.object_key=m.object_key", (str(request_id),))
         cur.execute("SELECT object_key,state FROM sylvex_erasure_media WHERE request_id=%s",(str(request_id),))
         for key,state in cur.fetchall():
             journal.append_decision(request_id,key,"shared" if state=="shared" else "delete")
@@ -451,12 +498,42 @@ def process_pending(database_url, *, storage=None, journal=None, stripe=None, li
         return []
     token = core._lock_timeout.set(PROCESSOR_LOCK_TIMEOUT)
     try:
-        return _process_pending(database_url, storage=storage, journal=journal, stripe=stripe, limit=limit)
+        with _processor_lease(database_url) as held:
+            if not held:
+                return []  # another instance is processing; its queue is the same table
+            return _process_pending(database_url, storage=storage, journal=journal, stripe=stripe, limit=limit)
     finally:
         core._lock_timeout.reset(token)
 
 
+@contextmanager
+def _processor_lease(database_url):
+    conn = core.db_connect(database_url)
+    held = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s,%s)", PROCESSOR_LEASE)
+            held = bool(cur.fetchone()[0])
+        conn.commit()  # session lock survives; the connection idles outside a transaction
+        yield held
+    finally:
+        release_failed = False
+        if held:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_unlock(%s,%s)", PROCESSOR_LEASE)
+                    release_failed = not cur.fetchone()[0]
+                conn.commit()
+            except Exception:
+                release_failed = True
+        if release_failed:
+            # Never return a pooled connection that may still hold the lease.
+            getattr(conn, "_connection", conn).close()
+        conn.close()
+
+
 def _process_pending(database_url, *, storage, journal, stripe, limit):
+    deadline = time.monotonic() + PASS_BUDGET_SECONDS
     with core.transaction(database_url) as cur:
         if not core._has_requests(cur):
             return []
@@ -469,11 +546,21 @@ def _process_pending(database_url, *, storage, journal, stripe, limit):
         ids = [str(row[0]) for row in cur.fetchall()]
     results = []
     for request_id in ids:
+        if time.monotonic() > deadline:
+            # Oldest first; the rest wait for the next pass, nothing is lost.
+            results.append({"request_id": request_id, "complete": False, "state": "", "hold_code": "pass_budget", "media": {}})
+            continue
         with core.transaction(database_url) as cur:
             request = core.request_row(cur, request_id)
         try:
             cancel_renewals(database_url, request, stripe=stripe)
-            result = process_request(database_url, request_id, storage=storage, journal=journal, apply=True, self_service=True)
+            result = process_request(database_url, request_id, storage=storage, journal=journal, apply=True,
+                                     self_service=True, batch_size=MEDIA_BATCH)
+            # A large account continues within this pass instead of one
+            # batch per minute; each batch is its own resumable step.
+            while result.get("hold_code") == "media_remaining" and time.monotonic() < deadline:
+                result = process_request(database_url, request_id, storage=storage, journal=journal, apply=True,
+                                         self_service=True, batch_size=MEDIA_BATCH)
         except core.ErasureError as exc:
             result = {"request_id": request_id, "complete": False, "hold_code": exc.code}
         except Exception as exc:

@@ -18337,14 +18337,18 @@ async def _run_account_erasure_once():
 async def account_erasure_worker_loop():
     """Self-service account deletion: confirmed requests run without an operator."""
     while True:
+        more = False
         try:
-            await _run_account_erasure_once()
+            results = await _run_account_erasure_once()
+            # Unfinished work of this pass continues right away (the pass
+            # itself is time-bounded and holds the single processor lease).
+            more = any(item.get("hold_code") in ("media_remaining", "pass_budget") for item in results or [])
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             print("ACCOUNT_ERASURE_LOOP_FAILED:", type(exc).__name__, flush=True)
         try:
-            await asyncio.wait_for(_ERASURE_WAKE.wait(), timeout=60)
+            await asyncio.wait_for(_ERASURE_WAKE.wait(), timeout=1 if more else 60)
         except asyncio.TimeoutError:
             pass
         _ERASURE_WAKE.clear()

@@ -16,6 +16,7 @@ from services import account_erasure_runner as runner
 from services import account_erasure_policy as policy
 
 A, B = 110626010001, 110626020002
+REFERENCE_INDEX = os.environ.get("SYLVEX_TEST_REFERENCE_INDEX") == "1"
 U, V = 900000001234, 900000005678
 
 
@@ -62,6 +63,12 @@ def case(monkeypatch, tmp_path):
             cur.execute("INSERT INTO purchases(telegram_id,credits,amount) VALUES(%s,100,1),(%s,200,2)", (U,V))
             erasure.ensure_schema(cur)
             guards.install(cur)
+            if REFERENCE_INDEX:
+                guards.install_reference_index(cur)
+    if REFERENCE_INDEX:
+        # The whole suite also runs with the reference index in use.
+        done = guards.backfill_reference_index("synthetic-only", wait_for_older=False)
+        assert not done["pending"], done
 
     class Case:
         def execute(self, sql, args=()):
@@ -590,7 +597,7 @@ def test_concurrent_foreign_reference_commits_before_object_deletion(case):
             task=pool.submit(runner.process_request,'synthetic-only',request['request_id'],storage=store,journal=case.journal,apply=True)
             deadline=time.monotonic()+5
             while time.monotonic()<deadline:
-                if case.execute("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=61182 AND NOT granted"):break
+                if case.execute("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=61184 AND NOT granted"):break
                 if task.done():raise AssertionError('erasure passed an uncommitted shared reference')
                 time.sleep(0.01)
             else:raise AssertionError('erasure did not reach the fenced object')
@@ -1331,3 +1338,248 @@ def test_processor_does_not_wait_forever_for_a_held_subject_lock(case, monkeypat
         holder.rollback(); holder.close()
     [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
     assert result["complete"] and result["request_id"] == receipt["request_id"]
+
+
+# --- B09 performance: reference index, typed owner lookups, single processor ---
+
+def _install_index(case):
+    with case.connect() as conn, conn.cursor() as cur:
+        guards.install_reference_index(cur)
+    done = guards.backfill_reference_index("synthetic-only", wait_for_older=False)
+    assert not done["pending"], done
+    return done
+
+
+def _many_rows(case, n=3000):
+    # Enough rows that the planner prefers an index over a scan.
+    case.execute("INSERT INTO prostudio_messages(telegram_id,prompt,image_url) SELECT 910000000000+g,'bulk',"
+                 "'https://media.example.invalid/api/public/storage/generated/images/bulk-'||g||'.png' FROM generate_series(1,%s) g", (n,))
+    case.execute("ANALYZE prostudio_messages")
+
+
+def test_reference_index_records_writes_and_backfills_existing_rows(case):
+    before = add_media(case, "generated/images/before-index.png", owner=None, user=V)
+    _install_index(case)
+    after = add_media(case, "generated/images/after-index.png", owner=None, user=V)
+    rows = case.execute("SELECT object_key,source_table FROM sylvex_storage_references WHERE object_key LIKE 'generated/images/%%-index.png' ORDER BY 1")
+    assert rows == [("generated/images/after-index.png", "prostudio_messages"), ("generated/images/before-index.png", "prostudio_messages")]
+    with case.connect() as conn, conn.cursor() as cur:
+        trusted = guards.trusted_reference_tables(cur)
+    assert trusted["prostudio_messages"] == ["id"] and trusted["prostudio_generation_jobs"] == ["id"]
+    assert before and after
+
+
+def test_indexed_reference_check_reads_rows_by_key_not_by_scan(case):
+    _many_rows(case)
+    _install_index(case)
+    shared = "generated/images/shared-indexed.png"
+    add_media(case, shared, owner=None); add_media(case, shared, owner=None, user=V)
+    request = case.accept()
+    with case.connect() as conn, conn.cursor() as cur:
+        row = erasure.request_row(cur, request["request_id"])
+        schema = erasure.columns(cur)
+        assert runner._shared_reference(cur, shared, schema, row)
+        assert not runner._shared_reference(cur, "generated/images/bulk-none.png", schema, row)
+        cur.execute("SELECT seq_scan,idx_scan FROM pg_stat_xact_user_tables WHERE relname='prostudio_messages' AND schemaname=current_schema()")
+        seq, idx = cur.fetchone()
+    assert seq == 0 and idx >= 1
+
+
+def test_typed_owner_predicate_uses_the_owner_index(case):
+    _many_rows(case)
+    case.execute("CREATE INDEX ON prostudio_messages(telegram_id)"); case.execute("ANALYZE prostudio_messages")
+    add_media(case, "generated/images/own-typed.png")
+    request = case.accept()
+    with case.connect() as conn, conn.cursor() as cur:
+        row = erasure.request_row(cur, request["request_id"])
+        schema = erasure.columns(cur)
+        where, params = erasure.owner_clause("prostudio_messages", schema, row)
+        assert "::text" not in where
+        cur.execute("EXPLAIN SELECT 1 FROM prostudio_messages WHERE " + where, params)
+        plan = " ".join(r[0] for r in cur.fetchall())
+    assert "Index" in plan and "Seq Scan" not in plan, plan
+
+
+def test_stale_index_entry_does_not_keep_a_file_another_user_dropped(case):
+    _install_index(case)
+    key = "generated/images/once-shared.png"
+    add_media(case, key, owner=None)
+    other = add_media(case, key, owner=None, user=V)
+    case.execute("UPDATE prostudio_messages SET image_url='https://media.example.invalid/api/public/storage/generated/images/v-own.png' "
+                 "WHERE telegram_id=%s AND image_url=%s", (V, other))
+    assert case.execute("SELECT COUNT(*) FROM sylvex_storage_references WHERE object_key=%s", (key,))[0][0] == 2
+    store = FakeStorage([key]); case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and store.calls == [key]
+    assert case.execute("SELECT COUNT(*) FROM sylvex_storage_references WHERE object_key=%s", (key,))[0][0] == 0
+
+
+def test_reference_added_after_backfill_is_found_through_the_index(case):
+    _install_index(case)
+    key = "generated/images/late-share.png"
+    add_media(case, key, owner=None)
+    case.execute("UPDATE prostudio_resources SET photos_json=photos_json")  # unrelated write
+    case.execute("INSERT INTO prostudio_resources(telegram_id,photos_json) VALUES(%s,%s)",
+                 (V, json.dumps(["https://media.example.invalid/generated/images/late-share.png"])))
+    store = FakeStorage([key]); case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and key in store.objects and not store.calls
+
+
+def test_older_guard_without_recording_makes_the_index_untrusted_until_backfilled(case, monkeypatch):
+    _install_index(case)
+    old_body = guards.SQL.split("-- Reference index (installed only by install_reference_index)")[0] + "    RETURN NEW;\nEND $$;\n"
+    with case.connect() as conn, conn.cursor() as cur:
+        cur.execute(old_body)  # what a rollback to an older release installs
+    key = "generated/images/rollback-window.png"
+    add_media(case, key, owner=None); add_media(case, key, owner=None, user=V)
+    assert case.execute("SELECT COUNT(*) FROM sylvex_storage_references WHERE object_key=%s", (key,))[0][0] == 0
+    with case.connect() as conn, conn.cursor() as cur:
+        assert guards.trusted_reference_tables(cur) == {}
+    monkeypatch.setattr(erasure, "validate_runtime", lambda url: None)
+    status = erasure.activate_runtime("synthetic-only")
+    assert status["reference_index"]["reset"] and status["reference_index"]["backfilled"] == 0
+    store = FakeStorage([key]); case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and key in store.objects  # found by the scan fallback
+    assert not guards.backfill_reference_index("synthetic-only", wait_for_older=False)["pending"]
+
+
+def test_table_without_primary_key_is_always_scanned(case):
+    case.execute("CREATE TABLE prostudio_drafts(telegram_id BIGINT,body TEXT)")
+    with case.connect() as conn, conn.cursor() as cur:
+        guards.install(cur)  # a new guarded table gets its guard first, as in a release
+    _install_index(case)
+    key = "generated/images/draft-ref.png"; add_media(case, key, owner=None)
+    case.execute("INSERT INTO prostudio_drafts VALUES(%s,%s)", (V, "https://media.example.invalid/generated/images/draft-ref.png"))
+    with case.connect() as conn, conn.cursor() as cur:
+        assert "prostudio_drafts" not in guards.trusted_reference_tables(cur)
+    store = FakeStorage([key]); case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and key in store.objects
+
+
+def test_backfill_resumes_and_waits_for_older_writers(case):
+    case.execute("DROP TABLE IF EXISTS sylvex_storage_reference_tables,sylvex_storage_references")  # fresh migration
+    for i in range(5):
+        add_media(case, "generated/images/resume-%d.png" % i, owner=None, user=V)
+    writer = psycopg2.connect(os.environ["SYLVEX_TEST_DATABASE_URL"], options="-c search_path=" + case.execute("SELECT current_schema()")[0][0])
+    try:
+        with writer.cursor() as cur:  # a writer that started before recording
+            cur.execute("INSERT INTO prostudio_messages(telegram_id,image_url) VALUES(%s,%s)",
+                        (V, "https://media.example.invalid/api/public/storage/generated/images/straggler.png"))
+        with case.connect() as conn, conn.cursor() as cur:
+            guards.install_reference_index(cur)
+        blocked = guards.backfill_reference_index("synthetic-only", wait_seconds=1)
+        assert blocked.get("blocked_by_older_transactions")
+        writer.commit()
+    finally:
+        writer.close()
+    partial = guards.backfill_reference_index("synthetic-only", batch=1, max_seconds=0)
+    assert partial["pending"]
+    assert not guards.backfill_reference_index("synthetic-only", batch=2)["pending"]
+    keys = {row[0] for row in case.execute("SELECT object_key FROM sylvex_storage_references")}
+    assert {"generated/images/straggler.png"} | {"generated/images/resume-%d.png" % i for i in range(5)} <= keys
+
+
+def test_one_processor_across_instances(case):
+    receipt = case.accept()
+    holder = psycopg2.connect(os.environ["SYLVEX_TEST_DATABASE_URL"])  # advisory locks are database-wide
+    try:
+        with holder.cursor() as cur:
+            cur.execute("SELECT pg_advisory_lock(%s,%s)", runner.PROCESSOR_LEASE)
+        holder.commit()
+        assert runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe()) == []
+        assert case.execute("SELECT state FROM sylvex_erasure_requests") == [("queued",)]
+    finally:
+        holder.close()  # the server drops a session lock with its connection, as on a crash
+    [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and result["request_id"] == receipt["request_id"]
+
+
+def test_parallel_instances_run_one_pass_and_cancel_renewal_once(case):
+    import threading
+    _wallets_and_stripe(case)
+    case.accept()
+    stripe, inflight, peak, gate = FakeStripe(), [0], [0], threading.Lock()
+    original = runner.process_request
+    def counted(*a, **k):
+        with gate:
+            inflight[0] += 1; peak[0] = max(peak[0], inflight[0])
+        try:
+            import time; time.sleep(0.2); return original(*a, **k)
+        finally:
+            with gate:
+                inflight[0] -= 1
+    runner.process_request = counted
+    try:
+        threads = [threading.Thread(target=runner.process_pending, args=("synthetic-only",),
+                                    kwargs={"storage": FakeStorage(), "journal": case.journal, "stripe": stripe}) for _ in range(4)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+    finally:
+        runner.process_request = original
+    assert peak[0] == 1 and stripe.calls == [("DELETE", "/subscriptions/sub_own")]
+    assert case.execute("SELECT state FROM sylvex_erasure_requests") == [("complete",)]
+
+
+def test_large_account_finishes_in_one_pass_in_resumable_batches(case, monkeypatch):
+    keys = ["generated/images/batch-%d.png" % i for i in range(7)]
+    for key in keys: add_media(case, key)
+    monkeypatch.setattr(runner, "MEDIA_BATCH", 2)
+    store = FakeStorage(keys); case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and store.objects == set() and sorted(store.calls) == sorted(keys)
+
+
+def test_pass_budget_defers_requests_without_losing_them(case, monkeypatch):
+    receipt = case.accept()
+    monkeypatch.setattr(runner, "PASS_BUDGET_SECONDS", -1)
+    [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
+    assert result["hold_code"] == "pass_budget" and case.execute("SELECT state FROM sylvex_erasure_requests") == [("queued",)]
+    monkeypatch.setattr(runner, "PASS_BUDGET_SECONDS", 120)
+    [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and result["request_id"] == receipt["request_id"]
+
+
+def test_crash_between_object_delete_and_commit_resumes_safely(case, monkeypatch):
+    keys = ["generated/images/crash-%d.png" % i for i in range(3)]
+    for key in keys: add_media(case, key)
+    store = FakeStorage(keys); case.accept()
+    real_delete = store.delete
+    def crash_after_first(key):
+        real_delete(key)
+        raise SystemExit("synthetic process crash after the object delete")
+    store.delete = crash_after_first
+    with pytest.raises(SystemExit):
+        runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert case.execute("SELECT COUNT(*) FROM prostudio_messages WHERE telegram_id=%s", (U,))[0][0] == 3
+    store.delete = real_delete
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and store.objects == set()
+
+
+def test_bulk_write_of_many_referencing_rows_does_not_exhaust_locks(case):
+    # One account's 3000 rows x several key suffixes in one statement (as an
+    # account merge moves them): one lock per key failed with "out of shared
+    # memory"; buckets bound it to 64 (+ the owner's subject lock).
+    case.execute("INSERT INTO prostudio_messages(telegram_id,prompt,image_url) SELECT %s,'bulk',"
+                 "'https://media.example.invalid/api/public/storage/generated/images/bulk-'||g||'.png' FROM generate_series(1,3000) g", (V,))
+    with case.connect() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE prostudio_messages SET prompt='bulk2' WHERE prompt='bulk'")
+        cur.execute("SELECT COUNT(*) FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid()")
+        assert cur.fetchone()[0] <= 64 + 4
+
+
+def test_operator_cli_installs_and_backfills_the_reference_index_only_with_apply(case, monkeypatch, capsys):
+    from services import account_erasure_cli as cli
+    monkeypatch.setenv("DATABASE_URL", "synthetic-only")
+    case.execute("DROP TABLE IF EXISTS sylvex_storage_reference_tables,sylvex_storage_references")
+    add_media(case, "generated/images/cli-ref.png", owner=None, user=V)
+    assert cli.main(["reference-index"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"applied": False, "installed": False}
+    assert not case.execute("SELECT to_regclass('sylvex_storage_references')")[0][0]
+    assert cli.main(["reference-index", "--apply", "--pause", "0"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["pending"] == [] and out["tables"] == out["backfilled"] + out["without_primary_key"] and out["trusted"] >= 3
+    assert case.execute("SELECT COUNT(*) FROM sylvex_storage_references WHERE object_key='generated/images/cli-ref.png'")[0][0] == 1

@@ -465,11 +465,21 @@ def transaction(database_url):
         conn.close()
 
 
+# Column types from the latest columns() call, used to compare owner columns
+# with a typed value so their indexes can be used.
+_COLUMN_TYPES = {}
+_TYPED_OWNER = {"bigint": "bigint", "integer": "bigint", "smallint": "bigint", "numeric": "numeric",
+                "text": "text", "character varying": "text"}
+
+
 def columns(cur):
-    cur.execute("SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=current_schema()")
-    result = {}
-    for table, column in cur.fetchall():
+    cur.execute("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema()")
+    result, types = {}, {}
+    for table, column, data_type in cur.fetchall():
         result.setdefault(table, set()).add(column)
+        types[(table, column)] = data_type
+    global _COLUMN_TYPES
+    _COLUMN_TYPES = types  # replaced whole: readers in other threads never see it half-built
     return result
 
 
@@ -487,11 +497,19 @@ def owner_clause(table, schema, request, *, alias=None):
         if column in schema.get(table, set()):
             value = request["account_id"] if column in policy.ACCOUNT_COLUMNS else request["subject_key"]
             if value is not None:
-                predicates.append(qualifier + ident(column) + "::text=%s")
+                # Same match as comparing the text forms, but index-usable.
+                cast = _TYPED_OWNER.get(_COLUMN_TYPES.get((table, column), ""))
+                predicates.append(qualifier + ident(column) + ("=%s::" + cast if cast else "::text=%s"))
                 params.append(str(value))
     if not predicates:
         raise ErasureError("erasure_schema_requires_review")
-    return "COALESCE((" + " OR ".join(predicates) + "),FALSE)", params
+    # Positive form so an owner index can serve it (a NULL owner is not a
+    # match); negate only through not_owned(), which keeps NULL rows in.
+    return "(" + " OR ".join(predicates) + ")", params
+
+
+def not_owned(clause):
+    return "NOT COALESCE(" + clause + ",FALSE)"
 
 
 def streamed_json(cur,query,params=()):
@@ -615,7 +633,8 @@ def _strings(value, depth=0, *, strict=False):
 
 
 def media_keys(cur, records, schema, storage):
-    strings = {s for row in records for s in _strings(row)}
+    # Object keys are short tokens; inline data and prose never are.
+    strings = {s for row in records for s in _strings(row) if len(s) <= 2048}
     keys = set()
     for value in strings:
         key = storage.key_from_url(value)
@@ -754,6 +773,8 @@ def activate_runtime(database_url):
         with transaction(database_url) as cur:
             cur.execute("SET LOCAL lock_timeout='5s'")
             ensure_schema(cur)
+            # An older release may have run without reference recording.
+            reference_index_reset = guards.invalidate_reference_index_if_unrecorded(cur)
             try:
                 guards.require_installed(cur, verify_coverage=True)
                 # Installed earlier: bring the function bodies to this release.
@@ -769,8 +790,14 @@ def activate_runtime(database_url):
         with transaction(database_url) as cur:
             cur.execute("SELECT state,COUNT(*) FROM sylvex_erasure_requests GROUP BY state ORDER BY state")
             requests = {state: count for state, count in cur.fetchall()}
+            cur.execute("SELECT to_regclass('sylvex_storage_reference_tables')")
+            index = None
+            if cur.fetchone()[0] is not None:
+                cur.execute("SELECT COUNT(*),COUNT(backfilled_at) FROM sylvex_storage_reference_tables WHERE pk_columns<>''")
+                total, done = cur.fetchone()
+                index = {"tables": total, "backfilled": done, "reset": reference_index_reset}
         return {"enabled": True, "configured": True, "guards_installed_now": installed,
-                "accepting": accepting(), "requests_by_state": requests}
+                "accepting": accepting(), "requests_by_state": requests, "reference_index": index}
     except Exception as exc:
         _RUNTIME_BLOCK = exc.code if isinstance(exc, ErasureError) else type(exc).__name__
         return {"enabled": False, "configured": True, "error": _RUNTIME_BLOCK}
@@ -914,7 +941,7 @@ def storage_write(function):
             request = _row(cur, "SELECT " + REQUEST_COLUMNS + " FROM sylvex_erasure_requests WHERE subject_key=%s", (uid,))
             if request and not (_existing_media_job(cur, uid, request) or _existing_paid_operation(cur, uid, request)):
                 raise ErasureError("account_erasure_in_progress")
-            cur.execute("SELECT pg_advisory_xact_lock_shared(61182,hashtext(%s))", (key,))
+            cur.execute("SELECT pg_advisory_xact_lock_shared(61184,hashtext(%s) & 63)", (key,))
             cur.execute("SELECT 1 FROM sylvex_erasure_media WHERE object_key=%s AND state IN ('deleting','deleted') LIMIT 1", (key,))
             if cur.fetchone():
                 raise ErasureError("erased_media_write")
@@ -942,7 +969,7 @@ def storage_write(function):
             # shared lock now protects network/registry completion, without
             # opening a second pooled connection inside an upload.
             _subject_lock(cur, uid, shared=True)
-            cur.execute("SELECT pg_advisory_xact_lock_shared(61182,hashtext(%s))", (key,))
+            cur.execute("SELECT pg_advisory_xact_lock_shared(61184,hashtext(%s) & 63)", (key,))
             cur.execute("SELECT 1 FROM sylvex_active_operations WHERE operation_id=%s AND state='active'", (operation_id,))
             if not cur.fetchone():
                 raise ErasureError("erasure_operation_requires_review")
