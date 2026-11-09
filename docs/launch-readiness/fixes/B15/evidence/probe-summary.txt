@@ -1,0 +1,22 @@
+## s705-api ccde13e
+B15_WINDOW_DB_ERROR {"job": "failed", "reservation": "charged", "charges": 1, "balance": 80, "failed_notice": 1}
+B15_WINDOW_CRASH {"recovered": true, "has_charge_logged": true, "job": "failed", "reservation": "charged", "charges": 1, "balance": 80}
+PASSED ../b15-probe/test_b15_probe.py::test_success_charges_once_and_completes
+PASSED ../b15-probe/test_b15_probe.py::test_provider_error_or_timeout_fails_and_refunds_once[error]
+PASSED ../b15-probe/test_b15_probe.py::test_provider_error_or_timeout_fails_and_refunds_once[timeout]
+PASSED ../b15-probe/test_b15_probe.py::test_terminal_states_cannot_be_overwritten
+PASSED ../b15-probe/test_b15_probe.py::test_stale_recovery_refunds_abandoned_job_and_spares_live_one
+FAILED ../b15-probe/test_b15_probe.py::test_db_error_on_completion_write_after_charge
+FAILED ../b15-probe/test_b15_probe.py::test_crash_after_charge_then_stale_recovery
+2 failed, 5 passed, 4 warnings in 1.89s
+## s705-workers 8b08994
+B15_WINDOW_DB_ERROR {"job": "failed", "reservation": "charged", "charges": 1, "balance": 80, "failed_notice": 1}
+B15_WINDOW_CRASH {"recovered": true, "has_charge_logged": true, "job": "failed", "reservation": "charged", "charges": 1, "balance": 80}
+PASSED ../b15-probe/test_b15_probe.py::test_success_charges_once_and_completes
+PASSED ../b15-probe/test_b15_probe.py::test_provider_error_or_timeout_fails_and_refunds_once[error]
+PASSED ../b15-probe/test_b15_probe.py::test_provider_error_or_timeout_fails_and_refunds_once[timeout]
+PASSED ../b15-probe/test_b15_probe.py::test_terminal_states_cannot_be_overwritten
+PASSED ../b15-probe/test_b15_probe.py::test_stale_recovery_refunds_abandoned_job_and_spares_live_one
+FAILED ../b15-probe/test_b15_probe.py::test_db_error_on_completion_write_after_charge
+FAILED ../b15-probe/test_b15_probe.py::test_crash_after_charge_then_stale_recovery
+2 failed, 5 passed, 4 warnings in 1.77s

@@ -1,0 +1,38 @@
+## b15-s705-api.xml
+ {'SKIP': 1}
+ProviderResilienceTests {'PASS': 11}
+test_admin_recover_job_audit_log {'PASS': 6}
+test_admin_recover_job_auth {'PASS': 8}
+test_character_creation_no_heygen {'PASS': 4}
+test_character_creation_simple {'PASS': 29, 'FAIL': 1}
+test_classify_openai_creation_error {'PASS': 14, 'FAIL': 2}
+test_job1_provider_idempotency {'PASS': 7}
+test_job_client_request_id_idempotency {'FAIL': 2}
+test_job_terminal_state_guard {'PASS': 2, 'FAIL': 2}
+test_no_technical_error_strings {'PASS': 1}
+test_object_creation_v2 {'PASS': 38, 'FAIL': 1}
+test_provider_concurrency_limits {'PASS': 12}
+test_provider_retry_slot_ownership {'PASS': 2}
+test_provider_slot_lifecycle {'PASS': 4}
+test_remove_object_tool {'PASS': 17}
+test_stale_job_recovery {'PASS': 2, 'FAIL': 2}
+test_telegram_failure_notification {'PASS': 10}
+## b15-s705-workers.xml
+ {'SKIP': 1}
+ProviderResilienceTests {'PASS': 11}
+test_admin_recover_job_audit_log {'PASS': 6}
+test_admin_recover_job_auth {'PASS': 8}
+test_character_creation_no_heygen {'PASS': 4}
+test_character_creation_simple {'PASS': 29, 'FAIL': 1}
+test_classify_openai_creation_error {'PASS': 14, 'FAIL': 2}
+test_job1_provider_idempotency {'PASS': 7}
+test_job_client_request_id_idempotency {'FAIL': 2}
+test_job_terminal_state_guard {'PASS': 2, 'FAIL': 2}
+test_no_technical_error_strings {'PASS': 1}
+test_object_creation_v2 {'PASS': 38, 'FAIL': 1}
+test_provider_concurrency_limits {'PASS': 12}
+test_provider_retry_slot_ownership {'PASS': 2}
+test_provider_slot_lifecycle {'PASS': 4}
+test_remove_object_tool {'PASS': 17}
+test_stale_job_recovery {'PASS': 2, 'FAIL': 2}
+test_telegram_failure_notification {'PASS': 10}
