@@ -18316,6 +18316,7 @@ async def web_account_delete_verify(request: Request):
 
 
 _ERASURE_WAKE = asyncio.Event()
+_ERASURE_LAST_LOGGED = {}
 
 
 async def _run_account_erasure_once():
@@ -18324,8 +18325,12 @@ async def _run_account_erasure_once():
         return []
     results = await asyncio.to_thread(account_erasure_runner.process_pending, DATABASE_URL)
     for item in results:
-        # Request ids and codes only: no account, email, key or content.
-        print("ACCOUNT_ERASURE:", json.dumps(item, sort_keys=True), flush=True)
+        # Request ids, codes and counts only: no account, email, key or content.
+        # A held request is re-planned every pass; log it again only on change.
+        line = json.dumps(item, sort_keys=True)
+        if _ERASURE_LAST_LOGGED.get(item.get("request_id")) != line:
+            _ERASURE_LAST_LOGGED[item.get("request_id")] = line
+            print("ACCOUNT_ERASURE:", line, flush=True)
     return results
 
 

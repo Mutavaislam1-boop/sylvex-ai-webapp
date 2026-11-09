@@ -1,4 +1,6 @@
 """Synthetic erasure regression. No real account, provider or object access."""
+import sys
+from types import SimpleNamespace
 import json
 import os
 from pathlib import Path
@@ -1042,7 +1044,8 @@ def test_self_service_pass_cancels_renewal_and_ends_wallet_only_for_the_confirmi
     store, stripe = FakeStorage([key]), FakeStripe()
     receipt = case.accept()
     results = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=stripe)
-    assert results == [{"request_id": receipt["request_id"], "complete": True, "state": "complete", "hold_code": ""}]
+    assert results == [{"request_id": receipt["request_id"], "complete": True, "state": "complete", "hold_code": "",
+                        "media": {"deleted:recorded_owner": 1}}]
     assert stripe.calls == [("DELETE", "/subscriptions/sub_own")]
     assert case.execute("SELECT subscription_id,status FROM stripe_subscriptions ORDER BY 1") == [
         ("sub_old","canceled"), ("sub_other","active"), ("sub_own","canceled")]
@@ -1123,3 +1126,102 @@ def test_activation_reports_request_counts_without_ids(case, monkeypatch):
     status = erasure.activate_runtime("synthetic-only")
     assert status["enabled"] and status["requests_by_state"] == {"queued": 1}
     assert "request_id" not in json.dumps(status)
+
+
+def _legacy_account_with_unrecorded_media(case):
+    # An account created before ownership recording; its generation and its
+    # uploaded reference were written without an ownership record (B09 test
+    # account: workers on older code, account older than the runtime).
+    case.execute("UPDATE sylvex_accounts SET created_at='2020-01-01' WHERE account_id=%s",(A,))
+    own_result, own_upload = "generated/images/legacy-result.png", "generated/references/legacy-ref.png"
+    add_media(case,own_result,owner=None);add_media(case,own_upload,owner=None)
+    return own_result, own_upload
+
+
+def test_self_service_completes_a_legacy_account_held_for_inventory_review(case):
+    own_result, own_upload = _legacy_account_with_unrecorded_media(case)
+    other = "generated/images/other-user.png"; add_media(case,other,owner=None,user=V)
+    store = FakeStorage([own_result,own_upload,other])
+    receipt = case.accept()
+    # The request as Production holds it: planned once by the earlier
+    # processor and left in scope_review with the legacy inventory hold.
+    held = runner.process_request("synthetic-only",receipt["request_id"],storage=store,journal=case.journal,apply=True)
+    assert held["state"] == "scope_review" and held["hold_code"] == "legacy_media_inventory_requires_review"
+    assert not store.calls
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and result["hold_code"] == "", result
+    assert result["media"] == {"deleted:account_reference": 2}
+    assert sorted(store.calls) == sorted([own_result,own_upload]) and store.objects == {other}
+    assert case.execute("SELECT COUNT(*) FROM prostudio_messages WHERE telegram_id=%s",(U,))[0][0] == 0
+    assert case.execute("SELECT COUNT(*) FROM prostudio_messages WHERE telegram_id=%s",(V,))[0][0] == 1
+    assert case.execute("SELECT balance,subscription FROM users WHERE telegram_id=%s",(U,)) == [(0,"free")]
+    assert case.execute("SELECT balance,subscription FROM users WHERE telegram_id=%s",(V,)) == [(5678,"pro")]
+    record = case.journal.read(receipt["request_id"])
+    assert record["completed_at"] and record["inventory_evidence_sha256"]
+
+
+def test_self_service_keeps_a_key_another_account_also_references(case):
+    _legacy_account_with_unrecorded_media(case)
+    shared = "generated/images/shared.png"
+    add_media(case,shared,owner=None); add_media(case,shared,owner=None,user=V)
+    store = FakeStorage([shared,"generated/images/legacy-result.png","generated/references/legacy-ref.png"])
+    case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and result["media"] == {"deleted:account_reference": 2, "shared:other_reference": 1}
+    assert shared in store.objects and shared not in store.calls
+    assert case.execute("SELECT COUNT(*) FROM prostudio_messages WHERE telegram_id=%s",(V,))[0][0] == 1
+
+
+def test_self_service_never_deletes_keys_outside_application_media(case):
+    case.execute("UPDATE sylvex_accounts SET created_at='2020-01-01' WHERE account_id=%s",(A,))
+    foreign = "assets/site/brand.png"; add_media(case,foreign,owner=None)
+    store = FakeStorage([foreign])
+    case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and result["media"] == {"shared:unattributed_retained": 1}
+    assert store.objects == {foreign} and not store.calls
+
+
+def test_self_service_recorded_other_owner_is_kept(case):
+    _legacy_account_with_unrecorded_media(case)
+    theirs = "generated/images/theirs.png"; add_media(case,theirs,owner=V)
+    store = FakeStorage([theirs,"generated/images/legacy-result.png","generated/references/legacy-ref.png"])
+    case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and theirs in store.objects and theirs not in store.calls
+    assert case.execute("SELECT owner_key FROM sylvex_storage_ownership WHERE object_key=%s",(theirs,)) == [(V,)]
+
+
+def test_operator_path_still_requires_explicit_reviews(case):
+    _legacy_account_with_unrecorded_media(case)
+    receipt = case.accept()
+    store = FakeStorage(["generated/images/legacy-result.png","generated/references/legacy-ref.png"])
+    result = runner.process_request("synthetic-only",receipt["request_id"],storage=store,journal=case.journal,apply=True)
+    assert result["hold_code"] == "legacy_media_inventory_requires_review" and not store.calls
+    erasure.approve_legacy_inventory("synthetic-only",receipt["request_id"],reviewed_by="op",evidence_ref="ref",journal=case.journal)
+    result = runner.process_request("synthetic-only",receipt["request_id"],storage=store,journal=case.journal,apply=True)
+    assert result["hold_code"] == "object_ownership_requires_review" and not store.calls
+
+
+def test_a_persisting_hold_is_logged_once(case, monkeypatch):
+    import ast, asyncio as aio
+    tree = ast.parse((Path(__file__).parents[1]/'main.py').read_text())
+    keep = [n for n in tree.body if (isinstance(n,ast.AsyncFunctionDef) and n.name=='_run_account_erasure_once')
+            or (isinstance(n,ast.Assign) and any(getattr(t,'id','')=='_ERASURE_LAST_LOGGED' for t in n.targets))]
+    printed = []
+    held = [{"request_id":"r1","complete":False,"state":"waiting_work","hold_code":"generation_in_flight","media":{}}]
+    fake = SimpleNamespace(enabled=lambda: True)
+    fake_runner = SimpleNamespace(process_pending=lambda url: held)
+    import services
+    monkeypatch.setattr(services, "account_erasure", fake, raising=False)
+    monkeypatch.setattr(services, "account_erasure_runner", fake_runner, raising=False)
+    monkeypatch.setitem(sys.modules, "services.account_erasure", fake)
+    monkeypatch.setitem(sys.modules, "services.account_erasure_runner", fake_runner)
+    env = {"asyncio": aio, "json": json, "DATABASE_URL": "synthetic-only", "print": lambda *a, **k: printed.append(a)}
+    exec(compile(ast.Module(body=keep,type_ignores=[]),'erasure-log-fixture','exec'),env)
+    for _ in range(3):
+        aio.run(env["_run_account_erasure_once"]())
+    assert len(printed) == 1
+    held[0] = {**held[0], "state": "complete", "complete": True, "hold_code": ""}
+    aio.run(env["_run_account_erasure_once"]())
+    assert len(printed) == 2

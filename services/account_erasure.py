@@ -624,8 +624,14 @@ def media_keys(cur, records, schema, storage):
     return keys
 
 
-def plan_request(database_url, request_id, *, storage, journal=None):
-    """Read/record scope and holds. No content, file or payment is deleted."""
+def plan_request(database_url, request_id, *, storage, journal=None, self_service=False):
+    """Read/record scope and holds. No content, file or payment is deleted.
+
+    self_service (owner decision B09, the confirmed-request processor only):
+    an account older than ownership recording is inventoried from its own
+    records, and a referenced key without a recorded owner is attributed by
+    attribute_account_media instead of waiting for an operator.
+    """
     journal = journal or Journal()
     with transaction(database_url) as cur:
         from services.account_erasure_guards import require_installed
@@ -663,7 +669,12 @@ def plan_request(database_url, request_id, *, storage, journal=None):
             # Prior uploads without a recorded owner cannot be found merely
             # by searching filenames. Require an explicit legacy inventory.
             if created is None or (created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created)<since:
-                inventory_hold = True
+                if self_service:
+                    record.update(inventory_reviewed_at=utc_now(),inventory_evidence_sha256=hashlib.sha256(
+                        b"self_service\0account_records").hexdigest())
+                    journal.write(record)
+                else:
+                    inventory_hold = True
         from services.account_erasure_runner import _related_scope_hold
         related_hold=_related_scope_hold(cur,schema,request)
         review=set()
@@ -685,6 +696,9 @@ def plan_request(database_url, request_id, *, storage, journal=None):
             if len(batch)==100:
                 _manifest_keys(cur,request,set(batch));batch=[]
         _manifest_keys(cur,request,set(batch))
+        if self_service and not inventory_hold:
+            from services.account_erasure_runner import attribute_account_media
+            attribute_account_media(cur,schema,request)
         cur.execute("SELECT 1 FROM sylvex_erasure_media WHERE request_id=%s AND state='review' LIMIT 1", (str(request_id),))
         media_review = bool(cur.fetchone())
         state = "purging" if request["state"] == "purging" else "scope_review" if inventory_hold or related_hold or review else "media_review" if media_review else "queued"

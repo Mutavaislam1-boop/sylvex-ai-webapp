@@ -12,7 +12,12 @@ from services import account_erasure as core
 from services import account_erasure_policy as policy
 
 SAFE_KEY = re.compile(r"^[A-Za-z0-9_./~+-]+$")
-OWNED_PROOFS = frozenset({"recorded_owner", "verified_upload_record", "verified_generation_provenance", "journal_replay"})
+OWNED_PROOFS = frozenset({"recorded_owner", "verified_upload_record", "verified_generation_provenance", "journal_replay",
+                          "account_reference"})
+# Every object the application writes to R2 is under generated/ (uploads,
+# references, results, support attachments). Anything else is not attributed
+# to an account automatically.
+ACCOUNT_MEDIA_PREFIX = "generated/"
 
 
 class ObjectStore:
@@ -91,6 +96,33 @@ def _shared_reference(cur, key, schema, request):
         if cur.fetchone():
             return True
     return False
+
+
+def attribute_account_media(cur, schema, request):
+    """Self-service attribution of manifest keys with no recorded owner.
+
+    The manifest holds only keys referenced by this account's own records. A
+    key is the account's when no other owner is recorded and no other
+    account, shared catalog or review record references it; the executor
+    repeats this check under the exclusive per-key lock before deleting.
+    Anything else is kept (state 'shared') and never deleted.
+    """
+    cur.execute("SELECT object_key FROM sylvex_erasure_media WHERE request_id=%s AND state='review' ORDER BY object_key",
+                (str(request["request_id"]),))
+    for (key,) in cur.fetchall():
+        cur.execute("SELECT pg_advisory_xact_lock_shared(61182,hashtext(%s))", (key,))
+        cur.execute("SELECT owner_key FROM sylvex_storage_ownership WHERE object_key=%s", (key,))
+        owner = cur.fetchone()
+        if owner and int(owner[0]) != int(request["subject_key"]):
+            state, proof = "shared", "other_owner"
+        elif _shared_reference(cur, key, schema, request):
+            state, proof = "shared", "other_reference"
+        elif SAFE_KEY.fullmatch(key) and key.startswith(ACCOUNT_MEDIA_PREFIX) and ".." not in key.split("/"):
+            state, proof = "owned", "account_reference"
+        else:
+            state, proof = "shared", "unattributed_retained"
+        cur.execute("UPDATE sylvex_erasure_media SET state=%s,proof_kind=%s,approved_by='self_service',updated_at=NOW() "
+                    "WHERE request_id=%s AND object_key=%s AND state='review'", (state,proof,str(request["request_id"]),key))
 
 
 def approve_media_ownership(database_url, request_id, key, *, proof_kind, reviewed_by):
@@ -252,9 +284,9 @@ def _purge_personal(cur, schema, request):
     cur.execute("DELETE FROM sylvex_storage_ownership WHERE owner_key=%s", (uid,))
 
 
-def process_request(database_url, request_id, *, storage=None, journal=None, apply=False, batch_size=50):
+def process_request(database_url, request_id, *, storage=None, journal=None, apply=False, batch_size=50, self_service=False):
     storage, journal = storage or ObjectStore(), journal or core.Journal()
-    plan = core.plan_request(database_url, request_id, storage=storage, journal=journal)
+    plan = core.plan_request(database_url, request_id, storage=storage, journal=journal, self_service=self_service)
     if not apply or plan["complete"] or plan.get("hold_code") or plan["state"] not in ("queued", "purging"):
         return plan
     with core.transaction(database_url) as cur:
@@ -269,7 +301,7 @@ def process_request(database_url, request_id, *, storage=None, journal=None, app
     # Freeze first, then rebuild the manifest from the stable private scope.
     # An already-started metadata write may have committed between the first
     # plan and this subject lock. No key may be lost before SQL row erasure.
-    frozen=core.plan_request(database_url,request_id,storage=storage,journal=journal)
+    frozen=core.plan_request(database_url,request_id,storage=storage,journal=journal,self_service=self_service)
     if frozen.get('hold_code'):
         return frozen
 
@@ -403,7 +435,11 @@ def process_pending(database_url, *, storage=None, journal=None, stripe=None, li
     with core.transaction(database_url) as cur:
         if not core._has_requests(cur):
             return []
-        cur.execute("SELECT request_id FROM sylvex_erasure_requests WHERE state IN ('queued','purging') "
+        # Held requests are re-planned on every pass: a hold is recomputed
+        # from current data and stays until its condition is gone.
+        cur.execute("SELECT request_id FROM sylvex_erasure_requests "
+                    "WHERE subject_key IS NOT NULL "
+                    "AND state IN ('queued','purging','waiting_work','scope_review','media_review') "
                     "ORDER BY requested_at LIMIT %s", (max(1, int(limit)),))
         ids = [str(row[0]) for row in cur.fetchall()]
     results = []
@@ -412,11 +448,16 @@ def process_pending(database_url, *, storage=None, journal=None, stripe=None, li
             request = core.request_row(cur, request_id)
         try:
             cancel_renewals(database_url, request, stripe=stripe)
-            result = process_request(database_url, request_id, storage=storage, journal=journal, apply=True)
+            result = process_request(database_url, request_id, storage=storage, journal=journal, apply=True, self_service=True)
         except core.ErasureError as exc:
             result = {"request_id": request_id, "complete": False, "hold_code": exc.code}
         except Exception as exc:
             result = {"request_id": request_id, "complete": False, "hold_code": type(exc).__name__}
+        with core.transaction(database_url) as cur:
+            cur.execute("SELECT state||':'||proof_kind,COUNT(*) FROM sylvex_erasure_media WHERE request_id=%s GROUP BY 1",
+                        (request_id,))
+            media = dict(cur.fetchall())
+        # Counts only: no account, key or content leaves the database.
         results.append({"request_id": request_id, "complete": bool(result.get("complete")),
-                        "state": result.get("state", ""), "hold_code": result.get("hold_code", "")})
+                        "state": result.get("state", ""), "hold_code": result.get("hold_code", ""), "media": media})
     return results
