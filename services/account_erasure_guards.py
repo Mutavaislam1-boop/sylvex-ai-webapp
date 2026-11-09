@@ -34,13 +34,17 @@ BEGIN
             END;
         END IF;
         text_value := sylvex_erasure_ascii_decode(text_value);
-        IF text_value ~ '^[A-Za-z0-9_.~+-]+$' THEN
+        IF length(text_value) <= 2048 AND text_value ~ '^[A-Za-z0-9_.~+-]+$' THEN
             result := array_append(result,text_value);
         END IF;
         FOR token IN SELECT regexp_matches(text_value,
                 '[A-Za-z0-9_.%~+-]+(?:/[A-Za-z0-9_.%~+-]+)+', 'g') LOOP
+            -- An object key is at most 1024 bytes; a longer slash run is
+            -- inline data (base64 contains '/'), whose suffixes would grow
+            -- quadratically. Keys sit in the last parts of a URL path.
+            CONTINUE WHEN length(token[1]) > 2048;
             parts := string_to_array(token[1],'/');
-            FOR i IN 1..cardinality(parts)-1 LOOP
+            FOR i IN greatest(1,cardinality(parts)-16)..cardinality(parts)-1 LOOP
                 result := array_append(result,array_to_string(parts[i:cardinality(parts)],'/'));
             END LOOP;
         END LOOP;
@@ -140,6 +144,11 @@ def install(cur):
     cur.execute("INSERT INTO sylvex_erasure_runtime(singleton,guards_version) VALUES(TRUE,2) "
                 "ON CONFLICT(singleton) DO UPDATE SET guards_version=2,installed_at=NOW()")
     return installed
+
+
+def refresh_functions(cur):
+    """Re-create the guard functions (CREATE OR REPLACE; triggers unchanged)."""
+    cur.execute(SQL)
 
 
 def require_installed(cur, *, verify_coverage=False):

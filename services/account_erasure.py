@@ -751,6 +751,8 @@ def activate_runtime(database_url):
             ensure_schema(cur)
             try:
                 guards.require_installed(cur, verify_coverage=True)
+                # Installed earlier: bring the function bodies to this release.
+                guards.refresh_functions(cur)
             except ErasureError:
                 guards.install(cur)
                 guards.require_installed(cur, verify_coverage=True)

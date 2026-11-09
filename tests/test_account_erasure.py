@@ -1225,3 +1225,44 @@ def test_a_persisting_hold_is_logged_once(case, monkeypatch):
     held[0] = {**held[0], "state": "complete", "complete": True, "hold_code": ""}
     aio.run(env["_run_account_erasure_once"]())
     assert len(printed) == 2
+
+
+def _inline_image(size):
+    import base64
+    return "data:image/png;base64," + base64.b64encode(bytes(range(256)) * (size // 256)).decode()
+
+
+def test_inline_base64_in_another_accounts_job_does_not_stop_erasure(case):
+    # B09 Production: another account's job row holds a large data URL; the
+    # suffix expansion of its '/'-rich base64 exceeded PostgreSQL's 1 GB array
+    # limit (ProgramLimitExceeded) on every pass.
+    own_result, own_upload = _legacy_account_with_unrecorded_media(case)
+    blob = _inline_image(3_000_000)
+    case.execute("INSERT INTO prostudio_generation_jobs(id,telegram_id,status,request_json) VALUES('other-inline',%s,'completed',%s)",
+                 (V, json.dumps({"image": blob, "note": "see https://media.example.invalid/api/public/storage/generated/images/kept.png"})))
+    store = FakeStorage([own_result, own_upload])
+    case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"], result
+    assert case.execute("SELECT COUNT(*) FROM prostudio_generation_jobs WHERE id='other-inline'")[0][0] == 1
+
+
+def test_reference_fence_is_bounded_but_still_finds_keys_next_to_inline_data(case):
+    blob = _inline_image(3_000_000)
+    text = "result " + blob + " and https://media.example.invalid/api/public/storage/generated/images/a.png done"
+    keys = case.execute("SELECT sylvex_erasure_reference_keys(%s::jsonb)", (json.dumps({"source": text}),))[0][0]
+    assert "generated/images/a.png" in keys and all(len(key) <= 2048 for key in keys)
+    # The write fence on an ordinary row with inline data still accepts it.
+    case.execute("INSERT INTO prostudio_messages(telegram_id,prompt,image_url) VALUES(%s,%s,%s)", (V, blob, blob))
+
+
+def test_activation_brings_installed_guard_functions_to_this_release(case, monkeypatch):
+    # Guards installed by an earlier release keep their triggers; startup
+    # replaces the function bodies so the bounded version is what runs.
+    case.execute("CREATE OR REPLACE FUNCTION sylvex_erasure_reference_keys(document JSONB, nesting INTEGER DEFAULT 0) "
+                 "RETURNS TEXT[] LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY['stale-release']::TEXT[] $$")
+    monkeypatch.setattr(erasure, "validate_runtime", lambda url: None)
+    status = erasure.activate_runtime("synthetic-only")
+    assert status["enabled"] and not status["guards_installed_now"]
+    keys = case.execute("SELECT sylvex_erasure_reference_keys(%s::jsonb)", (json.dumps({"s": "generated/images/a.png"}),))[0][0]
+    assert keys != ["stale-release"] and "generated/images/a.png" in keys
