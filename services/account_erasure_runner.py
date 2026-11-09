@@ -73,6 +73,18 @@ def _internal(cur, request_id):
     cur.execute("SELECT set_config('sylvex.erasure_request',%s,true)", (str(request_id),))
 
 
+def _reference_marker(key):
+    """A literal part of the key that every recognised reference contains.
+
+    The reference function decodes %XX escapes and finds the key in URLs and
+    nested JSON, but the file name's [A-Za-z0-9_.-] runs are never escaped,
+    so a row that does not contain the longest run cannot reference the key.
+    """
+    runs = re.findall(r"[A-Za-z0-9_.-]+", key.rsplit("/", 1)[-1])
+    marker = max(runs, key=len) if runs else ""
+    return marker if len(marker) >= 6 else ""
+
+
 def _shared_reference(cur, key, schema, request):
     # Reference triggers take the same per-key SHARED lock before any insert
     # or update, including a reference to a not-yet-registered upload. The
@@ -80,19 +92,23 @@ def _shared_reference(cur, key, schema, request):
     tables = set(policy.PERSONAL) | set(policy.REVIEW) | policy.SHARED_CATALOG | {
         "prostudio_generation_jobs", "support_messages",
     }
+    # The literal pre-filter keeps the full parse to the few rows that can
+    # match; without it every row of every table is parsed once per key.
+    marker = _reference_marker(key)
+    prefilter, prefilter_params = ("strpos(t::text,%s)>0 AND ", [marker]) if marker else ("", [])
     for table in sorted(tables & set(schema)):
         where, params = "TRUE", []
         if table in policy.PERSONAL or table == "prostudio_generation_jobs":
             owned, owner_params = core.owner_clause(table, schema, request)
             where, params = "NOT " + owned, owner_params
-        cur.execute("SELECT 1 FROM " + core.ident(table) + " t WHERE " + where +
-                    " AND %s=ANY(sylvex_erasure_reference_keys(to_jsonb(t))) LIMIT 1", params+[key])
+        cur.execute("SELECT 1 FROM " + core.ident(table) + " t WHERE " + where + " AND " + prefilter +
+                    "%s=ANY(sylvex_erasure_reference_keys(to_jsonb(t))) LIMIT 1", params+prefilter_params+[key])
         if cur.fetchone():
             return True
     if {"prostudio_media_outbox", "prostudio_generation_jobs"} <= set(schema):
-        cur.execute("SELECT 1 FROM prostudio_media_outbox o JOIN prostudio_generation_jobs j ON j.id=o.job_id "
-                    "WHERE j.telegram_id<>%s AND %s=ANY(sylvex_erasure_reference_keys(to_jsonb(o))) LIMIT 1",
-                    (request["subject_key"],key))
+        cur.execute("SELECT 1 FROM prostudio_media_outbox t JOIN prostudio_generation_jobs j ON j.id=t.job_id "
+                    "WHERE j.telegram_id<>%s AND " + prefilter + "%s=ANY(sylvex_erasure_reference_keys(to_jsonb(t))) LIMIT 1",
+                    [request["subject_key"]]+prefilter_params+[key])
         if cur.fetchone():
             return True
     return False

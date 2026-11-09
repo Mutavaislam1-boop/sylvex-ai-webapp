@@ -1266,3 +1266,28 @@ def test_activation_brings_installed_guard_functions_to_this_release(case, monke
     assert status["enabled"] and not status["guards_installed_now"]
     keys = case.execute("SELECT sylvex_erasure_reference_keys(%s::jsonb)", (json.dumps({"s": "generated/images/a.png"}),))[0][0]
     assert keys != ["stale-release"] and "generated/images/a.png" in keys
+
+
+@pytest.mark.parametrize("reference", [
+    "https://media.example.invalid/api/public/storage/generated/images/shared-file.png?sig=x",
+    "https://media.example.invalid/api/public/storage/generated%2Fimages%2Fshared-file.png",
+    "https://media.example.invalid/api/public/storage/generated%252Fimages%252Fshared-file.png",
+    '{"nested":"[\\"https://media.example.invalid/generated/images/shared-file.png\\"]"}',
+])
+def test_prefiltered_reference_scan_still_sees_other_accounts_encoded_references(case, reference):
+    _legacy_account_with_unrecorded_media(case)
+    key = "generated/images/shared-file.png"; add_media(case, key, owner=None)
+    case.execute("INSERT INTO prostudio_generation_jobs(id,telegram_id,status,request_json) VALUES('other-ref',%s,'completed',%s)",
+                 (V, json.dumps({"source": reference, "inline": _inline_image(300_000)})))
+    store = FakeStorage([key, "generated/images/legacy-result.png", "generated/references/legacy-ref.png"])
+    case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=FakeStripe())
+    assert result["complete"] and result["media"]["shared:other_reference"] == 1, result
+    assert key in store.objects and key not in store.calls
+
+
+def test_reference_marker_is_a_literal_part_of_the_file_name():
+    assert runner._reference_marker("generated/assistant-attachments/c5601207ae38474db8fd4978279e0cca.jpeg") == \
+        "c5601207ae38474db8fd4978279e0cca.jpeg"
+    assert runner._reference_marker("generated/images/a+b~c.png") == ""
+    assert runner._reference_marker("generated/x/long_name~v2.png") == "long_name"
