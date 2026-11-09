@@ -235,8 +235,19 @@ def _purge_personal(cur, schema, request):
         cur.execute("UPDATE site_visitors SET " + ",".join(assignments) + " WHERE account_id=%s", (account,))
     if "users" in schema:
         assignments = [core.ident(name) + "=NULL" for name in ("username", "first_name", "language_code") if name in schema["users"]]
+        # Owner decision 08.11: the remaining credits and the subscription end
+        # with the account; nothing is restored by a later registration.
+        if "balance" in schema["users"]:
+            assignments.append("balance=0")
+        if "subscription" in schema["users"]:
+            assignments.append("subscription='free'")
         if assignments:
             cur.execute("UPDATE users SET " + ",".join(assignments) + " WHERE telegram_id=%s", (uid,))
+    if "user_credit_wallets" in schema:
+        cur.execute("DELETE FROM user_credit_wallets WHERE telegram_id=%s", (uid,))
+    if "subscriptions" in schema and "status" in schema["subscriptions"]:
+        # The payment rows stay as financial records; only the entitlement ends.
+        cur.execute("UPDATE subscriptions SET status='canceled' WHERE telegram_id=%s AND status='active'", (uid,))
     cur.execute("DELETE FROM sylvex_direct_uploads WHERE owner_key=%s", (uid,))
     cur.execute("DELETE FROM sylvex_storage_ownership WHERE owner_key=%s", (uid,))
 
@@ -333,3 +344,74 @@ def process_request(database_url, request_id, *, storage=None, journal=None, app
         cur.execute("UPDATE sylvex_erasure_requests SET state='complete',completed_at=%s,hold_code='',updated_at=NOW() "
                     "WHERE request_id=%s", (record["completed_at"],str(request_id)))
     return {"accepted":True,"complete":True,"request_id":str(request_id),"state":"complete"}
+
+
+# Stripe subscription states that can still renew or be charged.
+RENEWING_STRIPE = ("active", "trialing", "past_due", "unpaid", "incomplete", "paused")
+
+
+def cancel_renewals(database_url, request, *, stripe=None):
+    """Stop automatic renewal for the confirmed subject before data removal.
+
+    Immediate cancellation (access already ended at confirmation); no refund
+    and no payment row is changed. Already-cancelled or missing subscriptions
+    count as done. Idempotent: only still-renewing rows are contacted.
+    """
+    uid = request.get("subject_key")
+    if not uid:
+        return 0
+    with core.transaction(database_url) as cur:
+        schema = core.columns(cur)
+        if "stripe_subscriptions" not in schema:
+            return 0
+        cur.execute("SELECT subscription_id FROM stripe_subscriptions WHERE telegram_id=%s AND status=ANY(%s) "
+                    "ORDER BY subscription_id", (int(uid), list(RENEWING_STRIPE)))
+        ids = [row[0] for row in cur.fetchall()]
+    if not ids:
+        return 0
+    if stripe is None:
+        import os
+        from services import stripe_billing
+        key = os.getenv("STRIPE_SECRET_KEY", "")
+        if not key:
+            raise core.ErasureError("renewal_cancel_unavailable", 503)
+        stripe = stripe_billing.StripeClient(key)
+    for subscription_id in ids:
+        try:
+            stripe.request("DELETE", "/subscriptions/" + str(subscription_id),
+                           idempotency_key="erasure-cancel-" + str(subscription_id))
+        except Exception as exc:
+            if getattr(exc, "status", None) != 404:
+                raise core.ErasureError("renewal_cancel_retry", 503) from exc
+        with core.transaction(database_url) as cur:
+            cur.execute("UPDATE stripe_subscriptions SET status='canceled' WHERE subscription_id=%s", (str(subscription_id),))
+    return len(ids)
+
+
+def process_pending(database_url, *, storage=None, journal=None, stripe=None, limit=5):
+    """Self-service erasure: run every confirmed request without operator steps.
+
+    Holds that protect other people or in-flight work (another account's
+    reference, a running job, staff access) stay held and are retried on the
+    next pass; nothing outside the confirmed subject is touched.
+    """
+    with core.transaction(database_url) as cur:
+        if not core._has_requests(cur):
+            return []
+        cur.execute("SELECT request_id FROM sylvex_erasure_requests WHERE state IN ('queued','purging') "
+                    "ORDER BY requested_at LIMIT %s", (max(1, int(limit)),))
+        ids = [str(row[0]) for row in cur.fetchall()]
+    results = []
+    for request_id in ids:
+        with core.transaction(database_url) as cur:
+            request = core.request_row(cur, request_id)
+        try:
+            cancel_renewals(database_url, request, stripe=stripe)
+            result = process_request(database_url, request_id, storage=storage, journal=journal, apply=True)
+        except core.ErasureError as exc:
+            result = {"request_id": request_id, "complete": False, "hold_code": exc.code}
+        except Exception as exc:
+            result = {"request_id": request_id, "complete": False, "hold_code": type(exc).__name__}
+        results.append({"request_id": request_id, "complete": bool(result.get("complete")),
+                        "state": result.get("state", ""), "hold_code": result.get("hold_code", "")})
+    return results

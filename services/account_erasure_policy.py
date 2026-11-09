@@ -63,6 +63,10 @@ FINANCIAL = frozenset({
     "stripe_subscriptions", "stripe_events", "stripe_catalog", "paypal_orders",
     "paypal_subscriptions", "payment_inbox", "payment_reconcile_state",
     "referral_attributions",
+    # Added after the erasure release (SX-002, LB-006/014): reservation and
+    # payment-review evidence, retained with the other financial records.
+    "bot_generation_operations", "financial_review_cases", "financial_review_events",
+    "financial_review_resolutions", "payment_refund_requests",
 })
 
 SPECIAL = frozenset({
@@ -76,6 +80,9 @@ SPECIAL = frozenset({
     "sylvex_storage_ownership", "sylvex_erasure_requests", "sylvex_erasure_media",
     "sylvex_erasure_retained_rows",
     "sylvex_active_operations", "sylvex_erasure_runtime", "sylvex_direct_uploads",
+    # The credit wallet (LR-002) is not payment evidence: the erasure removes
+    # the remaining balance together with the account (owner decision 08.11).
+    "user_credit_wallets",
 })
 
 SHARED_CATALOG = frozenset({

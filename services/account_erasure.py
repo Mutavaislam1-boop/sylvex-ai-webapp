@@ -396,7 +396,7 @@ def accept_confirmed_request(cur, account_id, *, ecosystem="website", journal=No
     cannot silently undo a verified erasure decision. Legacy mixed scope is
     held for verification; it never authorizes erasing the other ecosystem.
     """
-    if os.getenv("SYLVEX_ERASURE_ACCEPTING", "").lower() not in ("1","true","yes"):
+    if os.getenv("SYLVEX_ERASURE_ACCEPTING", "").lower() not in ("1","true","yes") or not enabled():
         raise ErasureError("erasure_intake_not_ready",503)
     if ecosystem == "telegram" and os.getenv("SYLVEX_ERASURE_TELEGRAM_READY", "").lower() not in ("1","true","yes"):
         raise ErasureError("erasure_telegram_client_not_ready",503)
@@ -694,8 +694,55 @@ def plan_request(database_url, request_id, *, storage, journal=None):
         return {**receipt({**request, "state": state}), "hold_code": hold}
 
 
-def enabled():
+# Set by activate_runtime() when the configured erasure runtime is not usable
+# (guards, schema or journal). The process then runs exactly as with erasure
+# off: no fences that would need missing tables, no intake.
+_RUNTIME_BLOCK = ""
+
+
+def configured():
     return bool(os.getenv("SYLVEX_ERASURE_JOURNAL_DIR")) or os.getenv("SYLVEX_ERASURE_ENABLED", "").lower() in ("1", "true", "yes")
+
+
+def enabled():
+    return configured() and not _RUNTIME_BLOCK
+
+
+def runtime_block():
+    return _RUNTIME_BLOCK
+
+
+def activate_runtime(database_url):
+    """API startup: install the schema and write fences once, then validate.
+
+    Idempotent; guards are only (re)installed when missing or incomplete, with
+    a short lock timeout. Any failure disables erasure for this process and is
+    reported, instead of stopping the API. Nothing is erased here.
+    """
+    global _RUNTIME_BLOCK
+    if not configured():
+        _RUNTIME_BLOCK = ""
+        return {"enabled": False, "configured": False}
+    try:
+        if not database_url:
+            raise ErasureError("erasure_database_unavailable", 503)
+        from services import account_erasure_guards as guards
+        installed = False
+        with transaction(database_url) as cur:
+            cur.execute("SET LOCAL lock_timeout='5s'")
+            ensure_schema(cur)
+            try:
+                guards.require_installed(cur, verify_coverage=True)
+            except ErasureError:
+                guards.install(cur)
+                guards.require_installed(cur, verify_coverage=True)
+                installed = True
+        _RUNTIME_BLOCK = ""
+        validate_runtime(database_url)
+        return {"enabled": True, "configured": True, "guards_installed_now": installed}
+    except Exception as exc:
+        _RUNTIME_BLOCK = exc.code if isinstance(exc, ErasureError) else type(exc).__name__
+        return {"enabled": False, "configured": True, "error": _RUNTIME_BLOCK}
 
 
 def _reserved_before(cur, uid, generation_id, requested_at):

@@ -26204,8 +26204,8 @@ async function waitGenerationJob(jobId, options) {
     const clock = (ms) => { const t = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 
     function intro() {
-      step.innerHTML = '<p>Вы отправляете запрос на удаление аккаунта веб-платформы, его истории и личных файлов. Доступ к аккаунту будет закрыт. Отдельный Telegram-аккаунт не удаляется.</p>'
-        + '<p>Проверьте отмену продления отдельно. Удаление не выполняет автоматический возврат. Необходимые по закону платёжные записи сохраняются.</p>'
+      step.innerHTML = '<p>Аккаунт веб-платформы будет удалён без возможности восстановления: история генераций, загрузки, результаты и файлы, баланс кредитов и подписка. Доступ закроется сразу. Отдельный Telegram-аккаунт не удаляется.</p>'
+        + '<p>Автоматическое продление подписки будет отменено. Возврат оплаты не выполняется. Обязательные по закону платёжные записи сохраняются. При новой регистрации прежние кредиты, подписка и история не восстанавливаются.</p>'
         + '<p>Для подтверждения мы отправим 6-значный код на почту аккаунта.</p>'
         + '<p class="ep-error" id="daError" role="alert" hidden></p>'
         + '<button class="da-send" type="button" id="daSend">Отправить код</button>' + cancelButton;
@@ -26270,12 +26270,12 @@ async function waitGenerationJob(jobId, options) {
     }
     function holdStep(confirmToken) {
       if (confirmToken === null) {
-        step.innerHTML = '<p>Вы отправляете запрос на удаление аккаунта веб-платформы, его истории и личных файлов. Доступ будет закрыт. Необходимые по закону записи сохраняются.</p>'
+        step.innerHTML = '<p>Аккаунт, история, файлы, баланс и подписка будут удалены без возможности восстановления. Обязательные по закону платёжные записи сохраняются.</p>'
           + '<p class="ep-error" id="daError" role="alert" hidden></p><div id="daHold"></div>' + cancelButton;
         bindCancel();
       }
       const hold = window.SylvexHoldButton.create({
-        label: 'Удерживайте для отправки запроса', doneLabel: 'Запрос принят', hint: 'Удерживайте 2 секунды для подтверждения запроса на удаление',
+        label: 'Удерживайте, чтобы удалить', doneLabel: 'Аккаунт удаляется', hint: 'Удерживайте 2 секунды, чтобы удалить аккаунт без возможности восстановления',
         size: 'lg', block: true, backgroundColor: '#27272a', fillColor: '#f60303', textColor: '#f5f5f5', fillTextColor: '#ffffff',
         radius: 14, holdTime: 2000, releaseTime: 200, pressScale: 0.97, waveAmplitude: 6,
         onHold: async () => {

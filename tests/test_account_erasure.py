@@ -11,6 +11,7 @@ import pytest
 from services import account_erasure as erasure
 from services import account_erasure_guards as guards
 from services import account_erasure_runner as runner
+from services import account_erasure_policy as policy
 
 A, B = 110626010001, 110626020002
 U, V = 900000001234, 900000005678
@@ -250,18 +251,20 @@ def add_media(case, key, *, owner=U, user=U):
     return url
 
 
-def test_complete_erasure_removes_owned_work_but_preserves_paid_value_and_other_user(case):
+def test_complete_erasure_removes_owned_work_balance_and_subscription_but_not_other_user(case):
     own, other = "generated/images/own.png", "generated/images/other.png"
     add_media(case,own);add_media(case,other,owner=V,user=V)
     store = FakeStorage([own,other])
-    before = case.execute("SELECT telegram_id,balance,subscription FROM users ORDER BY telegram_id")
+    other_before = case.execute("SELECT telegram_id,balance,subscription FROM users WHERE telegram_id=%s",(V,))
     receipt = case.accept()
     result = runner.process_request("synthetic-only",receipt["request_id"],storage=store,journal=case.journal,apply=True)
     assert result["complete"] and result["state"] == "complete"
     assert store.objects == {other} and store.calls == [own]
     assert case.execute("SELECT telegram_id FROM prostudio_messages") == [(V,)]
     assert case.execute("SELECT account_id FROM account_emails") == [(B,)]
-    assert case.execute("SELECT telegram_id,balance,subscription FROM users ORDER BY telegram_id") == before
+    # Owner decision 08.11: credits and subscription end with the account.
+    assert case.execute("SELECT balance,subscription FROM users WHERE telegram_id=%s",(U,)) == [(0,'free')]
+    assert case.execute("SELECT telegram_id,balance,subscription FROM users WHERE telegram_id=%s",(V,)) == other_before
     assert case.execute("SELECT COUNT(*) FROM purchases")[0][0] == 2
     assert case.execute("SELECT username,first_name FROM users WHERE telegram_id=%s",(U,)) == [(None,None)]
     assert case.journal.read(receipt["request_id"])["completed_at"]
@@ -636,7 +639,8 @@ def test_delete_route_returns_202_receipt_and_clears_cookie_without_claiming_com
     env={'Request':Request,'JSONResponse':JSONResponse,'asyncio':asyncio,'AccountError':AccountError,
          '_web_session_account_id':account,'DATABASE_URL':'synthetic-only',
          'account_identity_service':SimpleNamespace(delete_account=lambda *a:reply),
-         'WEB_SESSION_COOKIE':'sylvex_web_session','WEB_SESSION_COOKIE_DOMAIN':None}
+         'WEB_SESSION_COOKIE':'sylvex_web_session','WEB_SESSION_COOKIE_DOMAIN':None,
+         '_ERASURE_WAKE':asyncio.Event()}
     exec(compile(ast.Module(body=[node],type_ignores=[]),'erasure-route-fixture','exec'),env)
     class FakeRequest:
         async def json(self):return {'confirm_token':'synthetic-only','erasure_scope':'web_account_content_v1'}
@@ -644,6 +648,7 @@ def test_delete_route_returns_202_receipt_and_clears_cookie_without_claiming_com
     assert response.status_code==202
     assert json.loads(response.body)=={'ok':True,**reply}
     assert 'Max-Age=0' in response.headers['set-cookie']
+    assert env['_ERASURE_WAKE'].is_set()  # the deletion starts right away
 
 
 def test_reusable_direct_upload_holds_until_expiry_and_explicit_reconciliation(case):
@@ -734,7 +739,7 @@ def test_telegram_inflight_update_holds_erasure_until_cache_is_forgotten(case,mo
     assert cleared==[uid]
     result=runner.process_request('synthetic-only',request['request_id'],storage=FakeStorage(),journal=case.journal,apply=True)
     assert result['complete']
-    assert case.execute('SELECT balance FROM users WHERE telegram_id=%s',(uid,))==[(77,)]
+    assert case.execute('SELECT balance FROM users WHERE telegram_id=%s',(uid,))==[(0,)]
     assert case.execute('SELECT balance FROM users WHERE telegram_id=%s',(U,))==[(1234,)]
 
 
@@ -996,3 +1001,109 @@ def test_staff_privileges_or_second_factor_prevent_false_erasure_completion(case
     result=runner.process_request('synthetic-only',request['request_id'],storage=FakeStorage(),journal=case.journal,apply=True)
     assert not result['complete'] and result['hold_code']=='privileged_access_requires_review'
     assert case.execute('SELECT COUNT(*) FROM account_emails WHERE account_id=%s',(A,))==[(1,)]
+
+
+
+# ---------------------------------------------------------------------------
+# B09 self-service (owner decision 08.11): the user's confirmation alone runs
+# the erasure; renewal stops, wallet and subscription end, and only the
+# confirming account is touched.
+# ---------------------------------------------------------------------------
+
+class FakeStripe:
+    def __init__(self, missing=(), fail=()):
+        self.calls, self.missing, self.fail = [], set(missing), set(fail)
+
+    def request(self, method, path, params=None, idempotency_key=None):
+        self.calls.append((method, path))
+        sid = path.rsplit("/", 1)[-1]
+        if sid in self.fail:
+            raise RuntimeError("synthetic stripe outage")
+        if sid in self.missing:
+            error = RuntimeError("No such subscription"); error.status = 404; raise error
+        return {"id": sid, "status": "canceled"}
+
+
+def _wallets_and_stripe(case):
+    case.execute("""CREATE TABLE user_credit_wallets(telegram_id BIGINT PRIMARY KEY,purchased_credits INTEGER,
+                    subscription_credits INTEGER,subscription_expires_at TIMESTAMPTZ)""")
+    case.execute("INSERT INTO user_credit_wallets VALUES(%s,500,300,NOW()+INTERVAL '20 days'),(%s,40,0,NULL)",(U,V))
+    case.execute("""CREATE TABLE stripe_subscriptions(subscription_id TEXT PRIMARY KEY,telegram_id BIGINT NOT NULL,
+                    status TEXT NOT NULL,cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE)""")
+    case.execute("INSERT INTO stripe_subscriptions VALUES('sub_own','%s'::bigint,'active',FALSE),"
+                 "('sub_old','%s'::bigint,'canceled',FALSE),('sub_other','%s'::bigint,'active',FALSE)" % (U,U,V))
+    case.execute("CREATE TABLE subscriptions(id BIGSERIAL PRIMARY KEY,telegram_id BIGINT NOT NULL,status TEXT)")
+    case.execute("INSERT INTO subscriptions(telegram_id,status) VALUES(%s,'active'),(%s,'active')",(U,V))
+
+
+def test_self_service_pass_cancels_renewal_and_ends_wallet_only_for_the_confirming_account(case):
+    _wallets_and_stripe(case)
+    key = "generated/images/own.png"; add_media(case, key)
+    store, stripe = FakeStorage([key]), FakeStripe()
+    receipt = case.accept()
+    results = runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=stripe)
+    assert results == [{"request_id": receipt["request_id"], "complete": True, "state": "complete", "hold_code": ""}]
+    assert stripe.calls == [("DELETE", "/subscriptions/sub_own")]
+    assert case.execute("SELECT subscription_id,status FROM stripe_subscriptions ORDER BY 1") == [
+        ("sub_old","canceled"), ("sub_other","active"), ("sub_own","canceled")]
+    assert case.execute("SELECT telegram_id FROM user_credit_wallets") == [(V,)]
+    assert case.execute("SELECT telegram_id,status FROM subscriptions ORDER BY telegram_id") == [(U,"canceled"),(V,"active")]
+    assert case.execute("SELECT balance,subscription FROM users WHERE telegram_id=%s",(U,)) == [(0,"free")]
+    assert case.execute("SELECT balance,subscription FROM users WHERE telegram_id=%s",(V,)) == [(5678,"pro")]
+    assert store.objects == set() and case.execute("SELECT COUNT(*) FROM purchases")[0][0] == 2
+    # A second pass has nothing left to do and contacts nobody.
+    assert runner.process_pending("synthetic-only", storage=store, journal=case.journal, stripe=stripe) == []
+    assert len(stripe.calls) == 1
+
+
+def test_stripe_outage_holds_erasure_and_retries_without_losing_data(case):
+    _wallets_and_stripe(case)
+    receipt = case.accept()
+    down = FakeStripe(fail={"sub_own"})
+    [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=down)
+    assert result["hold_code"] == "renewal_cancel_retry" and not result["complete"]
+    assert case.execute("SELECT COUNT(*) FROM user_credit_wallets WHERE telegram_id=%s",(U,))[0][0] == 1
+    [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe(missing={"sub_own"}))
+    assert result["complete"] and result["request_id"] == receipt["request_id"]
+
+
+def test_new_registration_after_erasure_starts_empty(case):
+    _wallets_and_stripe(case)
+    case.accept()
+    runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
+    # The old e-mail is free again; a new account gets a new id and storage key.
+    assert case.execute("SELECT COUNT(*) FROM account_emails WHERE email='a@example.invalid'")[0][0] == 0
+    new_account, new_uid = 110626990001, 900000009999
+    case.execute("INSERT INTO sylvex_accounts(account_id,active_telegram_id,storage_telegram_id,origin) VALUES(%s,%s,%s,'website')",
+                 (new_account,new_uid,new_uid))
+    case.execute("INSERT INTO account_emails VALUES(%s,'a@example.invalid','new-hash')",(new_account,))
+    case.execute("INSERT INTO users(telegram_id,balance,subscription) VALUES(%s,0,'free')",(new_uid,))
+    assert case.execute("SELECT COUNT(*) FROM user_credit_wallets WHERE telegram_id=%s",(new_uid,))[0][0] == 0
+    assert case.execute("SELECT COUNT(*) FROM prostudio_messages WHERE telegram_id=%s",(new_uid,))[0][0] == 0
+
+
+def test_unusable_runtime_disables_erasure_instead_of_stopping_the_service(case, monkeypatch):
+    monkeypatch.setenv("SYLVEX_ERASURE_ENABLED","1")
+    monkeypatch.setattr(erasure, "validate_runtime", lambda url: (_ for _ in ()).throw(erasure.ErasureError("erasure_restore_replay_required",503)))
+    status = erasure.activate_runtime("synthetic-only")
+    try:
+        assert status == {"enabled": False, "configured": True, "error": "erasure_restore_replay_required"}
+        assert not erasure.enabled()
+        with case.connect() as conn:
+            with conn.cursor() as cur:
+                with pytest.raises(erasure.ErasureError, match="erasure_intake_not_ready"):
+                    erasure.accept_confirmed_request(cur, A, journal=case.journal)
+    finally:
+        erasure._RUNTIME_BLOCK = ""
+
+
+def test_new_tables_are_classified_so_erasure_is_not_held(case):
+    for table in ("user_credit_wallets","bot_generation_operations","financial_review_cases","payment_refund_requests"):
+        assert table in (policy.FINANCIAL | policy.SPECIAL), table
+    case.execute("CREATE TABLE bot_generation_operations(operation_id TEXT PRIMARY KEY,telegram_id BIGINT,status TEXT)")
+    case.execute("INSERT INTO bot_generation_operations VALUES('op1',%s,'settled')",(U,))
+    _wallets_and_stripe(case)
+    case.accept()
+    [result] = runner.process_pending("synthetic-only", storage=FakeStorage(), journal=case.journal, stripe=FakeStripe())
+    assert result["complete"], result
+    assert case.execute("SELECT COUNT(*) FROM bot_generation_operations")[0][0] == 1

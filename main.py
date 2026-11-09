@@ -18315,6 +18315,36 @@ async def web_account_delete_verify(request: Request):
     return {"ok": True, "confirm_token": token}
 
 
+_ERASURE_WAKE = asyncio.Event()
+
+
+async def _run_account_erasure_once():
+    from services import account_erasure, account_erasure_runner
+    if not account_erasure.enabled():
+        return []
+    results = await asyncio.to_thread(account_erasure_runner.process_pending, DATABASE_URL)
+    for item in results:
+        # Request ids and codes only: no account, email, key or content.
+        print("ACCOUNT_ERASURE:", json.dumps(item, sort_keys=True), flush=True)
+    return results
+
+
+async def account_erasure_worker_loop():
+    """Self-service account deletion: confirmed requests run without an operator."""
+    while True:
+        try:
+            await _run_account_erasure_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print("ACCOUNT_ERASURE_LOOP_FAILED:", type(exc).__name__, flush=True)
+        try:
+            await asyncio.wait_for(_ERASURE_WAKE.wait(), timeout=60)
+        except asyncio.TimeoutError:
+            pass
+        _ERASURE_WAKE.clear()
+
+
 @app.post("/api/web/account/delete")
 async def web_account_delete(request: Request):
     # Confirmation accepts an erasure request. Completion is reported only
@@ -18333,6 +18363,7 @@ async def web_account_delete(request: Request):
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     # Revocation and the receipt are committed in the same transaction.
+    _ERASURE_WAKE.set()  # start the deletion now instead of on the next pass
     response = JSONResponse({"ok": True, **receipt}, status_code=202)
     response.delete_cookie(
         WEB_SESSION_COOKIE, path="/", secure=True, samesite="none", httponly=True,
@@ -29888,8 +29919,13 @@ async def start_prostudio_generation_worker():
             prostudio_error("SHOP_ORDER_TABLES_STARTUP_FAILED", exc)
         db_pool_status()
     from services import account_erasure
-    if account_erasure.enabled():
-        await asyncio.to_thread(account_erasure.validate_runtime, DATABASE_URL)
+    if account_erasure.configured():
+        # Installs the schema/write fences once and validates the journal; a
+        # failure keeps the API up with erasure off (logged, no intake).
+        erasure_status = await asyncio.to_thread(account_erasure.activate_runtime, DATABASE_URL)
+        print("ACCOUNT_ERASURE_RUNTIME:", json.dumps(erasure_status, sort_keys=True), flush=True)
+        if erasure_status.get("enabled"):
+            app.state.background_tasks.append(asyncio.create_task(account_erasure_worker_loop()))
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
         if DATABASE_URL:
