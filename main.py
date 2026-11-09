@@ -18350,6 +18350,23 @@ async def account_erasure_worker_loop():
         _ERASURE_WAKE.clear()
 
 
+async def account_erasure_supervisor(status):
+    """Retry a failed activation (e.g. a lock held by the previous instance's
+    pass during a rolling deploy) instead of leaving erasure off until the
+    next restart; then run the processor."""
+    from services import account_erasure
+    while not status.get("enabled"):
+        await asyncio.sleep(60)
+        try:
+            retried = await asyncio.to_thread(account_erasure.activate_runtime, DATABASE_URL)
+        except Exception as exc:
+            retried = {"enabled": False, "configured": True, "error": type(exc).__name__}
+        if retried != status or retried.get("enabled"):
+            print("ACCOUNT_ERASURE_RUNTIME:", json.dumps(retried, sort_keys=True), flush=True)
+        status = retried
+    await account_erasure_worker_loop()
+
+
 @app.post("/api/web/account/delete")
 async def web_account_delete(request: Request):
     # Confirmation accepts an erasure request. Completion is reported only
@@ -29929,8 +29946,7 @@ async def start_prostudio_generation_worker():
         # failure keeps the API up with erasure off (logged, no intake).
         erasure_status = await asyncio.to_thread(account_erasure.activate_runtime, DATABASE_URL)
         print("ACCOUNT_ERASURE_RUNTIME:", json.dumps(erasure_status, sort_keys=True), flush=True)
-        if erasure_status.get("enabled"):
-            app.state.background_tasks.append(asyncio.create_task(account_erasure_worker_loop()))
+        app.state.background_tasks.append(asyncio.create_task(account_erasure_supervisor(erasure_status)))
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
         if DATABASE_URL:

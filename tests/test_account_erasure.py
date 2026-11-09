@@ -1291,3 +1291,24 @@ def test_reference_marker_is_a_literal_part_of_the_file_name():
         "c5601207ae38474db8fd4978279e0cca.jpeg"
     assert runner._reference_marker("generated/images/a+b~c.png") == ""
     assert runner._reference_marker("generated/x/long_name~v2.png") == "long_name"
+
+
+def test_failed_activation_is_retried_then_processing_starts(monkeypatch):
+    import ast, asyncio as aio
+    tree = ast.parse((Path(__file__).parents[1]/'main.py').read_text())
+    node = next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='account_erasure_supervisor')
+    attempts = [{"enabled": False, "configured": True, "error": "LockNotAvailable"},
+                {"enabled": True, "configured": True, "accepting": True}]
+    calls, printed, started = [], [], []
+    fake = SimpleNamespace(activate_runtime=lambda url: calls.append(url) or attempts[len(calls)-1])
+    import services
+    monkeypatch.setattr(services, "account_erasure", fake, raising=False)
+    monkeypatch.setitem(sys.modules, "services.account_erasure", fake)
+    async def no_wait(seconds): return None
+    async def worker(): started.append(True)
+    env = {"asyncio": SimpleNamespace(sleep=no_wait, to_thread=aio.to_thread), "json": json,
+           "DATABASE_URL": "synthetic-only", "print": lambda *a, **k: printed.append(a),
+           "account_erasure_worker_loop": worker}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),'erasure-supervisor-fixture','exec'),env)
+    aio.run(env["account_erasure_supervisor"]({"enabled": False, "configured": True, "error": "LockNotAvailable"}))
+    assert len(calls) == 2 and started == [True] and len(printed) == 1
