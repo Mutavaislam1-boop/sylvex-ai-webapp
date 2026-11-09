@@ -373,6 +373,9 @@ PROSTUDIO_COMPLETION_ATTEMPTS = 4
 PROSTUDIO_LATE_RESULT_WINDOW_SECONDS = 24 * 3600
 PROSTUDIO_LATE_RESULT_POLL_SECONDS = 60
 PROSTUDIO_LATE_RESULT_CLAIM_SECONDS = 900
+# B15: a provider job still running at the hard runtime limit leaves its worker
+# slot and keeps waiting in the background, up to this long after the hand-off.
+PROSTUDIO_PROVIDER_WAIT_MAX_SECONDS = 1500
 PROSTUDIO_MAX_JOB_RUNTIME_SECONDS = max(60, int(os.getenv("PROSTUDIO_MAX_JOB_RUNTIME_SECONDS", "480")))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
@@ -2692,6 +2695,101 @@ def deliver_late_provider_result(job_id: str, mode: str, provider_result: dict) 
     finally:
         cursor.close()
         conn.close()
+
+
+def move_job_to_provider_background_wait(job_id: str) -> bool:
+    """Mark an accepted provider job to keep waiting after the hard limit."""
+    if not DATABASE_URL or not job_id:
+        return False
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE prostudio_generation_jobs
+                    SET result_json = result_json || jsonb_build_object('background_wait', jsonb_build_object(
+                            'since', EXTRACT(EPOCH FROM NOW()),
+                            'deadline', EXTRACT(EPOCH FROM NOW()) + %s,
+                            'next_poll_at', 0, 'claimed_until', 0, 'poll_failures', 0)),
+                        heartbeat_at = NOW(), updated_at = NOW()
+                    WHERE id = %s AND status = 'provider_processing'
+                      AND (result_json ? 'task_id' OR result_json ? 'workId')
+                      AND NOT (result_json ? 'background_wait')
+                """, (PROSTUDIO_PROVIDER_WAIT_MAX_SECONDS, job_id))
+                moved = cursor.rowcount == 1
+            conn.commit()
+        return moved
+    except Exception as exc:
+        prostudio_error("JOB_BACKGROUND_WAIT_FAILED", exc, job_id=job_id)
+        return False
+
+
+def claim_background_wait_job() -> Optional[dict]:
+    """Claim one provider job that is waiting in the background."""
+    if not DATABASE_URL:
+        return None
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE prostudio_generation_jobs j
+                    SET result_json = jsonb_set(j.result_json, '{background_wait,claimed_until}',
+                                                to_jsonb(EXTRACT(EPOCH FROM NOW()) + %s))
+                    WHERE j.id = (
+                        SELECT id FROM prostudio_generation_jobs
+                        WHERE status = 'provider_processing' AND result_json ? 'background_wait'
+                          AND COALESCE((result_json->'background_wait'->>'claimed_until')::double precision, 0) < EXTRACT(EPOCH FROM NOW())
+                          AND COALESCE((result_json->'background_wait'->>'next_poll_at')::double precision, 0) <= EXTRACT(EPOCH FROM NOW())
+                        ORDER BY created_at
+                        LIMIT 1
+                        FOR UPDATE SKIP LOCKED)
+                    RETURNING j.id, j.telegram_id, j.mode, j.result_json, j.request_json
+                """, (PROSTUDIO_LATE_RESULT_CLAIM_SECONDS,))
+                row = cursor.fetchone()
+            conn.commit()
+        if not row:
+            return None
+        return {"job_id": str(row[0]), "telegram_id": int(row[1] or 0), "mode": str(row[2] or "").lower(),
+                "result": _json_obj(row[3]), "payload": _json_obj(row[4])}
+    except Exception as exc:
+        prostudio_error("BACKGROUND_WAIT_CLAIM_FAILED", exc)
+        return None
+
+
+def update_background_wait(job_id: str, **fields) -> None:
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE prostudio_generation_jobs
+                    SET result_json = jsonb_set(result_json, '{background_wait}',
+                                                (result_json->'background_wait') || %s::jsonb)
+                    WHERE id = %s AND status = 'provider_processing' AND result_json ? 'background_wait'
+                """, (_safe_json_dumps(fields), job_id))
+            conn.commit()
+    except Exception as exc:
+        prostudio_error("BACKGROUND_WAIT_UPDATE_FAILED", exc, job_id=job_id)
+
+
+def complete_background_provider_job(job_id: str, telegram_id: int, mode: str, payload: dict,
+                                     provider_result: dict) -> dict:
+    """Charge once and complete a background-waiting job, atomically (B15).
+
+    Same price settlement and single transaction as the worker's own
+    completion; history and Telegram follow the R2 outbox (delivery_pending).
+    """
+    snapshot = settle_media_price_snapshot(payload, provider_result)
+    payload = dict(payload, price_snapshot=snapshot)
+    result = dict(provider_result)
+    result["cost_credits"] = int(snapshot.get("final_credits") or 0)
+    result["generation_cost"] = f"{result['cost_credits']} ⚡" if result["cost_credits"] else ""
+    completed_result = build_completed_job_result(result, mode)
+    completed_result["storage_status"] = "pending"
+    completed_result["delivery_pending"] = True
+    settle = queued_job_charge(telegram_id, job_id, result, payload)
+    completed = update_prostudio_generation_job(job_id, "completed", result=completed_result, settle=settle)
+    prostudio_debug("BACKGROUND_PROVIDER_JOB_COMPLETED", job_id=job_id, completed=bool(completed),
+                    charge=dict(settle.outcome))
+    return {"completed": bool(completed), "charge_error": settle.outcome.get("error")}
 
 
 def claim_pending_prostudio_delivery(job_id: str) -> Optional[dict]:
@@ -6058,6 +6156,13 @@ def _recover_stale_prostudio_job_tx(job_id: str, force: bool = False, use_checkp
             conn.rollback()
             return {"recovered": False, "reason": "completion_checkpoint", "checkpoint": checkpoint,
                     "telegram_id": int((owner or [0])[0] or 0), "status": old_status}
+        background_wait = saved_result.get("background_wait") if isinstance(saved_result, dict) else None
+        if (isinstance(background_wait, dict) and old_status == "provider_processing" and not force
+                and float(background_wait.get("deadline") or 0) > time.time()):
+            # Still waiting on its provider in the background (no worker slot,
+            # so no live lease): not abandoned before its deadline.
+            conn.rollback()
+            return {"recovered": False, "reason": "provider_background_wait", "status": old_status}
         reason = "stale_worker_recovered"
         detected = {
             "job_id": job_id, "old_status": old_status,
@@ -7300,9 +7405,80 @@ async def collect_late_provider_results(limit: int = 3) -> int:
     return delivered
 
 
+async def _fail_background_wait(job_id: str, telegram_id: int, mode: str, payload: dict, error: dict) -> None:
+    # The failed write releases the hold once; a generation_timeout keeps the
+    # provider task under the 24 h late-result watch (free delivery).
+    if await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None, error):
+        await notify_telegram_generation_failed(telegram_id, mode)
+        log_prostudio_error(payload, error, job_id=job_id)
+
+
+async def collect_provider_background_waits(limit: int = 3) -> int:
+    """Poll provider jobs that outlived the hard limit; finish them once."""
+    finished = 0
+    for _ in range(max(1, int(limit))):
+        claimed = await asyncio.to_thread(claim_background_wait_job)
+        if not claimed:
+            break
+        job_id, saved = claimed["job_id"], claimed["result"]
+        wait = dict(saved.get("background_wait") or {})
+        payload = claimed["payload"]
+        telegram_id = claimed["telegram_id"] or int(payload.get("telegram_id") or 0)
+        mode = claimed["mode"] or str(saved.get("type") or "video").lower()
+        if float(wait.get("deadline") or 0) <= time.time():
+            await _fail_background_wait(job_id, telegram_id, mode, payload, {
+                "ok": False, "error_code": "generation_timeout",
+                "error": "Provider did not finish within the Pro Studio waiting limit"})
+            finished += 1
+            continue
+        ref = {key: saved.get(key) for key in ("provider", "model", "task_id", "workId", "id", "poll_url", "session_id")
+               if saved.get(key)}
+        try:
+            poll = await run_provider_coroutine_off_loop(lambda: poll_video_generation(ref))
+        except Exception as exc:
+            prostudio_error("BACKGROUND_WAIT_POLL_FAILED", exc, job_id=job_id)
+            poll = None
+        status = poll.get("status") if isinstance(poll, dict) else ""
+        if isinstance(poll, dict) and poll.get("ok") and status == "completed" and generation_has_completed_result(poll, mode):
+            outcome = await asyncio.to_thread(complete_background_provider_job, job_id, telegram_id, mode, payload, poll)
+            if outcome["completed"]:
+                finished += 1
+            elif outcome["charge_error"]:
+                await _fail_background_wait(job_id, telegram_id, mode, payload,
+                                            {"ok": False, "error": outcome["charge_error"]})
+                finished += 1
+            else:  # the completion could not commit: poll and try again
+                await asyncio.to_thread(update_background_wait, job_id, claimed_until=0,
+                                        next_poll_at=time.time() + PROSTUDIO_LATE_RESULT_POLL_SECONDS)
+            continue
+        if isinstance(poll, dict) and status == "failed":
+            await _fail_background_wait(job_id, telegram_id, mode, payload, {
+                "ok": False, "error_code": "provider_failed",
+                "error": str(poll.get("error") or "Provider reported the generation as failed")})
+            finished += 1
+            continue
+        if not isinstance(poll, dict) or not poll.get("ok"):
+            failures = int(wait.get("poll_failures") or 0) + 1
+            if failures >= 5:
+                # Unknown, not a provider verdict: fail with refund but keep the
+                # task under the late-result watch in case it still finishes.
+                await _fail_background_wait(job_id, telegram_id, mode, payload, {
+                    "ok": False, "error_code": "generation_timeout",
+                    "error": "Provider status unavailable while waiting"})
+                finished += 1
+                continue
+            await asyncio.to_thread(update_background_wait, job_id, claimed_until=0, poll_failures=failures,
+                                    next_poll_at=time.time() + PROSTUDIO_LATE_RESULT_POLL_SECONDS)
+            continue
+        await asyncio.to_thread(update_background_wait, job_id, claimed_until=0, poll_failures=0,
+                                next_poll_at=time.time() + PROSTUDIO_LATE_RESULT_POLL_SECONDS)
+    return finished
+
+
 async def _prostudio_late_result_loop(stop_event: asyncio.Event):
     while not stop_event.is_set():
         try:
+            await collect_provider_background_waits()
             await collect_late_provider_results()
         except asyncio.CancelledError:
             raise
@@ -29727,6 +29903,15 @@ async def run_prostudio_generation_with_timeout(job_id: str, payload: dict):
             timeout=PROSTUDIO_MAX_JOB_RUNTIME_SECONDS,
         )
     except asyncio.TimeoutError:
+        # B15: a provider that accepted the job is still working on it. Free
+        # the worker slot (the provider slot was released when the poll was
+        # cancelled) but keep the job and its hold: the background pass keeps
+        # polling and completes or fails it. No failure notice, no refund yet.
+        if await asyncio.to_thread(move_job_to_provider_background_wait, job_id):
+            prostudio_debug("JOB_PROVIDER_BACKGROUND_WAIT", job_id=job_id,
+                            timeout_seconds=PROSTUDIO_MAX_JOB_RUNTIME_SECONDS,
+                            wait_seconds=PROSTUDIO_PROVIDER_WAIT_MAX_SECONDS)
+            return
         error = {
             "ok": False,
             "error_code": "generation_timeout",

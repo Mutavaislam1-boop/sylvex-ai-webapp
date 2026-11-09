@@ -619,3 +619,164 @@ def test_a_normal_completion_is_delivered_once_by_its_worker_only(late):
     drain_outbox()
     assert calls["history"] == 1 and calls["telegram"] == 1, "the outbox does not deliver it again"
     assert state("normal")["charges"] == 1
+
+
+# ------------------------------- hard limit with the provider still working
+#
+# At PROSTUDIO_MAX_JOB_RUNTIME_SECONDS a job whose provider accepted it and
+# still reports submitted/processing leaves its worker slot but keeps its
+# hold and keeps waiting in the background; it is finished (charged once or
+# refunded once) only when the provider answers or the waiting limit ends.
+
+def slots(job_id):
+    return q("SELECT COUNT(*) FROM prostudio_provider_slots WHERE job_id=%s", (job_id,))[0][0]
+
+
+def bg_wait(job_id):
+    return (q("SELECT result_json FROM prostudio_generation_jobs WHERE id=%s", (job_id,))[0][0] or {}).get("background_wait")
+
+
+def run_with_hard_limit(job_id, monkeypatch, accept=True):
+    """The real run_prostudio_generation_with_timeout, with a 0.3 s limit and a
+    provider that accepts the job (provider_processing + task id) and then
+    keeps reporting processing past the limit."""
+    async def provider(job, payload, mode, *a, **k):
+        if not accept:
+            await asyncio.Event().wait()
+        main.update_prostudio_generation_job(job, "provider_processing", result=dict(KLING_PENDING))
+        # Like the real poll loop: hold the provider slot while polling.
+        async with main.provider_slot(DSN, "kling", job, main.prostudio_debug, wait_for_slot=True):
+            seen_slots.append(slots(job))
+            await asyncio.Event().wait()
+    seen_slots = []
+    monkeypatch.setattr(main, "run_prostudio_provider_request", provider)
+    monkeypatch.setattr(main, "PROSTUDIO_MAX_JOB_RUNTIME_SECONDS", 1.0)
+    stub, main.asyncio.create_task = main.asyncio.create_task, REAL_CREATE_TASK  # provider_slot's lease task
+    try:
+        asyncio.run(main.run_prostudio_generation_with_timeout(job_id, dict(VIDEO_PAYLOAD)))
+    finally:
+        main.asyncio.create_task = stub
+    return seen_slots
+
+
+def bg_job(job_id, monkeypatch):
+    new_job(job_id)
+    q("UPDATE prostudio_generation_jobs SET mode='video', request_json=%s::jsonb WHERE id=%s",
+      (json.dumps(VIDEO_PAYLOAD), job_id))
+    return run_with_hard_limit(job_id, monkeypatch)
+
+
+def test_hard_limit_hands_an_accepted_job_to_the_background_without_failing_it(late, monkeypatch):
+    calls, _ = late
+    held = bg_job("bg-1", monkeypatch)
+    assert held == [1], "the provider slot was held while polling"
+    s = state("bg-1")
+    assert s["job"] == "provider_processing" and s["reservation"] == "reserved" and s["charges"] == 0
+    assert s["balance"] == START - PRICE, "the hold stays while the provider works"
+    assert calls["failed_notice"] == 0 and slots("bg-1") == 0, "no error message; the slot is free"
+    assert bg_wait("bg-1")["deadline"] > time_now()
+    age("bg-1")  # long past the stale threshold: still not abandoned
+    assert main.recover_stale_prostudio_job("bg-1")["reason"] == "provider_background_wait"
+    assert state("bg-1")["job"] == "provider_processing"
+
+
+def test_a_job_that_timed_out_before_the_provider_accepted_it_still_fails_and_refunds(late, monkeypatch):
+    calls, _ = late
+    new_job("bg-noaccept")
+    run_with_hard_limit("bg-noaccept", monkeypatch, accept=False)
+    s = state("bg-noaccept")
+    assert s["job"] == "failed" and s["reservation"] == "released" and s["balance"] == START
+    assert calls["failed_notice"] == 1
+
+
+def test_background_success_stores_charges_once_and_delivers(late, monkeypatch):
+    calls, answer = late
+    bg_job("bg-ok", monkeypatch)
+    answer["value"] = dict(KLING_PENDING, status="processing")
+    assert asyncio.run(main.collect_provider_background_waits()) == 0
+    assert state("bg-ok")["job"] == "provider_processing" and bg_wait("bg-ok")["next_poll_at"] > time_now()
+    q("UPDATE prostudio_generation_jobs SET result_json = jsonb_set(result_json, '{background_wait,next_poll_at}', '0') WHERE id='bg-ok'")
+    answer["value"] = dict(KLING_DONE)
+    assert asyncio.run(main.collect_provider_background_waits()) == 1
+    s = state("bg-ok")
+    assert s == {"job": "completed", "checkpoint": False, "reservation": "charged", "charges": 1,
+                 "outbox": 1, "balance": START - PRICE}
+    assert calls["failed_notice"] == 0 and calls["telegram"] == 0
+    drain_outbox()
+    row = q("SELECT result_json, conversation_id FROM prostudio_generation_jobs WHERE id='bg-ok'")[0]
+    assert row[0]["video_url"].startswith("https://cdn.sylvex.ai/") and row[0]["balance_charged"] is True
+    assert "background_wait" not in row[0] and "delivery_pending" not in row[0] and row[1] == "conv-late"
+    assert calls["history"] == 1 and calls["telegram"] == 1
+    assert asyncio.run(main.collect_provider_background_waits()) == 0
+    assert asyncio.run(main.collect_late_provider_results()) == 0
+    assert state("bg-ok")["charges"] == 1 and state("bg-ok")["balance"] == START - PRICE
+
+
+def test_background_provider_failure_refunds_once_and_notifies(late, monkeypatch):
+    calls, answer = late
+    bg_job("bg-fail", monkeypatch)
+    answer["value"] = {"ok": False, "status": "failed", "error": "kling task failed"}
+    assert asyncio.run(main.collect_provider_background_waits()) == 1
+    s = state("bg-fail")
+    assert s["job"] == "failed" and s["reservation"] == "released" and s["charges"] == 0 and s["balance"] == START
+    assert calls["failed_notice"] == 1 and watch("bg-fail") is None, "a provider verdict is final"
+
+
+def test_waiting_limit_refunds_once_and_a_later_result_is_still_delivered_free(late, monkeypatch):
+    calls, answer = late
+    bg_job("bg-limit", monkeypatch)
+    q("UPDATE prostudio_generation_jobs SET result_json = jsonb_set(result_json, '{background_wait,deadline}', '1') WHERE id='bg-limit'")
+    assert asyncio.run(main.collect_provider_background_waits()) == 1
+    s = state("bg-limit")
+    assert s["job"] == "failed" and s["reservation"] == "released" and s["balance"] == START
+    assert calls["failed_notice"] == 1 and calls["polls"] == 0
+    assert watch("bg-limit")["provider_ref"]["task_id"] == "kling-task-1"
+    answer["value"] = dict(KLING_DONE)
+    assert asyncio.run(main.collect_late_provider_results()) == 1
+    drain_outbox()
+    s = state("bg-limit")
+    assert s["job"] == "completed" and s["charges"] == 0 and s["balance"] == START, "no charge after the refund"
+    assert calls["telegram"] == 1
+
+
+def test_repeated_status_failures_end_the_wait_with_one_refund(late, monkeypatch):
+    calls, answer = late
+    bg_job("bg-flaky", monkeypatch)
+    answer["value"] = {"ok": False, "error": "kling 503"}
+    for _ in range(5):
+        q("UPDATE prostudio_generation_jobs SET result_json = jsonb_set(result_json, '{background_wait,next_poll_at}', '0') WHERE id='bg-flaky'")
+        asyncio.run(main.collect_provider_background_waits())
+    s = state("bg-flaky")
+    assert s["job"] == "failed" and s["balance"] == START and calls["failed_notice"] == 1
+    assert watch("bg-flaky") is not None, "the task may still finish: watched for free delivery"
+
+
+def test_stale_recovery_finishes_a_background_job_whose_limit_passed(late, monkeypatch):
+    bg_job("bg-stale", monkeypatch)
+    q("UPDATE prostudio_generation_jobs SET result_json = jsonb_set(result_json, '{background_wait,deadline}', '1') WHERE id='bg-stale'")
+    age("bg-stale")
+    assert main.recover_stale_prostudio_job("bg-stale")["status"] == "failed"
+    s = state("bg-stale")
+    assert s["job"] == "failed" and s["reservation"] == "released" and s["balance"] == START
+    assert watch("bg-stale") is not None
+
+
+def test_parallel_background_passes_charge_once(late, monkeypatch):
+    calls, _ = late
+    bg_job("bg-par", monkeypatch)
+    _parallel(4, lambda _i: asyncio.run(main.collect_provider_background_waits()))
+    s = state("bg-par")
+    assert s["job"] == "completed" and s["charges"] == 1 and s["balance"] == START - PRICE and s["outbox"] == 1
+    assert calls["polls"] == 1
+
+
+def test_insufficient_balance_when_the_background_job_finishes_refunds_the_hold(late, monkeypatch):
+    calls, _ = late
+    bg_job("bg-short", monkeypatch)
+    expensive = dict(VIDEO_PAYLOAD, price_snapshot={"final_credits": 500})
+    q("UPDATE prostudio_generation_jobs SET request_json=%s::jsonb WHERE id='bg-short'", (json.dumps(expensive),))
+    monkeypatch.setattr(main, "settle_media_price_snapshot", lambda payload, result: {"final_credits": 500})
+    assert asyncio.run(main.collect_provider_background_waits()) == 1
+    s = state("bg-short")
+    assert s["job"] == "failed" and s["reservation"] == "released" and s["charges"] == 0 and s["balance"] == START
+    assert calls["failed_notice"] == 1
