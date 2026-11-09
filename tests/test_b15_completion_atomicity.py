@@ -419,3 +419,203 @@ def test_worker_completion_racing_stale_recovery_stays_consistent(db):
         s = state(job_id)
         assert_consistent(s)
         assert s["balance"] == (START - PRICE if s["job"] == "completed" else START), s
+
+
+# ------------------------------------------- late provider results (Kling case)
+#
+# A video job waits on its provider in provider_processing. The 480 s hard
+# limit failed it and refunded the hold, then Kling reported "succeed" with a
+# ready MP4 that SYLVEX never delivered: the failed write had also replaced
+# result_json, discarding the provider task id.
+
+KLING_PENDING = {"ok": True, "type": "video", "status": "provider_processing", "provider": "kling",
+                 "model": "kling-v2-master", "task_id": "kling-task-1",
+                 "poll_url": "https://api-singapore.klingai.com/v1/videos/text2video/kling-task-1"}
+KLING_DONE = {"ok": True, "type": "video", "status": "completed", "provider": "kling", "model": "kling-v2-master",
+              "task_id": "kling-task-1", "video_url": "https://cdn.klingai.test/out.mp4",
+              "videos": ["https://cdn.klingai.test/out.mp4"]}
+VIDEO_PAYLOAD = dict(PAYLOAD, mode="video", model="kling-v2-master", provider="kling", prompt="A wave")
+
+
+@pytest.fixture
+def late(worker, monkeypatch):
+    """Provider polls, R2 persistence and post-completion delivery stubbed;
+    the job table, billing, outbox and delivery bookkeeping are real."""
+    calls, _ = worker
+    calls.update(polls=0, history=0)
+    poll_answer = {"value": dict(KLING_DONE)}
+
+    async def poll_video_generation(ref):
+        calls["polls"] += 1
+        assert ref.get("task_id") == "kling-task-1"
+        return dict(poll_answer["value"])
+
+    def history(*a, **k):
+        calls["history"] += 1
+        return "conv-late"
+    monkeypatch.setattr(main, "poll_video_generation", poll_video_generation)
+    monkeypatch.setattr(main, "save_prostudio_message", history)
+    monkeypatch.setattr(main, "_persist_outbox_media", lambda entry, verify_only=False: "https://cdn.sylvex.ai/" + entry["key"])
+    monkeypatch.setattr(main, "verify_persisted_generation_media", lambda result, mode: result)
+    return calls, poll_answer
+
+
+def video_job_in_provider_processing(job_id):
+    new_job(job_id)
+    q("UPDATE prostudio_generation_jobs SET mode='video', request_json=%s::jsonb WHERE id=%s",
+      (json.dumps(VIDEO_PAYLOAD), job_id))
+    assert main.update_prostudio_generation_job(job_id, "provider_processing", result=dict(KLING_PENDING)) is True
+
+
+def hard_timeout(job_id):
+    """The exact write run_prostudio_generation_with_timeout makes at 480 s."""
+    return main.update_prostudio_generation_job(job_id, "failed", error={
+        "ok": False, "error_code": "generation_timeout",
+        "error": "Generation exceeded the Pro Studio hard runtime limit"})
+
+
+def watch(job_id):
+    return (q("SELECT error_json FROM prostudio_generation_jobs WHERE id=%s", (job_id,))[0][0] or {}).get("late_result_watch")
+
+
+REAL_CREATE_TASK = asyncio.create_task
+
+
+def drain_outbox():
+    """Run the real R2 outbox once over every pending job (the worker fixture
+    stubs asyncio.create_task; the outbox needs the real one)."""
+    queue = main._media_outbox()
+    outcomes = []
+    stub, main.asyncio.create_task = main.asyncio.create_task, REAL_CREATE_TASK
+    try:
+        while True:
+            job = queue.claim()
+            if not job:
+                return outcomes
+            outcomes.append(asyncio.run(main._run_media_outbox_claim(queue, job)))
+    finally:
+        main.asyncio.create_task = stub
+
+
+def test_timeout_keeps_the_provider_task_and_a_late_result_is_delivered_free(late):
+    calls, _ = late
+    video_job_in_provider_processing("kling-1")
+    assert hard_timeout("kling-1") is True
+    s = state("kling-1")
+    assert s["job"] == "failed" and s["reservation"] == "released" and s["balance"] == START
+    w = watch("kling-1")
+    assert w["provider_ref"]["task_id"] == "kling-task-1" and w["done"] is False
+
+    assert asyncio.run(main.collect_late_provider_results()) == 1
+    s = state("kling-1")
+    # Completed with the late MP4, nothing charged after the refund.
+    assert s == {"job": "completed", "checkpoint": False, "reservation": "released", "charges": 0,
+                 "outbox": 1, "balance": START}
+    result = q("SELECT result_json FROM prostudio_generation_jobs WHERE id='kling-1'")[0][0]
+    assert result["late_delivery"] is True and result["balance_charged"] is False and result["cost_credits"] == 0
+    assert result["delivery_pending"] is True and calls["telegram"] == 0  # after R2, not before
+    assert watch("kling-1")["done"] is True and watch("kling-1")["delivered"] is True
+
+    assert drain_outbox() == ["completed"]
+    result = q("SELECT result_json, conversation_id FROM prostudio_generation_jobs WHERE id='kling-1'")[0]
+    assert result[0]["video_url"].startswith("https://cdn.sylvex.ai/") and result[0]["storage_status"] == "completed"
+    assert "delivery_pending" not in result[0] and result[1] == "conv-late"
+    assert calls["history"] == 1 and calls["telegram"] == 1
+    # Nothing is delivered or charged twice.
+    assert asyncio.run(main.deliver_pending_prostudio_job("kling-1")) is False
+    assert asyncio.run(main.collect_late_provider_results()) == 0
+    assert calls["history"] == 1 and calls["telegram"] == 1 and calls["polls"] == 1
+    assert state("kling-1")["balance"] == START and state("kling-1")["charges"] == 0
+
+
+def test_a_task_still_running_is_polled_again_later_and_a_failing_one_stops(late, monkeypatch):
+    calls, answer = late
+    video_job_in_provider_processing("kling-2")
+    hard_timeout("kling-2")
+    answer["value"] = dict(KLING_PENDING, status="processing")
+    assert asyncio.run(main.collect_late_provider_results()) == 0
+    w = watch("kling-2")
+    assert w["done"] is False and w["next_poll_at"] > time_now() and w["claimed_until"] == 0
+    assert asyncio.run(main.collect_late_provider_results()) == 0 and calls["polls"] == 1, "waits for next_poll_at"
+    answer["value"] = {"ok": False, "status": "failed", "error": "kling task failed"}
+    for _ in range(5):
+        q("""UPDATE prostudio_generation_jobs SET error_json = jsonb_set(error_json, '{late_result_watch,next_poll_at}', '0')
+             WHERE id='kling-2'""")
+        asyncio.run(main.collect_late_provider_results())
+    assert watch("kling-2")["done"] is True and watch("kling-2")["outcome"] == "provider_failed"
+    assert state("kling-2")["job"] == "failed" and state("kling-2")["balance"] == START
+
+
+def time_now():
+    import time
+    return time.time()
+
+
+def test_only_timeouts_of_accepted_provider_tasks_are_watched(late):
+    video_job_in_provider_processing("kling-err")
+    main.update_prostudio_generation_job("kling-err", "failed", error={"ok": False, "error": "provider 500"})
+    assert watch("kling-err") is None
+    new_job("queued-timeout")
+    hard_timeout("queued-timeout")
+    assert watch("queued-timeout") is None, "no provider task was ever accepted"
+    assert asyncio.run(main.collect_late_provider_results()) == 0 and late[0]["polls"] == 0
+
+
+def test_an_expired_watch_is_not_polled(late):
+    video_job_in_provider_processing("kling-old")
+    hard_timeout("kling-old")
+    q("""UPDATE prostudio_generation_jobs SET error_json = jsonb_set(error_json, '{late_result_watch,expires_at}', '1')
+         WHERE id='kling-old'""")
+    assert asyncio.run(main.collect_late_provider_results()) == 0 and late[0]["polls"] == 0
+
+
+def test_parallel_late_passes_deliver_once(late):
+    video_job_in_provider_processing("kling-par")
+    hard_timeout("kling-par")
+    _parallel(4, lambda _i: asyncio.run(main.collect_late_provider_results()))
+    s = state("kling-par")
+    assert s["job"] == "completed" and s["outbox"] == 1 and s["charges"] == 0 and s["balance"] == START
+    assert late[0]["polls"] == 1, "one claim, one provider poll"
+    assert main.deliver_late_provider_result("kling-par", "video", dict(KLING_DONE)) is False
+
+
+def test_worker_crash_while_polling_then_stale_recovery_keeps_the_task_for_late_delivery(late):
+    calls, _ = late
+    video_job_in_provider_processing("kling-crash")
+    age("kling-crash")
+    out = main.recover_stale_prostudio_job("kling-crash")
+    assert out["recovered"] is True and out["status"] == "failed" and state("kling-crash")["balance"] == START
+    assert watch("kling-crash")["provider_ref"]["task_id"] == "kling-task-1"
+    assert asyncio.run(main.collect_late_provider_results()) == 1
+    drain_outbox()
+    s = state("kling-crash")
+    assert s["job"] == "completed" and s["charges"] == 0 and s["balance"] == START
+    assert calls["history"] == 1 and calls["telegram"] == 1
+
+
+def test_completion_from_a_checkpoint_after_a_crash_reaches_history_and_telegram(late, monkeypatch):
+    calls, _ = late
+    monkeypatch.setattr(main.generation_storage, "enqueue", failing_enqueue(99))
+    new_job("ckpt-deliver")
+    run("ckpt-deliver")  # the completion cannot commit: deferred to recovery
+    assert state("ckpt-deliver")["job"] == "processing" and calls["telegram"] == 0
+    monkeypatch.setattr(main.generation_storage, "enqueue", REAL_ENQUEUE)
+    age("ckpt-deliver")
+    main.requeue_stale_prostudio_jobs()
+    s = state("ckpt-deliver")
+    assert s["job"] == "completed" and s["charges"] == 1 and s["balance"] == START - PRICE
+    drain_outbox()
+    result = q("SELECT result_json, conversation_id FROM prostudio_generation_jobs WHERE id='ckpt-deliver'")[0]
+    assert "delivery_pending" not in result[0] and result[1] == "conv-late"
+    assert calls["history"] == 1 and calls["telegram"] == 1
+    assert state("ckpt-deliver")["charges"] == 1, "still one charge"
+
+
+def test_a_normal_completion_is_delivered_once_by_its_worker_only(late):
+    calls, _ = late
+    new_job("normal")
+    run("normal")
+    assert calls["history"] == 1 and calls["telegram"] == 1
+    drain_outbox()
+    assert calls["history"] == 1 and calls["telegram"] == 1, "the outbox does not deliver it again"
+    assert state("normal")["charges"] == 1

@@ -368,6 +368,11 @@ SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_IN
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "5"))
 # B15: bounded in-process retries of the atomic charge+completed write.
 PROSTUDIO_COMPLETION_ATTEMPTS = 4
+# B15: a job failed by timeout while its provider task was still running keeps
+# that task reference; a background pass collects a result that arrives late.
+PROSTUDIO_LATE_RESULT_WINDOW_SECONDS = 24 * 3600
+PROSTUDIO_LATE_RESULT_POLL_SECONDS = 60
+PROSTUDIO_LATE_RESULT_CLAIM_SECONDS = 900
 PROSTUDIO_MAX_JOB_RUNTIME_SECONDS = max(60, int(os.getenv("PROSTUDIO_MAX_JOB_RUNTIME_SECONDS", "480")))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
@@ -2563,6 +2568,8 @@ def complete_prostudio_job_from_checkpoint(job_id: str, telegram_id: int, checkp
     payload["price_snapshot"] = dict(checkpoint.get("price_snapshot") or {})
     result = dict(result)
     result["storage_status"] = "pending"
+    # History and Telegram follow once the R2 outbox has stored the media.
+    result["delivery_pending"] = True
     try:
         ensure_user_exists(telegram_id)
     except Exception as exc:
@@ -2573,6 +2580,143 @@ def complete_prostudio_job_from_checkpoint(job_id: str, telegram_id: int, checkp
     prostudio_debug("JOB_COMPLETED_FROM_CHECKPOINT", job_id=job_id, completed=bool(completed),
                     charge=dict(settle.outcome))
     return bool(completed)
+
+
+def _late_result_watch(saved_result, mode: str = "") -> Optional[dict]:
+    """The provider task reference of a job about to fail by timeout."""
+    saved = _json_obj(saved_result)
+    if not (saved.get("task_id") or saved.get("workId")):
+        return None
+    ref = {key: saved.get(key) for key in ("provider", "model", "task_id", "workId", "id", "poll_url", "session_id")
+           if saved.get(key)}
+    return {"provider_ref": ref, "mode": str(mode or saved.get("type") or "").lower(),
+            "expires_at": time.time() + PROSTUDIO_LATE_RESULT_WINDOW_SECONDS, "done": False}
+
+
+def claim_late_result_jobs(limit: int = 3) -> list:
+    """Claim timed-out jobs whose provider task may still deliver a result."""
+    if not DATABASE_URL:
+        return []
+    try:
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE prostudio_generation_jobs j
+                    SET error_json = jsonb_set(j.error_json, '{late_result_watch,claimed_until}',
+                                               to_jsonb(EXTRACT(EPOCH FROM NOW()) + %s))
+                    WHERE j.id IN (
+                        SELECT id FROM prostudio_generation_jobs
+                        WHERE status = 'failed'
+                          AND created_at > NOW() - (%s || ' seconds')::interval
+                          AND error_json ? 'late_result_watch'
+                          AND COALESCE((error_json->'late_result_watch'->>'done')::boolean, FALSE) = FALSE
+                          AND (error_json->'late_result_watch'->>'expires_at')::double precision > EXTRACT(EPOCH FROM NOW())
+                          AND COALESCE((error_json->'late_result_watch'->>'claimed_until')::double precision, 0) < EXTRACT(EPOCH FROM NOW())
+                          AND COALESCE((error_json->'late_result_watch'->>'next_poll_at')::double precision, 0) <= EXTRACT(EPOCH FROM NOW())
+                        ORDER BY created_at
+                        LIMIT %s
+                        FOR UPDATE SKIP LOCKED)
+                    RETURNING j.id, j.error_json->'late_result_watch'
+                """, (PROSTUDIO_LATE_RESULT_CLAIM_SECONDS, PROSTUDIO_LATE_RESULT_WINDOW_SECONDS + 3600, int(limit)))
+                rows = cursor.fetchall()
+            conn.commit()
+        return [{"job_id": str(row[0]), "watch": _json_obj(row[1])} for row in rows]
+    except Exception as exc:
+        prostudio_error("LATE_RESULT_CLAIM_FAILED", exc)
+        return []
+
+
+def update_late_result_watch(job_id: str, **fields) -> None:
+    """Merge fields into a still-failed job's late_result_watch."""
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE prostudio_generation_jobs
+                    SET error_json = jsonb_set(error_json, '{late_result_watch}',
+                                               (error_json->'late_result_watch') || %s::jsonb)
+                    WHERE id = %s AND status = 'failed' AND error_json ? 'late_result_watch'
+                """, (_safe_json_dumps(fields), job_id))
+            conn.commit()
+    except Exception as exc:
+        prostudio_error("LATE_RESULT_WATCH_UPDATE_FAILED", exc, job_id=job_id)
+
+
+def deliver_late_provider_result(job_id: str, mode: str, provider_result: dict) -> bool:
+    """Complete a timed-out job with the result its provider delivered later.
+
+    Its reservation was already released when it failed, so nothing is
+    charged now: the reservation, the wallet and generation_charges are not
+    touched. The completed result enters the same R2 outbox and is marked
+    delivery_pending, so history and Telegram follow once it is stored.
+    Only a failed job that still carries an open late_result_watch can move
+    to completed here, once.
+    """
+    if not DATABASE_URL or not job_id:
+        return False
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT status, error_json FROM prostudio_generation_jobs WHERE id = %s FOR UPDATE", (job_id,))
+        row = cursor.fetchone()
+        watch = _json_obj(_json_obj(row[1]).get("late_result_watch")) if row else {}
+        if not row or row[0] != "failed" or not watch or watch.get("done"):
+            conn.rollback()
+            return False
+        result = build_completed_job_result(dict(provider_result), mode)
+        result.update(cost_credits=0, generation_cost="", balance_charged=False, charge_id="",
+                      late_delivery=True, delivery_pending=True)
+        enqueue_media = bool(generation_storage.media_plan(job_id, result, mode))
+        result["storage_status"] = "pending" if enqueue_media else (result.get("storage_status") or "")
+        watch.update(done=True, delivered=True, delivered_at=time.time())
+        cursor.execute("""
+            UPDATE prostudio_generation_jobs
+            SET status = 'completed', result_json = %s::jsonb, response_json = %s::jsonb,
+                error_json = jsonb_build_object('late_result_watch', %s::jsonb),
+                updated_at = NOW(), completed_at = NOW()
+            WHERE id = %s AND status = 'failed'
+        """, (_safe_json_dumps(result), _safe_json_dumps(result), _safe_json_dumps(watch), job_id))
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return False
+        if enqueue_media:
+            generation_storage.enqueue(cursor, job_id, mode, result)
+        conn.commit()
+        prostudio_debug("LATE_PROVIDER_RESULT_DELIVERED", job_id=job_id, mode=mode, charged=False)
+        return True
+    except Exception as exc:
+        conn.rollback()
+        prostudio_error("LATE_PROVIDER_RESULT_DELIVERY_FAILED", exc, job_id=job_id)
+        return False
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def claim_pending_prostudio_delivery(job_id: str) -> Optional[dict]:
+    """Take a completed job's delivery_pending flag, once (by primary key)."""
+    if not DATABASE_URL or not job_id:
+        return None
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE prostudio_generation_jobs
+                    SET result_json = result_json - 'delivery_pending'
+                    WHERE id = %s AND status = 'completed'
+                      AND (result_json->>'delivery_pending') = 'true'
+                    RETURNING telegram_id, mode, request_json, result_json
+                """, (job_id,))
+                row = cursor.fetchone()
+            conn.commit()
+        if not row:
+            return None
+        return {"telegram_id": int(row[0] or 0), "mode": str(row[1] or "").lower(),
+                "payload": _json_obj(row[2]), "result": _json_obj(row[3])}
+    except Exception as exc:
+        prostudio_error("PENDING_DELIVERY_CLAIM_FAILED", exc, job_id=job_id)
+        return None
 
 
 def charge_generation_balance(telegram_id: int, generation_id: str, result: dict, payload: dict) -> dict:
@@ -5679,6 +5823,13 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
             result["balance_charged"] = bool(charge.get("charged") or charge.get("already_charged"))
             result["balance_after"] = charge.get("balance_after")
             result["charge_id"] = job_id
+        if (status == "failed" and current[0] == "provider_processing" and isinstance(error, dict)
+                and error.get("error_code") == "generation_timeout"):
+            # The provider task may still finish: keep its reference so the
+            # late-result pass can deliver it (free - the hold is released).
+            watch = _late_result_watch(current[1], current[2])
+            if watch:
+                error = dict(error, late_result_watch=watch)
         if status in {"failed", "cancelled", "canceled"}:
             release_generation(cursor, job_id)
             # Terminal states never move from completed to failed, so a
@@ -5928,6 +6079,10 @@ def _recover_stale_prostudio_job_tx(job_id: str, force: bool = False, use_checkp
             "error": reason,
             "message": "Предыдущая генерация была остановлена после перезапуска worker.",
         }
+        if old_status == "provider_processing":
+            watch = _late_result_watch(saved_result)
+            if watch:
+                error_payload["late_result_watch"] = watch
         cursor.execute("""
             UPDATE prostudio_generation_jobs
             SET status = 'failed', error_json = %s::jsonb,
@@ -7075,13 +7230,86 @@ async def _run_media_outbox_claim(queue, job):
     lease = asyncio.create_task(heartbeat())
     try:
         try:
-            return await asyncio.shield(work)
+            outcome = await asyncio.shield(work)
         except asyncio.CancelledError:
             await asyncio.shield(work)
             raise
     finally:
         lease.cancel()
         await asyncio.gather(lease, return_exceptions=True)
+    if outcome in {"completed", "failed"}:
+        # B15: a job completed outside its worker (from a checkpoint, or by a
+        # late provider result) gets its history and Telegram delivery now.
+        await deliver_pending_prostudio_job(job.get("job_id"))
+    return outcome
+
+
+async def deliver_pending_prostudio_job(job_id: str) -> bool:
+    pending = await asyncio.to_thread(claim_pending_prostudio_delivery, job_id)
+    if not pending:
+        return False
+    payload = pending["payload"]
+    telegram_id = pending["telegram_id"] or int(payload.get("telegram_id") or 0)
+    mode = pending["mode"] or str(payload.get("mode") or payload.get("category") or "").lower()
+    try:
+        await deliver_completed_prostudio_job(job_id, telegram_id, mode, (payload.get("prompt") or "").strip(),
+                                              payload, pending["result"])
+        prostudio_debug("PENDING_DELIVERY_DONE", job_id=job_id, mode=mode)
+        return True
+    except Exception as exc:
+        prostudio_error("PENDING_DELIVERY_FAILED", exc, job_id=job_id)
+        return False
+
+
+async def collect_late_provider_results(limit: int = 3) -> int:
+    """Poll timed-out jobs' provider tasks once; deliver results that arrived."""
+    delivered = 0
+    for _ in range(max(1, int(limit))):
+        # One claim at a time: a provider poll can block for minutes, and a
+        # claim taken earlier must not expire while it waits its turn.
+        claims = await asyncio.to_thread(claim_late_result_jobs, 1)
+        if not claims:
+            break
+        job_id, watch = claims[0]["job_id"], claims[0]["watch"]
+        ref = dict(watch.get("provider_ref") or {})
+        mode = str(watch.get("mode") or "video").lower()
+        try:
+            poll = await run_provider_coroutine_off_loop(lambda: poll_video_generation(ref))
+        except Exception as exc:
+            prostudio_error("LATE_RESULT_POLL_FAILED", exc, job_id=job_id)
+            poll = None
+        status = poll.get("status") if isinstance(poll, dict) else ""
+        if isinstance(poll, dict) and poll.get("ok") and status == "completed" and generation_has_completed_result(poll, mode):
+            if await asyncio.to_thread(deliver_late_provider_result, job_id, mode, poll):
+                delivered += 1
+                # Media go through the R2 outbox first, which then delivers
+                # history and Telegram; a result without media is delivered now.
+                if not generation_storage.media_plan(job_id, build_completed_job_result(dict(poll), mode), mode):
+                    await deliver_pending_prostudio_job(job_id)
+            continue
+        if not isinstance(poll, dict) or status == "failed" or not poll.get("ok"):
+            # A provider error and a transient poll failure look alike; stop
+            # only after several in a row (the watch also expires on its own).
+            failures = int(watch.get("poll_failures") or 0) + 1
+            await asyncio.to_thread(update_late_result_watch, job_id, claimed_until=0, poll_failures=failures,
+                                    done=failures >= 5, outcome="provider_failed" if failures >= 5 else "",
+                                    next_poll_at=time.time() + PROSTUDIO_LATE_RESULT_POLL_SECONDS)
+            continue
+        await asyncio.to_thread(update_late_result_watch, job_id, claimed_until=0, poll_failures=0,
+                                next_poll_at=time.time() + PROSTUDIO_LATE_RESULT_POLL_SECONDS)
+    return delivered
+
+
+async def _prostudio_late_result_loop(stop_event: asyncio.Event):
+    while not stop_event.is_set():
+        try:
+            await collect_late_provider_results()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            prostudio_error("LATE_RESULT_LOOP_FAILED", exc)
+        if await _wait_for_prostudio_worker_stop(stop_event, PROSTUDIO_LATE_RESULT_POLL_SECONDS):
+            break
 
 
 async def finalize_prostudio_media_storage_background(job_id: str, mode: str = "", provider_result=None) -> None:
@@ -29280,94 +29508,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         # The completion transaction already recorded the media outbox. Existing
         # workers claim it independently, including after a process restart.
 
-        # History enriches an already completed job and is intentionally not
-        # allowed to roll its terminal status back on failure.
-        try:
-            prostudio_debug("JOB_SAVE_GENERATION_START", job_id=job_id, telegram_id=telegram_id, mode=mode)
-            save_generation(telegram_id, mode, prompt or "[attachment]")
-            prostudio_debug("JOB_METADATA_BUILD_START", job_id=job_id)
-            metadata = build_prostudio_metadata(payload, result)
-            if metadata:
-                result["metadata"] = metadata
-            prostudio_debug(
-                "JOB_MESSAGE_SAVE_START",
-                job_id=job_id,
-                image_url=result.get("image_url") or "",
-                thumbnail_url=result.get("thumbnail_url") or "",
-                images_count=len(_json_list(result.get("images"))),
-                thumbs_count=len(_json_list(result.get("thumbnails"))),
-            )
-            result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
-            prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
-            # "Generated with this Character" - only when a Character was
-            # actively selected/committed on THIS request (metadata.characterId
-            # comes straight from this request's own image options, never
-            # from some separately-tracked "currently selected" state),
-            # covering every surface that reaches this single completion
-            # path: the Pro Studio result, the Telegram delivery below, a
-            # plain Image-mode result, and a job the client only discovers
-            # via polling after a disconnect. Character History is images
-            # only - a video/music/voice job is never recorded here, even
-            # if it happened to carry a characterId. Every generated image
-            # URL from this completed result is recorded, not just the
-            # first - a 4-image job must produce 4 History rows.
-            # record_character_generation_history itself verifies the
-            # Character is a custom one actually owned by this user before
-            # writing anything.
-            if mode == "image" and metadata and metadata.get("characterId"):
-                character_media_urls = metadata.get("result_images") or (
-                    [metadata.get("result_url")] if metadata.get("result_url") else []
-                )
-                await asyncio.to_thread(
-                    record_character_generation_history,
-                    str(metadata.get("characterId")),
-                    telegram_id,
-                    job_id,
-                    character_media_urls,
-                    metadata.get("prompt") or "",
-                    metadata.get("model") or "",
-                )
-            update_prostudio_generation_job(
-                job_id, "completed", result=result, conversation_id=result["conversation_id"]
-            )
-            log_user_event(
-                telegram_id,
-                "backend",
-                "generation",
-                "generation_completed",
-                {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
-            )
-            history_done_at = time.monotonic()
-            prostudio_debug(
-                "JOB_HISTORY_DONE",
-                job_id=job_id,
-                success=True,
-                timestamp=round(history_done_at, 6),
-                elapsed_ms_since_provider_ready=round((history_done_at - provider_ready_at) * 1000),
-            )
-        except Exception as history_exc:
-            prostudio_error("JOB_POST_COMPLETION_HISTORY_FAILED", history_exc, job_id=job_id)
-            history_done_at = time.monotonic()
-            prostudio_debug(
-                "JOB_HISTORY_DONE",
-                job_id=job_id,
-                success=False,
-                timestamp=round(history_done_at, 6),
-                elapsed_ms_since_provider_ready=round((history_done_at - provider_ready_at) * 1000),
-            )
-
-        # Telegram is another post-completion side effect and cannot alter the
-        # terminal PostgreSQL status.
-        telegram_sent = await sync_completed_generation_to_telegram(telegram_id, mode, payload, result)
-        telegram_done_at = time.monotonic()
-        prostudio_debug(
-            "JOB_TELEGRAM_SENT",
-            job_id=job_id,
-            telegram_id=telegram_id,
-            sent=bool(telegram_sent),
-            timestamp=round(telegram_done_at, 6),
-            elapsed_ms_since_provider_ready=round((telegram_done_at - provider_ready_at) * 1000),
-        )
+        await deliver_completed_prostudio_job(job_id, telegram_id, mode, prompt, payload, result, provider_ready_at)
     except Exception as exc:
         prostudio_error("JOB_PROCESS_EXCEPTION", exc, job_id=job_id)
         error_result = {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
@@ -29378,6 +29519,107 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                     str(payload.get("mode") or payload.get("category") or "").lower(),
                 )
             log_prostudio_error(payload, error_result, job_id=job_id)
+
+async def deliver_completed_prostudio_job(job_id: str, telegram_id: int, mode: str, prompt: str,
+                                          payload: dict, result: dict, provider_ready_at: Optional[float] = None):
+    """History, conversation, Character history and Telegram for a completed job.
+
+    Shared by the worker's own completion and by B15 deliveries that happen
+    later (completion from a checkpoint after a crash, a late provider
+    result after a timeout), so none of them skips the history or the
+    user's notification.
+    """
+    if provider_ready_at is None:
+        provider_ready_at = time.monotonic()
+    # History enriches an already completed job and is intentionally not
+    # allowed to roll its terminal status back on failure.
+    try:
+        prostudio_debug("JOB_SAVE_GENERATION_START", job_id=job_id, telegram_id=telegram_id, mode=mode)
+        save_generation(telegram_id, mode, prompt or "[attachment]")
+        prostudio_debug("JOB_METADATA_BUILD_START", job_id=job_id)
+        metadata = build_prostudio_metadata(payload, result)
+        if metadata:
+            result["metadata"] = metadata
+        prostudio_debug(
+            "JOB_MESSAGE_SAVE_START",
+            job_id=job_id,
+            image_url=result.get("image_url") or "",
+            thumbnail_url=result.get("thumbnail_url") or "",
+            images_count=len(_json_list(result.get("images"))),
+            thumbs_count=len(_json_list(result.get("thumbnails"))),
+        )
+        result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
+        prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
+        # "Generated with this Character" - only when a Character was
+        # actively selected/committed on THIS request (metadata.characterId
+        # comes straight from this request's own image options, never
+        # from some separately-tracked "currently selected" state),
+        # covering every surface that reaches this single completion
+        # path: the Pro Studio result, the Telegram delivery below, a
+        # plain Image-mode result, and a job the client only discovers
+        # via polling after a disconnect. Character History is images
+        # only - a video/music/voice job is never recorded here, even
+        # if it happened to carry a characterId. Every generated image
+        # URL from this completed result is recorded, not just the
+        # first - a 4-image job must produce 4 History rows.
+        # record_character_generation_history itself verifies the
+        # Character is a custom one actually owned by this user before
+        # writing anything.
+        if mode == "image" and metadata and metadata.get("characterId"):
+            character_media_urls = metadata.get("result_images") or (
+                [metadata.get("result_url")] if metadata.get("result_url") else []
+            )
+            await asyncio.to_thread(
+                record_character_generation_history,
+                str(metadata.get("characterId")),
+                telegram_id,
+                job_id,
+                character_media_urls,
+                metadata.get("prompt") or "",
+                metadata.get("model") or "",
+            )
+        update_prostudio_generation_job(
+            job_id, "completed", result=result, conversation_id=result["conversation_id"]
+        )
+        log_user_event(
+            telegram_id,
+            "backend",
+            "generation",
+            "generation_completed",
+            {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
+        )
+        history_done_at = time.monotonic()
+        prostudio_debug(
+            "JOB_HISTORY_DONE",
+            job_id=job_id,
+            success=True,
+            timestamp=round(history_done_at, 6),
+            elapsed_ms_since_provider_ready=round((history_done_at - provider_ready_at) * 1000),
+        )
+    except Exception as history_exc:
+        prostudio_error("JOB_POST_COMPLETION_HISTORY_FAILED", history_exc, job_id=job_id)
+        history_done_at = time.monotonic()
+        prostudio_debug(
+            "JOB_HISTORY_DONE",
+            job_id=job_id,
+            success=False,
+            timestamp=round(history_done_at, 6),
+            elapsed_ms_since_provider_ready=round((history_done_at - provider_ready_at) * 1000),
+        )
+
+    # Telegram is another post-completion side effect and cannot alter the
+    # terminal PostgreSQL status.
+    telegram_sent = await sync_completed_generation_to_telegram(telegram_id, mode, payload, result)
+    telegram_done_at = time.monotonic()
+    prostudio_debug(
+        "JOB_TELEGRAM_SENT",
+        job_id=job_id,
+        telegram_id=telegram_id,
+        sent=bool(telegram_sent),
+        timestamp=round(telegram_done_at, 6),
+        elapsed_ms_since_provider_ready=round((telegram_done_at - provider_ready_at) * 1000),
+    )
+
 
 def _schedule_local_prostudio_queue_signal(*, delay: float = 0.0, listener_healthy: Optional[bool] = None, all_waiters: bool = False) -> bool:
     """Thread-safe bridge from PostgreSQL LISTEN (or a defer timer) to asyncio."""
@@ -29638,6 +29880,7 @@ async def _run_prostudio_generation_pool(
         asyncio.create_task(worker_slot(index + 1), name=f"prostudio-worker-slot-{index + 1}")
         for index in range(pool_size)
     ]
+    late_results = asyncio.create_task(_prostudio_late_result_loop(stop_event), name="prostudio-late-results")
     prostudio_debug(
         "WORKER_POOL_STARTED",
         concurrency=pool_size,
@@ -29657,7 +29900,8 @@ async def _run_prostudio_generation_pool(
         # finish any job they already own before the pool returns.
         stop_event.set()
         await queue_signal.notify(all_waiters=True)
-        await asyncio.gather(*slots, return_exceptions=True)
+        late_results.cancel()  # a long provider poll must not hold up shutdown
+        await asyncio.gather(*slots, late_results, return_exceptions=True)
         queue_listener_stop.set()
         await asyncio.to_thread(queue_listener.join, 3.0)
         with _PROSTUDIO_QUEUE_RUNTIME_LOCK:
