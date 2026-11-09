@@ -1,0 +1,89 @@
+# Local synthetic run, API schema (created_at TIMESTAMP)
+BEGIN
+SET
+          tbl          |        col        |          data_type          |  column_default   | is_nullable | present | unique_indexes | db_timezone 
+-----------------------+-------------------+-----------------------------+-------------------+-------------+---------+----------------+-------------
+ payment_inbox         | paid_at           | bigint                      |                   | YES         | ok      |                | Etc/UTC
+ payment_inbox         | received_at       | timestamp without time zone | CURRENT_TIMESTAMP | NO          | ok      |                | Etc/UTC
+ paypal_orders         | paypal_capture_id | text                        |                   | YES         | ok      |                | Etc/UTC
+ paypal_orders         | updated_at        | timestamp without time zone | CURRENT_TIMESTAMP | YES         | ok      |                | Etc/UTC
+ purchases             | charge_id         | text                        |                   | YES         | ok      |              1 | Etc/UTC
+ purchases             | created_at        | timestamp without time zone | CURRENT_TIMESTAMP | YES         | ok      |                | Etc/UTC
+ purchases             | payload           | text                        |                   | YES         | ok      |                | Etc/UTC
+ shop_orders           | charge_id         | text                        |                   | YES         | ok      |                | Etc/UTC
+ shop_orders           | paid_at           | timestamp without time zone |                   | YES         | ok      |                | Etc/UTC
+ subscription_events   | created_at        | timestamp without time zone | CURRENT_TIMESTAMP | NO          | ok      |                | Etc/UTC
+ subscription_payments | created_at        | timestamp without time zone | CURRENT_TIMESTAMP | NO          | ok      |                | Etc/UTC
+ subscriptions         | created_at        | timestamp without time zone | CURRENT_TIMESTAMP | YES         | ok      |                | Etc/UTC
+ subscriptions         | starts_at         | timestamp without time zone |                   | YES         | ok      |                | Etc/UTC
+(13 rows)
+
+    provider    |  status   | currency | undated_rows | null_created_at | empty_string_created_at | distinct_charge_ids | without_charge_id | payload_names_shop_order | payload_names_stripe_invoice 
+----------------+-----------+----------+--------------+-----------------+-------------------------+---------------------+-------------------+--------------------------+------------------------------
+ paypal         | completed | USD      |            1 |               1 |                       0 |                   1 |                 0 |                        0 |                            0
+ stripe         | completed | USD      |            1 |               1 |                       0 |                   1 |                 0 |                        0 |                            1
+ telegram_stars | completed | XTR      |            9 |               9 |                       0 |                   8 |                 1 |                        2 |                            0
+ telegram_stars | refunded  | XTR      |            1 |               1 |                       0 |                   1 |                 0 |                        0 |                            0
+ (all)          | (all)     | (all)    |           12 |              12 |                       0 |                  11 |                 1 |                        2 |                            1
+(5 rows)
+
+    provider    |  status   | undated_rows | b1_charge_id_shared | b2_two_different_orders | b3_two_plus_sources_agree | b4_sources_disagree | b5_single_source | b6_secondary_only | b7_no_source | src_order_by_charge_id | src_order_by_payload | src_inbox_paid_at | src_subscription_payment | src_subscription_event | sec_subscriptions_date | sec_paypal_updated_at | sec_inbox_received_at | max_spread_seconds 
+----------------+-----------+--------------+---------------------+-------------------------+---------------------------+---------------------+------------------+-------------------+--------------+------------------------+----------------------+-------------------+--------------------------+------------------------+------------------------+-----------------------+-----------------------+--------------------
+ paypal         | completed |            1 |                   0 |                       0 |                         0 |                   0 |                0 |                 1 |            0 |                      0 |                    0 |                 0 |                        0 |                      0 |                      0 |                     1 |                     0 |                   
+ stripe         | completed |            1 |                   0 |                       0 |                         0 |                   0 |                0 |                 1 |            0 |                      0 |                    0 |                 0 |                        0 |                      0 |                      1 |                     0 |                     0 |                   
+ telegram_stars | completed |            9 |                   0 |                       1 |                         2 |                   1 |                3 |                 0 |            2 |                      4 |                    2 |                 3 |                        1 |                      1 |                      0 |                     0 |                     3 |             3600.0
+ telegram_stars | refunded  |            1 |                   0 |                       0 |                         0 |                   0 |                1 |                 0 |            0 |                      1 |                    0 |                 0 |                        0 |                      0 |                      0 |                     0 |                     0 |                0.0
+ (all)          | (all)     |           12 |                   0 |                       1 |                         2 |                   1 |                4 |                 2 |            2 |                      5 |                    2 |                 3 |                        1 |                      1 |                      1 |                     1 |                     3 |             3600.0
+(5 rows)
+
+ undated_total | dated_but_unparseable | dated_rows_since_deploy | undated_after_first_dated_post_deploy_row | paid_orders_after_deploy_with_undated_purchase | latest_purchase_time 
+---------------+-----------------------+-------------------------+-------------------------------------------+------------------------------------------------+----------------------
+            12 |                     0 |                       1 |                                         1 |                                              1 | 2026-11-08 21:00:00
+(1 row)
+
+ROLLBACK
+
+# Local synthetic run, bot schema (created_at TEXT, no UNIQUE)
+BEGIN
+SET
+          tbl          |        col        |          data_type          |  column_default   | is_nullable | present | unique_indexes | db_timezone 
+-----------------------+-------------------+-----------------------------+-------------------+-------------+---------+----------------+-------------
+ payment_inbox         | paid_at           | bigint                      |                   | YES         | ok      |                | Etc/UTC
+ payment_inbox         | received_at       | timestamp without time zone | CURRENT_TIMESTAMP | NO          | ok      |                | Etc/UTC
+ paypal_orders         | paypal_capture_id | text                        |                   | YES         | ok      |                | Etc/UTC
+ paypal_orders         | updated_at        | timestamp without time zone | CURRENT_TIMESTAMP | YES         | ok      |                | Etc/UTC
+ purchases             | charge_id         | text                        |                   | YES         | ok      |              0 | Etc/UTC
+ purchases             | created_at        | text                        |                   | YES         | ok      |                | Etc/UTC
+ purchases             | payload           | text                        |                   | YES         | ok      |                | Etc/UTC
+ shop_orders           | charge_id         | text                        |                   | YES         | ok      |                | Etc/UTC
+ shop_orders           | paid_at           | timestamp without time zone |                   | YES         | ok      |                | Etc/UTC
+ subscription_events   | created_at        | timestamp without time zone | CURRENT_TIMESTAMP | NO          | ok      |                | Etc/UTC
+ subscription_payments | created_at        | timestamp without time zone | CURRENT_TIMESTAMP | NO          | ok      |                | Etc/UTC
+ subscriptions         | created_at        | text                        |                   | YES         | ok      |                | Etc/UTC
+ subscriptions         | starts_at         | text                        |                   | YES         | ok      |                | Etc/UTC
+(13 rows)
+
+    provider    |  status   | currency | undated_rows | null_created_at | empty_string_created_at | distinct_charge_ids | without_charge_id | payload_names_shop_order | payload_names_stripe_invoice 
+----------------+-----------+----------+--------------+-----------------+-------------------------+---------------------+-------------------+--------------------------+------------------------------
+ paypal         | completed | USD      |            1 |               1 |                       0 |                   1 |                 0 |                        0 |                            0
+ stripe         | completed | USD      |            1 |               0 |                       1 |                   1 |                 0 |                        0 |                            1
+ telegram_stars | completed | XTR      |           11 |              11 |                       0 |                   9 |                 1 |                        2 |                            0
+ telegram_stars | refunded  | XTR      |            1 |               1 |                       0 |                   1 |                 0 |                        0 |                            0
+ (all)          | (all)     | (all)    |           14 |              13 |                       1 |                  12 |                 1 |                        2 |                            1
+(5 rows)
+
+    provider    |  status   | undated_rows | b1_charge_id_shared | b2_two_different_orders | b3_two_plus_sources_agree | b4_sources_disagree | b5_single_source | b6_secondary_only | b7_no_source | src_order_by_charge_id | src_order_by_payload | src_inbox_paid_at | src_subscription_payment | src_subscription_event | sec_subscriptions_date | sec_paypal_updated_at | sec_inbox_received_at | max_spread_seconds 
+----------------+-----------+--------------+---------------------+-------------------------+---------------------------+---------------------+------------------+-------------------+--------------+------------------------+----------------------+-------------------+--------------------------+------------------------+------------------------+-----------------------+-----------------------+--------------------
+ paypal         | completed |            1 |                   0 |                       0 |                         0 |                   0 |                0 |                 1 |            0 |                      0 |                    0 |                 0 |                        0 |                      0 |                      0 |                     1 |                     0 |                   
+ stripe         | completed |            1 |                   0 |                       0 |                         0 |                   0 |                0 |                 1 |            0 |                      0 |                    0 |                 0 |                        0 |                      0 |                      1 |                     0 |                     0 |                   
+ telegram_stars | completed |           11 |                   2 |                       1 |                         2 |                   1 |                3 |                 0 |            2 |                      4 |                    2 |                 3 |                        1 |                      1 |                      0 |                     0 |                     3 |             3600.0
+ telegram_stars | refunded  |            1 |                   0 |                       0 |                         0 |                   0 |                1 |                 0 |            0 |                      1 |                    0 |                 0 |                        0 |                      0 |                      0 |                     0 |                     0 |                0.0
+ (all)          | (all)     |           14 |                   2 |                       1 |                         2 |                   1 |                4 |                 2 |            2 |                      5 |                    2 |                 3 |                        1 |                      1 |                      1 |                     1 |                     3 |             3600.0
+(5 rows)
+
+ undated_total | dated_but_unparseable | dated_rows_since_deploy | undated_after_first_dated_post_deploy_row | paid_orders_after_deploy_with_undated_purchase | latest_purchase_time 
+---------------+-----------------------+-------------------------+-------------------------------------------+------------------------------------------------+----------------------
+            14 |                     0 |                       1 |                                         3 |                                              1 | 2026-11-08 21:00:00
+(1 row)
+
+ROLLBACK
