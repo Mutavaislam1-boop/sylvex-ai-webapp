@@ -183,35 +183,64 @@ def release_generation(cur,job_id):
   _set_wallet(cur,row[0],purchased+reserved_purchased,subscription+reserved_subscription,expires_at)
 
 def settle_generation(connect,uid,job_id,credits,payload,result):
- credits=max(0,int(credits))
  with connect() as conn:
   with conn.cursor() as cur:
-   purchased,subscription,expires_at,wallet_expired=_ensure_wallet(cur,uid,include_expiry_state=True)
-   cur.execute('SELECT credits,balance_after FROM generation_charges WHERE generation_id=%s',(job_id,));existing=cur.fetchone()
-   if existing:return {'charged':False,'already_charged':True,'credits':existing[0],'balance_after':existing[1]}
-   cur.execute("""SELECT credits,subscription_credits,purchased_credits,subscription_expires_at FROM generation_reservations
-    WHERE generation_id=%s AND telegram_id=%s AND status='reserved' FOR UPDATE""",(job_id,uid))
-   hold=cur.fetchone();reserved=int(hold[0]) if hold else 0
-   if not credits and not reserved:return {'charged':False,'credits':0,'balance_after':purchased+subscription}
-   if hold:
-    held_subscription,held_purchased=_reservation_sources(reserved,hold[1],hold[2])
-    # Settle from the hold itself, even when its period has ended. Only the
-    # unused part is returned; it must not borrow a newer period's allocation.
-    used_subscription=min(credits,held_subscription)
-    used_purchased=min(max(0,credits-used_subscription),held_purchased)
-    purchased+=held_purchased-used_purchased
-    subscription+=_unexpired_subscription_return(cur,held_subscription-used_subscription,hold[3],wallet_expired)
-    _set_wallet(cur,uid,purchased,subscription,expires_at)
-    additional=max(0,credits-used_subscription-used_purchased)
-    if additional:
-     _sub_used,_purchased_used,balance=_debit_wallet(cur,uid,additional)
-    else:balance=purchased+subscription
-   else:
-    _sub_used,_purchased_used,balance=_debit_wallet(cur,uid,credits)
-   cur.execute('''INSERT INTO generation_charges(generation_id,telegram_id,mode,model,provider,credits,balance_after)
-    VALUES(%s,%s,%s,%s,%s,%s,%s)''',(job_id,uid,payload.get('mode') or payload.get('category') or result.get('type') or '',payload.get('model') or result.get('model') or '',payload.get('provider') or result.get('provider') or '',credits,balance))
-   if hold:cur.execute("UPDATE generation_reservations SET status='charged' WHERE generation_id=%s",(job_id,))
-   return {'charged':True,'credits':credits,'balance_after':balance}
+   return settle_generation_in(cur,uid,job_id,credits,payload,result)
+
+def settle_generation_in(cur,uid,job_id,credits,payload,result):
+ """settle_generation inside the caller's transaction, so a queued job's
+ charge commits or rolls back together with its completed status."""
+ credits=max(0,int(credits))
+ purchased,subscription,expires_at,wallet_expired=_ensure_wallet(cur,uid,include_expiry_state=True)
+ cur.execute('SELECT credits,balance_after FROM generation_charges WHERE generation_id=%s',(job_id,));existing=cur.fetchone()
+ if existing:return {'charged':False,'already_charged':True,'credits':existing[0],'balance_after':existing[1]}
+ cur.execute("""SELECT credits,subscription_credits,purchased_credits,subscription_expires_at FROM generation_reservations
+  WHERE generation_id=%s AND telegram_id=%s AND status='reserved' FOR UPDATE""",(job_id,uid))
+ hold=cur.fetchone();reserved=int(hold[0]) if hold else 0
+ if not credits and not reserved:return {'charged':False,'credits':0,'balance_after':purchased+subscription}
+ if hold:
+  held_subscription,held_purchased=_reservation_sources(reserved,hold[1],hold[2])
+  # Settle from the hold itself, even when its period has ended. Only the
+  # unused part is returned; it must not borrow a newer period's allocation.
+  used_subscription=min(credits,held_subscription)
+  used_purchased=min(max(0,credits-used_subscription),held_purchased)
+  purchased+=held_purchased-used_purchased
+  subscription+=_unexpired_subscription_return(cur,held_subscription-used_subscription,hold[3],wallet_expired)
+  _set_wallet(cur,uid,purchased,subscription,expires_at)
+  additional=max(0,credits-used_subscription-used_purchased)
+  if additional:
+   _sub_used,_purchased_used,balance=_debit_wallet(cur,uid,additional)
+  else:balance=purchased+subscription
+ else:
+  _sub_used,_purchased_used,balance=_debit_wallet(cur,uid,credits)
+ cur.execute('''INSERT INTO generation_charges(generation_id,telegram_id,mode,model,provider,credits,balance_after)
+  VALUES(%s,%s,%s,%s,%s,%s,%s)''',(job_id,uid,payload.get('mode') or payload.get('category') or result.get('type') or '',payload.get('model') or result.get('model') or '',payload.get('provider') or result.get('provider') or '',credits,balance))
+ if hold:cur.execute("UPDATE generation_reservations SET status='charged' WHERE generation_id=%s",(job_id,))
+ return {'charged':True,'credits':credits,'balance_after':balance}
+
+def refund_charged_generation(cur,job_id):
+ """Return, once, the charge of a queued job that ended failed without a
+ committed result. Only the pre-fix order (charge committed before the
+ completed write) could leave such a job; the reservation moving from
+ 'charged' to 'refunded' is the single-use guard. The charge row stays as
+ the audit record. Returns the credits given back."""
+ cur.execute('SELECT u.telegram_id FROM users u JOIN generation_reservations r ON r.telegram_id=u.telegram_id WHERE r.generation_id=%s FOR UPDATE OF u',(job_id,))
+ cur.execute("""UPDATE generation_reservations SET status='refunded'
+  WHERE generation_id=%s AND status='charged'
+  RETURNING telegram_id,credits,subscription_credits,purchased_credits,subscription_expires_at""",(job_id,))
+ row=cur.fetchone()
+ if not row:return 0
+ cur.execute('SELECT credits FROM generation_charges WHERE generation_id=%s',(job_id,))
+ charged=cur.fetchone();credits=max(0,int(charged[0] or 0)) if charged else 0
+ if not credits:return 0
+ purchased,subscription,expires_at,wallet_expired=_ensure_wallet(cur,row[0],include_expiry_state=True)
+ held_subscription,_held_purchased=_reservation_sources(row[1],row[2],row[3])
+ # Same priority settlement used: the subscription part of the hold first.
+ from_subscription=min(credits,held_subscription)
+ from_purchased=credits-from_subscription
+ from_subscription=_unexpired_subscription_return(cur,from_subscription,row[4],wallet_expired)
+ _set_wallet(cur,row[0],purchased+from_purchased,subscription+from_subscription,expires_at)
+ return from_purchased+from_subscription
 
 def apply_payment(connect,uid,provider,item,amount,currency,payload,charge_id):
  if not charge_id:raise SecurityError('payment_charge_id_required',400)

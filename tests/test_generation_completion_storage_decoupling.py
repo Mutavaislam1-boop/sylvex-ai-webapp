@@ -39,7 +39,7 @@ def app(monkeypatch):
 def _track_job_updates(monkeypatch, app):
     calls = []
 
-    def fake_update(job_id, status, result=None, error=None, conversation_id=""):
+    def fake_update(job_id, status, result=None, error=None, conversation_id="", settle=None):
         calls.append({"job_id": job_id, "status": status, "result": result, "error": error})
         return True
 

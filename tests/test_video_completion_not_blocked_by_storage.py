@@ -41,7 +41,7 @@ class _InlineTask:
 async def test_video_completion_does_not_wait_for_large_r2_upload(app, monkeypatch):
     job_updates = []
 
-    def fake_update(job_id, status, result=None, error=None, conversation_id=""):
+    def fake_update(job_id, status, result=None, error=None, conversation_id="", settle=None):
         job_updates.append({"status": status, "result": result})
         return True
 
