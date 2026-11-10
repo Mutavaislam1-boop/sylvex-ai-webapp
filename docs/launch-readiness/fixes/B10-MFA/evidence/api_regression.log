@@ -1,0 +1,12 @@
+FAILED tests/test_canonical_identity.py::test_telegram_account_later_adds_email_keeps_its_id
+FAILED tests/test_canonical_identity.py::test_website_account_adds_telegram_user_whose_account_is_newer
+FAILED tests/test_canonical_identity.py::test_deleting_the_website_login_never_changes_the_canonical_id[True]
+FAILED tests/test_canonical_identity.py::test_deleting_the_website_login_never_changes_the_canonical_id[False]
+FAILED tests/test_canonical_identity.py::test_retired_alias_cannot_be_merged_or_reused
+FAILED tests/test_canonical_identity.py::test_telegram_user_with_a_website_login_conflicts_with_another_website_account
+FAILED tests/test_canonical_identity.py::test_deleting_unlinked_website_account_creates_nothing
+FAILED tests/test_canonical_identity.py::test_merge_reissues_the_website_session_for_the_surviving_older_account
+FAILED tests/test_canonical_identity.py::test_merge_keeps_the_website_session_when_the_website_account_survives
+FAILED tests/test_canonical_identity.py::test_merge_with_a_forged_widget_signature_changes_nothing
+10 failed, 240 passed in 255.95s (0:04:15)
+{'tests': '250', 'failures': '10', 'errors': '0', 'skipped': '0', 'time': '255.936'}

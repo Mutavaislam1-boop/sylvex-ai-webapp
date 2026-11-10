@@ -1,0 +1,18 @@
+test_admin_telegram_mfa.py::test_miniapp_login_needs_the_totp_code PASSED
+test_admin_telegram_mfa.py::test_wrong_expired_and_malformed_codes_are_refused_and_lock_out PASSED
+test_admin_telegram_mfa.py::test_forged_init_data_never_reaches_the_totp_check PASSED
+test_admin_telegram_mfa.py::test_enrollment_only_session_reaches_nothing_but_setup PASSED
+test_admin_telegram_mfa.py::test_every_admin_can_enroll_after_rollout_so_nobody_is_locked_out PASSED
+test_admin_telegram_mfa.py::test_a_session_without_totp_cannot_replace_an_existing_authenticator PASSED
+test_admin_telegram_mfa.py::test_enrollment_needs_a_fresh_telegram_confirmation PASSED
+test_admin_telegram_mfa.py::test_critical_actions_need_a_fresh_totp_reauth_valid_five_minutes PASSED
+test_admin_telegram_mfa.py::test_bot_actions_need_a_recent_telegram_confirmation PASSED
+test_admin_telegram_mfa.py::test_critical_bot_actions_need_a_confirmation_from_the_last_five_minutes PASSED
+test_admin_telegram_mfa.py::test_bot_rbac_is_unchanged_and_checked_first PASSED
+test_admin_telegram_mfa.py::test_bot_admin_without_totp_must_enroll_first PASSED
+test_admin_telegram_mfa.py::test_legacy_mini_app_v1_init_data_needs_the_same_confirmation PASSED
+test_admin_telegram_mfa.py::test_where_the_telegram_confirmation_comes_from_and_ends PASSED
+test_admin_telegram_mfa.py::test_owner_resets_a_lost_authenticator PASSED
+test_admin_telegram_mfa.py::test_no_admin_route_accepts_a_session_without_totp PASSED
+test_admin_telegram_mfa.py::test_no_bot_route_acts_without_a_telegram_confirmation PASSED
+============================= 17 passed in 20.78s ==============================
