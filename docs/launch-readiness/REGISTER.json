@@ -5,10 +5,10 @@
   "assessed_on": "2026-11-09",
   "timezone": "Asia/Almaty",
   "production_source_commits": {
-    "sylvex-ai-webapp": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
+    "sylvex-ai-webapp": "ba96d8ce2fcb710c4e613ea2d392cecc2db5d3c1",
     "sylvex-website": "30094047f0a90cf1181ab9a24441998b22f5b7ef",
-    "sylvex-ai-bot": "b7e1b906f5beb702683b9556c0f1e2590638347d",
-    "silvex-support-bot": "f9cd89ec007540ac4acefc8f3720d604b27c8d03"
+    "sylvex-ai-bot": "55e57dad01fffc6c627f637621cebaefd96b9aca",
+    "silvex-support-bot": "a75bf83abb5de146fef26042c82a8d729cb8247e"
   },
   "status_vocabulary": [
     "Подтверждено",
@@ -18,8 +18,8 @@
   ],
   "counts": {
     "Подтверждено": 48,
-    "Не проверено": 22,
-    "Ошибка": 2,
+    "Не проверено": 21,
+    "Ошибка": 3,
     "Отложено": 7
   },
   "requirements": [
@@ -240,17 +240,18 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Код API 5dbcde1 (admin_auth.py/admin_rbac.py не менялись с оценки 07.11): 102 теста auth/RBAC/TOTP/service-token PASS на реальном SQL (PGlite), 121 с. Браузерный вход: email+пароль+TOTP обязателен, 5 ошибок → блок 15 мин, Critical — повторный TOTP ≤5 мин. Telegram-каналы однофакторные по дизайну: Mini App v2 (initData ≤3600 с, Critical — свежий initData), Mini App v1 и бот (Critical без повторного подтверждения; бот — только владелец; среди v1 Critical: models.edit, broadcast.send, admins.permissions.edit). Без активной записи admin_accounts доступа нет ни в одном канале. MFA выполнена только для браузерного входа. По данным Codex 07.11: 3 active admins, TOTP у 2 (текущее состояние БД из этой сессии не прочитано).",
+      "confirmed_scope": "MFA внедрена во всех Telegram-каналах и развёрнута: API ba96d8c (b6d1aa8b), support bot a75bf83 (e8e1a456), main bot 55e57da (7a88fa18), все SUCCESS 10.11. Mini App: initData + TOTP; без TOTP — сессия только для подключения; боты и v1 — подтверждение TOTP в Mini App ≤30 мин, Critical ≤5 мин; Critical в консоли — только повторный TOTP. ПОДТВЕРЖДЕНО В PRODUCTION: вход владельца в Telegram Mini App с TOTP — 8 ответов 401 (без кода/неверный код), затем 200 в 13:28:37Z; миграция mfa_at/telegram_confirmed_at применилась без ошибок; браузерный вход с TOTP — как раньше. Тестами (не повторялись): 17 адресных + 240 регрессионных, перебор всех /api/admin/* без обходов. НЕ ПОДТВЕРЖДЕНО В PRODUCTION: отказ ботов без подтверждения (разделы бота поддержки и /admin основного бота после деплоя не вызывались), повторный TOTP для Critical (reauth не вызывался), подключение TOTP третьим администратором.",
       "evidence_ids": [
         "SRC",
         "DB",
         "ADMIN",
-        "B10_SECURITY"
+        "B10_SECURITY",
+        "B10_MFA_PRODUCTION"
       ],
       "blocker_ids": [
         "B10"
       ],
-      "next_action": "Решение владельца: принять Telegram-аккаунт (с облачным паролем Telegram у всех админов) как фактор Mini App/бота или заказать TOTP/повторное подтверждение для Telegram-каналов; выполнить fixes/B10/owner_admin_mfa_readonly.sql.",
+      "next_action": "Ручная проверка по fixes/B10-MFA/PRODUCTION_CHECK.md (разделы 1–4) без /addbalance и без изменения данных; затем сверка логов и закрытие.",
       "assessed_on": "2026-11-10",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -292,13 +293,25 @@
           "previous_status": "Не проверено",
           "api_commit": "5dbcde1",
           "reason": "RBAC и TOTP браузера подтверждены (102 PASS); Telegram-каналы без второго фактора — решение владельца."
+        },
+        {
+          "date": "2026-11-10",
+          "atUTC": "2026-11-10T13:45:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "api_commit": "ba96d8ce2fcb710c4e613ea2d392cecc2db5d3c1",
+          "support_bot_commit": "a75bf83abb5de146fef26042c82a8d729cb8247e",
+          "main_bot_commit": "55e57dad01fffc6c627f637621cebaefd96b9aca",
+          "reason": "TOTP в Telegram Mini App подтверждён в Production; боты, Critical reauth и третий администратор ещё не проверены вживую."
         }
       ],
       "open_subchecks": {
-        "rbac": "confirmed: 102 admin tests pass on 5dbcde1; no admin access without active admin_accounts row",
+        "rbac": "confirmed: tests on 5dbcde1/ba96d8c; no admin access without active admin_accounts row",
         "mfa_web": "confirmed: TOTP mandatory for browser login",
-        "mfa_telegram_channels": "not met by design: Mini App v2/v1 and bot are single-factor (Telegram account); owner decision required",
-        "current_admin_state": "not observed: DB read blocked in this session; owner query fixes/B10/owner_admin_mfa_readonly.sql"
+        "mfa_telegram_miniapp": "confirmed live 10.11: owner sign-in 401 without/wrong code, 200 with TOTP (13:28:37Z)",
+        "mfa_bots": "deployed and tested; not exercised in Production yet (support bot section, main bot /admin)",
+        "critical_reauth_totp": "deployed and tested; not exercised in Production yet",
+        "third_admin_totp": "not observed: enrollment by the third admin pending"
       }
     },
     {
@@ -4256,21 +4269,22 @@
       "section": 7,
       "name": "Admin Panel",
       "requirement": "управление пользователями, платежами, генерациями и ошибками без обхода прав доступа.",
-      "status": "Не проверено",
+      "status": "Ошибка",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "RBAC маршрутов админки подтверждён: 102 теста admin auth/RBAC/users/messages/recover-job/extended endpoints PASS на API 5dbcde1 (ранее лимит 150 с). Реальный read-only admin smoke в Production не выполнялся (нужен вход администратора; сеть сессии блокирует сайт и API).",
+      "confirmed_scope": "RBAC маршрутов админки подтверждён тестами (102 на 5dbcde1; 240 регрессии на ba96d8c). Read-only smoke в Production 10.11 в сессии с TOTP: /api/admin/dashboard, /api/admin/inbox/list, /api/admin/users/search — 200. ОШИБКА: раздел платежей не работает — POST /api/admin/finance → 500 (13:28:54Z), psycopg2 UndefinedFunction 'text >= timestamp without time zone' в admin_finance/_sync (main.py:13707, p.created_at). Не связано с MFA (код не менялся), ранее отложено владельцем; не исправлялось.",
       "evidence_ids": [
         "TEST",
         "ADMIN",
         "HTTP",
         "DB",
-        "B10_SECURITY"
+        "B10_SECURITY",
+        "B10_MFA_PRODUCTION"
       ],
       "blocker_ids": [
         "B10"
       ],
-      "next_action": "Read-only admin smoke владельцем/администратором (просмотр пользователей, платежей, генераций, ошибок) без изменений.",
+      "next_action": "Исправить /api/admin/finance (сравнение purchases.created_at как timestamp) отдельной задачей с разрешения владельца; затем read-only smoke разделов генераций и ошибок.",
       "assessed_on": "2026-11-10",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -4300,8 +4314,22 @@
           "previous_status": "Не проверено",
           "api_commit": "5dbcde1",
           "reason": "102 admin-теста PASS; живой read-only smoke не выполнен."
+        },
+        {
+          "date": "2026-11-10",
+          "atUTC": "2026-11-10T13:45:00+00:00",
+          "status": "Ошибка",
+          "previous_status": "Не проверено",
+          "api_commit": "ba96d8ce2fcb710c4e613ea2d392cecc2db5d3c1",
+          "reason": "Read-only smoke частично прошёл; раздел платежей отвечает 500 в Production."
         }
-      ]
+      ],
+      "open_subchecks": {
+        "rbac": "confirmed by tests",
+        "readonly_smoke": "partially confirmed live: dashboard, inbox, user search 200 with a TOTP session",
+        "payments_section": "error: /api/admin/finance HTTP 500 in Production (text >= timestamp)",
+        "generations_errors_sections": "not exercised live yet"
+      }
     },
     {
       "id": "S8-01",
@@ -5165,6 +5193,14 @@
     "B10_SECURITY": {
       "path": "fixes/B10/RESULT.md",
       "scope": "Полный статический обзор SQL (API 5dbcde1, воркеры dde6dea); 102 admin auth/RBAC теста PASS; каналы входа и MFA"
+    },
+    "B10_MFA_PRODUCTION": {
+      "path": "fixes/B10-MFA/PRODUCTION_CHECK.md",
+      "scope": "Логи Railway после деплоя MFA: вход в Mini App 401→200 с TOTP, read-only smoke консоли, 500 финансов; что не проверено вживую и безопасный сценарий"
+    },
+    "B10_MFA_IMPLEMENTATION": {
+      "path": "fixes/B10-MFA/RESULT.md",
+      "scope": "Реализация MFA, защищённые маршруты, тесты, план развёртывания и инструкция администраторов"
     }
   },
   "launch_blocker_groups": [
@@ -5237,8 +5273,8 @@
       ],
       "closing_criterion": "MFA каналов, недостающие CSRF/XSS/rate/privacy случаи; это evidence gap, а не утверждение о взломе.",
       "kind": "evidence_gap_or_owner_decision",
-      "local_progress": "S1-07 подтверждён; S1-06: XSS устранён и развёрнут, SQLi подтверждена полным статическим обзором; S1-05/S7-09: RBAC и TOTP браузера подтверждены 102 тестами",
-      "awaiting": "S1-06: живые заголовки сайта (команда владельца). S1-05: решение владельца по MFA Telegram-каналов + read-only SQL по администраторам. S7-09: read-only admin smoke. S5-08: privacy (вместе с B09)."
+      "local_progress": "S1-07 подтверждён; S1-06: XSS устранён, SQLi подтверждена; MFA во всех Telegram-каналах развёрнута (API ba96d8c, support a75bf83, main bot 55e57da), вход в Mini App с TOTP подтверждён в Production",
+      "awaiting": "S1-05: живая проверка ботов, Critical reauth и TOTP третьего администратора. S7-09: ошибка 500 /api/admin/finance + smoke генераций/ошибок. S1-06: живые заголовки сайта. S5-08: privacy (с B09)."
     },
     {
       "id": "B11",
@@ -5534,19 +5570,19 @@
     }
   ],
   "production_role_commits": {
-    "api": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
+    "api": "ba96d8ce2fcb710c4e613ea2d392cecc2db5d3c1",
     "worker": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker2": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker3": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker4": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker5": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
-    "main_telegram_bot": "b7e1b906f5beb702683b9556c0f1e2590638347d"
+    "main_telegram_bot": "55e57dad01fffc6c627f637621cebaefd96b9aca"
   },
   "github_main_commits": {
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B10 review: SQL injection confirmed (static), admin RBAC tests pass; Telegram-channel MFA awaits owner",
-  "last_updated_atUTC": "2026-11-10T14:00:00+00:00",
-  "latest_work_phase": "B10_SECURITY_REVIEW"
+  "last_controlled_change": "B10 MFA deployed (API ba96d8c, support a75bf83, main bot 55e57da); Mini App TOTP confirmed live; S7-09 finance 500 recorded",
+  "last_updated_atUTC": "2026-11-10T13:45:00+00:00",
+  "latest_work_phase": "B10_MFA_PRODUCTION"
 }
