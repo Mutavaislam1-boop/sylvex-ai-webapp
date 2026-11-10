@@ -13677,6 +13677,19 @@ async def admin_models_toggle(request: Request):
 
 # ---------- Finance overview ----------
 
+def _purchase_time_sql(alias=""):
+    """purchases.created_at as a timestamp, whatever the column type.
+
+    The main bot creates `purchases` with created_at TEXT, so in Production
+    the API's own TIMESTAMP definition never applied. The text holds the
+    bot's "YYYY-MM-DD HH:MM:SS", the API's CURRENT_TIMESTAMP rendered as text,
+    or nothing (old undated rows: NULL or ''). Anything that does not start
+    with a date reads as NULL - such a purchase falls in no period, and no
+    date is invented for it."""
+    column = f"{alias}created_at::text"
+    return f"(CASE WHEN {column} ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}' THEN {column}::timestamp END)"
+
+
 @app.post("/api/admin/finance")
 async def admin_finance(request: Request):
     """Money and credits for a period, read-only: real payments (credit
@@ -13709,29 +13722,31 @@ async def admin_finance(request: Request):
                            COALESCE(NULLIF(p.currency, ''), 'unknown') AS currency, COALESCE(NULLIF(p.provider, ''), 'unknown') AS provider,
                            COUNT(*) AS n, COALESCE(SUM(p.amount), 0) AS amount, COALESCE(SUM(p.credits), 0) AS credits
                     FROM purchases p {sub_join}
-                    WHERE p.status = 'completed' AND p.created_at >= %s::timestamp AND p.created_at < %s::timestamp
+                    WHERE p.status = 'completed' AND {_purchase_time_sql("p.")} >= %s::timestamp
+                      AND {_purchase_time_sql("p.")} < %s::timestamp
                     GROUP BY 1, 2, 3 ORDER BY 5 DESC
                 """, span)
                 payments = [{"kind": r[0], "currency": r[1], "provider": r[2], "count": int(r[3]), "amount": float(r[4]),
                              "credits": int(r[5])} for r in cursor.fetchall()]
-                cursor.execute("""
+                paid_at = _purchase_time_sql()
+                cursor.execute(f"""
                     SELECT COALESCE(NULLIF(currency, ''), 'unknown') AS currency, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount
                     FROM purchases WHERE status IN ('refunded', 'refund', 'chargeback')
-                      AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1
+                      AND {paid_at} >= %s::timestamp AND {paid_at} < %s::timestamp GROUP BY 1
                 """, span)
                 refunds = [{"currency": r[0], "count": int(r[1]), "amount": float(r[2])} for r in cursor.fetchall()]
-                cursor.execute("""
-                    SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS n
-                    FROM purchases WHERE status = 'completed' AND created_at >= %s::timestamp AND created_at < %s::timestamp GROUP BY 1
+                cursor.execute(f"""
+                    SELECT to_char(date_trunc('day', {paid_at}), 'YYYY-MM-DD') AS day, COUNT(*) AS n
+                    FROM purchases WHERE status = 'completed' AND {paid_at} >= %s::timestamp AND {paid_at} < %s::timestamp GROUP BY 1
                 """, span)
                 for r in cursor.fetchall():
                     days.setdefault(r[0], {"day": r[0], "payments": 0, "grants": 0})["payments"] = int(r[1])
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT COUNT(DISTINCT telegram_id) AS buyers,
                            COUNT(DISTINCT telegram_id) FILTER (WHERE first_paid >= %s::timestamp) AS new_buyers FROM (
-                      SELECT telegram_id, MIN(created_at) OVER (PARTITION BY telegram_id) AS first_paid, created_at
+                      SELECT telegram_id, MIN({paid_at}) OVER (PARTITION BY telegram_id) AS first_paid, {paid_at} AS paid_at
                       FROM purchases WHERE status = 'completed') x
-                    WHERE created_at >= %s::timestamp AND created_at < %s::timestamp
+                    WHERE paid_at >= %s::timestamp AND paid_at < %s::timestamp
                 """, [span[0]] + span)
                 r = cursor.fetchone()
                 buyers, new_buyers = int(r[0] or 0), int(r[1] or 0)
