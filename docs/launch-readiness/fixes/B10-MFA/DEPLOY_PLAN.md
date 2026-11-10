@@ -66,3 +66,16 @@ Workers, сайт, Postgres и прочие сервисы не меняются
 10. **Администратор без 2FA** (третий): открывает SYLVEX Admin → экран «Двухфакторная аутентификация обязательна…» → настраивает → консоль открывается с правами его роли.
 
 После шагов 1–9 (и 10, когда третий администратор его выполнит) можно закрывать в реестре S1-05 и S7-09 по результатам ручной проверки. До этого реестр не меняется.
+
+## 6. Выполнено 10.11.2026 (разрешение владельца)
+
+| Шаг | Время (UTC) | Деплой Railway | Коммит | Проверка |
+|---|---|---|---|---|
+| 0 | 12:55 | — | — | 5 воркеров: `active_tasks: 0` |
+| 1 API | 12:55–12:57 | b6d1aa8b SUCCESS | ba96d8c | `Application startup complete`, `/health/ready` 200, erasure runtime штатно, живые запросы 200, без 5xx / Traceback |
+| 2 Support bot | 12:59 | e8e1a456 SUCCESS | a75bf83 | «SYLVEX SUPPORT BOT STARTED», polling @sylvexsupportbot, без Conflict / ошибок |
+| 3 Main bot | 13:01–13:02 | 7a88fa18 SUCCESS | 55e57da + `ADMIN_CONSOLE_URL=https://api.sylvex.ai/admin/` | «Bot started», billing recovery worker, без Conflict / Traceback |
+
+Откат (если понадобится): API → be0686d8, support → 023b1104, main bot → f7837266.
+
+Столбцы `mfa_at` и `telegram_confirmed_at` создаются при первом обращении к админке. Их появление подтверждает шаг 1 ручной проверки (раздел 5). До ручного подтверждения владельца S1-05 / S7-09 в реестре не меняются.
