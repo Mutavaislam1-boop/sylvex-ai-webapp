@@ -6,7 +6,7 @@
   "timezone": "Asia/Almaty",
   "production_source_commits": {
     "sylvex-ai-webapp": "5dbcde12ad3b827e77a48e2e08a49b338c3868ce",
-    "sylvex-website": "821d15193e3b788ace8f6d75ea966c806aee98af",
+    "sylvex-website": "30094047f0a90cf1181ab9a24441998b22f5b7ef",
     "sylvex-ai-bot": "b7e1b906f5beb702683b9556c0f1e2590638347d",
     "silvex-support-bot": "f9cd89ec007540ac4acefc8f3720d604b27c8d03"
   },
@@ -18,8 +18,8 @@
   ],
   "counts": {
     "Подтверждено": 48,
-    "Не проверено": 21,
-    "Ошибка": 3,
+    "Не проверено": 22,
+    "Ошибка": 2,
     "Отложено": 7
   },
   "requirements": [
@@ -291,20 +291,21 @@
       "section": 1,
       "name": "API Security",
       "requirement": "защита от SQL Injection, XSS, CSRF, SSRF и небезопасных входных данных.",
-      "status": "Ошибка",
+      "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Подтверждено в Production API 5dbcde1: CSRF (проверка Origin в middleware для всех изменяющих запросов /api/web/* и веб-cookie; админка — SameSite=Strict + CSRF-токен), XSS-1 (account-auth.js Mini App, переписан с сохранением экранирования), XSS-4 (проверка origin/source сообщений), CORS-2. ДЕФЕКТ (низкая серьёзность, свои данные): сайт 821d151 вставлял данные аккаунта в innerHTML без экранирования — account/profile.html, account/settings.html, аватар в js/site.js; воспроизведено в Chromium. Исправление готово локально: sylvex-website 968e928 (ветка claude/s106-account-escape), не развёрнуто. SQL-инъекции: только точечная проверка рискованных шаблонов без находок; все 81 место динамического SQL не проверялись.",
+      "confirmed_scope": "Подтверждено: CSRF (Origin в middleware для всех изменяющих /api/web/* и веб-cookie; админка SameSite=Strict + CSRF-токен), XSS-1, XSS-4, CORS-2 в API 5dbcde1. XSS сайта УСТРАНЁН и развёрнут: sylvex-website 968e928 (экранирование account/profile.html, account/settings.html, аватар js/site.js) + 3009404 (site.js?v=s106-xss-20261109 на 30 страницах, Cache-Control: no-cache для страниц); деплой 589b9461 SUCCESS 10.11 10:23:47Z. Браузерная проверка с опасными символами: 0 выполненных и 0 внедрённых (до исправления 19 и 16). Живые заголовки из этой сессии не получены (сеть блокирует sylvex.ai). ОТДЕЛЬНО НЕ ПОДТВЕРЖДЕНО: SQL-инъекции — только точечная проверка без находок, 81 место динамического SQL полностью не проверено.",
       "evidence_ids": [
         "TEST",
         "IMPACT",
-        "S106_LOCAL"
+        "S106_LOCAL",
+        "S106_PRODUCTION"
       ],
       "blocker_ids": [
         "B10"
       ],
-      "next_action": "Развернуть sylvex-website 968e928 (fast-forward main) по согласованию, затем «Подтверждено» для XSS/CSRF. Проверку SQL-инъекций держать отдельно незакрытой.",
-      "assessed_on": "2026-11-09",
+      "next_action": "Отдельная ограниченная проверка SQL-инъекций по 81 месту динамического SQL; владельцу — проверить заголовки сайта командой из fixes/S1-06/RESULT.md.",
+      "assessed_on": "2026-11-10",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -344,11 +345,20 @@
           "status": "Ошибка",
           "previous_status": "Не проверено",
           "reason": "Пробел XSS на сайте найден и исправлен локально; SQLi не подтверждена полностью."
+        },
+        {
+          "date": "2026-11-10",
+          "atUTC": "2026-11-10T10:35:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Ошибка",
+          "website_commit": "30094047f0a90cf1181ab9a24441998b22f5b7ef",
+          "deployment": "589b9461-2401-4d73-8352-27daeb3ee961",
+          "reason": "XSS сайта устранён и развёрнут; SQLi остаётся непроверенной."
         }
       ],
       "open_subchecks": {
-        "website_xss": "fix 968e928 ready locally, not deployed",
-        "sql_injection": "spot-check of high-risk patterns only (sorting, SET with request keys): no findings; 81 dynamic SQL sites not fully reviewed"
+        "website_xss": "fixed and deployed (sylvex-website 3009404, deployment 589b9461); live headers not fetched from this session",
+        "sql_injection": "spot-check of high-risk patterns only: no findings; 81 dynamic SQL sites not fully reviewed"
       }
     },
     {
@@ -5113,6 +5123,10 @@
     "S106_LOCAL": {
       "path": "fixes/S1-06/RESULT.md",
       "scope": "XSS сайта воспроизведён в Chromium и исправлен локально (968e928); тесты 4/4, набор сайта без новых падений; не развёрнуто"
+    },
+    "S106_PRODUCTION": {
+      "path": "fixes/S1-06/RESULT.md",
+      "scope": "Деплой сайта 3009404 (589b9461) SUCCESS; экранирование и сброс кэша site.js; живые заголовки не получены из сессии"
     }
   },
   "launch_blocker_groups": [
@@ -5185,8 +5199,8 @@
       ],
       "closing_criterion": "MFA каналов, недостающие CSRF/XSS/rate/privacy случаи; это evidence gap, а не утверждение о взломе.",
       "kind": "evidence_gap_or_owner_decision",
-      "local_progress": "S1-07 подтверждён; S1-06: XSS сайта исправлен локально (sylvex-website 968e928)",
-      "awaiting": "S1-06: развёртывание сайта 968e928; отдельная проверка SQL-инъекций. S1-05/S7-09: подтверждение владельцем MFA третьего администратора и Telegram-канала, read-only admin smoke. S5-08: privacy."
+      "local_progress": "S1-07 подтверждён; S1-06: XSS сайта устранён и развёрнут (sylvex-website 3009404)",
+      "awaiting": "S1-06: проверка SQL-инъекций. S1-05/S7-09: подтверждение владельцем MFA третьего администратора и Telegram-канала, read-only admin smoke. S5-08: privacy."
     },
     {
       "id": "B11",
@@ -5494,7 +5508,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B10: S1-07 confirmed; S1-06 website XSS fixed locally (968e928, not deployed). No code or Production change",
-  "last_updated_atUTC": "2026-11-09T23:00:00+00:00",
-  "latest_work_phase": "B10_S107_CONFIRMED_S106_FIX_READY"
+  "last_controlled_change": "S1-06 website XSS fix deployed (sylvex-website 3009404); SQL injection still unverified",
+  "last_updated_atUTC": "2026-11-10T10:35:00+00:00",
+  "latest_work_phase": "S106_WEBSITE_XSS_DEPLOYED"
 }
