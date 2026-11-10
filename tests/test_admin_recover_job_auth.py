@@ -110,6 +110,11 @@ def app(monkeypatch):
         monkeypatch.setattr(main, "DATABASE_URL", "pglite://test")
         monkeypatch.setattr(main, "db_connect", lambda *a, **k: database.connect())
         monkeypatch.setattr(main, "ADMIN_SCHEMA_READY", False)
+        main.ensure_admin_tables()
+        from admin_fixtures import enable_mfa  # B10: enrolled and confirmed in Telegram
+        _mfa = database.connect()
+        enable_mfa(_mfa.cursor())
+        _mfa.commit()
     else:
         # No real DB in this run - a successful recovery now also writes an
         # admin_audit_log entry (remediation item #15), so even the

@@ -7,7 +7,8 @@ export type Admin = {
 export type Me = {
   admin: Admin;
   identity: { display_name?: string | null; username?: string | null; telegram_id?: number | null; email?: string | null } | null;
-  session: { channel: string; reauth_fresh: boolean };
+  session: { channel: string; reauth_fresh: boolean; mfa_verified?: boolean };
+  telegram_confirmation?: { confirmed: boolean; critical: boolean; valid_until: string | null; critical_until: string | null };
 };
 
 type Toast = { id: number; text: string; bad?: boolean };

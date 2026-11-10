@@ -56,6 +56,8 @@ def db(monkeypatch):
     from admin_fixtures import make_admin
     make_admin(cur, FINANCE_ID, legacy=["manage_balance"])
     make_admin(cur, VIEWER_ID, legacy=["view_users"])
+    from admin_fixtures import enable_mfa
+    enable_mfa(cur)  # B10: enrolled and confirmed in Telegram
     conn.commit()
     main.app.middleware_stack = None
     for mw in main.app.user_middleware:

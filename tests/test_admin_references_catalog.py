@@ -58,6 +58,10 @@ def app(monkeypatch):
     monkeypatch.setattr(storage, "DATABASE_URL", "")
 
     main.ensure_admin_tables()
+    from admin_fixtures import enable_mfa  # B10: enrolled and confirmed in Telegram
+    _mfa = database.connect()
+    enable_mfa(_mfa.cursor())
+    _mfa.commit()
     main.ensure_references_table()
 
     main.app.middleware_stack = None

@@ -120,6 +120,8 @@ const MESSAGES: Record<string, string> = {
   rate_limited: "Too many requests. Wait a minute and try again.",
   request_too_large: "The request is too large.",
   totp_required: "Enter your 6-digit 2FA code.",
+  totp_confirmation_required: "Confirm with your 2FA code in the SYLVEX Admin Mini App first.",
+  critical_confirmation_required: "This is a Critical action: confirm with your 2FA code again (valid 5 minutes).",
   totp_enrollment_not_started: "Two-factor setup expired. Sign in again to get a new QR code.",
   email_not_verified: "This email is not verified yet. The person must confirm it first.",
   message_required: "Write the message text.",

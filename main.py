@@ -11704,6 +11704,7 @@ def _admin_actor_from_session(token: str, request: Request, permission: str, own
     finally:
         cursor.close()
         conn.close()
+    _admin_require_session_mfa(admin, session)
     if not _admin_origin_ok(request):
         raise HTTPException(status_code=403, detail="origin_not_allowed")
     presented = request.headers.get(admin_auth.CSRF_HEADER) or ""
@@ -11741,7 +11742,14 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
     active admin_accounts row - no id is an admin by itself (the old
     SUPERADMIN_TELEGRAM_ID shortcut is gone; the owner is a real row,
     bootstrapped once). On the bot channel only the owner may perform
-    Critical actions."""
+    Critical actions.
+
+    MFA: neither caller holds a console session, so every action (any
+    route with a permission) needs the admin's own TOTP confirmation made
+    inside Telegram - the Mini App console, never a chat message - within
+    TELEGRAM_CONFIRM_SECONDS, and a Critical one within
+    REAUTH_WINDOW_SECONDS. /api/admin/me (no permission) stays readable so
+    a bot can tell the admin to confirm."""
     payload = payload or {}
     service_token = _admin_service_token_from_headers(request)
     service_authenticated = bool(ADMIN_SERVICE_TOKEN) and bool(service_token) and hmac.compare_digest(service_token, ADMIN_SERVICE_TOKEN)
@@ -11770,9 +11778,11 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
     ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
+    confirmation = None
     try:
         admin = admin_auth.active_admin_for_telegram(cursor, telegram_id)
         if admin:
+            confirmation = admin_auth.telegram_confirmation(cursor, admin["admin_id"])
             cursor.execute("UPDATE admin_accounts SET last_activity_at = NOW() WHERE id = %s", (admin["admin_id"],))
             conn.commit()
     finally:
@@ -11791,8 +11801,18 @@ def _admin_actor(payload: dict, request: Optional[Request] = None, permission: s
         if (channel == "bot" and not is_owner
                 and admin_rbac.RISK_ORDER[admin_rbac.risk_of(permission)] > admin_rbac.RISK_ORDER[admin_rbac.BOT_CHANNEL_MAX_RISK_NON_OWNER]):
             raise HTTPException(status_code=403, detail="console_required_for_critical_action")
+    mfa = dict(confirmation or {}, totp_enabled=bool(admin.get("totp_enabled")),
+               confirm_window_seconds=admin_auth.TELEGRAM_CONFIRM_SECONDS,
+               critical_window_seconds=admin_auth.REAUTH_WINDOW_SECONDS)
+    if permission or owner_only:
+        if not admin.get("totp_enabled"):
+            raise HTTPException(status_code=403, detail="totp_enrollment_required")
+        if not mfa.get("confirmed"):
+            raise HTTPException(status_code=403, detail="totp_confirmation_required")
+        if permission and admin_rbac.risk_of(permission) == admin_rbac.CRITICAL and not mfa.get("critical"):
+            raise HTTPException(status_code=403, detail="critical_confirmation_required")
     return {
-        "telegram_id": telegram_id, "role": admin["role"],
+        "telegram_id": telegram_id, "role": admin["role"], "mfa": mfa,
         # Legacy flat names for the bots' UI gating (the server re-checks).
         "permissions": ["all"] if is_owner else admin_rbac.legacy_names(admin["permissions_set"]),
         "effective_permissions": sorted(admin["permissions_set"]),
@@ -12433,14 +12453,29 @@ def _admin_client_ip(request: Request):
     return request.client.host if request.client else None
 
 
-def _admin_v2_actor(cursor, request: Request, permission: str = "", *, mutation: bool = False):
+def _admin_require_session_mfa(admin, session):
+    """A session that has not passed TOTP (an enrollment-only Mini App
+    session, or a Mini App session from before MFA was enforced) reaches no
+    admin function."""
+    if session.get("mfa_verified"):
+        return
+    if admin.get("totp_enabled"):
+        raise HTTPException(status_code=401, detail="totp_required")
+    raise HTTPException(status_code=403, detail="totp_enrollment_required")
+
+
+def _admin_v2_actor(cursor, request: Request, permission: str = "", *, mutation: bool = False,
+                    allow_mfa_pending: bool = False):
     """(actor, session) for a v2 request or HTTPException. Raises before any
-    side effect: session, Origin + CSRF for state changes, permission, and
-    a fresh re-authentication for Critical permissions."""
+    side effect: session, TOTP passed (only /auth/me, TOTP setup and logout
+    accept an enrollment-only session), Origin + CSRF for state changes,
+    permission, and a fresh re-authentication for Critical permissions."""
     try:
         admin, session = admin_auth.resolve_session(cursor, _admin_session_token(request))
     except admin_auth.AdminAuthError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.code)
+    if not allow_mfa_pending:
+        _admin_require_session_mfa(admin, session)
     if mutation:
         if not _admin_origin_ok(request):
             raise HTTPException(status_code=403, detail="origin_not_allowed")
@@ -12495,10 +12530,11 @@ async def _admin_v2_body(request: Request) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-def _admin_session_payload(admin, csrf, channel):
+def _admin_session_payload(admin, csrf, channel, mfa_verified=True):
     return {"ok": True, "admin": admin_auth.public_admin(admin), "csrf_token": csrf,
+            "totp_enrollment_required": not mfa_verified,
             "session": {"channel": channel, "idle_timeout_seconds": admin_auth.SESSION_IDLE_SECONDS,
-                        "max_age_seconds": admin_auth.SESSION_MAX_SECONDS}}
+                        "max_age_seconds": admin_auth.SESSION_MAX_SECONDS, "mfa_verified": bool(mfa_verified)}}
 
 
 def _admin_note_login(cursor, admin, channel, request, alerts):
@@ -12517,17 +12553,17 @@ def _admin_note_login(cursor, admin, channel, request, alerts):
         alerts.append((admin, "new_device", device, channel))
 
 
-def _admin_note_failed_login(cursor, admin, request, code, alerts):
+def _admin_note_failed_login(cursor, admin, request, code, alerts, channel="web"):
     """A wrong 2FA code is audited; the third in a row is reported."""
     ip = _admin_client_ip(request)
     device = admin_security.device_label(request.headers.get("user-agent"))
-    actor = dict(admin, channel="web")
+    actor = dict(admin, channel=channel)
     admin_auth.audit(cursor, actor, "admin_login_failed", risk=admin_rbac.MEDIUM, ip=ip,
                      after={"device": device, "reason": code})
     if admin_security.recent_failures(cursor, admin["admin_id"]) == admin_security.FAILED_LIMIT:
         admin_auth.audit(cursor, actor, "admin_login_suspicious", risk=admin_rbac.HIGH, ip=ip,
                          after={"device": device, "reason": "repeated_failed_codes"})
-        alerts.append((admin, "failed", device, "web"))
+        alerts.append((admin, "failed", device, channel))
 
 
 def _admin_send_security_alerts(alerts):
@@ -12556,17 +12592,35 @@ async def admin_v2_auth_telegram(request: Request):
         admin = admin_auth.active_admin_for_telegram(cursor, user["id"])
         if not admin:
             raise admin_auth.AdminAuthError("admin_access_denied", 403)
+        # MFA: an enrolled admin also gives the current TOTP code (asked by
+        # the console's own form). An admin without TOTP gets an
+        # enrollment-only session, so nobody is locked out by enforcing it.
+        mfa = bool(admin["totp_enabled"])
+        if mfa:
+            if not body.get("totp"):
+                raise admin_auth.AdminAuthError("totp_required", 401)
+            try:
+                admin_auth.verify_totp(cursor, admin, body.get("totp"))
+            except admin_auth.AdminAuthError as exc:
+                if exc.code in ("totp_invalid", "totp_locked"):
+                    _admin_note_failed_login(cursor, admin, request, exc.code, alerts, channel="miniapp")
+                raise
         _admin_note_login(cursor, admin, "miniapp", request, alerts)
         token, csrf, _ = admin_auth.create_session(cursor, admin, "miniapp", _admin_client_ip(request),
-                                                   request.headers.get("user-agent"))
-        return admin, token, csrf
+                                                   request.headers.get("user-agent"), mfa=mfa)
+        if mfa:
+            admin_auth.confirm_telegram(cursor, admin["admin_id"])
+        else:
+            admin_auth.audit(cursor, dict(admin, channel="miniapp"), "admin_session_mfa_pending",
+                             risk=admin_rbac.MEDIUM, ip=_admin_client_ip(request))
+        return admin, token, csrf, mfa
 
     alerts = []
     try:
-        admin, token, csrf = await asyncio.to_thread(_admin_v2_run, work)
+        admin, token, csrf, mfa = await asyncio.to_thread(_admin_v2_run_keep_failures, work)
     finally:
         _admin_send_security_alerts(alerts)
-    payload = _admin_session_payload(admin, csrf, "miniapp")
+    payload = _admin_session_payload(admin, csrf, "miniapp", mfa_verified=mfa)
     if body.get("mode") == "miniapp":
         # Inside Telegram the console sends this as X-Admin-Session (kept in
         # memory only); Telegram Web's cross-site iframe drops the cookie.
@@ -12675,25 +12729,34 @@ def _admin_v2_run_keep_failures(work):
 
 @app.post("/api/admin/v2/auth/reauth")
 async def admin_v2_auth_reauth(request: Request):
-    """Step-up re-authentication for Critical actions: a fresh TOTP code, or
-    fresh Mini App initData from the same Telegram user."""
+    """Step-up re-authentication for Critical actions (valid
+    REAUTH_WINDOW_SECONDS): a fresh TOTP code. Inside the Mini App it also
+    renews the Telegram confirmation bots rely on. Fresh initData from the
+    same Telegram user is accepted only by an enrollment-only session, and
+    only to set up TOTP (it opens nothing else)."""
     body = await _admin_v2_body(request)
     _admin_v2_ready(request)
     init_data = str(body.get("initData") or body.get("init_data") or "")
 
     def work(cursor):
-        actor, session = _admin_v2_actor(cursor, request, mutation=True)
-        if init_data:
+        actor, session = _admin_v2_actor(cursor, request, mutation=True, allow_mfa_pending=True)
+        if not session["mfa_verified"]:
+            if actor["totp_enabled"] or not init_data:
+                raise admin_auth.AdminAuthError("totp_required", 401)
             try:
                 user = validated_user(init_data, _admin_telegram_tokens())
             except SecurityError:
                 raise admin_auth.AdminAuthError("reauth_failed", 401)
             if not actor["telegram_id"] or int(user["id"]) != int(actor["telegram_id"]):
                 raise admin_auth.AdminAuthError("reauth_failed", 401)
-            method = "telegram"
+            method = "telegram_enrollment"
         else:
+            if not body.get("totp"):
+                raise admin_auth.AdminAuthError("totp_required", 401)
             admin_auth.verify_totp(cursor, actor, body.get("totp"))
             method = "totp"
+            if session["channel"] == "miniapp":
+                admin_auth.confirm_telegram(cursor, actor["admin_id"])
         admin_auth.mark_reauth(cursor, session["session_id"])
         admin_auth.audit(cursor, actor, "admin_reauth", risk=admin_rbac.LOW, after={"method": method},
                          ip=_admin_client_ip(request))
@@ -12707,7 +12770,7 @@ async def admin_v2_auth_logout(request: Request):
     _admin_v2_ready(request)
 
     def work(cursor):
-        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        actor, session = _admin_v2_actor(cursor, request, mutation=True, allow_mfa_pending=True)
         admin_auth.revoke_session(cursor, session["session_id"])
         admin_auth.audit(cursor, actor, "admin_logout", risk=admin_rbac.LOW)
 
@@ -12722,8 +12785,10 @@ async def admin_v2_auth_logout_all(request: Request):
     _admin_v2_ready(request)
 
     def work(cursor):
-        actor, _ = _admin_v2_actor(cursor, request, mutation=True)
+        actor, _ = _admin_v2_actor(cursor, request, mutation=True, allow_mfa_pending=True)
         count = admin_auth.revoke_all_sessions(cursor, actor["admin_id"])
+        # "Everywhere" includes the bots: their Telegram confirmation ends too.
+        admin_auth.clear_telegram_confirmation(cursor, actor["admin_id"])
         admin_auth.audit(cursor, actor, "admin_logout_all", risk=admin_rbac.MEDIUM, after={"sessions_revoked": count})
         return count
 
@@ -12738,12 +12803,14 @@ async def admin_v2_auth_me(request: Request):
     _admin_v2_ready(request)
 
     def work(cursor):
-        actor, session = _admin_v2_actor(cursor, request)
+        actor, session = _admin_v2_actor(cursor, request, allow_mfa_pending=True)
         identity = admin_identity.identities_for_keys(cursor, [actor["telegram_id"]] if actor["telegram_id"] else [],
                                                       technical=False).get(actor["telegram_id"])
         return {"ok": True, "admin": admin_auth.public_admin(actor), "identity": identity,
                 "csrf_token": session["csrf_token"],
-                "session": {"channel": session["channel"], "reauth_fresh": session["reauth_fresh"]}}
+                "telegram_confirmation": admin_auth.telegram_confirmation(cursor, actor["admin_id"]),
+                "session": {"channel": session["channel"], "reauth_fresh": session["reauth_fresh"],
+                            "mfa_verified": session["mfa_verified"]}}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
 
@@ -12811,9 +12878,13 @@ async def admin_v2_totp_enroll(request: Request):
     _admin_v2_ready(request)
 
     def work(cursor):
-        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        actor, session = _admin_v2_actor(cursor, request, mutation=True, allow_mfa_pending=True)
         if session["channel"] != "miniapp":
             raise admin_auth.AdminAuthError("totp_enroll_requires_miniapp", 403)
+        # Replacing an existing authenticator needs that authenticator: a
+        # session that never passed TOTP cannot rotate it.
+        if actor["totp_enabled"] and not session["mfa_verified"]:
+            raise admin_auth.AdminAuthError("totp_required", 401)
         if not session["reauth_fresh"]:
             raise admin_auth.AdminAuthError("reauth_required", 403)
         secret, uri = admin_auth.begin_totp_enrollment(cursor, actor)
@@ -12829,14 +12900,20 @@ async def admin_v2_totp_confirm(request: Request):
     _admin_v2_ready(request)
 
     def work(cursor):
-        actor, session = _admin_v2_actor(cursor, request, mutation=True)
+        actor, session = _admin_v2_actor(cursor, request, mutation=True, allow_mfa_pending=True)
         if session["channel"] != "miniapp":
             raise admin_auth.AdminAuthError("totp_enroll_requires_miniapp", 403)
-        admin_auth.confirm_totp_enrollment(cursor, actor, body.get("code"))
+        if actor["totp_enabled"] and not session["mfa_verified"]:
+            raise admin_auth.AdminAuthError("totp_required", 401)
+        admin_auth.confirm_totp_enrollment_limited(cursor, actor, body.get("code"))
+        # The first code proves the new authenticator: the enrollment-only
+        # session becomes a full one, and the bots may act for 30 minutes.
+        admin_auth.mark_session_mfa(cursor, session["session_id"])
+        admin_auth.confirm_telegram(cursor, actor["admin_id"])
         admin_auth.audit(cursor, actor, "admin_totp_enabled", risk=admin_rbac.HIGH)
-        return {"ok": True}
+        return {"ok": True, "session": {"mfa_verified": True}}
 
-    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+    return _admin_json(await asyncio.to_thread(_admin_v2_run_keep_failures, work))
 
 
 @app.get("/api/admin/v2/permissions")
@@ -12918,6 +12995,34 @@ async def admin_v2_admin_update(admin_id: int, request: Request):
         admin = admin_auth.update_admin(cursor, actor, admin_id, role=body.get("role"), grants=body.get("grants"),
                                         denies=body.get("denies"), status=body.get("status"), reason=reason)
         return {"ok": True, "admin": admin_auth.public_admin(admin)}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/admins/{admin_id}/totp/reset")
+async def admin_v2_admin_totp_reset(admin_id: int, request: Request):
+    """Owner only, Critical (fresh TOTP re-authentication), never on
+    oneself: removes another admin's lost authenticator. Their sessions and
+    Telegram confirmation end; they enroll again from the Mini App."""
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "admins.permissions.edit", mutation=True)
+        if actor.get("role") != admin_rbac.OWNER:
+            raise admin_auth.AdminAuthError("owner_access_required", 403)
+        reason = _admin_v2_reason(body)
+        if int(admin_id) == int(actor["admin_id"]):
+            raise admin_auth.AdminAuthError("cannot_modify_self", 403)
+        target = admin_auth.load_admin(cursor, admin_id=int(admin_id))
+        if not target:
+            raise admin_auth.AdminAuthError("admin_not_found", 404)
+        revoked = admin_auth.reset_totp(cursor, target["admin_id"])
+        admin_auth.audit(cursor, actor, "admin_totp_reset", risk=admin_rbac.CRITICAL,
+                         target_account_id=target["account_id"], reason=reason,
+                         before={"totp_enabled": bool(target["totp_enabled"])},
+                         after={"totp_enabled": False, "sessions_revoked": revoked})
+        return {"ok": True, "admin": admin_auth.public_admin(dict(target, totp_enabled=False))}
 
     return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
 

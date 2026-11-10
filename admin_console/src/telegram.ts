@@ -3,6 +3,7 @@ type WebApp = {
   initData: string;
   ready: () => void;
   expand: () => void;
+  close?: () => void;
   colorScheme?: "light" | "dark";
   themeParams?: Record<string, string>;
   onEvent?: (event: string, cb: () => void) => void;
@@ -39,6 +40,13 @@ function applyTheme() {
   };
   for (const [key, cssVar] of Object.entries(map)) if (p[key]) root.style.setProperty(cssVar, p[key]);
 }
+
+export function closeMiniApp() {
+  webApp()?.close?.();
+}
+
+/** Opened from a bot's "confirm with 2FA" button (…/admin/?confirm=bot). */
+export const confirmingForBot = () => new URLSearchParams(window.location.search).get("confirm") === "bot";
 
 export function haptic(kind: "success" | "error" | "warning") {
   webApp()?.HapticFeedback?.notificationOccurred(kind);

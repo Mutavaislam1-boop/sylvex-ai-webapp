@@ -526,6 +526,8 @@ def api(people, database, monkeypatch):
     from admin_fixtures import make_admin
     conn = database.connect()
     make_admin(conn.cursor(), SUPPORT_ID, legacy=["view_users", "message_users", "view_finance"])
+    from admin_fixtures import enable_mfa
+    enable_mfa(conn.cursor())  # B10: enrolled and confirmed in Telegram
     conn.commit()
     main.app.middleware_stack = None
     for mw in main.app.user_middleware:

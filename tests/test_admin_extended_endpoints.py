@@ -101,6 +101,10 @@ def app(monkeypatch):
     conn.commit()
 
     main.ensure_admin_tables()
+    from admin_fixtures import enable_mfa  # B10: enrolled and confirmed in Telegram
+    _mfa = database.connect()
+    enable_mfa(_mfa.cursor())
+    _mfa.commit()
     main.ensure_payment_tables()
     main.ensure_prostudio_table()
 

@@ -4,7 +4,15 @@ Authority comes from an admin record bound to a SYLVEX account
 (admin_accounts.account_id), never from a Telegram id alone:
 
 - Mini App: verified initData -> real Telegram id -> the SYLVEX account that
-  owns it -> active admin_accounts row -> short-lived session.
+  owns it -> active admin_accounts row -> TOTP code (required once enrolled)
+  -> short-lived session. An admin without TOTP gets an enrollment-only
+  session: it can only set up TOTP (after a fresh Telegram confirmation)
+  and becomes a full session once the first code is confirmed, so turning
+  MFA on can never lock out an admin who has not enrolled yet.
+- Bots and the legacy Mini App v1 (no console session): every admin action
+  needs a Telegram confirmation - TOTP entered in the Mini App console, never
+  typed into a chat - from the last TELEGRAM_CONFIRM_SECONDS; Critical
+  actions need one from the last REAUTH_WINDOW_SECONDS.
 - Web: email + password -> account -> active admin -> TOTP (required) ->
   session. TOTP is enrolled from a Mini App session, so a stolen website
   password alone can never set up admin web access.
@@ -38,6 +46,7 @@ CSRF_HEADER = "x-admin-csrf"
 SESSION_IDLE_SECONDS = 30 * 60
 SESSION_MAX_SECONDS = 8 * 3600
 REAUTH_WINDOW_SECONDS = 5 * 60
+TELEGRAM_CONFIRM_SECONDS = 30 * 60
 TOTP_STEP = 30
 TOTP_DIGITS = 6
 TOTP_MAX_FAILURES = 5
@@ -95,6 +104,11 @@ def ensure_schema(cur):
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions (admin_id) WHERE revoked_at IS NULL")
+    # MFA for the Telegram channels: when a session passed TOTP (NULL = an
+    # enrollment-only Mini App session), and when the admin last confirmed
+    # with TOTP inside Telegram (what bot / v1 initData requests rely on).
+    cur.execute("ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS mfa_at TIMESTAMPTZ")
+    cur.execute("ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS telegram_confirmed_at TIMESTAMPTZ")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS admin_audit_events (
             id BIGSERIAL PRIMARY KEY,
@@ -375,17 +389,22 @@ def hash_ip(ip):
     return hmac.new(_secret_material().encode(), str(ip).encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def create_session(cur, admin, channel, ip=None, user_agent=None, reauthenticated=True):
+def create_session(cur, admin, channel, ip=None, user_agent=None, reauthenticated=True, mfa=True):
+    """`mfa=False` creates an enrollment-only session (Mini App, admin
+    without TOTP): resolve_session reports it and the API guards refuse it
+    everything except TOTP setup, /auth/me and logout."""
     if channel not in CHANNELS:
         raise ValueError("unknown channel")
     token = secrets.token_urlsafe(32)
     csrf = secrets.token_urlsafe(24)
     cur.execute(f"""
-        INSERT INTO admin_sessions (token_hash, admin_id, channel, csrf_token, expires_at, reauth_at, ip_hash, user_agent)
+        INSERT INTO admin_sessions (token_hash, admin_id, channel, csrf_token, expires_at, reauth_at, mfa_at,
+                                    ip_hash, user_agent)
         VALUES (%s, %s, %s, %s, NOW() + INTERVAL '{SESSION_MAX_SECONDS} seconds',
-                CASE WHEN %s THEN NOW() ELSE NULL END, %s, %s)
+                CASE WHEN %s THEN NOW() ELSE NULL END, CASE WHEN %s THEN NOW() ELSE NULL END, %s, %s)
         RETURNING id
-    """, (_hash(token), admin["admin_id"], channel, csrf, bool(reauthenticated), hash_ip(ip), (user_agent or "")[:300]))
+    """, (_hash(token), admin["admin_id"], channel, csrf, bool(reauthenticated), bool(mfa), hash_ip(ip),
+          (user_agent or "")[:300]))
     session_id = int(cur.fetchone()[0])
     cur.execute("UPDATE admin_accounts SET last_login_at = NOW(), last_activity_at = NOW() WHERE id = %s",
                 (admin["admin_id"],))
@@ -399,7 +418,8 @@ def resolve_session(cur, token):
         raise AdminAuthError("admin_session_required", 401)
     cur.execute(f"""
         SELECT id, admin_id, channel, csrf_token,
-               (reauth_at IS NOT NULL AND reauth_at > NOW() - INTERVAL '{REAUTH_WINDOW_SECONDS} seconds') AS fresh
+               (reauth_at IS NOT NULL AND reauth_at > NOW() - INTERVAL '{REAUTH_WINDOW_SECONDS} seconds') AS fresh,
+               (mfa_at IS NOT NULL OR channel = 'web') AS mfa
         FROM admin_sessions
         WHERE token_hash = %s AND revoked_at IS NULL AND expires_at > NOW()
           AND last_seen_at > NOW() - INTERVAL '{SESSION_IDLE_SECONDS} seconds'
@@ -408,7 +428,7 @@ def resolve_session(cur, token):
     if not row:
         raise AdminAuthError("admin_session_invalid", 401)
     session = {"session_id": int(row[0]), "admin_id": int(row[1]), "channel": row[2], "csrf_token": row[3],
-               "reauth_fresh": bool(row[4])}
+               "reauth_fresh": bool(row[4]), "mfa_verified": bool(row[5])}
     admin = load_admin(cur, admin_id=session["admin_id"])
     if not admin or admin["status"] != "active":
         raise AdminAuthError("admin_access_denied", 403)
@@ -428,6 +448,42 @@ def revoke_all_sessions(cur, admin_id):
 
 def mark_reauth(cur, session_id):
     cur.execute("UPDATE admin_sessions SET reauth_at = NOW() WHERE id = %s", (session_id,))
+
+
+def mark_session_mfa(cur, session_id):
+    """The session's admin just proved TOTP: a full session, freshly
+    re-authenticated."""
+    cur.execute("UPDATE admin_sessions SET mfa_at = NOW(), reauth_at = NOW() WHERE id = %s", (session_id,))
+
+
+# --------------------------------------------------------------------------
+# Telegram confirmation (bots and the legacy Mini App v1)
+# --------------------------------------------------------------------------
+
+def confirm_telegram(cur, admin_id):
+    """Records a TOTP confirmation made inside Telegram (Mini App login,
+    re-authentication or enrollment of a Mini App session)."""
+    cur.execute("UPDATE admin_accounts SET telegram_confirmed_at = NOW() WHERE id = %s", (admin_id,))
+
+
+def clear_telegram_confirmation(cur, admin_id):
+    cur.execute("UPDATE admin_accounts SET telegram_confirmed_at = NULL WHERE id = %s", (admin_id,))
+
+
+def telegram_confirmation(cur, admin_id):
+    """{"confirmed", "critical", "valid_until", "critical_until"}: whether
+    bot / v1 actions (and Critical ones) are currently allowed."""
+    cur.execute(f"""
+        SELECT COALESCE(telegram_confirmed_at > NOW() - INTERVAL '{TELEGRAM_CONFIRM_SECONDS} seconds', FALSE) AS confirmed,
+               COALESCE(telegram_confirmed_at > NOW() - INTERVAL '{REAUTH_WINDOW_SECONDS} seconds', FALSE) AS critical,
+               telegram_confirmed_at + INTERVAL '{TELEGRAM_CONFIRM_SECONDS} seconds' AS valid_until,
+               telegram_confirmed_at + INTERVAL '{REAUTH_WINDOW_SECONDS} seconds' AS critical_until
+        FROM admin_accounts WHERE id = %s
+    """, (admin_id,))
+    row = cur.fetchone() or (False, False, None, None)
+    confirmed, critical = bool(row[0]), bool(row[1])
+    return {"confirmed": confirmed, "critical": critical,
+            "valid_until": _iso(row[2]) if confirmed else None, "critical_until": _iso(row[3]) if critical else None}
 
 
 def list_sessions(cur, admin_id):
@@ -532,6 +588,18 @@ def confirm_totp_enrollment_limited(cur, admin, code):
                 WHERE id = %s
             """, (failures, failures, admin["admin_id"]))
         raise
+
+
+def reset_totp(cur, admin_id):
+    """Removes an admin's authenticator (lost device): every session and
+    the Telegram confirmation end with it; the admin enrolls again from the
+    Mini App."""
+    cur.execute("""
+        UPDATE admin_accounts SET totp_secret_enc = NULL, totp_pending_enc = NULL, totp_enabled_at = NULL,
+            totp_last_step = NULL, totp_failures = 0, totp_locked_until = NULL, telegram_confirmed_at = NULL
+        WHERE id = %s
+    """, (admin_id,))
+    return revoke_all_sessions(cur, admin_id)
 
 
 def _decrypt(token):

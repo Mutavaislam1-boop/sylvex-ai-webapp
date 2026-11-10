@@ -18,7 +18,7 @@ const LOGIN_LABELS: Record<string, string> = {
   admin_reauth: "Identity confirmed",
 };
 
-function TotpSetup() {
+export function TotpSetup() {
   const { toast, refreshMe } = useApp();
   const [enrollment, setEnrollment] = useState<{ secret: string; otpauth_uri: string } | null>(null);
   const [qr, setQr] = useState("");
@@ -104,9 +104,14 @@ export default function Account({ onSignedOut }: { onSignedOut: () => void }) {
       </div>
 
       <div className="card">
-        <h3>{t("Browser sign-in (two-factor)")}</h3>
+        <h3>{t("Two-factor authentication (2FA)")}</h3>
         {me.admin.totp_enabled ? (
-          <div className="notice good">{t("Authenticator is enabled. You can sign in from a normal browser with your SYLVEX email, password and a 6-digit code.")}</div>
+          <div className="stack">
+            <div className="notice good">{t("Authenticator is enabled. It is asked at every sign-in (Telegram and browser) and for Critical actions.")}</div>
+            <div className="muted small">{me.telegram_confirmation?.confirmed && me.telegram_confirmation.valid_until
+              ? t("The SYLVEX bots may act for you until {time}.", { time: new Date(me.telegram_confirmation.valid_until).toLocaleTimeString() })
+              : t("The SYLVEX bots ask you to confirm with 2FA here before admin actions.")}</div>
+          </div>
         ) : inMiniApp ? (
           <div className="stack">
             <div className="muted small">{t("To open the console in a normal browser you need an authenticator app. Setup is only possible here, inside Telegram, so browser access stays tied to your Telegram account. You will be asked to confirm with Telegram first.")}</div>

@@ -40,3 +40,38 @@ def audit_rows(cur, action=None):
         out.append(dict(zip(("actor_account_id", "action", "target_account_id", "target_ref", "before", "after",
                              "reason", "channel", "risk"), row)))
     return out
+
+
+# --- MFA (B10): how production admins look once TOTP is enforced on the
+# Telegram channels - an enrolled authenticator and, for bot / v1 initData
+# calls, a fresh Telegram confirmation.
+TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+
+
+def enable_mfa(cur, admin_id=None, *, confirmed=True, secret=TEST_TOTP_SECRET):
+    """Enrolls the test authenticator for one admin (or every active one) and,
+    unless confirmed=False, records a Telegram confirmation made just now."""
+    from services import admin_auth
+
+    encrypted = admin_auth._fernet().encrypt(secret.encode()).decode()
+    where, params = ("id = %s", (admin_id,)) if admin_id else ("status = 'active'", ())
+    cur.execute(f"""
+        UPDATE admin_accounts SET totp_secret_enc = %s, totp_pending_enc = NULL, totp_enabled_at = NOW(),
+            totp_last_step = NULL, totp_failures = 0, totp_locked_until = NULL,
+            telegram_confirmed_at = CASE WHEN %s THEN NOW() ELSE NULL END
+        WHERE {where}
+    """, (encrypted, bool(confirmed)) + params)
+
+
+def fresh_totp(cur, telegram_id, secret=TEST_TOTP_SECRET):
+    """The current code for the admin behind telegram_id. Clears the
+    one-use-per-step marker first, so a test may sign the same admin in
+    several times within one 30-second step (replay protection itself is
+    covered in test_admin_telegram_mfa.py)."""
+    from services import admin_auth
+
+    cur.execute("""
+        UPDATE admin_accounts SET totp_last_step = NULL
+        WHERE account_id = (SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s)
+    """, (int(telegram_id),))
+    return admin_auth.totp_code(secret)[0]

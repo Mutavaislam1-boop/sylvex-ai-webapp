@@ -120,8 +120,25 @@ def ready(env):
     cur.execute("SELECT a.id FROM admin_accounts a JOIN sylvex_accounts s ON s.account_id = a.account_id "
                 "WHERE s.active_telegram_id = %s", (OWNER_TG,))
     env.ids["owner"] = int(cur.fetchone()[0])
+    # B10: every admin has an authenticator and a fresh Telegram confirmation.
+    from admin_fixtures import enable_mfa
+    enable_mfa(cur)
     conn.commit()
     return env
+
+
+def totp_for(env, uid):
+    """The admin's current TOTP code (see admin_fixtures.fresh_totp)."""
+    from admin_fixtures import fresh_totp
+    conn = env.db.connect()
+    code = fresh_totp(conn.cursor(), uid)
+    conn.commit()
+    return code
+
+
+def tg_body(env, uid, **extra):
+    """Mini App sign-in body: signed initData plus the TOTP code."""
+    return dict({"initData": init_data(uid), "totp": totp_for(env, uid)}, **extra)
 
 
 async def call(env, method, path, *, cookie=None, csrf=None, origin=ORIGIN, json_body=None, headers=None):
@@ -144,7 +161,7 @@ def _cookie(response):
 
 
 async def login(env, uid):
-    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(uid)})
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body=tg_body(env, uid))
     assert r.status_code == 200, r.text
     token, _ = _cookie(r)
     return token, r.json()["csrf_token"]
@@ -239,14 +256,14 @@ async def test_non_admin_telegram_user_gets_no_session(ready):
 @pytest.mark.asyncio
 async def test_support_bot_signed_init_data_is_accepted(ready):
     r = await call(ready, "POST", "/api/admin/v2/auth/telegram",
-                   json_body={"initData": init_data(SUPPORT_TG, token=SUPPORT_TOKEN)})
+                   json_body=dict(tg_body(ready, SUPPORT_TG), initData=init_data(SUPPORT_TG, token=SUPPORT_TOKEN)))
     assert r.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_session_cookie_is_strict_and_only_its_hash_is_stored(ready):
     env = ready
-    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(OWNER_TG)})
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body=tg_body(env, OWNER_TG))
     token, header = _cookie(r)
     lower = header.lower()
     assert "httponly" in lower and "secure" in lower and "samesite=strict" in lower and "path=/" in lower
@@ -333,8 +350,12 @@ async def test_critical_action_requires_fresh_reauth(ready):
     r = await call(env, "POST", "/api/admin/v2/auth/reauth", cookie=token, csrf=csrf,
                    json_body={"initData": init_data(ADMIN_TG)})  # someone else's Telegram
     assert r.status_code == 401
+    # B10: the owner's own Telegram is no longer a second factor - only TOTP.
     r = await call(env, "POST", "/api/admin/v2/auth/reauth", cookie=token, csrf=csrf,
                    json_body={"initData": init_data(OWNER_TG)})
+    assert r.status_code == 401 and r.json()["detail"] == "totp_required"
+    r = await call(env, "POST", "/api/admin/v2/auth/reauth", cookie=token, csrf=csrf,
+                   json_body={"totp": totp_for(env, OWNER_TG)})
     assert r.status_code == 200
     r = await call(env, "PATCH", f"/api/admin/v2/admins/{env.ids['support']}", cookie=token, csrf=csrf, json_body=body)
     assert r.status_code == 200, r.text
@@ -474,6 +495,13 @@ async def _enable_totp(env, uid):
     return secret
 
 
+def _without_totp(env, uid):
+    """Back to an admin who never set up an authenticator."""
+    q(env, "UPDATE admin_accounts SET totp_secret_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL, "
+           "telegram_confirmed_at = NULL WHERE account_id = (SELECT account_id FROM sylvex_accounts "
+           "WHERE active_telegram_id = %s)", (uid,))
+
+
 def _add_password(env, uid, email="admin@test.com"):
     account = q(env, "SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s", (uid,))[0][0]
     env.ai.set_email_for_account("pglite://test", account, email, "correcthorsebattery")
@@ -482,6 +510,7 @@ def _add_password(env, uid, email="admin@test.com"):
 @pytest.mark.asyncio
 async def test_web_login_needs_password_and_totp(ready):
     env = ready
+    _without_totp(env, ADMIN_TG)
     _add_password(env, ADMIN_TG)
     r = await call(env, "POST", "/api/admin/v2/auth/web", json_body={"email": "admin@test.com", "password": "correcthorsebattery", "totp": "123456"})
     assert r.status_code == 403 and r.json()["error"] == "totp_enrollment_required"
@@ -512,13 +541,16 @@ async def test_totp_failures_lock_out(ready):
 @pytest.mark.asyncio
 async def test_totp_cannot_be_enrolled_from_a_web_session_or_without_reauth(ready):
     env = ready
+    _without_totp(env, ADMIN_TG)
     _add_password(env, ADMIN_TG)
     secret = await _enable_totp(env, ADMIN_TG)
     r = await call(env, "POST", "/api/admin/v2/auth/web", json_body={"email": "admin@test.com", "password": "correcthorsebattery", "totp": _totp(secret)})
     web_token, web_csrf = _cookie(r)[0], r.json()["csrf_token"]
     r = await call(env, "POST", "/api/admin/v2/auth/totp/enroll", cookie=web_token, csrf=web_csrf)
     assert r.status_code == 403 and r.json()["detail"] == "totp_enroll_requires_miniapp"
-    token, csrf = await login(env, ADMIN_TG)
+    q(env, "UPDATE admin_accounts SET totp_last_step = NULL")
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(ADMIN_TG), "totp": _totp(secret)})
+    token, csrf = _cookie(r)[0], r.json()["csrf_token"]
     q(env, "UPDATE admin_sessions SET reauth_at = NOW() - INTERVAL '10 minutes'")
     r = await call(env, "POST", "/api/admin/v2/auth/totp/enroll", cookie=token, csrf=csrf)
     assert r.status_code == 403 and r.json()["detail"] == "reauth_required"
@@ -616,9 +648,9 @@ async def test_console_session_needs_reauth_for_critical_v1_actions(ready):
 @pytest.mark.asyncio
 async def test_mini_app_login_returns_a_header_token_only_in_miniapp_mode(ready):
     env = ready
-    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(OWNER_TG)})
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body=tg_body(env, OWNER_TG))
     assert "session_token" not in r.json()
-    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(OWNER_TG), "mode": "miniapp"})
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body=tg_body(env, OWNER_TG, mode="miniapp"))
     token, csrf = r.json()["session_token"], r.json()["csrf_token"]
     assert token
     h = {"X-Admin-Session": token}
@@ -694,6 +726,7 @@ async def test_other_users_are_rejected_before_any_qr(ready, monkeypatch):
     r = await _web(env, email="someone@gmail.com", password=DEV_PASSWORD)
     assert r.status_code == 403 and r.json()["error"] == "admin_access_denied" and "secret" not in r.text
     # An existing admin without 2FA gets no browser QR either (Mini App only, as before).
+    _without_totp(env, ADMIN_TG)
     _add_password(env, ADMIN_TG)
     r = await _web(env, email="admin@test.com", password="correcthorsebattery")
     assert r.status_code == 403 and r.json()["error"] == "totp_enrollment_required" and "secret" not in r.text

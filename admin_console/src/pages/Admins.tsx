@@ -129,6 +129,7 @@ export default function Admins() {
   const admins = useAsync(() => get<{ items: AdminRow[] }>("/api/admin/v2/admins"), []);
   const catalog = useAsync(() => get<Catalog>("/api/admin/v2/permissions"), []);
   const [editing, setEditing] = useState<AdminRow | "new" | null>(null);
+  const [resetting, setResetting] = useState<AdminRow | null>(null);
 
   if (admins.error) return <ErrorNotice message={admins.error} onRetry={admins.reload} />;
   if (!admins.data || !catalog.data) return <Loading />;
@@ -139,7 +140,7 @@ export default function Admins() {
   return (
     <div className="stack">
       <div className="row between">
-        <span className="muted small">{t("Admins are SYLVEX accounts. They sign in with Telegram (Mini App) or email + password + 2FA (browser).")}</span>
+        <span className="muted small">{t("Admins are SYLVEX accounts. They sign in with Telegram (Mini App) + 2FA or email + password + 2FA (browser).")}</span>
         {isOwner && can("admins.create") && <button className="btn primary" onClick={() => setEditing("new")}>+ {t("Add admin")}</button>}
       </div>
       {admins.data.items.length ? (
@@ -159,7 +160,10 @@ export default function Admins() {
                 {a.denies.map((d) => <Tip key={d} icon={false} text={<PermissionHelp catalog={catalog.data!} permission={d} />}><span className="badge bad" style={{ marginRight: 4 }}>✕{pick(catalog.data!.catalog?.[d]?.label) || d}</span></Tip>)}
                 {!a.grants.length && !a.denies.length && <span className="muted">{t("role defaults")}</span>}
               </td>
-              <td className="right">{canEdit && a.admin_id !== me.admin.admin_id && <button className="btn small" onClick={() => setEditing(a)}>{t("Edit")}</button>}</td>
+              <td className="right">{canEdit && a.admin_id !== me.admin.admin_id && <>
+                {a.totp_enabled && <button className="btn small" style={{ marginRight: 4 }} onClick={() => setResetting(a)}>{t("Reset 2FA")}</button>}
+                <button className="btn small" onClick={() => setEditing(a)}>{t("Edit")}</button>
+              </>}</td>
             </tr>
           ))}</tbody>
         </table></div>
@@ -182,6 +186,16 @@ export default function Admins() {
         </div>
       </details>
 
+      {resetting && (
+        <ConfirmAction
+          title={t("Reset 2FA")}
+          confirmLabel={t("Reset 2FA")}
+          danger
+          description={t("For a lost phone: removes this admin's authenticator and ends all their sessions. They set up a new one in the Telegram Mini App.")}
+          onConfirm={async (reason) => { await post(`/api/admin/v2/admins/${resetting.admin_id}/totp/reset`, { reason }); admins.reload(); }}
+          onClose={() => setResetting(null)}
+        />
+      )}
       {editing && (
         <EditAdmin row={editing === "new" ? null : editing} catalog={catalog.data} onClose={() => setEditing(null)} onSaved={admins.reload} />
       )}

@@ -8,7 +8,7 @@ from services import admin_security as sec
 pglite = pytest.mark.skipif(not __import__("os").getenv("SYLVEX_PGLITE_MODULE"), reason="needs PGlite")
 
 from test_admin_console_auth import (  # noqa: E402,F401  (fixtures)
-    ORIGIN, OWNER_TG, SUPPORT_TG, USER_TG, _cookie, call, env, init_data, login, q, ready,
+    ORIGIN, OWNER_TG, SUPPORT_TG, USER_TG, _cookie, call, env, init_data, login, q, ready, tg_body,
 )
 
 
@@ -68,7 +68,7 @@ async def test_sign_in_history_new_device_alert_and_ending_one_session(world):
     assert env.alerts == []
     # Earlier sessions came from another network; now a new kind of device signs in.
     q(env, "UPDATE admin_sessions SET ip_hash = 'elsewhere'")
-    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body={"initData": init_data(OWNER_TG)},
+    r = await call(env, "POST", "/api/admin/v2/auth/telegram", json_body=tg_body(env, OWNER_TG),
                    headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) Telegram-iOS"})
     assert r.status_code == 200
     assert len(env.alerts) == 1 and "нового устройства" in env.alerts[0][1] and "Telegram · iOS" in env.alerts[0][1]
