@@ -240,17 +240,18 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "RBAC и TOTP реализованы. В базе 3 active admins, TOTP включён у 2. MFA всех фактически используемых каналов пока не подтверждена.",
+      "confirmed_scope": "Код API 5dbcde1 (admin_auth.py/admin_rbac.py не менялись с оценки 07.11): 102 теста auth/RBAC/TOTP/service-token PASS на реальном SQL (PGlite), 121 с. Браузерный вход: email+пароль+TOTP обязателен, 5 ошибок → блок 15 мин, Critical — повторный TOTP ≤5 мин. Telegram-каналы однофакторные по дизайну: Mini App v2 (initData ≤3600 с, Critical — свежий initData), Mini App v1 и бот (Critical без повторного подтверждения; бот — только владелец; среди v1 Critical: models.edit, broadcast.send, admins.permissions.edit). Без активной записи admin_accounts доступа нет ни в одном канале. MFA выполнена только для браузерного входа. По данным Codex 07.11: 3 active admins, TOTP у 2 (текущее состояние БД из этой сессии не прочитано).",
       "evidence_ids": [
         "SRC",
         "DB",
-        "ADMIN"
+        "ADMIN",
+        "B10_SECURITY"
       ],
       "blocker_ids": [
         "B10"
       ],
-      "next_action": "Подтвердить фактор защиты третьего администратора и Telegram-канала; не считать его отсутствие TOTP доказанным обходом прав.",
-      "assessed_on": "2026-11-07",
+      "next_action": "Решение владельца: принять Telegram-аккаунт (с облачным паролем Telegram у всех админов) как фактор Mini App/бота или заказать TOTP/повторное подтверждение для Telegram-каналов; выполнить fixes/B10/owner_admin_mfa_readonly.sql.",
+      "assessed_on": "2026-11-10",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -283,8 +284,22 @@
           "date": "2026-11-07",
           "status": "Не проверено",
           "reason": "RBAC и TOTP реализованы. В базе 3 active admins, TOTP включён у 2. MFA всех фактически используемых каналов пока не подтверждена."
+        },
+        {
+          "date": "2026-11-10",
+          "atUTC": "2026-11-10T14:00:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "api_commit": "5dbcde1",
+          "reason": "RBAC и TOTP браузера подтверждены (102 PASS); Telegram-каналы без второго фактора — решение владельца."
         }
-      ]
+      ],
+      "open_subchecks": {
+        "rbac": "confirmed: 102 admin tests pass on 5dbcde1; no admin access without active admin_accounts row",
+        "mfa_web": "confirmed: TOTP mandatory for browser login",
+        "mfa_telegram_channels": "not met by design: Mini App v2/v1 and bot are single-factor (Telegram account); owner decision required",
+        "current_admin_state": "not observed: DB read blocked in this session; owner query fixes/B10/owner_admin_mfa_readonly.sql"
+      }
     },
     {
       "id": "S1-06",
@@ -294,17 +309,18 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Подтверждено: CSRF (Origin в middleware для всех изменяющих /api/web/* и веб-cookie; админка SameSite=Strict + CSRF-токен), XSS-1, XSS-4, CORS-2 в API 5dbcde1. XSS сайта УСТРАНЁН и развёрнут: sylvex-website 968e928 (экранирование account/profile.html, account/settings.html, аватар js/site.js) + 3009404 (site.js?v=s106-xss-20261109 на 30 страницах, Cache-Control: no-cache для страниц); деплой 589b9461 SUCCESS 10.11 10:23:47Z. Браузерная проверка с опасными символами: 0 выполненных и 0 внедрённых (до исправления 19 и 16). Живые заголовки из этой сессии не получены (сеть блокирует sylvex.ai). ОТДЕЛЬНО НЕ ПОДТВЕРЖДЕНО: SQL-инъекции — только точечная проверка без находок, 81 место динамического SQL полностью не проверено.",
+      "confirmed_scope": "Подтверждено: CSRF (Origin в middleware для всех изменяющих /api/web/* и веб-cookie; админка SameSite=Strict + CSRF-токен), XSS-1, XSS-4, CORS-2 в API 5dbcde1. XSS сайта УСТРАНЁН и развёрнут: sylvex-website 968e928 + 3009404; деплой 589b9461 SUCCESS, Railway HTTP-лог 10.11 10:31Z: /account/profile.html и /account/settings.html → 200 с этого деплоя. SQL-инъекции ПОДТВЕРЖДЕНЫ полным статическим обзором: все 129 нелитеральных вызовов execute в API 5dbcde1 (main.py + services; прочие модули — 0) и 109 в воркерах dde6dea (подмножество API) — значения только через %s, имена колонок из констант/белых списков, идентификаторы через ident()/sql.Identifier; находок нет. НЕ НАБЛЮДАЛОСЬ: живые заголовки ответа сайта (Cache-Control: no-cache) и загрузка site.js?v=s106-xss-20261109.",
       "evidence_ids": [
         "TEST",
         "IMPACT",
         "S106_LOCAL",
-        "S106_PRODUCTION"
+        "S106_PRODUCTION",
+        "B10_SECURITY"
       ],
       "blocker_ids": [
         "B10"
       ],
-      "next_action": "Отдельная ограниченная проверка SQL-инъекций по 81 месту динамического SQL; владельцу — проверить заголовки сайта командой из fixes/S1-06/RESULT.md.",
+      "next_action": "Владельцу — одна проверка заголовков сайта командой из fixes/S1-06/RESULT.md; при ожидаемом ответе S1-06 можно перевести в Подтверждено без новых тестов.",
       "assessed_on": "2026-11-10",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -354,11 +370,20 @@
           "website_commit": "30094047f0a90cf1181ab9a24441998b22f5b7ef",
           "deployment": "589b9461-2401-4d73-8352-27daeb3ee961",
           "reason": "XSS сайта устранён и развёрнут; SQLi остаётся непроверенной."
+        },
+        {
+          "date": "2026-11-10",
+          "atUTC": "2026-11-10T14:00:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "api_commit": "5dbcde1",
+          "workers_commit": "dde6dea",
+          "reason": "SQLi подтверждена полным статическим обзором (находок нет); открыт только живой ответ сайта."
         }
       ],
       "open_subchecks": {
-        "website_xss": "fixed and deployed (sylvex-website 3009404, deployment 589b9461); live headers not fetched from this session",
-        "sql_injection": "spot-check of high-risk patterns only: no findings; 81 dynamic SQL sites not fully reviewed"
+        "website_xss": "fixed and deployed (sylvex-website 3009404, deployment 589b9461, pages 200 in Railway HTTP log); live response headers / site.js version not observed",
+        "sql_injection": "confirmed: full static review of 129 non-literal SQL calls (API 5dbcde1) and 109 (workers dde6dea); no findings"
       }
     },
     {
@@ -4234,18 +4259,19 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "RBAC/MFA код и 401 без сессии подтверждены. Точечный локальный MFA/RBAC прогон достиг лимита 150 секунд, PASS не заявлен; реальный admin smoke не выполнялся.",
+      "confirmed_scope": "RBAC маршрутов админки подтверждён: 102 теста admin auth/RBAC/users/messages/recover-job/extended endpoints PASS на API 5dbcde1 (ранее лимит 150 с). Реальный read-only admin smoke в Production не выполнялся (нужен вход администратора; сеть сессии блокирует сайт и API).",
       "evidence_ids": [
         "TEST",
         "ADMIN",
         "HTTP",
-        "DB"
+        "DB",
+        "B10_SECURITY"
       ],
       "blocker_ids": [
         "B10"
       ],
-      "next_action": "Read-only admin smoke и подтверждение MFA каналов, без изменения пользователей/балансов.",
-      "assessed_on": "2026-11-07",
+      "next_action": "Read-only admin smoke владельцем/администратором (просмотр пользователей, платежей, генераций, ошибок) без изменений.",
+      "assessed_on": "2026-11-10",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -4266,6 +4292,14 @@
           "date": "2026-11-07",
           "status": "Не проверено",
           "reason": "RBAC/MFA код, 401 без сессии и ограниченные локальные проверки имеются. Полный безопасный административный пользовательский сценарий не подтверждён."
+        },
+        {
+          "date": "2026-11-10",
+          "atUTC": "2026-11-10T14:00:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "api_commit": "5dbcde1",
+          "reason": "102 admin-теста PASS; живой read-only smoke не выполнен."
         }
       ]
     },
@@ -5127,6 +5161,10 @@
     "S106_PRODUCTION": {
       "path": "fixes/S1-06/RESULT.md",
       "scope": "Деплой сайта 3009404 (589b9461) SUCCESS; экранирование и сброс кэша site.js; живые заголовки не получены из сессии"
+    },
+    "B10_SECURITY": {
+      "path": "fixes/B10/RESULT.md",
+      "scope": "Полный статический обзор SQL (API 5dbcde1, воркеры dde6dea); 102 admin auth/RBAC теста PASS; каналы входа и MFA"
     }
   },
   "launch_blocker_groups": [
@@ -5199,8 +5237,8 @@
       ],
       "closing_criterion": "MFA каналов, недостающие CSRF/XSS/rate/privacy случаи; это evidence gap, а не утверждение о взломе.",
       "kind": "evidence_gap_or_owner_decision",
-      "local_progress": "S1-07 подтверждён; S1-06: XSS сайта устранён и развёрнут (sylvex-website 3009404)",
-      "awaiting": "S1-06: проверка SQL-инъекций. S1-05/S7-09: подтверждение владельцем MFA третьего администратора и Telegram-канала, read-only admin smoke. S5-08: privacy."
+      "local_progress": "S1-07 подтверждён; S1-06: XSS устранён и развёрнут, SQLi подтверждена полным статическим обзором; S1-05/S7-09: RBAC и TOTP браузера подтверждены 102 тестами",
+      "awaiting": "S1-06: живые заголовки сайта (команда владельца). S1-05: решение владельца по MFA Telegram-каналов + read-only SQL по администраторам. S7-09: read-only admin smoke. S5-08: privacy (вместе с B09)."
     },
     {
       "id": "B11",
@@ -5508,7 +5546,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "S1-06 website XSS fix deployed (sylvex-website 3009404); SQL injection still unverified",
-  "last_updated_atUTC": "2026-11-10T10:35:00+00:00",
-  "latest_work_phase": "S106_WEBSITE_XSS_DEPLOYED"
+  "last_controlled_change": "B10 review: SQL injection confirmed (static), admin RBAC tests pass; Telegram-channel MFA awaits owner",
+  "last_updated_atUTC": "2026-11-10T14:00:00+00:00",
+  "latest_work_phase": "B10_SECURITY_REVIEW"
 }

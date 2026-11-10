@@ -1,0 +1,10 @@
+102 passed, 4 warnings in 121.09s (0:02:01)
+exit=0
+test_admin_console_auth: 42 passed
+test_admin_extended_endpoints: 10 passed
+test_admin_messages_stage_b: 8 passed
+test_admin_recover_job_auth: 8 passed
+test_admin_service_token_auth: 9 passed
+test_admin_stage_d: 11 passed
+test_admin_stage_e: 4 passed
+test_admin_users_stage_a: 10 passed

@@ -1,0 +1,110 @@
+main.py:5411 [BinOp] 'SELECT 1 FROM subscriptions s WHERE s.telegram_id = %s AND ' + shop_orders.VALID_ENTITLEMENT_SQL + ' LIMIT 1 FOR SHARE OF s'
+main.py:2099 [BinOp] '\n            SELECT s.subscription_type, s.expires_at::timestamp\n            FROM subscriptions s\n            WHERE s.telegram_id = %s AND ' + shop_orders.VALID_ENTITLEMENT_SQL + '\n            ORDER BY ' + shop_orders.EFFECTIVE_ORDER_SQL + '\n            LIMIT 1\n        '
+main.py:2335 [BinOp] '\n            SELECT s.subscription_type, s.expires_at::timestamp\n            FROM subscriptions s\n            WHERE s.telegram_id = %s AND ' + shop_orders.VALID_ENTITLEMENT_SQL + '\n            ORDER BY ' + shop_orders.EFFECTIVE_ORDER_SQL + '\n            LIMIT 1\n        '
+main.py:15626 [JoinedStr] _REFERENCE_COLUMNS
+main.py:30138 [BinOp] "\n            SELECT s.id, s.telegram_id, s.subscription_type, s.expires_at::timestamp,\n                   EXTRACT(EPOCH FROM (s.expires_at::timestamp - NOW()))\n            FROM subscriptions s\n            WHERE s.status = 'active'\n              AND s.expires_at::timestamp > NOW()\n              AND s.expires_at::timestamp <= NOW() + INTERVAL '8 days'\n              -- A Stripe plan that renews automatically needs no reminder.\n              AND NOT " + stripe_billing.renews_automatically_sql('s', stripe_billing.key_livemode(STRIPE_SECRET_KEY) if STRIPE_SECRET_KEY else True) + "\n              -- Neither does a Telegram Stars subscription that renews automatically.\n              AND NOT EXISTS (\n                  SELECT 1 FROM subscription_agreements agreement\n                  WHERE agreement.id = s.agreement_id AND agreement.renewal_status = 'auto'\n              )\n              AND NOT EXISTS (\n                  SELECT 1\n                  FROM subscriptions newer\n                  WHERE newer.telegram_id = s.telegram_id\n                    AND newer.status = 'active'\n                    AND newer.expires_at::timestamp > s.expires_at::timestamp\n              )\n            ORDER BY s.expires_at ASC\n        "
+main.py:11923 [JoinedStr] ghost_filter
+main.py:13213 [JoinedStr] where
+main.py:13215 [JoinedStr] where
+main.py:13304 [JoinedStr] where
+main.py:13327 [JoinedStr] where
+main.py:15290 [JoinedStr] where
+main.py:15292 [JoinedStr] _REFERENCE_COLUMNS | where
+main.py:15335 [JoinedStr] _REFERENCE_COLUMNS
+main.py:15393 [JoinedStr] _REFERENCE_COLUMNS
+main.py:15404 [JoinedStr] set_clause | _REFERENCE_COLUMNS
+main.py:15441 [JoinedStr] _REFERENCE_COLUMNS
+main.py:15491 [JoinedStr] _REFERENCE_COLUMNS
+main.py:15691 [JoinedStr] _REFERENCE_COLUMNS
+main.py:15802 [JoinedStr] ' AND '.join(conditions)
+main.py:29841 [JoinedStr] PROSTUDIO_QUEUE_CHANNEL
+main.py:8355 [JoinedStr] mode_where | pinned_order
+main.py:11145 [JoinedStr] where_mode
+main.py:11559 [JoinedStr] pk_name
+main.py:13314 [JoinedStr] column | where
+main.py:13579 [JoinedStr] sub_flag | sub_join
+main.py:13756 [Name] sql
+main.py:4980 [JoinedStr] column | definition
+services/account_identity.py:364 [JoinedStr] SYLVEX_ID_INITIAL_SERIES | SYLVEX_ID_SERIES_CAPACITY | SYLVEX_ID_SERIES_CAPACITY | SYLVEX_ID_PROJECT_COMPONENT | SYLVEX_ID_TELEGRAM_CC
+services/account_identity.py:391 [JoinedStr] STORAGE_ID_FLOOR
+services/account_identity.py:779 [JoinedStr] REGISTRATION_PENDING_MAX_AGE
+services/account_identity.py:1465 [BinOp] 'SELECT active_telegram_id FROM sylvex_accounts WHERE account_id = %s' + suffix
+services/account_identity.py:1475 [BinOp] 'SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s' + suffix
+services/account_identity.py:623 [JoinedStr] VERIFICATION_TOKEN_TTL
+services/account_identity.py:747 [JoinedStr] REGISTRATION_PENDING_MAX_AGE
+services/account_identity.py:1042 [JoinedStr] VERIFICATION_TOKEN_TTL
+services/account_identity.py:1368 [JoinedStr] VERIFICATION_TOKEN_TTL
+services/account_identity.py:1491 [Call] sql.SQL('UPDATE {table} SET account_id = %s WHERE account_id = %s').format(table=sql.Identifier(table))
+services/account_identity.py:1563 [Call] sql.SQL('UPDATE {table} SET {col} = %s WHERE {col} = %s').format(table=sql.Identifier(table), col=sql.Identifier(column))
+services/account_identity.py:1571 [Call] sql.SQL('UPDATE {table} SET {col} = %s WHERE {col} = %s').format(table=sql.Identifier(table), col=sql.Identifier(column))
+services/account_identity.py:1083 [JoinedStr] RESET_TOKEN_TTL
+services/account_identity.py:1691 [JoinedStr] LINK_CODE_TTL
+services/admin_auth.py:313 [JoinedStr] _ADMIN_COLUMNS | where
+services/admin_auth.py:383 [JoinedStr] SESSION_MAX_SECONDS
+services/admin_auth.py:400 [JoinedStr] REAUTH_WINDOW_SECONDS | SESSION_IDLE_SECONDS
+services/admin_auth.py:612 [JoinedStr] where
+services/admin_auth.py:641 [JoinedStr] _ADMIN_COLUMNS
+services/admin_auth.py:560 [JoinedStr] TOTP_MAX_FAILURES | TOTP_LOCK_SECONDS
+services/admin_auth.py:129 [JoinedStr] name | timing
+services/admin_auth.py:528 [JoinedStr] TOTP_MAX_FAILURES | TOTP_LOCK_SECONDS
+services/admin_identity.py:82 [JoinedStr] account_cols | name_col | email_col | ' '.join(joins)
+services/admin_identity.py:253 [JoinedStr] not_ghost | 'AND ' + source_sql if source_sql else ''
+services/admin_identity.py:274 [JoinedStr] STORAGE_ID_FLOOR
+services/admin_identity.py:304 [JoinedStr] profile_join | not_ghost | name_col
+services/admin_identity.py:317 [JoinedStr] source_sql
+services/admin_identity.py:299 [JoinedStr] table | column
+services/admin_security.py:48 [JoinedStr] FAILED_WINDOW_MINUTES
+services/admin_security.py:57 [JoinedStr] ', '.join(['%s'] * len(LOGIN_ACTIONS))
+services/assistant_store.py:209 [JoinedStr] ', '.join(sets)
+services/assistant_store.py:244 [JoinedStr] ', '.join(sets)
+services/notifications.py:378 [JoinedStr] where
+services/notifications.py:393 [JoinedStr] where
+services/notifications.py:428 [JoinedStr] where
+services/notifications.py:449 [JoinedStr] where | extra
+services/notifications.py:485 [JoinedStr] 'AND s.active_telegram_id < %s' if only_miniapp else ''
+services/notifications.py:595 [JoinedStr] people | where
+services/notifications.py:614 [JoinedStr] ' AND active_telegram_id < %s' if only_miniapp else ''
+services/notifications.py:779 [JoinedStr] where
+services/notifications.py:805 [JoinedStr] t_where
+services/notifications.py:818 [JoinedStr] where
+services/notifications.py:920 [JoinedStr] _THREAD_COLUMNS | where
+services/notifications.py:931 [JoinedStr] where
+services/notifications.py:934 [JoinedStr] 'WHERE ' + base if base else ''
+services/notifications.py:955 [JoinedStr] _THREAD_COLUMNS
+services/notifications.py:991 [JoinedStr] where
+services/notifications.py:1007 [JoinedStr] where
+services/notifications.py:1150 [BinOp] sql.replace('{where}', where) + ' ORDER BY last_seen DESC NULLS LAST, since DESC NULLS LAST LIMIT %s OFFSET %s'
+services/notifications.py:1153 [BinOp] 'SELECT COUNT(*) FROM (' + sql.replace('{where}', where) + ') c'
+services/notifications.py:642 [JoinedStr] ', '.join(sets)
+services/payment_inbox.py:136 [BinOp] 'INSERT INTO payment_inbox (' + ', '.join(RECORD_FIELDS) + ', source) VALUES (' + ', '.join(['%s'] * (len(RECORD_FIELDS) + 1)) + ') ON CONFLICT (charge_id) DO NOTHING RETURNING charge_id'
+services/payment_inbox.py:240 [BinOp] 'SELECT ' + ', '.join(_COLUMNS) + ' FROM payment_inbox WHERE charge_id = %s'
+services/payment_inbox.py:253 [BinOp] 'SELECT ' + ', '.join(_COLUMNS) + " FROM payment_inbox WHERE status = 'pending' AND next_attempt_at <= CURRENT_TIMESTAMP AND (order_id IS NOT NULL OR source = ANY(%s)) ORDER BY received_at LIMIT %s FOR UPDATE SKIP LOCKED"
+services/payment_inbox.py:79 [Name] statement
+services/payment_inbox.py:441 [BinOp] 'INSERT INTO payment_inbox (' + ', '.join(RECORD_FIELDS) + ', source) VALUES (' + ', '.join(['%s'] * (len(RECORD_FIELDS) + 1)) + ') ON CONFLICT (charge_id) DO NOTHING'
+services/payment_reviews.py:88 [Name] statement
+services/reviews.py:102 [JoinedStr] sets
+services/reviews.py:172 [JoinedStr] where
+services/reviews.py:179 [JoinedStr] where
+services/shop_orders.py:415 [BinOp] _ENT_SELECT + 'WHERE s.telegram_id = %s AND ' + VALID_ENTITLEMENT_SQL + ' ORDER BY ' + EFFECTIVE_ORDER_SQL
+services/shop_orders.py:422 [BinOp] 'SELECT s.subscription_type FROM subscriptions s WHERE s.telegram_id = %s AND ' + VALID_ENTITLEMENT_SQL + ' ORDER BY ' + EFFECTIVE_ORDER_SQL + ' LIMIT 1'
+services/shop_orders.py:440 [BinOp] _AGR_SELECT + "WHERE a.telegram_id = %s AND a.renewal_status IN ('auto', 'stop_pending') AND a.id IS DISTINCT FROM %s FOR UPDATE"
+services/shop_orders.py:693 [JoinedStr] end_sql
+services/shop_orders.py:729 [BinOp] _AGR_SELECT + 'WHERE a.order_id = %s FOR UPDATE'
+services/shop_orders.py:742 [JoinedStr] end_sql
+services/shop_orders.py:893 [BinOp] _AGR_SELECT.replace(' FROM subscription_agreements a ', ', MAX(s.expires_at::timestamp), BOOL_OR(' + VALID_ENTITLEMENT_SQL + '), MAX(' + _STARTS_SQL + ') FROM subscription_agreements a LEFT JOIN subscriptions s ON s.agreement_id = a.id ') + 'WHERE a.telegram_id = %s GROUP BY ' + ', '.join(('a.' + c for c in _AGR_COLUMNS)) + ' ORDER BY a.id DESC'
+services/shop_orders.py:465 [BinOp] "SELECT 1 FROM subscription_agreements a JOIN subscriptions s ON s.agreement_id = a.id WHERE a.telegram_id = %s AND a.plan_key = %s AND a.renewal_status = 'auto' AND " + VALID_ENTITLEMENT_SQL + ' LIMIT 1'
+services/shop_orders.py:205 [Name] ORDERS_DDL
+services/shop_orders.py:206 [Name] ORDERS_INDEX_DDL
+services/shop_orders.py:241 [BinOp] "\n                INSERT INTO shop_orders (order_id, telegram_id, product_id, kind, title, usd_cents, credits,\n                                         plan_key, days, provider, stars, status, expires_at, subscription_period,\n                                         change_confirmed)\n                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending',\n                        CURRENT_TIMESTAMP + (%s || ' seconds')::interval, %s, %s)\n                RETURNING " + ', '.join(_ORDER_COLUMNS)
+services/shop_orders.py:266 [BinOp] 'SELECT ' + ', '.join(_ORDER_COLUMNS) + ' FROM shop_orders WHERE order_id = %s'
+services/shop_orders.py:355 [BinOp] 'SELECT ' + ', '.join(EVENT_COLUMNS) + ' FROM subscription_events WHERE sent_at IS NULL AND next_attempt_at <= CURRENT_TIMESTAMP ORDER BY id LIMIT %s FOR UPDATE SKIP LOCKED'
+services/shop_orders.py:838 [BinOp] 'SELECT ' + ', '.join(_ORDER_COLUMNS) + ' FROM shop_orders WHERE order_id = %s FOR UPDATE'
+services/shop_orders.py:1084 [BinOp] _AGR_SELECT + "JOIN subscriptions s ON s.agreement_id = a.id WHERE a.renewal_status = 'stop_pending' AND s.expires_at::timestamp > CURRENT_TIMESTAMP LIMIT %s"
+services/shop_orders.py:208 [Name] statement
+services/shop_orders.py:1162 [BinOp] _ENT_SELECT + "WHERE s.telegram_id = %s AND s.status IN ('active', 'expired') ORDER BY s.expires_at::timestamp DESC NULLS LAST, s.id DESC LIMIT 1"
+services/stripe_billing.py:399 [Name] sql
+services/stripe_billing.py:389 [Name] ddl
+services/user_access.py:103 [JoinedStr] _COLUMNS | where
+services/user_access.py:138 [JoinedStr] where
+services/user_access.py:152 [JoinedStr] _COLUMNS | where
+TOTAL 109
