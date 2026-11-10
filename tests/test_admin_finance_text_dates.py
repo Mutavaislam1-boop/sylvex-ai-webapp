@@ -26,6 +26,19 @@ BOT_DDL = """
         currency TEXT, payload TEXT, charge_id TEXT UNIQUE, status TEXT DEFAULT 'completed', created_at TEXT
     )"""
 OTHER_TG = 7000000077
+BAD_DATES = ("2026-13-45 10:00:00", "2026-02-30 10:00:00", "2026-02-29", "2026-11-10 25:61:00",
+             "2026-11-10 10:00:60", "0000-01-01 00:00:00", "2026-11-10 10:00:00 garbage", "2026-1-5",
+             "2026-11-10T10:00:00.1234567", "2026-04-31")
+GOOD_DATES = {  # text -> the timestamp it must read as
+    "2026-11-10 12:34:56": "2026-11-10 12:34:56",
+    "2026-11-10 12:34:56.123456+00": "2026-11-10 12:34:56.123456",
+    "2026-11-10T12:34:56Z": "2026-11-10 12:34:56",
+    "2026-11-10 12:34:56+00:00": "2026-11-10 12:34:56",
+    "2026-11-10 12:34": "2026-11-10 12:34:00",
+    "2026-11-10": "2026-11-10 00:00:00",
+    "2024-02-29 08:00:00": "2024-02-29 08:00:00",
+    "2026-12-31 23:59:59": "2026-12-31 23:59:59",
+}
 VIEWER_TG = 559
 
 
@@ -63,6 +76,9 @@ def text_purchases(ready, monkeypatch):
     _insert(env, OTHER_TG, "telegram_stars", 10, 15, "XTR", "undated_null", "completed", "NULL")
     _insert(env, OTHER_TG, "telegram_stars", 10, 15, "XTR", "undated_empty", "completed", "''")
     _insert(env, OTHER_TG, "telegram_stars", 10, 15, "XTR", "undated_junk", "completed", "'unknown'")
+    # Date-shaped but impossible values: each used to fail the whole report.
+    for i, bad in enumerate(BAD_DATES):
+        _insert(env, OTHER_TG, "telegram_stars", 10, 15, "XTR", f"bad_date_{i}", "completed", "%s", (bad,))
     return env
 
 
@@ -124,3 +140,28 @@ async def test_finance_still_needs_payments_view(text_purchases):
     conn.commit()
     r = await _finance(env, {"days": 30}, who=VIEWER_TG)
     assert r.status_code == 403 and r.json()["detail"] == "admin_permission_denied"
+
+
+def test_the_date_expression_never_fails_and_reads_only_real_dates(env):
+    """The SQL expression alone, on a TEXT column: real dates are read
+    exactly, everything else is NULL - and nothing raises."""
+    q(env, "CREATE TABLE dates (id SERIAL PRIMARY KEY, created_at TEXT)")
+    values = list(GOOD_DATES) + list(BAD_DATES) + ["", "unknown", None]
+    for value in values:
+        q(env, "INSERT INTO dates (created_at) VALUES (%s)", (value,))
+    rows = q(env, f"SELECT created_at, to_char({env.main._purchase_time_sql()}, 'YYYY-MM-DD HH24:MI:SS.US') "
+                  "FROM dates ORDER BY id")
+    got = {row[0]: row[1] for row in rows}
+    for text, expected in GOOD_DATES.items():
+        assert got[text] is not None and datetime.fromisoformat(got[text]) == datetime.fromisoformat(expected), text
+    for text in BAD_DATES + ("", "unknown"):
+        assert got[text] is None, text
+    assert got[None] is None
+
+
+def test_the_date_expression_on_a_timestamp_column(env):
+    """The API's own schema (TIMESTAMP) still reads the same."""
+    q(env, "CREATE TABLE stamps (created_at TIMESTAMP)")
+    q(env, "INSERT INTO stamps VALUES ('2026-11-10 12:34:56.5'), (NULL)")
+    rows = q(env, f"SELECT to_char({env.main._purchase_time_sql()}, 'YYYY-MM-DD HH24:MI:SS.MS') FROM stamps")
+    assert sorted(rows, key=str) == sorted([["2026-11-10 12:34:56.500"], [None]], key=str)

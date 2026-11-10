@@ -13677,17 +13677,37 @@ async def admin_models_toggle(request: Request):
 
 # ---------- Finance overview ----------
 
+# A purchase date the finance report accepts: the whole text must be a real
+# calendar date, optionally with a time and a UTC offset - "YYYY-MM-DD",
+# "YYYY-MM-DD HH:MM[:SS[.ffffff]]" (also with "T"), then "+00", "+00:00" or
+# "Z". Group 1 is the part that is cast; the offset is dropped (all writers
+# store UTC, and a timestamp without time zone ignores it anyway).
+_PURCHASE_TIME_PATTERN = (
+    "^([1-9][0-9]{3}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    "(?:[ T](?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:[.][0-9]{1,6})?)?)?)"
+    "(?:[+-][0-9]{2}(?::?[0-9]{2})?|Z)?$"
+)
+
+
 def _purchase_time_sql(alias=""):
-    """purchases.created_at as a timestamp, whatever the column type.
+    """purchases.created_at as a timestamp, whatever the column type, and
+    never an error.
 
     The main bot creates `purchases` with created_at TEXT, so in Production
     the API's own TIMESTAMP definition never applied. The text holds the
     bot's "YYYY-MM-DD HH:MM:SS", the API's CURRENT_TIMESTAMP rendered as text,
-    or nothing (old undated rows: NULL or ''). Anything that does not start
-    with a date reads as NULL - such a purchase falls in no period, and no
-    date is invented for it."""
-    column = f"{alias}created_at::text"
-    return f"(CASE WHEN {column} ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}' THEN {column}::timestamp END)"
+    or nothing (old undated rows: NULL or ''). Anything that is not a real
+    date - no date at all, "2026-13-45", "2026-02-30", "25:61", trailing
+    text - reads as NULL: such a purchase falls in no period, no date is
+    invented for it, and one bad row can no longer fail the whole report.
+    The nested CASE fixes the order: the day-of-month check (make_date) only
+    runs on text the pattern already accepted."""
+    value = alias + "created_at::text"
+    pattern = "'" + _PURCHASE_TIME_PATTERN + "'"
+    last_day = ("extract(day FROM make_date(substr(" + value + ", 1, 4)::int, substr(" + value + ", 6, 2)::int, 1)"
+                " + interval '1 month' - interval '1 day')")
+    return ("(CASE WHEN " + value + " ~ " + pattern + " THEN CASE WHEN substr(" + value + ", 9, 2)::int <= "
+            + last_day + " THEN substring(" + value + " FROM " + pattern + ")::timestamp END END)")
 
 
 @app.post("/api/admin/finance")
