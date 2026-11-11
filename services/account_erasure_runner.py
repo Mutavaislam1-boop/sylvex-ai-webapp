@@ -339,6 +339,46 @@ def _purge_personal(cur, schema, request):
     cur.execute("DELETE FROM sylvex_storage_ownership WHERE owner_key=%s", (uid,))
 
 
+def _release_telegram_identity(cur, schema, request):
+    """Completion of a Telegram erasure: the person may come back with the same
+    Telegram id as a new, empty account.
+
+    The erased SYLVEX identity is detached (active_telegram_id NULL, sessions
+    revoked; the row stays as the request's record) and the Telegram id gets a
+    new SYLVEX ID from the existing allocator. Its presence is what lifts the
+    fences (core.RELEASED_SQL). Runs inside the completing transaction with the
+    request's internal guard bypass; nothing else changes.
+    """
+    uid, account = request.get("subject_key"), request.get("account_id")
+    if request.get("ecosystem") != "telegram" or not uid or "sylvex_accounts" not in schema:
+        return None
+    cur.execute("SELECT to_regproc('sylvex_allocate_telegram_account_id') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return None
+    cur.execute("UPDATE sylvex_accounts SET active_telegram_id=NULL, session_generation=session_generation+1 "
+                "WHERE account_id=%s AND active_telegram_id=%s", (int(account), int(uid)))
+    cur.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id=%s", (int(uid),))
+    row = cur.fetchone()
+    if row:
+        return int(row[0])
+    cols = schema["sylvex_accounts"]
+    names = ["account_id", "active_telegram_id"] + [c for c in ("origin", "created_at") if c in cols]
+    values = ["sylvex_allocate_telegram_account_id()", "%s"] + [v for c, v in (("origin", "'telegram'"),
+                                                                       ("created_at", "NOW()")) if c in cols]
+    cur.execute("INSERT INTO sylvex_accounts(" + ",".join(names) + ") VALUES(" + ",".join(values) + ") RETURNING account_id",
+                (int(uid),))
+    new_account = int(cur.fetchone()[0])
+    if "users" in schema and "created_at" in schema["users"]:
+        # The new account starts now; the erased one's registration date is not carried over.
+        cur.execute("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() "
+                    "AND table_name='users' AND column_name='created_at'")
+        kind = (cur.fetchone() or ("",))[0]
+        now_sql = ("to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')" if kind in ("text", "character varying")
+                   else "NOW()")
+        cur.execute("UPDATE users SET created_at=" + now_sql + " WHERE telegram_id=%s", (int(uid),))
+    return new_account
+
+
 def process_request(database_url, request_id, *, storage=None, journal=None, apply=False, batch_size=50, self_service=False):
     storage, journal = storage or ObjectStore(), journal or core.Journal()
     plan = core.plan_request(database_url, request_id, storage=storage, journal=journal, self_service=self_service)
@@ -424,6 +464,7 @@ def process_request(database_url, request_id, *, storage=None, journal=None, app
             return {**core.receipt(request),"hold_code":"unclassified_owned_table"}
         _internal(cur,request_id)
         _purge_personal(cur,schema,request)
+        _release_telegram_identity(cur,schema,request)
         cur.execute("SELECT to_regclass('sylvex_storage_references')")
         if cur.fetchone()[0] is not None:
             # Index entries of objects that no longer exist.

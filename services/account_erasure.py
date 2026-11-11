@@ -45,6 +45,26 @@ REQUEST_COLUMNS = (
 )
 
 
+# A completed Telegram erasure releases its Telegram id: at completion the
+# processor detaches the erased SYLVEX identity and gives the id a new, empty
+# one (account_erasure_runner._release_telegram_identity). From then on the
+# old request no longer fences that id; the erased data stays erased, and a
+# restore replays the request against the old account only (journal record).
+RELEASED_SQL = ("(r.state='complete' AND r.subject_key IS NOT NULL AND EXISTS (SELECT 1 FROM sylvex_accounts ra "
+                "WHERE ra.active_telegram_id=r.subject_key AND ra.account_id<>r.account_id))")
+
+
+def erased_before(cur, subject_key):
+    """Completion time (naive UTC) of the released erasure of this Telegram id,
+    or None. Records kept by law from before it belong to the erased account."""
+    if not subject_key or not _has_requests(cur):
+        return None
+    cur.execute("SELECT MAX(r.completed_at AT TIME ZONE 'UTC') FROM sylvex_erasure_requests r "
+                "WHERE r.subject_key=%s AND " + RELEASED_SQL, (int(subject_key),))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 class ErasureError(Exception):
     def __init__(self, code, status=409):
         self.code, self.status = code, status
@@ -388,7 +408,8 @@ def pending_account(database_url, account_id):
 def blocked_subject(cur, subject_key):
     if not subject_key or not _has_requests(cur):
         return False
-    cur.execute("SELECT 1 FROM sylvex_erasure_requests WHERE subject_key=%s", (int(subject_key),))
+    cur.execute("SELECT 1 FROM sylvex_erasure_requests r WHERE r.subject_key=%s AND NOT " + RELEASED_SQL,
+                (int(subject_key),))
     return cur.fetchone() is not None
 
 
@@ -973,7 +994,8 @@ def storage_write(function):
             cur.execute("SELECT 1 FROM sylvex_active_operations WHERE operation_id=%s AND state='active'", (operation_id,))
             if not cur.fetchone():
                 raise ErasureError("erasure_operation_requires_review")
-            cur.execute("SELECT 1 FROM sylvex_erasure_requests WHERE subject_key=%s AND state IN ('purging','complete')", (uid,))
+            cur.execute("SELECT 1 FROM sylvex_erasure_requests r WHERE r.subject_key=%s "
+                        "AND (r.state='purging' OR (r.state='complete' AND NOT " + RELEASED_SQL + "))", (uid,))
             if cur.fetchone():
                 raise ErasureError("account_erasure_in_progress")
             token = _storage_cursor.set((cur,uid))
@@ -998,7 +1020,8 @@ def check_subject_access(database_url, subject_key, *, account_id=None):
     with transaction(database_url) as cur:
         if not _has_requests(cur):
             return
-        cur.execute("SELECT 1 FROM sylvex_erasure_requests WHERE subject_key=%s OR account_id=%s LIMIT 1",
+        cur.execute("SELECT 1 FROM sylvex_erasure_requests r WHERE (r.subject_key=%s OR r.account_id=%s) "
+                    "AND NOT " + RELEASED_SQL + " LIMIT 1",
                     (int(subject_key) if subject_key else None,int(account_id) if account_id else None))
         if cur.fetchone():
             raise ErasureError("account_erasure_in_progress",403)

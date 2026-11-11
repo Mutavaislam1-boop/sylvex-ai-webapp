@@ -375,3 +375,118 @@ def test_the_token_is_bound_to_the_person_and_expires(db):
     with pytest.raises(tge.TelegramErasureError, match="erasure_scope_confirmation_required"):
         _self_confirm(db, token, scope="web_account_content_v1")
     assert not db.execute("SELECT 1 FROM sylvex_erasure_requests")
+
+
+# --- S7-04: re-registration with the same Telegram id after a completed erasure --
+
+def _allocator(db):
+    db.execute("CREATE SEQUENCE sylvex_telegram_id_seq START 500")
+    db.execute("CREATE FUNCTION sylvex_allocate_telegram_account_id() RETURNS BIGINT LANGUAGE sql AS "
+               "$$ SELECT 110626990000 + nextval('sylvex_telegram_id_seq') $$")
+
+
+def _erase_completely(db, monkeypatch):
+    bot = _bot(db, monkeypatch)
+    token = _preview(db)["confirm_token"]
+    done = _self_confirm(db, token)
+    runner.process_request("synthetic-only", done["request_id"], storage=_Storage(), journal=db.journal, apply=True,
+                           self_service=True)
+    bot.forget_pending(lambda uid: None)
+    result = runner.process_request("synthetic-only", done["request_id"], storage=_Storage(), journal=db.journal,
+                                    apply=True, self_service=True)
+    assert result["complete"], result
+    return bot, done["request_id"]
+
+
+def test_completed_erasure_releases_the_telegram_id_as_a_new_empty_account(db, monkeypatch):
+    _allocator(db)
+    bot, request_id = _erase_completely(db, monkeypatch)
+    # The erased identity is detached and kept as the request's record; a new SYLVEX ID exists.
+    assert db.execute("SELECT active_telegram_id FROM sylvex_accounts WHERE account_id=%s", (ACC,)) == [(None,)]
+    new = db.execute("SELECT account_id,origin FROM sylvex_accounts WHERE active_telegram_id=%s", (TG,))
+    assert len(new) == 1 and new[0][0] != ACC and new[0][1] == "telegram"
+    # Old data stays erased; payment records stay as they are.
+    assert db.execute("SELECT telegram_id FROM prostudio_messages") == [(OTHER,)]
+    assert db.execute("SELECT balance FROM users WHERE telegram_id=%s", (TG,)) == [(0,)]
+    assert db.execute("SELECT telegram_id,credits FROM purchases ORDER BY id") == [(TG, 100), (OTHER, 200)]
+    # No fence any more: API access check, bot admission, database write guard.
+    erasure.check_subject_access("synthetic-only", TG)
+    assert bot.pending(TG) is False
+    operation = bot.begin_update(TG, "after-re-registration")
+    bot.finish_update(operation)
+    db.execute("INSERT INTO prostudio_messages(telegram_id,prompt) VALUES(%s,'new account')", (TG,))
+    db.execute("UPDATE users SET username='back', balance=5 WHERE telegram_id=%s", (TG,))
+    # The old request cannot touch the new account: processing it again is a no-op,
+    # and the restore replay of its journal record finds it complete.
+    again = runner.process_request("synthetic-only", request_id, storage=_Storage(), journal=db.journal, apply=True,
+                                   self_service=True)
+    assert again["complete"]
+    from services import account_erasure_restore as restore
+    assert restore.readiness("synthetic-only", journal=db.journal)["ready"]
+    replayed = restore.replay("synthetic-only", storage=_Storage(), journal=db.journal, apply=True)
+    assert replayed["ready"]
+    assert db.execute("SELECT prompt FROM prostudio_messages WHERE telegram_id=%s", (TG,)) == [("new account",)]
+    assert db.execute("SELECT username,balance FROM users WHERE telegram_id=%s", (TG,)) == [("back", 5)]
+    # Payment records of the erased account are dated before the release cutoff.
+    with db.connect() as conn:
+        with conn.cursor() as cur:
+            assert erasure.erased_before(cur, TG) is not None
+            assert erasure.erased_before(cur, OTHER) is None
+    # A second deletion of the re-registered account goes through support.
+    reply = _preview(db)
+    assert reply["ok"] is False and reply["error"] == "erasure_repeat_requires_support"
+
+
+def test_until_completion_the_telegram_id_stays_blocked(db, monkeypatch):
+    _allocator(db)
+    bot = _bot(db, monkeypatch)
+    token = _preview(db)["confirm_token"]
+    _self_confirm(db, token)
+    with pytest.raises(erasure.ErasureError, match="account_erasure_in_progress"):
+        erasure.check_subject_access("synthetic-only", TG)
+    assert bot.pending(TG) is True
+    with pytest.raises(bot.ErasurePending):
+        bot.begin_update(TG, "while-pending")
+    assert db.execute("SELECT COUNT(*) FROM sylvex_accounts WHERE active_telegram_id=%s", (TG,)) == [(1,)]
+
+
+def test_restore_of_an_older_backup_erases_the_old_account_again_and_releases(db, monkeypatch):
+    """A backup taken before the erasure: the journal replays it, then releases."""
+    _allocator(db)
+    _, request_id = _erase_completely(db, monkeypatch)
+    # Simulate the restored database: the request row and the release are gone, old data is back.
+    # (the fence of a completed request whose identity is not released blocks these writes,
+    # so the request rows go first, as in a backup taken before the request existed)
+    db.execute("DELETE FROM sylvex_erasure_media; DELETE FROM sylvex_erasure_requests")
+    db.execute("DELETE FROM sylvex_accounts WHERE active_telegram_id=%s", (TG,))
+    db.execute("UPDATE sylvex_accounts SET active_telegram_id=%s WHERE account_id=%s", (TG, ACC))
+    db.execute("INSERT INTO prostudio_messages(telegram_id,prompt) VALUES(%s,'restored old data')", (TG,))
+    from services import account_erasure_restore as restore
+    assert not restore.readiness("synthetic-only", journal=db.journal)["ready"]
+    replayed = restore.replay("synthetic-only", storage=_Storage(), journal=db.journal, apply=True)
+    assert replayed["ready"], replayed
+    assert not db.execute("SELECT 1 FROM prostudio_messages WHERE telegram_id=%s", (TG,))
+    new = db.execute("SELECT account_id FROM sylvex_accounts WHERE active_telegram_id=%s", (TG,))
+    assert len(new) == 1 and new[0][0] != ACC
+
+
+def test_new_account_does_not_see_the_erased_plans_with_production_text_columns(db, monkeypatch):
+    """subscriptions as the main bot creates it: dates are TEXT, created_at unset."""
+    from services import shop_orders
+    _allocator(db)
+    db.execute("CREATE TABLE subscriptions(id SERIAL PRIMARY KEY,telegram_id BIGINT,subscription_type TEXT,"
+               "payment_method TEXT,amount INTEGER,currency TEXT,starts_at TEXT,expires_at TEXT,"
+               "status TEXT DEFAULT 'active',charge_id TEXT UNIQUE,created_at TEXT)")
+    db.execute("INSERT INTO subscriptions(telegram_id,subscription_type,starts_at,expires_at,status) VALUES"
+               "(%s,'pro_month',NOW()-INTERVAL '3 days',NOW()+INTERVAL '27 days','active'),"
+               "(%s,'starter_month',NOW()-INTERVAL '90 days',NOW()-INTERVAL '60 days','active')", (TG, TG))
+    _erase_completely(db, monkeypatch)
+    db.execute("DROP TABLE subscription_agreements")
+    shop_orders.ensure_order_tables(db.connect)
+    assert db.execute("SELECT status FROM subscriptions ORDER BY id") == [("canceled",), ("canceled",)]
+    assert shop_orders.subscription_summary(db.connect, TG) is None
+    # A plan bought by the new account (created_at stays unset, as in Production) is shown.
+    db.execute("INSERT INTO subscriptions(telegram_id,subscription_type,payment_method,amount,currency,expires_at,status)"
+               " VALUES(%s,'starter_month','telegram_stars',100,'XTR',NOW()+INTERVAL '30 days','active')", (TG,))
+    summary = shop_orders.subscription_summary(db.connect, TG)
+    assert summary and summary["state"] != "expired", summary

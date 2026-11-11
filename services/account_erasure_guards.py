@@ -70,11 +70,17 @@ BEGIN
         ELSE
             PERFORM pg_advisory_xact_lock_shared(61181,hashtext(owner_value));
         END IF;
-        FOR r IN SELECT request_id,state FROM sylvex_erasure_requests
+        FOR r IN SELECT request_id,state,account_id,subject_key FROM sylvex_erasure_requests
             WHERE CASE WHEN owner_column IN ('account_id','requester_account_id')
                 THEN account_id::text=owner_value ELSE subject_key::text=owner_value END
         LOOP
             IF internal_request IS NOT DISTINCT FROM r.request_id::text THEN CONTINUE; END IF;
+            -- A completed erasure whose Telegram id has a new SYLVEX identity
+            -- no longer fences it: that is the re-registered, empty account.
+            IF r.state='complete' AND r.subject_key IS NOT NULL AND EXISTS (SELECT 1 FROM sylvex_accounts ra
+                   WHERE ra.active_telegram_id=r.subject_key AND ra.account_id<>r.account_id) THEN
+                CONTINUE;
+            END IF;
             IF TG_TABLE_NAME='users' THEN
                 IF COALESCE(document->>'username','')<>'' OR COALESCE(document->>'first_name','')<>'' THEN
                     IF TG_OP='INSERT' OR document->>'username' IS DISTINCT FROM to_jsonb(OLD)->>'username'

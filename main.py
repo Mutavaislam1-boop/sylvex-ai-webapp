@@ -2097,6 +2097,16 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         if not user_row:
             return {}
 
+        # S7-04: after a completed erasure the same Telegram id is a new, empty
+        # account; payment records kept by law from before it are not shown.
+        # (subscriptions.created_at is TEXT and unset in Production: the
+        # erasure cancels active plans, the others expired before it.)
+        try:
+            from services import account_erasure as _erasure
+            erased_before = _erasure.erased_before(cursor, telegram_id)
+        except Exception:
+            conn.rollback()
+            erased_before = None
         q_start = time.monotonic()
         cursor.execute("""
             SELECT s.subscription_type, s.expires_at::timestamp
@@ -2109,10 +2119,11 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         cursor.execute("""
             SELECT subscription_type, expires_at::timestamp
             FROM subscriptions
-            WHERE telegram_id = %s
+            WHERE telegram_id = %s""" + (" AND status <> 'canceled' AND expires_at::timestamp > %s"
+                                         if erased_before else "") + """
             ORDER BY expires_at::timestamp DESC NULLS LAST, id DESC
             LIMIT 1
-        """, (telegram_id,))
+        """, (telegram_id, erased_before) if erased_before else (telegram_id,))
         latest_sub = cursor.fetchone()
         print("USER_STATE_TIMING:", {"stage": "select_subscriptions", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
@@ -2155,8 +2166,8 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             cursor.execute("""
                 SELECT COALESCE(SUM(credits), 0)
                 FROM generation_charges
-                WHERE telegram_id = %s
-            """, (telegram_id,))
+                WHERE telegram_id = %s""" + (" AND created_at > %s" if erased_before else "") + """
+            """, (telegram_id, erased_before) if erased_before else (telegram_id,))
             tokens_spent = max(0, int(cursor.fetchone()[0] or 0))
         except Exception:
             tokens_spent = 0
@@ -2168,7 +2179,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         community_likes_count = 0
         cursor.execute("SELECT to_regclass('public.referral_attributions')")
         if cursor.fetchone()[0]:
-            cursor.execute("SELECT COUNT(*) FROM referral_attributions WHERE inviter_telegram_id = %s", (telegram_id,))
+            cursor.execute("SELECT COUNT(*) FROM referral_attributions WHERE inviter_telegram_id = %s"
+                           + (" AND joined_at > %s" if erased_before else ""),
+                           (telegram_id, erased_before) if erased_before else (telegram_id,))
             referrals_count = int(cursor.fetchone()[0] or 0)
         cursor.execute("SELECT to_regclass('public.community_posts'), to_regclass('public.community_likes')")
         community_tables = cursor.fetchone() or (None, None)
@@ -2200,10 +2213,10 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         cursor.execute("""
             SELECT provider, credits, amount, currency, payload, charge_id, status, created_at
             FROM purchases
-            WHERE telegram_id = %s
+            WHERE telegram_id = %s""" + ((" AND " + _purchase_time_sql() + " > %s") if erased_before else "") + """
             ORDER BY created_at DESC
             LIMIT 10
-        """, (telegram_id,))
+        """, (telegram_id, erased_before) if erased_before else (telegram_id,))
         purchases = cursor.fetchall()
         print("USER_STATE_TIMING:", {"stage": "select_purchases", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 

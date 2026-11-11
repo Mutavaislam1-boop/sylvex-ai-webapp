@@ -118,10 +118,16 @@ def check_scope(cur, telegram_id, actor=None):
     if actor and int(actor.get("account_id") or 0) == int(account_id):
         raise TelegramErasureError("cannot_erase_self", 403)
     if _table_exists(cur, "sylvex_erasure_requests"):
-        cur.execute("SELECT 1 FROM sylvex_erasure_requests WHERE account_id=%s OR subject_key=%s",
-                    (int(account_id), telegram_id))
-        if cur.fetchone():
+        from services.account_erasure import RELEASED_SQL
+        cur.execute("SELECT bool_or(NOT " + RELEASED_SQL + ") FROM sylvex_erasure_requests r "
+                    "WHERE r.account_id=%s OR r.subject_key=%s", (int(account_id), telegram_id))
+        pending = cur.fetchone()[0]
+        if pending:
             raise TelegramErasureError("erasure_already_requested")
+        if pending is False:
+            # Re-registered after a completed erasure: one request per Telegram id
+            # is kept as the restore record, so a second one goes through support.
+            raise TelegramErasureError("erasure_repeat_requires_support")
     if _table_exists(cur, "admin_accounts"):
         cur.execute("SELECT 1 FROM admin_accounts WHERE account_id=%s AND status<>'revoked'", (int(account_id),))
         if cur.fetchone():

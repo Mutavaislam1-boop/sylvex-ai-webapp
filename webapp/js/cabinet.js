@@ -26308,6 +26308,7 @@ async function waitGenerationJob(jobId, options) {
     telegram_session_required: 'Удаление доступно только внутри Telegram.',
     stars_renewal_active: 'Сначала отключите автопродление подписки Telegram Stars.',
     erasure_already_requested: 'Запрос на удаление уже принят и обрабатывается.',
+    erasure_repeat_requires_support: 'Аккаунт с этим Telegram уже удалялся. Повторное удаление — через поддержку: support@sylvex.ai.',
     staff_account_requires_handover: 'Аккаунт сотрудника SYLVEX удаляется только через поддержку.',
     telegram_scope_requires_review: 'Этот аккаунт связан с аккаунтом сайта. Напишите в поддержку: support@sylvex.ai.',
     not_a_telegram_account: 'Этот аккаунт связан с аккаунтом сайта. Удалите его в настройках сайта.',

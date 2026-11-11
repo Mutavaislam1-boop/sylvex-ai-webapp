@@ -1155,12 +1155,27 @@ def subscription_summary(connect, telegram_id):
     conn = connect()
     try:
         with conn.cursor() as cur:
+            # S7-04: agreements and entitlements of an erased account (kept by
+            # law) are not shown to the new account of the same Telegram id.
+            # subscriptions.created_at is TEXT and unset in Production, so the
+            # cutoff uses expires_at: the erasure cancels the still-active
+            # plans, the rest had already expired before it.
+            try:
+                from services.account_erasure import erased_before
+                cutoff = erased_before(cur, uid)
+            except Exception:
+                conn.rollback()
+                cutoff = None
             valid = _valid_entitlements(cur, uid)
             agreements = _agreements_with_expiry(cur, uid)
+            if cutoff:
+                agreements = [a for a in agreements if a.get("created_at") and a["created_at"] > cutoff]
             latest = None
             if not valid:
                 cur.execute(_ENT_SELECT + "WHERE s.telegram_id = %s AND s.status IN ('active', 'expired') "
-                            "ORDER BY s.expires_at::timestamp DESC NULLS LAST, s.id DESC LIMIT 1", (uid,))
+                            + ("AND s.expires_at::timestamp > %s " if cutoff else "")
+                            + "ORDER BY s.expires_at::timestamp DESC NULLS LAST, s.id DESC LIMIT 1",
+                            (uid, cutoff) if cutoff else (uid,))
                 latest = _ent(cur.fetchone())
             cur.execute("SELECT CURRENT_TIMESTAMP::timestamp - (%s || ' hours')::interval", (RENEWAL_GRACE_HOURS,))
             grace_start = cur.fetchone()[0]
