@@ -4937,7 +4937,7 @@
       "status": "Ошибка",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "7-дневное автоудаление истории бота устранено: бот b5064bc0 (деплой b2bc13ec, 08.11 22:24Z), сохранено в b7e1b90. Ручная «Очистить историю» работает. Тест на PostgreSQL: записи 30 и 400 дней сохраняются. Владелец подтвердил «Мой кабинет» без «7 дней». Ранее удалённые ботом записи восстановить нельзя. Не обеспечены: жизненный цикл backup, логов и обращений в поддержку. Удаление Telegram-аккаунтов — отдельное отложенное решение владельца.",
+      "confirmed_scope": "7-дневное автоудаление истории бота устранено: бот b5064bc0 (деплой b2bc13ec, 08.11 22:24Z), сохранено в b7e1b90. Ручная «Очистить историю» работает. Тест на PostgreSQL: записи 30 и 400 дней сохраняются. Владелец подтвердил «Мой кабинет» без «7 дней». Ранее удалённые ботом записи восстановить нельзя. Не обеспечены: жизненный цикл backup, логов и обращений в поддержку. Удаление Telegram-аккаунтов — отдельное отложенное решение владельца. Сроки хранения в БД действуют с 11.11 14:15Z: логи ошибок 30 дней (первый проход удалил 376 записей), закрытые обращения 12 месяцев (подходящих нет), служебные отметки 1 сутки. Платежи, кредиты, генерации и обращения не затронуты.",
       "evidence_ids": [
         "POLICY",
         "LB",
@@ -4949,7 +4949,7 @@
       "blocker_ids": [
         "B09"
       ],
-      "next_action": "Развёртывание по fixes/B09/FIX_PLAN.md (шаги 1-2: предпросмотр, затем DATA_RETENTION_ENABLED=1) с разрешения владельца; владелец: срок логов Railway Pro, копии Auto Update, ручные копии.",
+      "next_action": "Остаток: S7-04 (удаление Telegram-аккаунтов); владелец — срок логов Railway Pro, копии Auto Update, удаление ручной копии до 11.12.2026; Monthly не включать.",
       "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -5013,19 +5013,28 @@
           "previous_status": "Ошибка",
           "evidence_id": "B09_FIX_PLAN",
           "reason": "Исправление подготовлено в ветке и протестировано; не развёрнуто, статус не меняется."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T14:30:00+00:00",
+          "status": "Ошибка",
+          "previous_status": "Ошибка",
+          "api_commit": "b244195551e10c0babc460a3ca8c3b20e4e0e32c",
+          "deployment": "b9801cfd",
+          "reason": "Очистка по срокам включена; первый проход удалил 372 + 4 записи логов ошибок старше 30 дней; обращений и отметок к удалению нет. Статус не меняется: S7-04, логи Railway и копии открыты."
         }
       ],
       "open_subchecks": {
         "backups_retention": "compliant if Monthly stays off: daily 6 d, weekly 27 d (policy: up to 30 days)",
         "manual_backups": "manual 2.24 GB backup (11.11): delete by 11.12.2026; C2 copy within 30 days of creation",
-        "auto_update_backups": "retention undocumented - check in Backups",
-        "platform_logs": "Railway log retention on Pro to be checked against the 30-day promise",
-        "db_logs": "fix prepared, not deployed: claude/b09-retention 216965d - prostudio_errors / prostudio_error_reports older than 30 days",
-        "support_records": "fix prepared, not deployed: closed conversations 12 months after closure, own attachments; unresolved payment review keeps them",
+        "auto_update_backups": "open: retention of Railway 'Auto Update' backups not documented - check in Backups",
+        "platform_logs": "open: Railway log retention on Pro not documented - owner to check against the 30-day promise",
+        "db_logs": "confirmed live: retention on since 11.11 14:15Z (API b244195, deployment b9801cfd); first pass removed 372 prostudio_errors + 4 prostudio_error_reports older than 30 days (= owner preview); follow-up pass removed nothing; every 6 h",
+        "support_records": "confirmed live rule: closed conversations 12 months after closure; first pass found 0 eligible (none removed); unresolved payment review keeps them",
         "restore_reapplies_erasure": "present: sylvex-erasure-journal (B09-WEB)",
         "bot_7day_expiry": "fixed (b5064bc0)",
         "telegram_erasure": "owner decision, see S7-04",
-        "erasure_fences": "fix prepared: finished sylvex_active_operations older than 1 day"
+        "erasure_fences": "confirmed live rule: finished entries older than 1 day; first pass found 0"
       }
     },
     {
@@ -5479,9 +5488,10 @@
         "B09-WEB",
         "S8-08 7-day history expiry"
       ],
-      "awaiting": "Разрешение владельца на развёртывание (FIX_PLAN шаги 1-4) и живая проверка; владелец: срок логов Railway Pro, копии Auto Update, удаление ручной копии до 11.12.2026. S5-08 — вместе с B09.",
+      "awaiting": "S7-04: включение (бот SYLVEX_ERASURE_ENABLED=1, затем API SYLVEX_ERASURE_TELEGRAM_READY=1) и проверка на тестовом Telegram-аккаунте; владелец: срок логов Railway Pro, копии Auto Update, ручная копия до 11.12.2026. S5-08 — вместе с B09.",
       "remaining_evidence": "B09_REMAINING",
-      "local_progress": "Исправления в ветках: claude/b09-telegram-erasure 9810451 (S7-04), claude/b09-retention 216965d (S8-08); тесты пройдены, объединяются без конфликтов"
+      "local_progress": "Исправления в ветках: claude/b09-telegram-erasure 9810451 (S7-04), claude/b09-retention 216965d (S8-08); тесты пройдены, объединяются без конфликтов",
+      "production_progress": "API b244195 в Production (31b00d21, затем b9801cfd с DATA_RETENTION_ENABLED=1): очистка по срокам действует; удаление Telegram-аккаунтов развернуто, выключено"
     },
     {
       "id": "B10",
@@ -5805,7 +5815,7 @@
     }
   ],
   "production_role_commits": {
-    "api": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
+    "api": "b244195551e10c0babc460a3ca8c3b20e4e0e32c",
     "worker": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker2": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker3": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
@@ -5817,7 +5827,7 @@
     "sylvex-ai-webapp": "b654563da9bfb8f7e836863e682473eeeae7d22c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B09 fixes for S7-04 and S8-08 prepared in branches; not deployed",
-  "last_updated_atUTC": "2026-11-11T15:00:00+00:00",
-  "latest_work_phase": "B09_FIXES_PREPARED"
+  "last_controlled_change": "S8-08 retention live: 376 error-log rows older than 30 days removed",
+  "last_updated_atUTC": "2026-11-11T14:30:00+00:00",
+  "latest_work_phase": "S808_RETENTION_LIVE"
 }

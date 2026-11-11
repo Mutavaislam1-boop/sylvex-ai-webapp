@@ -2,7 +2,7 @@
 
 - `REGISTER.json` — единый реестр, 79 требований.
 - `fixes/*/RESULT.md` — отчёты, на которые ссылается `evidence_catalog`.
-- `apply_b09_s705.py`, `apply_b13_b16_s808_sx010.py`, `apply_b15_sx010_close.py`, `apply_s110_restore.py`, `apply_b10_s106_s107.py`, `apply_s106_deployed.py`, `apply_b10_security_close.py`, `apply_b10_mfa_production.py`, `apply_s709_finance.py`, `apply_s709_close.py`, `apply_s106_close_mfa_manual.py`, `apply_b11_inventory.py`, `apply_b11_implementation.py`, `apply_b11_close.py`, `apply_b08_backups.py`, `apply_b08_schedule_b09_scope.py`, затем `apply_b09_fixes_prepared.py` — те же правки, применённые к исходному файлу из библиотеки.
+- `apply_b09_s705.py`, `apply_b13_b16_s808_sx010.py`, `apply_b15_sx010_close.py`, `apply_s110_restore.py`, `apply_b10_s106_s107.py`, `apply_s106_deployed.py`, `apply_b10_security_close.py`, `apply_b10_mfa_production.py`, `apply_s709_finance.py`, `apply_s709_close.py`, `apply_s106_close_mfa_manual.py`, `apply_b11_inventory.py`, `apply_b11_implementation.py`, `apply_b11_close.py`, `apply_b08_backups.py`, `apply_b08_schedule_b09_scope.py`, `apply_b09_fixes_prepared.py`, затем `apply_s808_retention_live.py` — те же правки, применённые к исходному файлу из библиотеки.
   Порядок запуска:
   ```
   python3 apply_b09_s705.py REGISTER.json step1.json
@@ -21,6 +21,7 @@
   python3 apply_b11_close.py step13.json step14.json
   python3 apply_b08_backups.py step14.json step15.json
   python3 apply_b08_schedule_b09_scope.py step15.json step16.json
-  python3 apply_b09_fixes_prepared.py step16.json REGISTER.json
+  python3 apply_b09_fixes_prepared.py step16.json step17.json
+  python3 apply_s808_retention_live.py step17.json REGISTER.json
   ```
 - Пути `evidence_catalog`, которые не начинаются с `fixes/…-production`, указывают на файлы библиотеки владельца. В этот репозиторий они не входят.
