@@ -218,6 +218,11 @@
 | API `claude/s704-reregister` → `release/sx010-api-20261108` | 92dfa96 | повторная регистрация (ниже) |
 | Бот `claude/s704-reregister` → `claude/sx010-purchase-dates` | 1c69880 | бот пропускает Telegram ID, который освобождён после завершённого удаления |
 
+**Production-деплой (11.11.2026, флаги не менялись):**
+- API 9d9c5bf7 (92dfa96) — SUCCESS 20:09:56Z. `Application startup complete`; `ACCOUNT_ERASURE_RUNTIME` accepting, `requests_by_state` complete 3, функции триггера обновлены при старте; `DATA_RETENTION` работает.
+- Бот 506b7d67 (1c69880) — SUCCESS 20:08:43Z. `Bot started`, `Database connected`; один `TelegramConflictError` в 20:08:58 при перекрытии со старым экземпляром, после него ошибок нет.
+- `SYLVEX_ERASURE_ENABLED` у бота не задан, `SYLVEX_ERASURE_TELEGRAM_READY` у API не менялся: удаление Telegram-аккаунтов пока закрыто.
+
 ### Как работает (механизм B09, вторая система не создаётся)
 
 1. **Запрос принят (`queued` / `purging`).** Telegram ID заблокирован везде: проверка доступа API, `blocked_subject`, запись в хранилище, триггер БД `sylvex_erasure_write_guard`, бот (`pending()` / `begin_update()`).
