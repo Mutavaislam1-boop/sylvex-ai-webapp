@@ -5,7 +5,7 @@
   "assessed_on": "2026-11-09",
   "timezone": "Asia/Almaty",
   "production_source_commits": {
-    "sylvex-ai-webapp": "9a6dedc4265e0aec56856e41dfd61666033ae193",
+    "sylvex-ai-webapp": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
     "sylvex-website": "30094047f0a90cf1181ab9a24441998b22f5b7ef",
     "sylvex-ai-bot": "55e57dad01fffc6c627f637621cebaefd96b9aca",
     "silvex-support-bot": "a75bf83abb5de146fef26042c82a8d729cb8247e"
@@ -3705,6 +3705,15 @@
           "previous_status": "Не проверено",
           "branch_commit": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
           "reason": "Оповещения P0 реализованы и протестированы в ветке; не развёрнуто, доставка не подтверждена."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T01:45:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "api_commit": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
+          "deployment": "122adaec-1161-4e05-b0c7-e5ab7f8aa8f1",
+          "reason": "Этап 1: код оповещений в Production, выключен; получатель не подтверждён."
         }
       ],
       "open_subchecks": {
@@ -3713,7 +3722,7 @@
         "service_down_alerts": "missing: no Railway webhooks, no code; Railway account email notifications unknown",
         "generation_alerts": "missing: no admin alert on generation failures / provider circuit / stuck jobs",
         "stripe_alerts": "missing (Stripe in test mode, see B07)",
-        "implementation": "ready on claude/b11-ops-alerts 7a35c7f, not deployed: in-app detectors (workers stalled/dead, mass generation failures, provider circuits, DB unreachable) + external GitHub Actions uptime check of /health/ready; dedup, reminders, recovery, delivery log; 19 targeted tests + 119 regression"
+        "implementation": "API 7a35c7f deployed 11.11 (122adaec SUCCESS), alerts OFF; recipient not yet confirmed; no test message; external uptime check not merged"
       }
     },
     {
@@ -5649,7 +5658,7 @@
     }
   ],
   "production_role_commits": {
-    "api": "9a6dedc4265e0aec56856e41dfd61666033ae193",
+    "api": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
     "worker": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker2": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
     "worker3": "dde6deafbb044f0f27657b9e08b4ae9d5d02f500",
@@ -5661,7 +5670,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B11 P0 alerts implemented on claude/b11-ops-alerts (not deployed)",
-  "last_updated_atUTC": "2026-11-11T03:00:00+00:00",
+  "last_controlled_change": "B11 stage 1: API 7a35c7f deployed with alerts off",
+  "last_updated_atUTC": "2026-11-11T01:45:00+00:00",
   "latest_work_phase": "B11_IMPLEMENTATION"
 }
