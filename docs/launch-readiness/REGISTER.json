@@ -17,8 +17,8 @@
     "Отложено"
   ],
   "counts": {
-    "Подтверждено": 49,
-    "Не проверено": 21,
+    "Подтверждено": 50,
+    "Не проверено": 20,
     "Ошибка": 2,
     "Отложено": 7
   },
@@ -240,7 +240,7 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "MFA внедрена во всех Telegram-каналах и развёрнута: API ba96d8c (b6d1aa8b), support bot a75bf83 (e8e1a456), main bot 55e57da (7a88fa18), все SUCCESS 10.11. Mini App: initData + TOTP; без TOTP — сессия только для подключения; боты и v1 — подтверждение TOTP в Mini App ≤30 мин, Critical ≤5 мин; Critical в консоли — только повторный TOTP. ПОДТВЕРЖДЕНО В PRODUCTION: вход владельца в Telegram Mini App с TOTP — 8 ответов 401 (без кода/неверный код), затем 200 в 13:28:37Z; миграция mfa_at/telegram_confirmed_at применилась без ошибок; браузерный вход с TOTP — как раньше. Тестами (не повторялись): 17 адресных + 240 регрессионных, перебор всех /api/admin/* без обходов. НЕ ПОДТВЕРЖДЕНО В PRODUCTION: отказ ботов без подтверждения (разделы бота поддержки и /admin основного бота после деплоя не вызывались), повторный TOTP для Critical (reauth не вызывался), подключение TOTP третьим администратором.",
+      "confirmed_scope": "MFA внедрена во всех Telegram-каналах и развёрнута: API ba96d8c (b6d1aa8b), support bot a75bf83 (e8e1a456), main bot 55e57da (7a88fa18), все SUCCESS 10.11. Mini App: initData + TOTP; без TOTP — сессия только для подключения; боты и v1 — подтверждение TOTP в Mini App ≤30 мин, Critical ≤5 мин; Critical в консоли — только повторный TOTP. ПОДТВЕРЖДЕНО В PRODUCTION: вход владельца в Telegram Mini App с TOTP — 8 ответов 401 (без кода/неверный код), затем 200 в 13:28:37Z; миграция mfa_at/telegram_confirmed_at применилась без ошибок; браузерный вход с TOTP — как раньше. Тестами (не повторялись): 17 адресных + 240 регрессионных, перебор всех /api/admin/* без обходов. НЕ ПОДТВЕРЖДЕНО В PRODUCTION: отказ ботов без подтверждения (разделы бота поддержки и /admin основного бота после деплоя не вызывались), повторный TOTP для Critical (reauth не вызывался), подключение TOTP третьим администратором. РУЧНАЯ ПРОВЕРКА 11.11 (логи): вход в Mini App только с TOTP (401→200, трижды); «выйти везде» снимает подтверждение бота; бот поддержки без подтверждения отказывает (00:58:44–48, разделы не вызваны), после входа с TOTP работает (subscribers, top-spenders 200); критический PATCH admins в свежей TOTP-сессии — 200. НЕ ВИДНО В ЛОГАХ: окно повторного TOTP (reauth не вызывался — действия в пределах 5 мин после входа); /admin основного бота (бот не логирует команды; консоль по его кнопке на api.sylvex.ai получила только 401). ОТЛОЖЕНО владельцем: подключение 2FA третьим администратором.",
       "evidence_ids": [
         "SRC",
         "DB",
@@ -251,8 +251,8 @@
       "blocker_ids": [
         "B10"
       ],
-      "next_action": "Ручная проверка по fixes/B10-MFA/PRODUCTION_CHECK.md (разделы 1–4) без /addbalance и без изменения данных; затем сверка логов и закрытие.",
-      "assessed_on": "2026-11-10",
+      "next_action": "Одна проверка: через 6+ минут после входа выполнить критическое действие (сохранить администратора без изменений) — должен появиться запрос кода, reauth 401→200; затем /admin в основном боте после подтверждения кнопкой. Третий администратор — отложено.",
+      "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -303,15 +303,24 @@
           "support_bot_commit": "a75bf83abb5de146fef26042c82a8d729cb8247e",
           "main_bot_commit": "55e57dad01fffc6c627f637621cebaefd96b9aca",
           "reason": "TOTP в Telegram Mini App подтверждён в Production; боты, Critical reauth и третий администратор ещё не проверены вживую."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T01:15:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "reason": "Ручные проверки Mini App, бота поддержки и выхода везде подтверждены логами; reauth и основной бот не видны; третий администратор отложен."
         }
       ],
       "open_subchecks": {
         "rbac": "confirmed: tests on 5dbcde1/ba96d8c; no admin access without active admin_accounts row",
         "mfa_web": "confirmed: TOTP mandatory for browser login",
-        "mfa_telegram_miniapp": "confirmed live 10.11: owner sign-in 401 without/wrong code, 200 with TOTP (13:28:37Z)",
-        "mfa_bots": "deployed and tested; not exercised in Production yet (support bot section, main bot /admin)",
-        "critical_reauth_totp": "deployed and tested; not exercised in Production yet",
-        "third_admin_totp": "not observed: enrollment by the third admin pending"
+        "mfa_telegram_miniapp": "confirmed live 10.11 and 11.11 (401 without/wrong code, 200 with TOTP)",
+        "mfa_bots": "superseded by mfa_support_bot / mfa_main_bot",
+        "critical_reauth_totp": "not exercised live: Critical PATCH done within 5 min of the TOTP sign-in, no reauth request",
+        "third_admin_totp": "deferred by owner decision (not done)",
+        "mfa_support_bot": "confirmed live 11.11: refused without confirmation, allowed after Mini App TOTP",
+        "mfa_main_bot": "not visible in logs: /admin outcome not logged; console via its button (api.sylvex.ai) only 401"
       }
     },
     {
@@ -319,22 +328,21 @@
       "section": 1,
       "name": "API Security",
       "requirement": "защита от SQL Injection, XSS, CSRF, SSRF и небезопасных входных данных.",
-      "status": "Не проверено",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Подтверждено: CSRF (Origin в middleware для всех изменяющих /api/web/* и веб-cookie; админка SameSite=Strict + CSRF-токен), XSS-1, XSS-4, CORS-2 в API 5dbcde1. XSS сайта УСТРАНЁН и развёрнут: sylvex-website 968e928 + 3009404; деплой 589b9461 SUCCESS, Railway HTTP-лог 10.11 10:31Z: /account/profile.html и /account/settings.html → 200 с этого деплоя. SQL-инъекции ПОДТВЕРЖДЕНЫ полным статическим обзором: все 129 нелитеральных вызовов execute в API 5dbcde1 (main.py + services; прочие модули — 0) и 109 в воркерах dde6dea (подмножество API) — значения только через %s, имена колонок из констант/белых списков, идентификаторы через ident()/sql.Identifier; находок нет. НЕ НАБЛЮДАЛОСЬ: живые заголовки ответа сайта (Cache-Control: no-cache) и загрузка site.js?v=s106-xss-20261109.",
+      "confirmed_scope": "CSRF (Origin в middleware для изменяющих /api/web/* и веб-cookie; админка SameSite=Strict + CSRF-токен), XSS-1, XSS-4, CORS-2; SSRF/traversal/upload/identity (51 проверка). SQL-инъекции: полный статический обзор 129/109 мест, находок нет. XSS сайта устранён: sylvex-website 968e928 + 3009404, тесты и браузерная проверка 0/0. ЖИВАЯ ПРОВЕРКА 11.11 01:07Z: /account/profile.html и /account/settings.html — HTTP/2 200, Cache-Control: no-cache; обе грузят /js/site.js?v=s106-xss-20261109 (200); все три файла побайтно совпадают с 3009404.",
       "evidence_ids": [
         "TEST",
         "IMPACT",
         "S106_LOCAL",
         "S106_PRODUCTION",
-        "B10_SECURITY"
+        "B10_SECURITY",
+        "S106_LIVE"
       ],
-      "blocker_ids": [
-        "B10"
-      ],
-      "next_action": "Владельцу — одна проверка заголовков сайта командой из fixes/S1-06/RESULT.md; при ожидаемом ответе S1-06 можно перевести в Подтверждено без новых тестов.",
-      "assessed_on": "2026-11-10",
+      "blocker_ids": [],
+      "next_action": "Нет; пересмотр только при изменении сайта/security middleware или новой ошибке.",
+      "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -392,11 +400,19 @@
           "api_commit": "5dbcde1",
           "workers_commit": "dde6dea",
           "reason": "SQLi подтверждена полным статическим обзором (находок нет); открыт только живой ответ сайта."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T01:15:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Не проверено",
+          "website_commit": "30094047f0a90cf1181ab9a24441998b22f5b7ef",
+          "reason": "Живые заголовки и site.js подтверждены; файлы совпадают с протестированным коммитом."
         }
       ],
       "open_subchecks": {
-        "website_xss": "fixed and deployed (sylvex-website 3009404, deployment 589b9461, pages 200 in Railway HTTP log); live response headers / site.js version not observed",
-        "sql_injection": "confirmed: full static review of 129 non-literal SQL calls (API 5dbcde1) and 109 (workers dde6dea); no findings"
+        "website_xss": "confirmed live: files byte-identical to tested 3009404, HTML no-cache, site.js version loaded",
+        "sql_injection": "confirmed: full static review, no findings"
       }
     },
     {
@@ -5222,6 +5238,10 @@
     "S709_FINANCE": {
       "path": "fixes/S7-09-finance/RESULT.md",
       "scope": "Причина и исправление 500 /api/admin/finance (TEXT created_at), тесты, деплой abfd8437, логи 11.11 00:42Z"
+    },
+    "S106_LIVE": {
+      "path": "fixes/S1-06/LIVE_CHECK.md",
+      "scope": "Живые заголовки и site.js sylvex.ai 11.11, побайтное совпадение с 3009404"
     }
   },
   "launch_blocker_groups": [
@@ -5288,13 +5308,12 @@
       "related_issue": "S1-05/06/07 / S5-08 / S7-09",
       "requirements": [
         "S1-05",
-        "S1-06",
         "S5-08"
       ],
       "closing_criterion": "MFA каналов, недостающие CSRF/XSS/rate/privacy случаи; это evidence gap, а не утверждение о взломе.",
       "kind": "evidence_gap_or_owner_decision",
-      "local_progress": "S1-07 подтверждён; S1-06: XSS устранён, SQLi подтверждена; MFA во всех Telegram-каналах развёрнута (API ba96d8c, support a75bf83, main bot 55e57da), вход в Mini App с TOTP подтверждён в Production",
-      "awaiting": "S1-05: живая проверка ботов, Critical reauth и TOTP третьего администратора. S1-06: живые заголовки сайта. S5-08: privacy (с B09)."
+      "local_progress": "S1-06, S1-07, S7-09 подтверждены; MFA в Production: Mini App и бот поддержки подтверждены вживую",
+      "awaiting": "S1-05: окно повторного TOTP и /admin основного бота; третий администратор — отложено. S5-08: privacy (с B09)."
     },
     {
       "id": "B11",
@@ -5602,7 +5621,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "S7-09 confirmed: users, payments, generations and errors sections live with TOTP",
-  "last_updated_atUTC": "2026-11-11T01:00:00+00:00",
-  "latest_work_phase": "S709_CONFIRMED"
+  "last_controlled_change": "S1-06 confirmed live; S1-05 manual MFA checks recorded (third admin deferred)",
+  "last_updated_atUTC": "2026-11-11T01:15:00+00:00",
+  "latest_work_phase": "B10_S106_CLOSED"
 }

@@ -2,7 +2,7 @@
 
 - `REGISTER.json` — единый реестр, 79 требований.
 - `fixes/*/RESULT.md` — отчёты, на которые ссылается `evidence_catalog`.
-- `apply_b09_s705.py`, `apply_b13_b16_s808_sx010.py`, `apply_b15_sx010_close.py`, `apply_s110_restore.py`, `apply_b10_s106_s107.py`, `apply_s106_deployed.py`, `apply_b10_security_close.py`, `apply_b10_mfa_production.py`, `apply_s709_finance.py`, затем `apply_s709_close.py` — те же правки, применённые к исходному файлу из библиотеки.
+- `apply_b09_s705.py`, `apply_b13_b16_s808_sx010.py`, `apply_b15_sx010_close.py`, `apply_s110_restore.py`, `apply_b10_s106_s107.py`, `apply_s106_deployed.py`, `apply_b10_security_close.py`, `apply_b10_mfa_production.py`, `apply_s709_finance.py`, `apply_s709_close.py`, затем `apply_s106_close_mfa_manual.py` — те же правки, применённые к исходному файлу из библиотеки.
   Порядок запуска:
   ```
   python3 apply_b09_s705.py REGISTER.json step1.json
@@ -14,6 +14,7 @@
   python3 apply_b10_security_close.py step6.json step7.json
   python3 apply_b10_mfa_production.py step7.json step8.json
   python3 apply_s709_finance.py step8.json step9.json
-  python3 apply_s709_close.py step9.json REGISTER.json
+  python3 apply_s709_close.py step9.json step10.json
+  python3 apply_s106_close_mfa_manual.py step10.json REGISTER.json
   ```
 - Пути `evidence_catalog`, которые не начинаются с `fixes/…-production`, указывают на файлы библиотеки владельца. В этот репозиторий они не входят.
