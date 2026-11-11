@@ -246,7 +246,8 @@
         "DB",
         "ADMIN",
         "B10_SECURITY",
-        "B10_MFA_PRODUCTION"
+        "B10_MFA_PRODUCTION",
+        "B10_MFA_MANUAL"
       ],
       "blocker_ids": [
         "B10"
@@ -3645,16 +3646,17 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Сервисы/логи наблюдаемы, но доставка критических платежных/генерационных alerts ответственному лицу не подтверждена.",
+      "confirmed_scope": "Есть в Production-коде (API 9a6dedc, боты 55e57da/a75bf83): платёжные оповещения Telegram Stars через очередь subscription_events — payment_error, payment_attention, management_error и события подписок — в SUBSCRIPTION_ADMIN_CHAT_ID (не задан → ADMIN_ID API) от основного бота, с повторами и last_error, без влияния на оплату (тесты Codex test_stars_subscriptions); оповещения безопасности админки (новое устройство, 3 неверных кода) администратору и SUPERADMIN; healthcheck /health/ready и restart ON_FAILURE. НЕТ: оповещений о падении/недоступности сервисов (вебхуков Railway нет), о массовых ошибках генераций/провайдерах/зависших заданиях, о неудачных платежах Stripe (тестовый режим, B07), о разборах возвратов и erasure. ДОСТАВКА НЕ ПОДТВЕРЖДЕНА: успех не логируется, ошибки только в БД; получатель ADMIN_ID API не наблюдался.",
       "evidence_ids": [
         "LIVE",
-        "LB"
+        "LB",
+        "B11_ALERTS"
       ],
       "blocker_ids": [
         "B11"
       ],
-      "next_action": "Согласованный контрольный alert и подтверждённый получатель; сообщения без разрешения не отправлялись.",
-      "assessed_on": "2026-11-07",
+      "next_action": "Подтвердить доставку: SQL fixes/B11/owner_alert_delivery_readonly.sql и получатель сообщений основного бота; проверить письма Railway о сбоях. Затем решение владельца по недостающим оповещениям (падение сервисов, генерации).",
+      "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -3687,8 +3689,22 @@
           "date": "2026-11-07",
           "status": "Не проверено",
           "reason": "Сервисы/логи наблюдаемы, но доставка критических платежных/генерационных alerts ответственному лицу не подтверждена."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T01:40:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "reason": "Инвентаризация оповещений: платёжные и безопасности есть, падений сервисов и генераций нет; доставка не подтверждена."
         }
-      ]
+      ],
+      "open_subchecks": {
+        "payment_alerts_code": "present: subscription_events outbox (Telegram Stars payment_error/attention, management_error)",
+        "payment_alerts_delivery": "not confirmed: owner SQL fixes/B11/owner_alert_delivery_readonly.sql + receipt in Telegram",
+        "service_down_alerts": "missing: no Railway webhooks, no code; Railway account email notifications unknown",
+        "generation_alerts": "missing: no admin alert on generation failures / provider circuit / stuck jobs",
+        "stripe_alerts": "missing (Stripe in test mode, see B07)"
+      }
     },
     {
       "id": "S6-09",
@@ -5242,6 +5258,14 @@
     "S106_LIVE": {
       "path": "fixes/S1-06/LIVE_CHECK.md",
       "scope": "Живые заголовки и site.js sylvex.ai 11.11, побайтное совпадение с 3009404"
+    },
+    "B10_MFA_MANUAL": {
+      "path": "fixes/B10-MFA/PRODUCTION_CHECK.md",
+      "scope": "Ручные проверки MFA владельца 10–11.11 по логам Railway: вход в Mini App только с TOTP; «выйти везде» снимает подтверждение ботов; бот поддержки без подтверждения отказывает, после — работает; критическое действие в свежей TOTP-сессии. Не видно: окно повторного TOTP, /admin основного бота. Третий администратор — отложено."
+    },
+    "B11_ALERTS": {
+      "path": "fixes/B11/RESULT.md",
+      "scope": "Инвентаризация критических оповещений и каналов (код Production, Railway), что есть/нет, что подтвердить"
     }
   },
   "launch_blocker_groups": [
@@ -5324,7 +5348,9 @@
         "S6-08"
       ],
       "closing_criterion": "Ответственный получатель и согласованный тестовый alert. Никаких сообщений без разрешения.",
-      "kind": "evidence_gap_or_owner_decision"
+      "kind": "evidence_gap_or_owner_decision",
+      "local_progress": "Инвентаризация 11.11: платёжные (Telegram Stars) и security-оповещения есть; нет оповещений о падении сервисов и генерациях; доставка не подтверждена",
+      "awaiting": "Владелец: SQL доставки и получатель сообщений основного бота, письма Railway; решение по недостающим оповещениям."
     },
     {
       "id": "B12",
@@ -5621,7 +5647,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "S1-06 confirmed live; S1-05 manual MFA checks recorded (third admin deferred)",
-  "last_updated_atUTC": "2026-11-11T01:15:00+00:00",
-  "latest_work_phase": "B10_S106_CLOSED"
+  "last_controlled_change": "B10 MFA manual evidence recorded; B11 alert inventory (no status change)",
+  "last_updated_atUTC": "2026-11-11T01:40:00+00:00",
+  "latest_work_phase": "B11_INVENTORY"
 }
