@@ -119,3 +119,23 @@
 - код откатывается Rollback на e508bab5;
 - таблица подтверждений старому коду не мешает.
 - Удалённые очисткой строки не восстанавливаются, кроме как из копии тома. Поэтому шаг 2 начинается с предпросмотра.
+
+## Этап 1 выполнен (11.11.2026, разрешение владельца)
+
+- `release/sx010-api-20261108`: 7a35c7f → **b244195**, fast-forward без force.
+  - Состав: S7-04 `9810451` и S8-08 `216965d`, объединены merge-коммитом. Все прежние исправления сохранены.
+  - На этом коммите перед публикацией прошли 190 тестов.
+- Railway: деплой **31b00d21 SUCCESS** в 13:06:28Z. Сборка ~6 мин ждала в очереди; Production всё это время работал на e508bab5.
+- **Запуск:**
+  - `Application startup complete`, `/health/ready` 200;
+  - `ACCOUNT_ERASURE_RUNTIME` штатно (accepting, guards на месте, 3 завершённых веб-удаления);
+  - `OPS ALERTS WORKER STARTED`, `SUBSCRIPTION EVENTS WORKER STARTED`, `PAYMENT RECOVERY WORKER STARTED`.
+- **Ошибок нет:** `Traceback`, `FAILED`, 500 и `Exception` после запуска отсутствуют. Публичные запросы Mini App получают 200.
+- **Флаги:**
+  - `DATA_RETENTION_ENABLED` у API не задан, строки `DATA RETENTION WORKER STARTED` нет — очистка выключена;
+  - `SYLVEX_ERASURE_TELEGRAM_READY` не менялся;
+  - у основного бота нет `SYLVEX_ERASURE_ENABLED`, бот не менялся (7a88fa18).
+- **Не проверено из сессии:**
+  - консоль и предпросмотр `/api/admin/v2/retention` требуют входа владельца с 2FA, а `api.sylvex.ai` закрыт в сети сессии;
+  - список копий тома Railway инструментами не читается.
+- **Откат:** Rollback на e508bab5 (7a35c7f).
