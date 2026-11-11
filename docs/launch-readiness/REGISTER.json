@@ -18,9 +18,9 @@
   ],
   "counts": {
     "Подтверждено": 51,
-    "Не проверено": 19,
+    "Не проверено": 21,
     "Ошибка": 2,
-    "Отложено": 7
+    "Отложено": 5
   },
   "requirements": [
     {
@@ -3001,12 +3001,13 @@
         "SRC",
         "DB",
         "C2",
-        "WALLET_FIX"
+        "WALLET_FIX",
+        "B08_BACKUPS"
       ],
       "blocker_ids": [
         "B08"
       ],
-      "next_action": "Остаток B08: совместимый rollback/restore; owner-paused backup не возобновлять.",
+      "next_action": "Перед изменением схемы — ручная копия тома (Backups → Backup now); статус закрывается вместе с S5-05 после проверки восстановления новой копии.",
       "assessed_on": "2026-11-07",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -3044,6 +3045,14 @@
           "evidence_id": "WALLET_FIX",
           "api_commit": "0328d7328c2095d1314b6afca970f23dc5ad245d",
           "workers_commit": "8fa41d1d2f8b9a6c34673ee04438d116f058d4da"
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T12:30:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "evidence_id": "B08_BACKUPS",
+          "reason": "Копии тома доступны (Pro); статус не меняется до проверки восстановления."
         }
       ]
     },
@@ -3097,19 +3106,20 @@
       "section": 5,
       "name": "Backup & Restore",
       "requirement": "существуют автоматические резервные копии PostgreSQL и подтверждён способ восстановления.",
-      "status": "Отложено",
+      "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Ранее C2 backup полностью восстановлен. Актуальное автоматическое резервирование и проверка нового restore не подтверждены; владелец приостановил эту работу.",
+      "confirmed_scope": "Railway Pro (лимит копий тома 10). Владелец подтвердил в панели копию тома Postgres 2,24 ГБ и активное расписание Daily и Weekly; через API расписание не видно (backupSchedules нет, staged-патч b097f3e3 не применён). Сроки по документации Railway: ежедневные 6 дней, еженедельные 27. Способ восстановления доказан ранее изолированным восстановлением C2 (131 таблица, 59 sequences). Восстановление новой копии не проверялось: восстановление копии тома Railway подменяет том того же сервиса Postgres.",
       "evidence_ids": [
         "BACKUP",
-        "ERASURE"
+        "ERASURE",
+        "B08_BACKUPS"
       ],
       "blocker_ids": [
         "B08"
       ],
-      "next_action": "Не возобновлять и не подключать Pro автоматически; до запуска требуется подтверждённый вариант защиты данных.",
-      "assessed_on": "2026-11-07",
+      "next_action": "Подтвердить первую плановую копию (Daily) в списке Backups и что патч b097f3e3 не держит расписание неприменённым; затем одно восстановление новой копии в отдельную БД — только с разрешения владельца на способ (PITR в новый сервис или временный тестовый Postgres).",
+      "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -3136,8 +3146,24 @@
           "date": "2026-11-07",
           "status": "Отложено",
           "reason": "Ранее C2 backup полностью восстановлен. Актуальное автоматическое резервирование и проверка нового restore не подтверждены; владелец приостановил эту работу."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T12:30:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Отложено",
+          "evidence_id": "B08_BACKUPS",
+          "reason": "Владелец возобновил B08: Railway Pro, первая копия 2,24 ГБ, расписание Daily/Weekly в панели. Восстановление новой копии не проверено."
         }
-      ]
+      ],
+      "open_subchecks": {
+        "railway_plan": "Pro (read-only check 11.11; volume backup limit 10)",
+        "first_backup": "owner-confirmed in the Railway dashboard: PostgreSQL volume backup 2.24 GB",
+        "schedule": "Daily + Weekly per the owner's dashboard; the API mount config shows no backupSchedules and environment patch b097f3e3 (11:36:48Z) is still staged - not independently confirmed",
+        "retention_per_railway_docs": "daily 6 days, weekly 27 days, monthly 89 days",
+        "restore_new_backup": "NOT verified: volume restore remounts onto the same Postgres service (over Production)",
+        "restore_method_c2": "confirmed earlier: isolated restore 131 tables / 59 sequences (evidence BACKUP)"
+      }
     },
     {
       "id": "S5-06",
@@ -3804,21 +3830,22 @@
       "section": 6,
       "name": "Deployment Recovery",
       "requirement": "можно вернуться к предыдущей рабочей версии приложения без потери данных.",
-      "status": "Отложено",
+      "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Старые и новые wallet INSERT совместимы с аддитивной схемой; ошибочная API-сборка отменена до запуска, старый API продолжил работу. Полный app/data rollback и актуальный restore не проверялись.",
+      "confirmed_scope": "Откат приложения: Railway хранит прежние деплои (canRollback: true); миграции аддитивные, старые и новые wallet INSERT совместимы. Откат данных: появились копии тома Postgres (Pro, копия 2,24 ГБ, расписание по панели владельца). Восстановление данных из новой копии не проверялось; C2 доказал способ.",
       "evidence_ids": [
         "LIVE",
         "C2",
         "SRC",
-        "WALLET_FIX"
+        "WALLET_FIX",
+        "B08_BACKUPS"
       ],
       "blocker_ids": [
         "B08"
       ],
-      "next_action": "Сохранить остаток B08; backup/erasure на паузе владельца.",
-      "assessed_on": "2026-11-07",
+      "next_action": "Закрывается вместе с S5-05 после восстановления новой копии в отдельную БД.",
+      "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -3861,6 +3888,14 @@
           "evidence_id": "WALLET_FIX",
           "api_commit": "0328d7328c2095d1314b6afca970f23dc5ad245d",
           "workers_commit": "8fa41d1d2f8b9a6c34673ee04438d116f058d4da"
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T12:30:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Отложено",
+          "evidence_id": "B08_BACKUPS",
+          "reason": "Работа возобновлена владельцем; копии есть, восстановление новой копии не проверено."
         }
       ]
     },
@@ -5310,6 +5345,10 @@
     "B11_IMPLEMENTATION": {
       "path": "fixes/B11/IMPLEMENTATION.md",
       "scope": "События, каналы, тесты, план развёртывания и ограничения системы оповещений P0"
+    },
+    "B08_BACKUPS": {
+      "path": "fixes/B08/RESULT.md",
+      "scope": "Railway Pro, первая копия тома Postgres 2,24 ГБ (владелец), расписание по панели владельца; восстановление новой копии не проверялось"
     }
   },
   "launch_blocker_groups": [
@@ -5347,8 +5386,11 @@
         "S5-05",
         "S6-10"
       ],
-      "closing_criterion": "C2 restore proof сохранить. Работу владелец приостановил; не подключать Pro и не возобновлять автоматически.",
-      "kind": "evidence_gap_or_owner_decision"
+      "closing_criterion": "C2 restore proof сохранить. Автоматические копии тома Railway (Pro) включены владельцем; для закрытия — первая плановая копия и одно восстановление новой копии в отдельную БД, не поверх Production.",
+      "kind": "evidence_gap_or_owner_decision",
+      "production_progress": "Railway Pro; копия тома Postgres 2,24 ГБ; расписание Daily + Weekly (панель владельца)",
+      "progress_evidence": "B08_BACKUPS",
+      "awaiting": "Подтверждение первой плановой копии и статуса патча b097f3e3; решение владельца о способе проверки восстановления (PITR в новый сервис или временный тестовый Postgres; оба платные)."
     },
     {
       "id": "B09",
@@ -5426,7 +5468,7 @@
   "verdict": "NOT_READY_FOR_UNRESTRICTED_COMMERCIAL_LAUNCH",
   "production_modified_in_this_pass": true,
   "purchases_or_paid_generations_in_this_pass": false,
-  "backup_and_erasure_work": "Web self-service erasure enabled by owner (B09-WEB); Telegram erasure OFF (SYLVEX_ERASURE_TELEGRAM_READY=0); backup work not resumed",
+  "backup_and_erasure_work": "Web self-service erasure enabled by owner (B09-WEB); Telegram erasure OFF (SYLVEX_ERASURE_TELEGRAM_READY=0); backup work resumed 11.11 on Railway Pro (volume backups), restore of a new backup not verified",
   "public_document_texts_edited": false,
   "frozen_document_package_edited": false,
   "counts_are_requirement_outcomes_not_percent_of_code_implemented": true,
@@ -5703,7 +5745,7 @@
     "sylvex-ai-webapp": "b654563da9bfb8f7e836863e682473eeeae7d22c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "S6-08 confirmed, B11 closed: external uptime check live, test delivered and received",
-  "last_updated_atUTC": "2026-11-11T11:45:00+00:00",
-  "latest_work_phase": "B11_CLOSED"
+  "last_controlled_change": "B08 resumed: Railway Pro, first Postgres volume backup 2.24 GB, schedule per owner",
+  "last_updated_atUTC": "2026-11-11T12:30:00+00:00",
+  "latest_work_phase": "B08_BACKUPS_ENABLED"
 }
