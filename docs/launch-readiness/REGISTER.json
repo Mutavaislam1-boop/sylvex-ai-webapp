@@ -3650,12 +3650,13 @@
       "evidence_ids": [
         "LIVE",
         "LB",
-        "B11_ALERTS"
+        "B11_ALERTS",
+        "B11_IMPLEMENTATION"
       ],
       "blocker_ids": [
         "B11"
       ],
-      "next_action": "Подтвердить доставку: SQL fixes/B11/owner_alert_delivery_readonly.sql и получатель сообщений основного бота; проверить письма Railway о сбоях. Затем решение владельца по недостающим оповещениям (падение сервисов, генерации).",
+      "next_action": "Разрешение владельца на развёртывание по fixes/B11/IMPLEMENTATION.md: API (выключено), проверка доставки и получателя через /api/admin/v2/ops/alerts, согласованная тест-отправка, включение, секреты GitHub и тест внешней проверки.",
       "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -3696,6 +3697,14 @@
           "status": "Не проверено",
           "previous_status": "Не проверено",
           "reason": "Инвентаризация оповещений: платёжные и безопасности есть, падений сервисов и генераций нет; доставка не подтверждена."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T03:00:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "branch_commit": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
+          "reason": "Оповещения P0 реализованы и протестированы в ветке; не развёрнуто, доставка не подтверждена."
         }
       ],
       "open_subchecks": {
@@ -3703,7 +3712,8 @@
         "payment_alerts_delivery": "not confirmed: owner SQL fixes/B11/owner_alert_delivery_readonly.sql + receipt in Telegram",
         "service_down_alerts": "missing: no Railway webhooks, no code; Railway account email notifications unknown",
         "generation_alerts": "missing: no admin alert on generation failures / provider circuit / stuck jobs",
-        "stripe_alerts": "missing (Stripe in test mode, see B07)"
+        "stripe_alerts": "missing (Stripe in test mode, see B07)",
+        "implementation": "ready on claude/b11-ops-alerts 7a35c7f, not deployed: in-app detectors (workers stalled/dead, mass generation failures, provider circuits, DB unreachable) + external GitHub Actions uptime check of /health/ready; dedup, reminders, recovery, delivery log; 19 targeted tests + 119 regression"
       }
     },
     {
@@ -5266,6 +5276,10 @@
     "B11_ALERTS": {
       "path": "fixes/B11/RESULT.md",
       "scope": "Инвентаризация критических оповещений и каналов (код Production, Railway), что есть/нет, что подтвердить"
+    },
+    "B11_IMPLEMENTATION": {
+      "path": "fixes/B11/IMPLEMENTATION.md",
+      "scope": "События, каналы, тесты, план развёртывания и ограничения системы оповещений P0"
     }
   },
   "launch_blocker_groups": [
@@ -5349,8 +5363,8 @@
       ],
       "closing_criterion": "Ответственный получатель и согласованный тестовый alert. Никаких сообщений без разрешения.",
       "kind": "evidence_gap_or_owner_decision",
-      "local_progress": "Инвентаризация 11.11: платёжные (Telegram Stars) и security-оповещения есть; нет оповещений о падении сервисов и генерациях; доставка не подтверждена",
-      "awaiting": "Владелец: SQL доставки и получатель сообщений основного бота, письма Railway; решение по недостающим оповещениям."
+      "local_progress": "Инвентаризация 11.11; реализация оповещений P0 в ветке claude/b11-ops-alerts (7a35c7f), тесты пройдены, не развёрнуто",
+      "awaiting": "Разрешение на развёртывание; согласование получателя; секреты GitHub для внешней проверки."
     },
     {
       "id": "B12",
@@ -5647,7 +5661,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B10 MFA manual evidence recorded; B11 alert inventory (no status change)",
-  "last_updated_atUTC": "2026-11-11T01:40:00+00:00",
-  "latest_work_phase": "B11_INVENTORY"
+  "last_controlled_change": "B11 P0 alerts implemented on claude/b11-ops-alerts (not deployed)",
+  "last_updated_atUTC": "2026-11-11T03:00:00+00:00",
+  "latest_work_phase": "B11_IMPLEMENTATION"
 }
