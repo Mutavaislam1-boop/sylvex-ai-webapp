@@ -26167,6 +26167,7 @@ async function waitGenerationJob(jobId, options) {
     erasure_guards_not_installed: () => 'Для удаления аккаунта обратитесь в support@sylvex.ai.',
   };
   function openDeleteAccount() {
+    if (hasTelegramContext() && !isWebEmbed()) { openTelegramDeleteAccount(); return; }
     if (!isBrowserApp() || guestNeedsAccount('account')) return;
     let modal = document.getElementById('deleteAccountModal');
     if (modal) modal.remove();
@@ -26293,6 +26294,131 @@ async function waitGenerationJob(jobId, options) {
 
     intro();
     requestAnimationFrame(() => modal.classList.add('show'));
+  }
+
+  // S7-04: Telegram Mini App - the person deletes their own SYLVEX account.
+  // Identity is the signed Telegram initData (added by js/api-auth.js); no
+  // code, administrator or 2FA. A renewing Telegram Stars subscription is
+  // turned off first (the existing /api/public/subscription/cancel). The
+  // server accepts the request through the same erasure intake as the
+  // website; afterwards this Mini App session ends and the app closes.
+  const TG_DELETE_ERRORS = {
+    telegram_erasure_unavailable: 'Удаление аккаунта пока недоступно. Напишите в поддержку: support@sylvex.ai.',
+    telegram_reauth_required: 'Сеанс устарел. Закройте и снова откройте SYLVEX, затем повторите.',
+    telegram_session_required: 'Удаление доступно только внутри Telegram.',
+    stars_renewal_active: 'Сначала отключите автопродление подписки Telegram Stars.',
+    erasure_already_requested: 'Запрос на удаление уже принят и обрабатывается.',
+    staff_account_requires_handover: 'Аккаунт сотрудника SYLVEX удаляется только через поддержку.',
+    telegram_scope_requires_review: 'Этот аккаунт связан с аккаунтом сайта. Напишите в поддержку: support@sylvex.ai.',
+    not_a_telegram_account: 'Этот аккаунт связан с аккаунтом сайта. Удалите его в настройках сайта.',
+    telegram_account_not_found: 'Аккаунт не найден. Напишите в поддержку: support@sylvex.ai.',
+    confirmation_expired: 'Время подтверждения истекло. Начните заново.',
+    confirmation_invalid: 'Подтверждение устарело. Начните заново.',
+    account_erasure_in_progress: 'Запрос на удаление уже принят и обрабатывается.',
+    network_error: 'Сетевая ошибка. Ничего не изменено.',
+  };
+  async function telegramDeletePost(path, body) {
+    try {
+      const response = await fetch(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({}, body || {})),
+      });
+      const data = await response.json().catch(() => ({}));
+      return { ok: response.ok && data.ok !== false, data };
+    } catch { return { ok: false, data: { error: 'network_error' } }; }
+  }
+  async function openTelegramDeleteAccount() {
+    let modal = document.getElementById('deleteAccountModal');
+    if (modal) modal.remove();
+    modal = document.createElement('div');
+    modal.className = 'sheet-overlay';
+    modal.id = 'deleteAccountModal';
+    modal.innerHTML = '<div class="sheet delete-account-sheet" style="padding:18px 20px 22px">'
+      + '<div class="sheet-grab"></div>'
+      + '<h3 style="margin:6px 0 10px;font-size:17px">Удалить аккаунт SYLVEX?</h3>'
+      + '<div class="da-step" id="daStep"><p>Проверяем аккаунт…</p></div>'
+      + '</div>';
+    document.body.appendChild(modal);
+    const $ = (sel) => modal.querySelector(sel);
+    const step = $('#daStep');
+    const close = () => modal.remove();
+    modal.addEventListener('click', (event) => { if (event.target === modal) close(); });
+    $('.sheet').addEventListener('click', (event) => event.stopPropagation());
+    requestAnimationFrame(() => modal.classList.add('show'));
+    const cancelButton = '<button class="btn-ghost" type="button" data-da-cancel>Отмена</button>';
+    const bindCancel = () => { const b = $('[data-da-cancel]'); if (b) b.onclick = close; };
+    const errorText = (data) => TG_DELETE_ERRORS[data && data.error] || 'Не удалось. Ничего не изменено.';
+    const showMessage = (text) => {
+      step.innerHTML = '<p class="ep-error" role="alert"></p>' + cancelButton;
+      step.querySelector('.ep-error').textContent = text;
+      bindCancel();
+    };
+
+    async function load() {
+      const res = await telegramDeletePost('/api/account/telegram-delete/start');
+      if (!modal.isConnected) return;
+      if (!res.ok) { showMessage(errorText(res.data)); return; }
+      if (res.data.blocker === 'stars_renewal_active') { renewalStep(res.data); return; }
+      warnStep(res.data);
+    }
+    function renewalStep(info) {
+      const r = info.subscription && info.subscription.renewal;
+      step.innerHTML = '<p>У вас подписка Telegram Stars с автопродлением'
+        + (r && r.plan_key ? ' (' + S.escapeHtml(subPlanName(r.plan_key)) + ')' : '') + '.</p>'
+        + '<p>Удаление аккаунта не останавливает списания в Telegram, поэтому сначала отключите автопродление. Оплаченный период и баланс при этом не меняются.</p>'
+        + '<p class="ep-error" id="daError" role="alert" hidden></p>'
+        + '<button class="da-send" type="button" id="daRenewOff">Отключить автопродление</button>' + cancelButton;
+      bindCancel();
+      $('#daRenewOff').onclick = async () => {
+        const button = $('#daRenewOff');
+        button.disabled = true; button.textContent = 'Отключаем…';
+        const data = await subscriptionRequest('cancel');
+        if (!modal.isConnected) return;
+        if (data && data.ok) { step.innerHTML = '<p>Автопродление отключено. Проверяем аккаунт…</p>'; load(); return; }
+        button.disabled = false; button.textContent = 'Отключить автопродление';
+        const box = $('#daError');
+        box.textContent = SUB_ACTION_ERRORS[data && data.error] || 'Не удалось отключить автопродление. Ничего не изменено.';
+        box.hidden = false;
+      };
+    }
+    function warnStep(info) {
+      const sub = info.subscription;
+      const lines = [];
+      lines.push('Будут удалены без возможности восстановления: история генераций, загрузки, результаты и файлы, проекты и настройки.');
+      lines.push('Баланс ' + Number(info.balance || 0).toLocaleString('ru-RU') + ' ⚡ будет потерян.');
+      if (sub && sub.active) {
+        lines.push('Подписка ' + S.escapeHtml(subPlanName(sub.plan_key) || '') + (sub.expires_at ? ' (до ' + fmtDate(sub.expires_at) + ')' : '')
+          + ' прекратится. Возврат оплаты не выполняется.');
+      }
+      lines.push('Обязательные по закону платёжные записи сохраняются.');
+      step.innerHTML = lines.map((t) => '<p>' + t + '</p>').join('')
+        + '<p class="ep-error" id="daError" role="alert" hidden></p>'
+        + '<div id="daHold"></div>' + cancelButton;
+      bindCancel();
+      const hold = window.SylvexHoldButton.create({
+        label: 'Удерживайте, чтобы удалить', doneLabel: 'Аккаунт удаляется',
+        hint: 'Удерживайте 2 секунды, чтобы удалить аккаунт без возможности восстановления',
+        size: 'lg', block: true, backgroundColor: '#27272a', fillColor: '#f60303', textColor: '#f5f5f5', fillTextColor: '#ffffff',
+        radius: 14, holdTime: 2000, releaseTime: 200, pressScale: 0.97, waveAmplitude: 6,
+        onHold: async () => {
+          const res = await telegramDeletePost('/api/account/telegram-delete/confirm',
+            { confirm_token: info.confirm_token, erasure_scope: 'telegram_account_content_v1' });
+          if (res.ok && res.data.accepted) { doneStep(); return; }
+          hold.reset();
+          const box = $('#daError');
+          box.textContent = errorText(res.data);
+          box.hidden = false;
+        },
+      });
+      $('#daHold').appendChild(hold.el);
+    }
+    function doneStep() {
+      step.innerHTML = '<p>Запрос принят. Аккаунт и данные удаляются — обычно в течение нескольких минут.</p>'
+        + '<p>Сеанс SYLVEX завершён.</p>';
+      try { localStorage.clear(); sessionStorage.clear(); } catch {}
+      setTimeout(() => { if (S.tg && S.tg.close) S.tg.close(); else window.location.reload(); }, 2500);
+    }
+    load();
   }
 
   /* ===== Theme picker ===== */
@@ -31634,6 +31760,7 @@ async function waitGenerationJob(jobId, options) {
     document.documentElement.classList.toggle('web-embed', isWebEmbed());
     // Mini App opened directly in a browser (never inside Telegram).
     document.documentElement.classList.toggle('browser-app', isBrowserApp());
+    document.documentElement.classList.toggle('telegram-app', hasTelegramContext() && !isWebEmbed());
     initWebsiteProStudioUi();
     installHistoryActionMenuController();
     initBrowserGuestGuards();

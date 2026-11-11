@@ -9467,6 +9467,7 @@ html.browser-app .settings-ai-assistant-row{display:none!important}
 .ep-error{margin:10px 2px 0;color:#e5484d;font-size:13px;line-height:1.4}
 .ep-danger{display:none}
 html.browser-app .ep-danger{display:block;margin-top:22px}
+html.telegram-app .ep-danger{display:block;margin-top:22px}
 .ep-danger .ep-section-title{color:#e5484d}
 .ep-danger-text{margin:-4px 0 12px;color:var(--text-dim);font-size:13px;line-height:1.45}
 .ep-danger-btn{width:100%;padding:11px;border:1px solid rgba(229,72,77,.55);border-radius:12px;background:transparent;color:#e5484d;font:inherit;font-weight:650;cursor:pointer}

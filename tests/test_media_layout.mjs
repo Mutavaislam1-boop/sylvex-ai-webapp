@@ -36,5 +36,5 @@ test('Media contains only the catalog without requested-to-remove chrome; missin
 test('the Mini App refreshes its separately cached cabinet markup with the Media release',()=>{
  if(!mini)return;
  const index=readFileSync(new URL('webapp/index.html',root),'utf8');
- assert.match(index,/fetch\('cabinet\.html\?v=media-layout-20261104'\)/);
+ assert.match(index,/fetch\('cabinet\.html\?v=telegram-delete-20261111'\)/);
 });

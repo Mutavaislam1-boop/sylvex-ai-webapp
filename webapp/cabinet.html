@@ -1872,12 +1872,12 @@ CSS-класс задаёт внешний вид и расположение: s
       <button class="btn-primary" style="flex:1" id="epSaveBtn" onclick="SYLVEX.saveEditProfile()">Сохранить</button>
     </div>
     <p class="ep-error" id="epError" role="alert" hidden></p>
-    <!-- Browser app only: deleting the SYLVEX account, kept apart from the
-         normal Save controls and confirmed in its own dialog. -->
+    <!-- Browser app and Telegram Mini App: deleting the SYLVEX account, kept
+         apart from the normal Save controls and confirmed in its own dialog. -->
     <div class="ep-danger">
-      <div class="ep-section-title">Delete account</div>
-      <p class="ep-danger-text">Permanently delete your SYLVEX account login. You will need to confirm this.</p>
-      <button class="ep-danger-btn" type="button" onclick="SYLVEX.openDeleteAccount()">Delete account…</button>
+      <div class="ep-section-title">Удаление аккаунта</div>
+      <p class="ep-danger-text">Аккаунт и все данные будут удалены без возможности восстановления. Потребуется подтверждение.</p>
+      <button class="ep-danger-btn" type="button" onclick="SYLVEX.openDeleteAccount()">Удалить аккаунт</button>
     </div>
   </div>
 </div>

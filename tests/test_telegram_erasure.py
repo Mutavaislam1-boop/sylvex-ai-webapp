@@ -303,3 +303,75 @@ def test_end_to_end_bot_cache_then_processor_erases_only_the_subject_and_keeps_p
     assert db.execute("SELECT balance FROM users WHERE telegram_id=%s", (TG,)) == [(0,)]
     assert db.execute("SELECT balance FROM users WHERE telegram_id=%s", (OTHER,)) == [(55,)]
     assert db.execute("SELECT telegram_id,credits FROM purchases ORDER BY id") == [(TG, 100), (OTHER, 200)]
+
+
+# --- S7-04 self-service: the person deletes their own Telegram account --------
+
+SECRET = "test-only-self-erasure-secret"
+
+
+def _preview(db, telegram_id=TG, now=1_000_000):
+    with db.connect() as conn:
+        with conn.cursor() as cur:
+            return tge.self_preview(cur, telegram_id, secret=SECRET, now=now)
+
+
+def _self_confirm(db, token, telegram_id=TG, now=1_000_100, scope=tge.SELF_SCOPE):
+    with db.connect() as conn:
+        with conn.cursor() as cur:
+            return tge.self_confirm(cur, telegram_id, token=token, scope=scope, secret=SECRET, now=now, accept=db.accept)
+
+
+def test_self_preview_shows_the_balance_and_gives_a_token_without_changing_anything(db):
+    reply = _preview(db)
+    assert reply["ok"] and reply["blocker"] is None and reply["balance"] == 77 and reply["expires_in"] == 600
+    assert reply["confirm_token"].startswith(f"{TG}.{ACC}.")
+    assert not db.execute("SELECT 1 FROM sylvex_erasure_requests")
+    assert db.execute("SELECT COUNT(*) FROM prostudio_messages") == [(2,)]
+
+
+def test_self_confirm_accepts_through_the_b09_intake_and_revokes_sessions(db):
+    token = _preview(db)["confirm_token"]
+    done = _self_confirm(db, token)
+    assert done["ok"] and done["accepted"] and done["state"] == "queued"
+    assert db.execute("SELECT account_id,subject_key,ecosystem FROM sylvex_erasure_requests") == [(ACC, TG, "telegram")]
+    assert db.execute("SELECT generation FROM sylvex_tg_session_revocations WHERE telegram_id=%s", (TG,)) == [(1,)]
+    assert db.execute("SELECT balance FROM users WHERE telegram_id=%s", (OTHER,)) == [(55,)]
+    with pytest.raises(tge.TelegramErasureError, match="erasure_already_requested"):
+        _self_confirm(db, token)
+
+
+def test_a_renewing_stars_subscription_blocks_until_it_is_turned_off(db):
+    db.execute("INSERT INTO subscription_agreements(telegram_id,renewal_status) VALUES(%s,'auto')", (TG,))
+    reply = _preview(db)
+    assert reply == {"ok": True, "blocker": "stars_renewal_active", "balance": 77}
+    db.execute("UPDATE subscription_agreements SET renewal_status='canceled'")
+    token = _preview(db)["confirm_token"]
+    db.execute("UPDATE subscription_agreements SET renewal_status='auto'")  # turned back on before confirming
+    with pytest.raises(tge.TelegramErasureError, match="stars_renewal_active"):
+        _self_confirm(db, token)
+    assert not db.execute("SELECT 1 FROM sylvex_erasure_requests")
+
+
+@pytest.mark.parametrize("prepare,code", [
+    ("INSERT INTO admin_accounts(account_id,status) VALUES(110626990001,'active')", "staff_account_requires_handover"),
+    ("UPDATE sylvex_accounts SET merged_at=NOW() WHERE account_id=110626990001", "telegram_scope_requires_review"),
+])
+def test_self_preview_refuses_team_members_and_linked_accounts(db, prepare, code):
+    db.execute(prepare)
+    reply = _preview(db)
+    assert reply["ok"] is False and reply["error"] == code and "confirm_token" not in reply
+
+
+def test_the_token_is_bound_to_the_person_and_expires(db):
+    token = _preview(db)["confirm_token"]
+    other = _preview(db, telegram_id=OTHER)["confirm_token"]
+    with pytest.raises(tge.TelegramErasureError, match="confirmation_invalid"):
+        _self_confirm(db, other)                      # someone else's token
+    with pytest.raises(tge.TelegramErasureError, match="confirmation_invalid"):
+        _self_confirm(db, token[:-1] + ("0" if token[-1] != "0" else "1"))  # tampered
+    with pytest.raises(tge.TelegramErasureError, match="confirmation_expired"):
+        _self_confirm(db, token, now=1_000_000 + 601)
+    with pytest.raises(tge.TelegramErasureError, match="erasure_scope_confirmation_required"):
+        _self_confirm(db, token, scope="web_account_content_v1")
+    assert not db.execute("SELECT 1 FROM sylvex_erasure_requests")

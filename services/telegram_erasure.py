@@ -280,3 +280,69 @@ def status(cur, telegram_id):
     except TelegramErasureError as exc:
         blocker = exc.code
     return {"codes": codes, "request": request, "blocker": blocker, "max_attempts": MAX_ATTEMPTS}
+
+
+# --- Self-service: the person deletes their own Telegram account -----------
+# The same intake and processor; identity is the verified Telegram initData of
+# the Mini App request (no administrator, no 2FA). Two calls:
+#   self_preview(): what will be lost + whether anything blocks it, and a
+#                   short-lived confirmation token bound to this account;
+#   self_confirm(): the person's explicit confirmation with that token.
+# A Telegram Stars subscription that still renews blocks it until the person
+# turns renewal off (the Mini App offers that first).
+SELF_SCOPE = "telegram_account_content_v1"
+SELF_TOKEN_TTL_SECONDS = 600
+
+
+def _self_token_key(secret):
+    if not secret:
+        raise TelegramErasureError("erasure_not_configured", 503)
+    return hmac.new(str(secret).encode(), b"SYLVEX telegram self erasure v1", hashlib.sha256).digest()
+
+
+def self_token(secret, telegram_id, account_id, now):
+    exp = int(now) + SELF_TOKEN_TTL_SECONDS
+    payload = f"{int(telegram_id)}.{int(account_id)}.{exp}"
+    return payload + "." + hmac.new(_self_token_key(secret), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def check_self_token(secret, token, telegram_id, account_id, now):
+    try:
+        uid, acc, exp, sig = str(token or "").split(".")
+        payload = f"{int(uid)}.{int(acc)}.{int(exp)}"
+    except ValueError:
+        raise TelegramErasureError("confirmation_invalid", 400) from None
+    good = hmac.new(_self_token_key(secret), payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(good, sig) or int(uid) != int(telegram_id) or int(acc) != int(account_id):
+        raise TelegramErasureError("confirmation_invalid", 400)
+    if int(exp) < int(now):
+        raise TelegramErasureError("confirmation_expired", 400)
+
+
+def self_preview(cur, telegram_id, *, secret, now):
+    """What the person loses, what blocks it, and the confirmation token."""
+    telegram_id = _telegram_id(telegram_id)
+    cur.execute("SELECT balance FROM users WHERE telegram_id=%s", (telegram_id,))
+    row = cur.fetchone()
+    balance = int(row[0] or 0) if row else 0
+    try:
+        account_id, _ = check_scope(cur, telegram_id)
+    except TelegramErasureError as exc:
+        if exc.code != "stars_renewal_active":
+            return {"ok": False, "error": exc.code, "status": exc.status, "balance": balance}
+        return {"ok": True, "blocker": "stars_renewal_active", "balance": balance}
+    return {"ok": True, "blocker": None, "balance": balance,
+            "confirm_token": self_token(secret, telegram_id, account_id, now),
+            "expires_in": SELF_TOKEN_TTL_SECONDS}
+
+
+def self_confirm(cur, telegram_id, *, token, scope, secret, now, accept):
+    """Accept the person's own, explicitly confirmed request (B09 intake)."""
+    if scope != SELF_SCOPE:
+        raise TelegramErasureError("erasure_scope_confirmation_required", 409)
+    telegram_id = _telegram_id(telegram_id)
+    cur.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", (LOCK_NAMESPACE, str(telegram_id)))
+    account_id, telegram_id = check_scope(cur, telegram_id)  # again: renewal or a team role may have changed
+    check_self_token(secret, token, telegram_id, account_id, now)
+    result = accept(cur, account_id, ecosystem="telegram")
+    return {"ok": True, "accepted": True, "request_id": result["request_id"], "state": result["state"]}

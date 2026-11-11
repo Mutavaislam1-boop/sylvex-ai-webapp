@@ -30834,6 +30834,111 @@ async def admin_v2_telegram_erasure_confirm(request: Request):
     return _telegram_erasure_reply(result)
 
 
+# --- S7-04: the person deletes their own Telegram account (Mini App) ---------
+# Identity: the Telegram initData verified by the security middleware, checked
+# again here so a stale request falling back to the session cookie is refused.
+# No administrator or 2FA. The request goes through the same B09 intake.
+
+def _self_erasure_telegram_id(request: Request) -> int:
+    from services.security import validated_user, SecurityError as _SecurityError
+    state = request.scope.get("state") or {}
+    if state.get("auth_kind") != "telegram":
+        raise HTTPException(status_code=403, detail="telegram_session_required")
+    try:
+        user = validated_user(state.get("telegram_init_data") or "")
+    except (_SecurityError, ValueError):
+        raise HTTPException(status_code=401, detail="telegram_reauth_required")
+    if int(user["id"]) != int(state.get("telegram_id") or 0):
+        raise HTTPException(status_code=403, detail="user_mismatch")
+    return int(user["id"])
+
+
+def _self_erasure_secret() -> str:
+    from services.security import web_session_secret
+    return web_session_secret().hex()
+
+
+def _self_erasure_available() -> bool:
+    from services import account_erasure
+    return (account_erasure.enabled() and account_erasure.accepting()
+            and os.getenv("SYLVEX_ERASURE_TELEGRAM_READY", "").lower() in ("1", "true", "yes"))
+
+
+def _self_erasure_run(work):
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = work(cursor)
+        conn.commit()
+        return result
+    except telegram_erasure.TelegramErasureError as exc:
+        conn.rollback()
+        return {"ok": False, "error": exc.code, "status": exc.status}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/account/telegram-delete/start")
+async def account_telegram_delete_start(request: Request):
+    """What will be deleted, whether a Stars renewal must be turned off first,
+    and a 10-minute confirmation token. Changes nothing."""
+    telegram_id = _self_erasure_telegram_id(request)
+    if not _self_erasure_available():
+        return JSONResponse({"ok": False, "error": "telegram_erasure_unavailable"}, status_code=503)
+    secret = _self_erasure_secret()
+
+    def work(cursor):
+        return telegram_erasure.self_preview(cursor, telegram_id, secret=secret, now=time.time())
+
+    result = await asyncio.to_thread(_self_erasure_run, work)
+    if result.get("ok"):
+        summary = await asyncio.to_thread(shop_orders.subscription_summary, shop_db, telegram_id)
+        result["subscription"] = _subscription_public(summary)
+    status = int(result.pop("status", 200)) if not result.get("ok") else 200
+    return JSONResponse(result, status_code=status, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/account/telegram-delete/confirm")
+async def account_telegram_delete_confirm(request: Request):
+    """The person's explicit confirmation: accepts the erasure request and
+    ends their Mini App sessions (same transaction as the B09 intake)."""
+    telegram_id = _self_erasure_telegram_id(request)
+    if not _self_erasure_available():
+        return JSONResponse({"ok": False, "error": "telegram_erasure_unavailable"}, status_code=503)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        payload = {}
+    secret = _self_erasure_secret()
+    from services import account_erasure
+
+    def accept(cursor, account_id, *, ecosystem):
+        try:
+            return account_erasure.accept_confirmed_request(cursor, account_id, ecosystem=ecosystem)
+        except account_erasure.ErasureError as exc:
+            raise telegram_erasure.TelegramErasureError(exc.code, exc.status) from exc
+
+    def work(cursor):
+        return telegram_erasure.self_confirm(cursor, telegram_id, token=payload.get("confirm_token"),
+                                             scope=payload.get("erasure_scope"), secret=secret,
+                                             now=time.time(), accept=accept)
+
+    result = await asyncio.to_thread(_self_erasure_run, work)
+    if not result.get("ok"):
+        status = int(result.pop("status", 409))
+        return JSONResponse(result, status_code=status, headers={"Cache-Control": "no-store"})
+    print("TELEGRAM_SELF_ERASURE_ACCEPTED:", json.dumps({"request_id": result["request_id"], "state": result["state"]}),
+          flush=True)
+    _ERASURE_WAKE.set()
+    response = JSONResponse(result, status_code=202, headers={"Cache-Control": "no-store"})
+    from services.security import TG_SESSION_COOKIE
+    response.delete_cookie(TG_SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+    return response
+
+
 @app.post("/api/admin/v2/erasure/telegram/cancel")
 async def admin_v2_telegram_erasure_cancel(request: Request):
     body = await _admin_v2_body(request)
