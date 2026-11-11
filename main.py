@@ -44,6 +44,7 @@ from services import edit_sessions as edit_sessions_service
 from services import grid_projects as grid_projects_service
 from services import grid_montage as grid_montage_service
 from services import generation_stages
+from services import ops_alerts
 from services import generation_admin
 from services import usage_analytics
 from services import model_control
@@ -30593,6 +30594,114 @@ def run_subscription_sweep() -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Operational alerts (B11, services/ops_alerts.py): workers stalled, workers
+# dying mid-job, mass generation failures, provider circuits open, and the
+# database unreachable from the API - to the same administration chat as the
+# payment notifications, unless OPS_ALERT_CHAT_ID names another one. Off
+# until OPS_ALERTS_ENABLED=1. The detectors only read; nothing in payments or
+# generations changes. The API itself being down is watched from outside
+# (tools/ops_uptime_check.py).
+# ---------------------------------------------------------------------------
+OPS_ALERTS_ENABLED = os.getenv("OPS_ALERTS_ENABLED", "0") == "1"
+OPS_ALERT_CHAT_ID = int(os.getenv("OPS_ALERT_CHAT_ID", str(SUBSCRIPTION_ADMIN_CHAT_ID)) or SUBSCRIPTION_ADMIN_CHAT_ID)
+OPS_ALERT_INTERVAL_SECONDS = max(30, int(os.getenv("OPS_ALERT_INTERVAL_SECONDS", "60") or 60))
+OPS_ALERT_DB_FAILURES = 3
+
+
+def ops_alert_send(text: str):
+    """(ok, error) - one Telegram message to the administration chat."""
+    if not OPS_ALERT_CHAT_ID:
+        return False, "ops_alert_chat_not_configured"
+    return telegram_bot_api("sendMessage", {"chat_id": OPS_ALERT_CHAT_ID, "text": text,
+                                            "disable_web_page_preview": True})
+
+
+def _ops_alert_log(key, event, ok, error=None):
+    print("OPS_ALERT_DELIVERY:", json.dumps({"alert": key, "event": event, "ok": bool(ok),
+                                             "error": (str(error)[:120] if error else None)}), flush=True)
+
+
+def run_ops_alerts_cycle() -> dict:
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = ops_alerts.evaluate(cursor, ops_alert_send, max_attempts=PROSTUDIO_MAX_JOB_ATTEMPTS)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+    for key, event in result["sent"]:
+        _ops_alert_log(key, event, True)
+    for key, event in result["failed"]:
+        _ops_alert_log(key, event, False)
+    return result
+
+
+async def ops_alerts_worker_loop():
+    print("OPS ALERTS WORKER STARTED", flush=True)
+    db_failures, db_down_notified = 0, False
+    while True:
+        try:
+            await asyncio.to_thread(run_ops_alerts_cycle)
+            if db_down_notified:
+                ok, error = await asyncio.to_thread(
+                    ops_alert_send, ops_alerts.message("resolve", "database_unreachable", ""))
+                _ops_alert_log("database_unreachable", "resolve", ok, error)
+                db_down_notified = not ok
+            db_failures = 0
+        except Exception as exc:
+            db_failures += 1
+            print("OPS_ALERT_CYCLE_FAILED:", type(exc).__name__, flush=True)
+            if db_failures >= OPS_ALERT_DB_FAILURES and not db_down_notified:
+                ok, error = await asyncio.to_thread(ops_alert_send, ops_alerts.message(
+                    "fire", "database_unreachable",
+                    f"Проверка состояния не может работать с БД {db_failures} раз подряд ({type(exc).__name__})."))
+                _ops_alert_log("database_unreachable", "fire", ok, error)
+                db_down_notified = ok
+        await asyncio.sleep(OPS_ALERT_INTERVAL_SECONDS)
+
+
+@app.get("/api/admin/v2/ops/alerts")
+async def admin_v2_ops_alerts(request: Request):
+    """Operational alerts and their deliveries, plus the delivery state of the
+    payment-notification outbox - read only."""
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request, "errors.view")
+        chat = str(OPS_ALERT_CHAT_ID or "")
+        return {"ok": True, **ops_alerts.overview(cursor),
+                "payment_notifications": ops_alerts.subscription_event_delivery(cursor),
+                "config": {"enabled": OPS_ALERTS_ENABLED, "interval_seconds": OPS_ALERT_INTERVAL_SECONDS,
+                           "chat_configured": bool(OPS_ALERT_CHAT_ID), "chat_hint": ("…" + chat[-4:]) if chat else "",
+                           "same_chat_as_payments": OPS_ALERT_CHAT_ID == SUBSCRIPTION_ADMIN_CHAT_ID}}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
+@app.post("/api/admin/v2/ops/alerts/test")
+async def admin_v2_ops_alerts_test(request: Request):
+    """Owner only: one test message to the alert chat, recorded as a delivery.
+    Works before OPS_ALERTS_ENABLED is set, so the recipient can be checked first."""
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "errors.view", mutation=True)
+        if actor.get("role") != admin_rbac.OWNER:
+            raise admin_auth.AdminAuthError("owner_access_required", 403)
+        delivered = ops_alerts.send_test(cursor, ops_alert_send)
+        admin_auth.audit(cursor, actor, "ops_alert_test", risk=admin_rbac.LOW, after={"delivered": delivered})
+        return {"ok": True, "delivered": delivered}
+
+    result = await asyncio.to_thread(_admin_v2_run, work)
+    _ops_alert_log("test", "test", result["delivered"])
+    return _admin_json(result)
+
+
 async def subscription_events_worker_loop():
     print("SUBSCRIPTION EVENTS WORKER STARTED")
     last_sweep = 0.0
@@ -30715,6 +30824,8 @@ async def start_prostudio_generation_worker():
         app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
     if SUBSCRIPTION_EVENTS_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(subscription_events_worker_loop()))
+    if OPS_ALERTS_ENABLED and DATABASE_URL and BOT_TOKEN:
+        app.state.background_tasks.append(asyncio.create_task(ops_alerts_worker_loop()))
     if (DATABASE_URL or PAYMENT_SPOOL.enabled) and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(payment_recovery_worker_loop()))
     if STRIPE_SECRET_KEY and not stripe_key_allowed():
