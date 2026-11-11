@@ -1,0 +1,58 @@
+# B11: external uptime check of the SYLVEX API, independent of Railway.
+# Every 5 minutes (GitHub may delay scheduled runs): GET /health/ready; after
+# 2 failed runs in a row one Telegram alert, a reminder every 6 h, one
+# recovery message. State (dedup, pending retries, delivery log) is carried
+# between runs in the Actions cache. Needs repository secrets
+# OPS_TELEGRAM_BOT_TOKEN and OPS_TELEGRAM_CHAT_ID; scheduled runs only start
+# once this file is on the default branch.
+name: ops-uptime
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check = normal check, test = one test message to the agreed chat"
+        type: choice
+        options: [check, test]
+        default: check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-uptime
+  cancel-in-progress: false
+
+jobs:
+  uptime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/ops_uptime_check.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: .ops-uptime
+          key: ops-uptime-${{ github.run_id }}
+          restore-keys: ops-uptime-
+      - name: Check
+        env:
+          OPS_TELEGRAM_BOT_TOKEN: ${{ secrets.OPS_TELEGRAM_BOT_TOKEN }}
+          OPS_TELEGRAM_CHAT_ID: ${{ secrets.OPS_TELEGRAM_CHAT_ID }}
+          OPS_UPTIME_URLS: ${{ vars.OPS_UPTIME_URLS }}
+          OPS_UPTIME_STATE: .ops-uptime/state.json
+          # Passed as data, never pasted into the shell command.
+          OPS_UPTIME_MODE: ${{ inputs.mode }}
+        run: python3 tools/ops_uptime_check.py --mode "${OPS_UPTIME_MODE:-check}"
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ops-uptime
+          key: ops-uptime-${{ github.run_id }}
