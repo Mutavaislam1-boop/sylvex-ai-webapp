@@ -173,3 +173,24 @@
 2. Ручной запуск `ops-uptime` с `mode=test` → владелец подтверждает сообщение; журнал запуска — `ops_uptime_delivery … ok: true`.
 3. Первый плановый запуск `check` → `ops_uptime_probe … ok: true`, сообщений нет.
 4. После этого S6-08 можно подтверждать.
+
+## Этап 5: внешний мониторинг опубликован и проверен (11.11.2026)
+
+Секреты `OPS_TELEGRAM_BOT_TOKEN` и `OPS_TELEGRAM_CHAT_ID` добавлены владельцем. В журналах запусков они видны только как `***`.
+
+| Время (UTC) | Действие | Результат |
+|---|---|---|
+| 11:21:55 | `main` bd9459f → b654563, fast-forward без force | 3 файла: инструмент, тест, workflow |
+| 11:22:01 | Запуск #1 [43011351746](https://github.com/Mutavaislam1-boop/sylvex-ai-webapp/actions/runs/43011351746), `mode=test` | success; `ops_uptime_delivery … "event": "test", "ok": true, "error": null`; Telegram принял сообщение; кэш сохранён |
+| 11:23:12 | Запуск #2 [43011517260](https://github.com/Mutavaislam1-boop/sylvex-ai-webapp/actions/runs/43011517260), `mode=check` | success; `ops_uptime_probe … https://api.sylvex.ai/health/ready, "ok": true, "detail": "ok"`; сообщений нет; состояние восстановлено из кэша #1 и сохранено |
+
+**Railway Production не изменился:**
+- API — по-прежнему e508bab5 (7a35c7f, 01:56Z);
+- остальные сервисы — прежние развёртывания;
+- staged changes и pendingWork отсутствуют.
+
+**Замечания:**
+- Плановые запуски по cron (каждые 5 мин) GitHub начинает с задержкой после первой публикации workflow. На момент записи плановых запусков ещё не было.
+- Предупреждение GitHub о переводе actions@v4 с Node 20 на Node 24 — только уведомление об устаревании, на работу не влияет.
+
+**Ожидает:** подтверждение владельца, что тестовое сообщение «🧪 SYLVEX: тест внешней проверки доступности. Канал работает.» получено в Telegram. S6-08 до этого не меняется.
