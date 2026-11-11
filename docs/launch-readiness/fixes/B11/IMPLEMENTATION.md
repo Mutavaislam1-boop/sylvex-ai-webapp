@@ -74,3 +74,26 @@
 - Workers, боты, платежи, генерации и переменные не менялись. Тестовых сообщений не было.
 - Откат: Rollback на abfd8437 (9a6dedc).
 - **Страница состояния** — это адрес API, а не раздел в меню консоли: `GET https://api.sylvex.ai/api/admin/v2/ops/alerts` (JSON). Открывается в браузере после входа в консоль (`https://api.sylvex.ai/admin/`, email + пароль + 2FA). Последние 4 цифры чата — поле `config.chat_hint`. Из сессии Claude она недоступна: нужен вход администратора, а домен API не разрешён в сети сессии.
+
+## Этап 3: получатель подтверждён, тест доставки (11.11.2026)
+
+**Данные страницы состояния** (владелец, 01:45:08Z, `GET /api/admin/v2/ops/alerts` → 200):
+- `chat_configured: true`, `chat_hint: …0565`, `same_chat_as_payments: true`, `enabled: false`.
+- `…0565` совпадает с Telegram ID владельца 7932380565 — получатель подтверждён.
+
+**Отправка одного теста — делает владелец** (у Claude нет сессии владельца, домен API закрыт в сети сессии):
+1. В браузере открыть `https://api.sylvex.ai/admin/` и войти (email, пароль, 2FA).
+2. На этой вкладке открыть консоль разработчика (Safari: «Разработка» → «Показать веб-инспектор» → «Консоль»; Chrome: F12 → Console) и выполнить:
+   ```js
+   const me = await (await fetch('/api/admin/v2/auth/me')).json();
+   const r = await fetch('/api/admin/v2/ops/alerts/test', {method: 'POST', headers: {'X-Admin-CSRF': me.csrf_token}});
+   console.log(r.status, await r.json());
+   ```
+   Ожидаемо: `200 {ok: true, delivered: true}`. Запрос выполнять **один раз**.
+3. В Telegram от основного бота SYLVEX приходит «🧪 SYLVEX: тестовое оповещение. Канал критических уведомлений работает.»
+
+**Проверка** (Claude, по логам Railway):
+- `POST /api/admin/v2/ops/alerts/test` → 200;
+- строка `OPS_ALERT_DELIVERY: {"alert": "test", "event": "test", "ok": true, ...}` — печатается после записи в `ops_alert_deliveries` и в аудит (`ops_alert_test`).
+
+Журнал доставки можно также увидеть в `GET /api/admin/v2/ops/alerts` → `deliveries[0]` (`alert_key: test`, `ok: true`).
