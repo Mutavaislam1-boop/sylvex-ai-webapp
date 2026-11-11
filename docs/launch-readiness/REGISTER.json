@@ -4081,12 +4081,13 @@
         "SX002_LOCAL",
         "SX002_PRODUCTION",
         "LB003_PRODUCTION",
-        "B09_REMAINING"
+        "B09_REMAINING",
+        "B09_FIX_PLAN"
       ],
       "blocker_ids": [
         "B09"
       ],
-      "next_action": "Решение владельца: разрешить приём запроса на удаление Telegram-аккаунта (через поддержку или /delete) и включение SYLVEX_ERASURE_TELEGRAM_READY=1 с проверкой на тестовом аккаунте, либо принять запуск с этим риском (статус остаётся «Ошибка»).",
+      "next_action": "Развёртывание по fixes/B09/FIX_PLAN.md (шаги 1, 3, 4) с разрешения владельца; затем одна проверка на тестовом Telegram-аккаунте владельца.",
       "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -4185,10 +4186,18 @@
           "previous_status": "Ошибка",
           "evidence_id": "B09_REMAINING",
           "reason": "Уточнён точный остаток по коду Production и документам; статус не меняется."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T15:00:00+00:00",
+          "status": "Ошибка",
+          "previous_status": "Ошибка",
+          "evidence_id": "B09_FIX_PLAN",
+          "reason": "Исправление подготовлено в ветке и протестировано; не развёрнуто, статус не меняется."
         }
       ],
       "open_subchecks": {
-        "telegram_erasure": "defect: no Telegram erasure intake - accept_confirmed_request is called only with ecosystem='website' (services/account_identity.py:1327); no bot /delete; SYLVEX_ERASURE_TELEGRAM_READY=0 only gates intake; bot cache clear (forget_loop) exists",
+        "telegram_erasure": "fix prepared, not deployed: claude/b09-telegram-erasure 9810451 - support intake (users.delete, fresh TOTP, one-time code to the account's own Telegram chat, retyped ID, audit) into the B09-WEB processor; deploy needs SYLVEX_ERASURE_ENABLED=1 on the main bot and SYLVEX_ERASURE_TELEGRAM_READY=1 on the API",
         "native_stars": "not a defect of S7-04; tracked in S8-02"
       }
     },
@@ -4934,12 +4943,13 @@
         "LB",
         "SRC",
         "S808_7DAY_PRODUCTION",
-        "B09_REMAINING"
+        "B09_REMAINING",
+        "B09_FIX_PLAN"
       ],
       "blocker_ids": [
         "B09"
       ],
-      "next_action": "Владелец: Monthly не включать, ручные копии удалять ≤ 30 дней, сверить срок логов Railway Pro. С разрешения: плановая очистка логов ошибок в БД (30 дней) и закрытых обращений (12 месяцев) либо отдельное решение по текстам документов. Telegram erasure — по S7-04.",
+      "next_action": "Развёртывание по fixes/B09/FIX_PLAN.md (шаги 1-2: предпросмотр, затем DATA_RETENTION_ENABLED=1) с разрешения владельца; владелец: срок логов Railway Pro, копии Auto Update, ручные копии.",
       "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -4995,18 +5005,27 @@
           "previous_status": "Ошибка",
           "evidence_id": "B09_REMAINING",
           "reason": "Уточнён точный остаток по коду Production и документам; статус не меняется."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T15:00:00+00:00",
+          "status": "Ошибка",
+          "previous_status": "Ошибка",
+          "evidence_id": "B09_FIX_PLAN",
+          "reason": "Исправление подготовлено в ветке и протестировано; не развёрнуто, статус не меняется."
         }
       ],
       "open_subchecks": {
         "backups_retention": "compliant if Monthly stays off: daily 6 d, weekly 27 d (policy: up to 30 days)",
-        "manual_backups": "manual 2.24 GB backup (11.11) and the C2 copy: no expiry - delete within 30 days of creation",
+        "manual_backups": "manual 2.24 GB backup (11.11): delete by 11.12.2026; C2 copy within 30 days of creation",
         "auto_update_backups": "retention undocumented - check in Backups",
         "platform_logs": "Railway log retention on Pro to be checked against the 30-day promise",
-        "db_logs": "defect: prostudio_errors / prostudio_error_reports (telegram_id, prompt) have no cleanup",
-        "support_records": "defect: support_threads / support_messages have no 12-months-after-closure cleanup",
+        "db_logs": "fix prepared, not deployed: claude/b09-retention 216965d - prostudio_errors / prostudio_error_reports older than 30 days",
+        "support_records": "fix prepared, not deployed: closed conversations 12 months after closure, own attachments; unresolved payment review keeps them",
         "restore_reapplies_erasure": "present: sylvex-erasure-journal (B09-WEB)",
         "bot_7day_expiry": "fixed (b5064bc0)",
-        "telegram_erasure": "owner decision, see S7-04"
+        "telegram_erasure": "owner decision, see S7-04",
+        "erasure_fences": "fix prepared: finished sylvex_active_operations older than 1 day"
       }
     },
     {
@@ -5395,6 +5414,10 @@
     "B09_REMAINING": {
       "path": "fixes/B09/REMAINING.md",
       "scope": "Точный остаток S7-04/S8-08 по коду Production и опубликованным документам; без изменений"
+    },
+    "B09_FIX_PLAN": {
+      "path": "fixes/B09/FIX_PLAN.md",
+      "scope": "Исправления S7-04 и S8-08 в ветках, тесты, сверка сроков Railway и план развёртывания; не развёрнуто"
     }
   },
   "launch_blocker_groups": [
@@ -5456,8 +5479,9 @@
         "B09-WEB",
         "S8-08 7-day history expiry"
       ],
-      "awaiting": "S7-04: приём запроса на удаление Telegram-аккаунта (решение владельца). S8-08: ручные копии ≤ 30 дней, срок логов Railway, очистка логов ошибок в БД (30 дней) и обращений (12 месяцев). S5-08 — вместе с B09.",
-      "remaining_evidence": "B09_REMAINING"
+      "awaiting": "Разрешение владельца на развёртывание (FIX_PLAN шаги 1-4) и живая проверка; владелец: срок логов Railway Pro, копии Auto Update, удаление ручной копии до 11.12.2026. S5-08 — вместе с B09.",
+      "remaining_evidence": "B09_REMAINING",
+      "local_progress": "Исправления в ветках: claude/b09-telegram-erasure 9810451 (S7-04), claude/b09-retention 216965d (S8-08); тесты пройдены, объединяются без конфликтов"
     },
     {
       "id": "B10",
@@ -5793,7 +5817,7 @@
     "sylvex-ai-webapp": "b654563da9bfb8f7e836863e682473eeeae7d22c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B08 schedule owner-confirmed; B09 remaining scope of S7-04/S8-08 recorded",
-  "last_updated_atUTC": "2026-11-11T13:00:00+00:00",
-  "latest_work_phase": "B09_SCOPED"
+  "last_controlled_change": "B09 fixes for S7-04 and S8-08 prepared in branches; not deployed",
+  "last_updated_atUTC": "2026-11-11T15:00:00+00:00",
+  "latest_work_phase": "B09_FIXES_PREPARED"
 }
