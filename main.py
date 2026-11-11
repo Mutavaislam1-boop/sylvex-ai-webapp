@@ -30604,6 +30604,66 @@ def run_subscription_sweep() -> dict:
 # generations changes. The API itself being down is watched from outside
 # (tools/ops_uptime_check.py).
 # ---------------------------------------------------------------------------
+# --- B09 / S8-08: retention of error logs (30 days) and closed support
+# conversations (12 months after closure). Off until DATA_RETENTION_ENABLED=1;
+# GET /api/admin/v2/retention shows what a pass would remove, changing nothing.
+DATA_RETENTION_ENABLED = os.getenv("DATA_RETENTION_ENABLED", "0") == "1"
+DATA_RETENTION_INTERVAL_SECONDS = max(600, int(os.getenv("DATA_RETENTION_INTERVAL_SECONDS", "21600") or 21600))
+
+
+def run_data_retention_pass() -> dict:
+    from services import data_retention
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        result = data_retention.purge_once(cursor)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+    keys = result.pop("attachment_keys", [])
+    if keys:
+        result["attachments_deleted"], result["attachments_failed"] = data_retention.delete_attachments(keys, storage_delete)
+    return result
+
+
+async def data_retention_worker_loop():
+    print("DATA RETENTION WORKER STARTED")
+    while True:
+        try:
+            while True:
+                result = await asyncio.to_thread(run_data_retention_pass)
+                removed = (sum(result.get("error_logs", {}).values()) + result.get("support_threads", 0)
+                           + result.get("finished_operations", 0))
+                if removed or result.get("attachments_failed"):
+                    print("DATA_RETENTION:", json.dumps(result, sort_keys=True), flush=True)
+                if not removed:
+                    break  # a full batch: continue right away; otherwise wait
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print("DATA_RETENTION_FAILED:", type(exc).__name__, flush=True)
+        await asyncio.sleep(DATA_RETENTION_INTERVAL_SECONDS)
+
+
+@app.get("/api/admin/v2/retention")
+async def admin_v2_retention_preview(request: Request):
+    """Counts a retention pass would remove now (read only)."""
+    _admin_v2_ready(request)
+
+    from services import data_retention
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request, "errors.view")
+        return {"ok": True, "enabled": DATA_RETENTION_ENABLED,
+                "interval_seconds": DATA_RETENTION_INTERVAL_SECONDS, **data_retention.preview(cursor)}
+
+    return _admin_json(await asyncio.to_thread(_admin_v2_run, work))
+
+
 OPS_ALERTS_ENABLED = os.getenv("OPS_ALERTS_ENABLED", "0") == "1"
 OPS_ALERT_CHAT_ID = int(os.getenv("OPS_ALERT_CHAT_ID", str(SUBSCRIPTION_ADMIN_CHAT_ID)) or SUBSCRIPTION_ADMIN_CHAT_ID)
 OPS_ALERT_INTERVAL_SECONDS = max(30, int(os.getenv("OPS_ALERT_INTERVAL_SECONDS", "60") or 60))
@@ -30912,6 +30972,8 @@ async def start_prostudio_generation_worker():
         app.state.background_tasks.append(asyncio.create_task(subscription_events_worker_loop()))
     if OPS_ALERTS_ENABLED and DATABASE_URL and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(ops_alerts_worker_loop()))
+    if DATA_RETENTION_ENABLED and DATABASE_URL:
+        app.state.background_tasks.append(asyncio.create_task(data_retention_worker_loop()))
     if (DATABASE_URL or PAYMENT_SPOOL.enabled) and BOT_TOKEN:
         app.state.background_tasks.append(asyncio.create_task(payment_recovery_worker_loop()))
     if STRIPE_SECRET_KEY and not stripe_key_allowed():
