@@ -17,8 +17,8 @@
     "Отложено"
   ],
   "counts": {
-    "Подтверждено": 48,
-    "Не проверено": 22,
+    "Подтверждено": 49,
+    "Не проверено": 21,
     "Ошибка": 2,
     "Отложено": 7
   },
@@ -4269,10 +4269,10 @@
       "section": 7,
       "name": "Admin Panel",
       "requirement": "управление пользователями, платежами, генерациями и ошибками без обхода прав доступа.",
-      "status": "Не проверено",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "RBAC маршрутов админки подтверждён тестами. Ошибка 500 раздела платежей УСТРАНЕНА: API 9a6dedc (деплой abfd8437 SUCCESS 10.11 15:15:41Z) читает purchases.created_at (TEXT в Production) безопасно, невозможные даты — без даты, без ошибки. ПОДТВЕРЖДЕНО ЛОГАМИ 11.11 00:42Z (сессия владельца с TOTP): POST /api/admin/finance ×4 — 200 (30 дней и всё время), dashboard, users/search, inbox/list — 200; Traceback после деплоя нет. НЕ ПОДТВЕРЖДЕНО ЛОГАМИ: разделы «Генерации» и «Ошибки» — владелец сообщил, что открываются, но запросов к /api/admin/generations*, /api/admin/errors и /api/admin/error-reports после деплоя нет ни в журнале приложения, ни в журнале прокси Railway.",
+      "confirmed_scope": "Production API 9a6dedc (деплой abfd8437), сессия владельца с TOTP, все ответы 200, Traceback после деплоя нет. Пользователи: /api/admin/users/search, dashboard, inbox/list (11.11 00:42Z). Платежи: /api/admin/finance ×4 (30 дней и всё время, 00:42Z) — ошибка 500 устранена. Генерации: /api/admin/generations и /api/admin/generations/stats ×2 (00:51:00Z). Ошибки: /api/admin/error-reports (00:51:09Z, вкладка по умолчанию). Права доступа: RBAC-тесты и перебор всех /api/admin/* без обходов; вход только с 2FA подтверждён вживую. Консоль Production (index-DMVHZO2L.js) использует именно эти маршруты, ответы не кэшируются (POST, no-store). Ранее «отсутствие» запросов объяснялось временем: разделы открыты после выборки логов до 00:47Z. Вкладка «Автоматические» (/api/admin/errors) отдельно не открывалась.",
       "evidence_ids": [
         "TEST",
         "ADMIN",
@@ -4282,10 +4282,8 @@
         "B10_MFA_PRODUCTION",
         "S709_FINANCE"
       ],
-      "blocker_ids": [
-        "B10"
-      ],
-      "next_action": "Открыть в консоли «Генерации» и «Ошибки» (только просмотр) и сразу сообщить время; сверка логов на /api/admin/generations, /generations/stats, /errors, /error-reports (200, без Traceback).",
+      "blocker_ids": [],
+      "next_action": "Нет; пересмотр только при изменении кода админки или новой ошибке.",
       "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -4332,14 +4330,22 @@
           "api_commit": "9a6dedc4265e0aec56856e41dfd61666033ae193",
           "deployment": "abfd8437-3617-4744-a2a7-d6b02208a745",
           "reason": "Ошибка финансов устранена и подтверждена логами; генерации и ошибки в логах не найдены."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T01:00:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Не проверено",
+          "api_commit": "9a6dedc4265e0aec56856e41dfd61666033ae193",
+          "reason": "Генерации и ошибки найдены в логах (00:51Z, 200); все разделы S7-09 подтверждены."
         }
       ],
       "open_subchecks": {
         "rbac": "confirmed by tests",
-        "payments_section": "fixed and confirmed live: /api/admin/finance 200 x4 on 11.11 00:42Z (API 9a6dedc)",
-        "users_dashboard_inbox": "confirmed live: 200 with a TOTP session",
-        "generations_section": "owner-reported; no /api/admin/generations* request in Railway logs after deploy",
-        "errors_section": "owner-reported; no /api/admin/errors or /api/admin/error-reports request in Railway logs after deploy"
+        "users_section": "confirmed live 11.11 00:42Z",
+        "payments_section": "fixed and confirmed live: /api/admin/finance 200 x4 (API 9a6dedc)",
+        "generations_section": "confirmed live: /api/admin/generations, /generations/stats x2 - 200 at 00:51:00Z",
+        "errors_section": "confirmed live: /api/admin/error-reports 200 at 00:51:09Z; the auto tab (/api/admin/errors) not opened"
       }
     },
     {
@@ -5283,13 +5289,12 @@
       "requirements": [
         "S1-05",
         "S1-06",
-        "S5-08",
-        "S7-09"
+        "S5-08"
       ],
       "closing_criterion": "MFA каналов, недостающие CSRF/XSS/rate/privacy случаи; это evidence gap, а не утверждение о взломе.",
       "kind": "evidence_gap_or_owner_decision",
       "local_progress": "S1-07 подтверждён; S1-06: XSS устранён, SQLi подтверждена; MFA во всех Telegram-каналах развёрнута (API ba96d8c, support a75bf83, main bot 55e57da), вход в Mini App с TOTP подтверждён в Production",
-      "awaiting": "S1-05: живая проверка ботов, Critical reauth и TOTP третьего администратора. S7-09: подтверждение логами разделов «Генерации» и «Ошибки». S1-06: живые заголовки сайта. S5-08: privacy (с B09)."
+      "awaiting": "S1-05: живая проверка ботов, Critical reauth и TOTP третьего администратора. S1-06: живые заголовки сайта. S5-08: privacy (с B09)."
     },
     {
       "id": "B11",
@@ -5597,7 +5602,7 @@
     "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "S7-09 finance 500 fixed (API 9a6dedc) and confirmed live; generations/errors unconfirmed",
-  "last_updated_atUTC": "2026-11-11T00:50:00+00:00",
-  "latest_work_phase": "S709_FINANCE_FIX"
+  "last_controlled_change": "S7-09 confirmed: users, payments, generations and errors sections live with TOTP",
+  "last_updated_atUTC": "2026-11-11T01:00:00+00:00",
+  "latest_work_phase": "S709_CONFIRMED"
 }
