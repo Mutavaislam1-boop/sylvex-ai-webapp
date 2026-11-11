@@ -34,6 +34,7 @@ jobs:
         with:
           sparse-checkout: tools/ops_uptime_check.py
           sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Restore state
         uses: actions/cache/restore@v4
         with:
@@ -46,7 +47,9 @@ jobs:
           OPS_TELEGRAM_CHAT_ID: ${{ secrets.OPS_TELEGRAM_CHAT_ID }}
           OPS_UPTIME_URLS: ${{ vars.OPS_UPTIME_URLS }}
           OPS_UPTIME_STATE: .ops-uptime/state.json
-        run: python3 tools/ops_uptime_check.py --mode "${{ inputs.mode || 'check' }}"
+          # Passed as data, never pasted into the shell command.
+          OPS_UPTIME_MODE: ${{ inputs.mode }}
+        run: python3 tools/ops_uptime_check.py --mode "${OPS_UPTIME_MODE:-check}"
       - name: Save state
         if: always()
         uses: actions/cache/save@v4
