@@ -17,8 +17,8 @@
     "Отложено"
   ],
   "counts": {
-    "Подтверждено": 50,
-    "Не проверено": 20,
+    "Подтверждено": 51,
+    "Не проверено": 19,
     "Ошибка": 2,
     "Отложено": 7
   },
@@ -3643,20 +3643,18 @@
       "section": 6,
       "name": "Monitoring & Alerts",
       "requirement": "уведомления о критических ошибках, падениях, проблемах с оплатой и генерациями.",
-      "status": "Не проверено",
+      "status": "Подтверждено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Есть в Production-коде (API 9a6dedc, боты 55e57da/a75bf83): платёжные оповещения Telegram Stars через очередь subscription_events — payment_error, payment_attention, management_error и события подписок — в SUBSCRIPTION_ADMIN_CHAT_ID (не задан → ADMIN_ID API) от основного бота, с повторами и last_error, без влияния на оплату (тесты Codex test_stars_subscriptions); оповещения безопасности админки (новое устройство, 3 неверных кода) администратору и SUPERADMIN; healthcheck /health/ready и restart ON_FAILURE. НЕТ: оповещений о падении/недоступности сервисов (вебхуков Railway нет), о массовых ошибках генераций/провайдерах/зависших заданиях, о неудачных платежах Stripe (тестовый режим, B07), о разборах возвратов и erasure. ДОСТАВКА НЕ ПОДТВЕРЖДЕНА: успех не логируется, ошибки только в БД; получатель ADMIN_ID API не наблюдался.",
+      "confirmed_scope": "Встроенные оповещения P0 в Production: API 7a35c7f, деплой e508bab5, OPS_ALERTS_ENABLED=1 с 11.11 02:01Z. Они срабатывают, если воркеры не забирают задания 5 мин, задание processing без heartbeat 10 мин, массовые ошибки генераций (≥5 и ≥50% за 15 мин), circuit провайдера не CLOSED или API не видит БД. Одно сообщение, напоминание раз в 6 ч, восстановление; журнал ops_alert_deliveries. Получатель — чат владельца …0565, тот же, что у платёжных уведомлений (same_chat_as_payments=true). Тест 01:53:10Z доставлен (ok=true) и получен владельцем; ложных тревог нет. Внешняя проверка вне Railway (GitHub Actions ops-uptime, main b654563, каждые 5 мин): /health/ready — API и БД; тревога после 2 неудач, напоминания, восстановление, письмо GitHub как запасной канал. Тест-запуск 43011351746 ok=true, владелец подтвердил получение; check-запуск 43011517260 — ok, без сообщений. Платёжные (Telegram Stars) — существующая очередь subscription_events, тот же отправитель (BOT_TOKEN API) и чат, что и подтверждённый тест. Реальных платёжных ошибок не наблюдалось, искусственные не создавались. Вне объёма: Stripe (тестовый режим, B07); боты и простой воркеров при пустой очереди не отслеживаются (fixes/B11/IMPLEMENTATION.md, «Ограничения»).",
       "evidence_ids": [
         "LIVE",
         "LB",
         "B11_ALERTS",
         "B11_IMPLEMENTATION"
       ],
-      "blocker_ids": [
-        "B11"
-      ],
-      "next_action": "Этап 5 по разрешению владельца: секреты GitHub OPS_TELEGRAM_BOT_TOKEN/OPS_TELEGRAM_CHAT_ID, слияние workflow в main, тестовый запуск mode=test. Затем S6-08 можно подтвердить.",
+      "blocker_ids": [],
+      "next_action": "Нет; пересмотр при изменении ops_alerts/ops-uptime, получателя или при пропущенном сбое.",
       "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -3722,17 +3720,30 @@
           "previous_status": "Не проверено",
           "deployment": "e508bab5-84dc-4336-80db-d76d6c97d9b8",
           "reason": "Тест доставки подтверждён; встроенные оповещения включены без ложных тревог; внешняя проверка не включена."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T11:45:00+00:00",
+          "status": "Подтверждено",
+          "previous_status": "Не проверено",
+          "api_commit": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
+          "github_main_commit": "b654563da9bfb8f7e836863e682473eeeae7d22c",
+          "github_runs": [
+            "43011351746",
+            "43011517260"
+          ],
+          "reason": "Внешняя проверка опубликована, тест доставлен и получен владельцем; встроенные оповещения работают без ложных тревог. B11 закрыт."
         }
       ],
       "open_subchecks": {
         "payment_alerts_code": "present: subscription_events outbox (Telegram Stars payment_error/attention, management_error)",
-        "payment_alerts_delivery": "not confirmed: owner SQL fixes/B11/owner_alert_delivery_readonly.sql + receipt in Telegram",
-        "service_down_alerts": "external GitHub Actions uptime check prepared, not enabled (stage 5)",
-        "generation_alerts": "missing: no admin alert on generation failures / provider circuit / stuck jobs",
-        "stripe_alerts": "missing (Stripe in test mode, see B07)",
+        "payment_alerts_delivery": "same sender (API BOT_TOKEN) and chat …0565 as the confirmed test (same_chat_as_payments=true); no real payment-error event observed, none created",
+        "service_down_alerts": "confirmed: GitHub Actions ops-uptime on main b654563; test run 43011351746 delivered, received by the owner; check run 43011517260 ok",
+        "generation_alerts": "confirmed: workers_stalled, workers_stale_jobs, generation_failures, provider_circuit in Production (enabled 02:01Z)",
+        "stripe_alerts": "out of scope: Stripe in test mode (B07)",
         "implementation": "API 7a35c7f in Production; in-app alerts ENABLED 11.11 02:01Z (deployment e508bab5)",
-        "alert_delivery": "confirmed live: test message 11.11 01:53:10Z delivered (ok=true, recorded), owner received it in Telegram",
-        "false_alarms": "none in the first ~7 cycles (02:01-02:07Z): no deliveries, no cycle failures"
+        "alert_delivery": "confirmed live: in-app test 01:53:10Z and external test 11:22Z delivered (ok=true), both received by the owner",
+        "false_alarms": "none: in-app ~7 cycles 02:01-02:07Z; external check run 11:23Z ok without a message"
       }
     },
     {
@@ -5373,19 +5384,6 @@
       "awaiting": "S1-05: окно повторного TOTP и /admin основного бота; третий администратор — отложено. S5-08: privacy (с B09)."
     },
     {
-      "id": "B11",
-      "priority": "P0",
-      "title": "Доставка критических alerts не подтверждена",
-      "related_issue": "S6-08",
-      "requirements": [
-        "S6-08"
-      ],
-      "closing_criterion": "Ответственный получатель и согласованный тестовый alert. Никаких сообщений без разрешения.",
-      "kind": "evidence_gap_or_owner_decision",
-      "local_progress": "Встроенные оповещения P0 включены 11.11 (API 7a35c7f), доставка подтверждена тестом",
-      "awaiting": "Этап 5: внешняя проверка доступности API (GitHub Actions) — секреты и разрешение владельца."
-    },
-    {
       "id": "B12",
       "priority": "P0",
       "title": "Общий provider/resource/spend cap не подтверждён",
@@ -5665,6 +5663,31 @@
         "awaiting": "One remaining prior dependency finding at a time; do not recheck resolved certifi/Pillow without relevant change",
         "production_progress": "certifi/Pillow deployed and runtime verified 6/6. Other prior findings remain open."
       }
+    },
+    {
+      "id": "B11-ALERTS",
+      "former_blocker": "B11",
+      "status": "CLOSED_DEPLOYED_AND_CONTROL_CHECKED",
+      "closedAtUTC": "2026-11-11T11:45:00+00:00",
+      "api_commit": "7a35c7f9d79c772d6035a9f39bae040d37f9d992",
+      "api_deployment": "e508bab5",
+      "github_main_commit": "b654563da9bfb8f7e836863e682473eeeae7d22c",
+      "evidence_id": "B11_IMPLEMENTATION",
+      "scope": "Оповещения P0 в Telegram владельцу: воркеры, задания, ошибки генераций, провайдеры, БД (в API) и недоступность API/БД (GitHub Actions вне Railway). Дедуп, напоминания, восстановление, журнал доставки.",
+      "owner_confirmed": "Test messages received in Telegram: in-app 01:53:10Z and external (GitHub Actions) 11:22Z",
+      "closed_blocker_snapshot": {
+        "id": "B11",
+        "priority": "P0",
+        "title": "Доставка критических alerts не подтверждена",
+        "related_issue": "S6-08",
+        "requirements": [
+          "S6-08"
+        ],
+        "closing_criterion": "Ответственный получатель и согласованный тестовый alert. Никаких сообщений без разрешения.",
+        "kind": "evidence_gap_or_owner_decision",
+        "local_progress": "Встроенные оповещения P0 включены 11.11 (API 7a35c7f), доставка подтверждена тестом",
+        "awaiting": "Этап 5: внешняя проверка доступности API (GitHub Actions) — секреты и разрешение владельца."
+      }
     }
   ],
   "production_role_commits": {
@@ -5677,10 +5700,10 @@
     "main_telegram_bot": "55e57dad01fffc6c627f637621cebaefd96b9aca"
   },
   "github_main_commits": {
-    "sylvex-ai-webapp": "7b3fefa43eeff659a3168636fffe3cbcaf87186c",
+    "sylvex-ai-webapp": "b654563da9bfb8f7e836863e682473eeeae7d22c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B11 stage 4: OPS_ALERTS_ENABLED=1, test delivery confirmed, no false alarms",
-  "last_updated_atUTC": "2026-11-11T02:10:00+00:00",
-  "latest_work_phase": "B11_ALERTS_ENABLED"
+  "last_controlled_change": "S6-08 confirmed, B11 closed: external uptime check live, test delivered and received",
+  "last_updated_atUTC": "2026-11-11T11:45:00+00:00",
+  "latest_work_phase": "B11_CLOSED"
 }
