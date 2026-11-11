@@ -83,6 +83,9 @@ SPECIAL = frozenset({
     # The credit wallet (LR-002) is not payment evidence: the erasure removes
     # the remaining balance together with the account (owner decision 08.11).
     "user_credit_wallets",
+    # Support-assisted Telegram erasure intake (S7-04): control record of the
+    # request like sylvex_erasure_requests; the code hash is cleared on close.
+    "sylvex_tg_erasure_confirmations",
 })
 
 SHARED_CATALOG = frozenset({

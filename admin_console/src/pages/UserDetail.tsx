@@ -6,6 +6,7 @@ import {
   ConfirmAction, Empty, ErrorNotice, fmtDate, fmtMoneyMap, fmtNum, GRANT_REASONS, Identity, Loading, Modal, refPayload,
   SourceBadges, STAFF_REASONS, StatusBadge, useAsync,
 } from "../ui";
+import TelegramErasure from "./TelegramErasure";
 import { CHANNEL_LABEL, Composer, Delivery, DeliveryBadges, Draft, draftPayload, draftProblem, emptyDraft, telegramErrorText } from "./messaging";
 
 type Detail = {
@@ -139,7 +140,7 @@ function AssignRole({ target, staff, onClose, onSaved }: {
   );
 }
 
-type Action = null | "balance" | "extend" | "cancel" | "message" | "block" | "unblock" | "role";
+type Action = null | "balance" | "extend" | "cancel" | "message" | "block" | "unblock" | "role" | "tgerase";
 
 const PLANS = [
   { key: "", name: "", period: "" },
@@ -235,6 +236,8 @@ export default function UserDetail({ refId }: { refId: string }) {
             ? <button className="btn" onClick={() => setAction("unblock")}>{t("Unblock")}</button>
             : <button className="btn danger" disabled={staffRole === "owner"} onClick={() => setAction("block")}>{t("Block")}</button>)}
           {isOwner && a.sylvex_user_id && staffRole !== "owner" && <button className="btn" onClick={() => setAction("role")}>{t("Assign role")}</button>}
+          {can("users.delete") && id?.account_origin === "telegram" && a.telegram_id && !staffRole && (
+            <button className="btn danger" onClick={() => setAction("tgerase")}>{t("Delete Telegram account")}</button>)}
           {can("generations.view") && a.sylvex_user_id && <button className="btn ghost" onClick={() => go(`generations?sylvex=${a.sylvex_user_id}`)}>{t("All generations")} →</button>}
           {can("audit.view") && a.sylvex_user_id && <button className="btn ghost" onClick={() => go(`audit?target=${a.sylvex_user_id}`)}>{t("Audit history")} →</button>}
         </div>
@@ -403,6 +406,9 @@ export default function UserDetail({ refId }: { refId: string }) {
       )}
       {action === "role" && a.sylvex_user_id && (
         <AssignRole target={{ sylvex_user_id: a.sylvex_user_id }} staff={data.staff} onClose={() => setAction(null)} onSaved={reload} />
+      )}
+      {action === "tgerase" && a.telegram_id && (
+        <TelegramErasure telegramId={a.telegram_id} onClose={() => setAction(null)} onDone={reload} />
       )}
     </div>
   );

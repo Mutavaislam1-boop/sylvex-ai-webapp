@@ -100,5 +100,8 @@ const ACTIONS: Record<string, string> = {
   admin_login: "Signed in", admin_login_failed: "Wrong 2FA code", admin_login_suspicious: "Suspicious sign-in",
   admin_logout: "Signed out", admin_logout_all: "Signed out everywhere", admin_session_revoked: "Session ended",
   admin_reauth: "Identity confirmed", admin_totp_enabled: "Two-factor turned on", admin_totp_enrollment_started: "Two-factor setup started",
+  telegram_erasure_code_sent: "Deletion code sent", telegram_erasure_code_failed: "Deletion code not delivered",
+  telegram_erasure_code_locked: "Deletion code locked", telegram_erasure_cancelled: "Deletion request cancelled",
+  telegram_erasure_accepted: "Telegram account deletion accepted",
 };
 export const actionLabel = (action: string) => (ACTIONS[action] ? t(ACTIONS[action]) : action);

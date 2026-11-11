@@ -45,6 +45,7 @@ from services import grid_projects as grid_projects_service
 from services import grid_montage as grid_montage_service
 from services import generation_stages
 from services import ops_alerts
+from services import telegram_erasure
 from services import generation_admin
 from services import usage_analytics
 from services import model_control
@@ -30700,6 +30701,91 @@ async def admin_v2_ops_alerts_test(request: Request):
     result = await asyncio.to_thread(_admin_v2_run, work)
     _ops_alert_log("test", "test", result["delivered"])
     return _admin_json(result)
+
+
+# --- B09 / S7-04: support-assisted erasure of a Telegram account -------------
+# Critical permission users.delete (fresh TOTP re-authentication). The code
+# goes from the bot to the account's own chat only; the console never sees it.
+
+def _telegram_erasure_send(telegram_id: int, text: str):
+    return telegram_bot_api("sendMessage", {"chat_id": int(telegram_id), "text": text,
+                                            "disable_web_page_preview": True})
+
+
+def _telegram_erasure_run(work):
+    try:
+        return _admin_v2_run(work)
+    except telegram_erasure.TelegramErasureError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code)
+
+
+def _telegram_erasure_reply(result):
+    status = int(result.pop("status", 200)) if not result.get("ok") else 200
+    return _admin_json(result, status)
+
+
+@app.get("/api/admin/v2/erasure/telegram")
+async def admin_v2_telegram_erasure_status(request: Request, telegram_id: str = ""):
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        _admin_v2_actor(cursor, request, "users.view")
+        return {"ok": True, **telegram_erasure.status(cursor, telegram_id)}
+
+    return _admin_json(await asyncio.to_thread(_telegram_erasure_run, work))
+
+
+@app.post("/api/admin/v2/erasure/telegram/start")
+async def admin_v2_telegram_erasure_start(request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "users.delete", mutation=True)
+        reason = _admin_v2_reason(body)
+        return telegram_erasure.start(cursor, actor, body.get("telegram_id"), support_ref=body.get("support_ref"),
+                                      reason=reason, send=_telegram_erasure_send, audit=admin_auth.audit)
+
+    return _telegram_erasure_reply(await asyncio.to_thread(_telegram_erasure_run, work))
+
+
+@app.post("/api/admin/v2/erasure/telegram/confirm")
+async def admin_v2_telegram_erasure_confirm(request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+    from services import account_erasure
+
+    def accept(cursor, account_id, *, ecosystem):
+        try:
+            return account_erasure.accept_confirmed_request(cursor, account_id, ecosystem=ecosystem)
+        except account_erasure.ErasureError as exc:
+            raise telegram_erasure.TelegramErasureError(exc.code, exc.status) from exc
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "users.delete", mutation=True)
+        reason, _extra = _admin_reason_fields(body, "telegram erasure confirmed by the account holder")
+        return telegram_erasure.confirm(cursor, actor, body.get("confirmation_id"), code=body.get("code"),
+                                        confirm_telegram_id=body.get("confirm_telegram_id"), reason=reason,
+                                        accept=accept, audit=admin_auth.audit)
+
+    result = await asyncio.to_thread(_telegram_erasure_run, work)
+    if result.get("accepted"):
+        _ERASURE_WAKE.set()
+    return _telegram_erasure_reply(result)
+
+
+@app.post("/api/admin/v2/erasure/telegram/cancel")
+async def admin_v2_telegram_erasure_cancel(request: Request):
+    body = await _admin_v2_body(request)
+    _admin_v2_ready(request)
+
+    def work(cursor):
+        actor, _ = _admin_v2_actor(cursor, request, "users.delete", mutation=True)
+        reason, _extra = _admin_reason_fields(body, "cancelled")
+        return telegram_erasure.cancel(cursor, actor, body.get("confirmation_id"), reason=reason,
+                                       audit=admin_auth.audit)
+
+    return _admin_json(await asyncio.to_thread(_telegram_erasure_run, work))
 
 
 async def subscription_events_worker_loop():
