@@ -3109,7 +3109,7 @@
       "status": "Не проверено",
       "evidence": [],
       "launch_blocker": true,
-      "confirmed_scope": "Railway Pro (лимит копий тома 10). Владелец подтвердил в панели копию тома Postgres 2,24 ГБ и активное расписание Daily и Weekly; через API расписание не видно (backupSchedules нет, staged-патч b097f3e3 не применён). Сроки по документации Railway: ежедневные 6 дней, еженедельные 27. Способ восстановления доказан ранее изолированным восстановлением C2 (131 таблица, 59 sequences). Восстановление новой копии не проверялось: восстановление копии тома Railway подменяет том того же сервиса Postgres.",
+      "confirmed_scope": "Railway Pro (лимит копий тома 10). Владелец подтвердил в панели копию тома Postgres 2,24 ГБ и активное расписание («Next backup in 1 hour», 11.11). Отсутствие backupSchedules в конфигурации API не считается отсутствием расписания. Сроки по документации Railway: ежедневные 6 дней, еженедельные 27. Способ восстановления доказан ранее изолированным восстановлением C2 (131 таблица, 59 sequences). Не подтверждены: первая автоматическая копия и восстановление из нового источника.",
       "evidence_ids": [
         "BACKUP",
         "ERASURE",
@@ -3118,7 +3118,7 @@
       "blocker_ids": [
         "B08"
       ],
-      "next_action": "Подтвердить первую плановую копию (Daily) в списке Backups и что патч b097f3e3 не держит расписание неприменённым; затем одно восстановление новой копии в отдельную БД — только с разрешения владельца на способ (PITR в новый сервис или временный тестовый Postgres).",
+      "next_action": "Отдельно: (1) первая автоматическая копия в списке Backups; (2) одно восстановление новой копии в отдельную БД способом, согласованным владельцем. Неприменённые изменения Railway не публиковать, PITR и платные ресурсы без разрешения не подключать.",
       "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
@@ -3154,15 +3154,24 @@
           "previous_status": "Отложено",
           "evidence_id": "B08_BACKUPS",
           "reason": "Владелец возобновил B08: Railway Pro, первая копия 2,24 ГБ, расписание Daily/Weekly в панели. Восстановление новой копии не проверено."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T13:00:00+00:00",
+          "status": "Не проверено",
+          "previous_status": "Не проверено",
+          "evidence_id": "B08_BACKUPS",
+          "reason": "Расписание подтверждено владельцем («Next backup in 1 hour»); первая автоматическая копия и восстановление из нового источника не подтверждены."
         }
       ],
       "open_subchecks": {
         "railway_plan": "Pro (read-only check 11.11; volume backup limit 10)",
         "first_backup": "owner-confirmed in the Railway dashboard: PostgreSQL volume backup 2.24 GB",
-        "schedule": "Daily + Weekly per the owner's dashboard; the API mount config shows no backupSchedules and environment patch b097f3e3 (11:36:48Z) is still staged - not independently confirmed",
+        "schedule": "owner-confirmed in the Railway dashboard: schedule active, 'Next backup in 1 hour' (11.11); the API mount config does not expose backupSchedules - not evidence of absence",
         "retention_per_railway_docs": "daily 6 days, weekly 27 days, monthly 89 days",
-        "restore_new_backup": "NOT verified: volume restore remounts onto the same Postgres service (over Production)",
-        "restore_method_c2": "confirmed earlier: isolated restore 131 tables / 59 sequences (evidence BACKUP)"
+        "restore_new_backup": "NOT verified: no restore from the new source; volume restore remounts onto the same Postgres service, so it needs a separate approved method",
+        "restore_method_c2": "confirmed earlier: isolated restore 131 tables / 59 sequences (evidence BACKUP)",
+        "first_scheduled_backup": "NOT verified: the first automatic backup has not been observed yet"
       }
     },
     {
@@ -4071,13 +4080,14 @@
         "POLICY",
         "SX002_LOCAL",
         "SX002_PRODUCTION",
-        "LB003_PRODUCTION"
+        "LB003_PRODUCTION",
+        "B09_REMAINING"
       ],
       "blocker_ids": [
         "B09"
       ],
-      "next_action": "Telegram erasure — отложенное решение владельца, не разрабатывать сейчас; native Stars учитывать в S8-02.",
-      "assessed_on": "2026-11-09",
+      "next_action": "Решение владельца: разрешить приём запроса на удаление Telegram-аккаунта (через поддержку или /delete) и включение SYLVEX_ERASURE_TELEGRAM_READY=1 с проверкой на тестовом аккаунте, либо принять запуск с этим риском (статус остаётся «Ошибка»).",
+      "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -4167,8 +4177,20 @@
           "status": "Ошибка",
           "bot_commit": "b7e1b906f5beb702683b9556c0f1e2590638347d",
           "reason": "Production бота обновлён до b7e1b90; статус не меняется."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T13:00:00+00:00",
+          "status": "Ошибка",
+          "previous_status": "Ошибка",
+          "evidence_id": "B09_REMAINING",
+          "reason": "Уточнён точный остаток по коду Production и документам; статус не меняется."
         }
-      ]
+      ],
+      "open_subchecks": {
+        "telegram_erasure": "defect: no Telegram erasure intake - accept_confirmed_request is called only with ecosystem='website' (services/account_identity.py:1327); no bot /delete; SYLVEX_ERASURE_TELEGRAM_READY=0 only gates intake; bot cache clear (forget_loop) exists",
+        "native_stars": "not a defect of S7-04; tracked in S8-02"
+      }
     },
     {
       "id": "S7-05",
@@ -4911,13 +4933,14 @@
         "POLICY",
         "LB",
         "SRC",
-        "S808_7DAY_PRODUCTION"
+        "S808_7DAY_PRODUCTION",
+        "B09_REMAINING"
       ],
       "blocker_ids": [
         "B09"
       ],
-      "next_action": "Отдельно: сроки хранения backup/логов/поддержки. Telegram erasure не разрабатывать до решения владельца (SYLVEX_ERASURE_TELEGRAM_READY=0).",
-      "assessed_on": "2026-11-09",
+      "next_action": "Владелец: Monthly не включать, ручные копии удалять ≤ 30 дней, сверить срок логов Railway Pro. С разрешения: плановая очистка логов ошибок в БД (30 дней) и закрытых обращений (12 месяцев) либо отдельное решение по текстам документов. Telegram erasure — по S7-04.",
+      "assessed_on": "2026-11-11",
       "verification_policy": "Evidence reusable until a directly relevant change or actual defect; no calendar-only retesting",
       "reopen_watch": [
         {
@@ -4964,8 +4987,27 @@
           "bot_commit": "b5064bc0bdc3abff9bee6b95c2663c93e712a1ef",
           "owner_confirmed_atUTC": "2026-11-08T22:37:18+00:00",
           "reason": "7-дневная часть закрыта и подтверждена владельцем; требование частично, статус не меняется."
+        },
+        {
+          "date": "2026-11-11",
+          "atUTC": "2026-11-11T13:00:00+00:00",
+          "status": "Ошибка",
+          "previous_status": "Ошибка",
+          "evidence_id": "B09_REMAINING",
+          "reason": "Уточнён точный остаток по коду Production и документам; статус не меняется."
         }
-      ]
+      ],
+      "open_subchecks": {
+        "backups_retention": "compliant if Monthly stays off: daily 6 d, weekly 27 d (policy: up to 30 days)",
+        "manual_backups": "manual 2.24 GB backup (11.11) and the C2 copy: no expiry - delete within 30 days of creation",
+        "auto_update_backups": "retention undocumented - check in Backups",
+        "platform_logs": "Railway log retention on Pro to be checked against the 30-day promise",
+        "db_logs": "defect: prostudio_errors / prostudio_error_reports (telegram_id, prompt) have no cleanup",
+        "support_records": "defect: support_threads / support_messages have no 12-months-after-closure cleanup",
+        "restore_reapplies_erasure": "present: sylvex-erasure-journal (B09-WEB)",
+        "bot_7day_expiry": "fixed (b5064bc0)",
+        "telegram_erasure": "owner decision, see S7-04"
+      }
     },
     {
       "id": "S8-09",
@@ -5349,6 +5391,10 @@
     "B08_BACKUPS": {
       "path": "fixes/B08/RESULT.md",
       "scope": "Railway Pro, первая копия тома Postgres 2,24 ГБ (владелец), расписание по панели владельца; восстановление новой копии не проверялось"
+    },
+    "B09_REMAINING": {
+      "path": "fixes/B09/REMAINING.md",
+      "scope": "Точный остаток S7-04/S8-08 по коду Production и опубликованным документам; без изменений"
     }
   },
   "launch_blocker_groups": [
@@ -5388,9 +5434,9 @@
       ],
       "closing_criterion": "C2 restore proof сохранить. Автоматические копии тома Railway (Pro) включены владельцем; для закрытия — первая плановая копия и одно восстановление новой копии в отдельную БД, не поверх Production.",
       "kind": "evidence_gap_or_owner_decision",
-      "production_progress": "Railway Pro; копия тома Postgres 2,24 ГБ; расписание Daily + Weekly (панель владельца)",
+      "production_progress": "Railway Pro; копия тома Postgres 2,24 ГБ; расписание активно по панели владельца («Next backup in 1 hour»)",
       "progress_evidence": "B08_BACKUPS",
-      "awaiting": "Подтверждение первой плановой копии и статуса патча b097f3e3; решение владельца о способе проверки восстановления (PITR в новый сервис или временный тестовый Postgres; оба платные)."
+      "awaiting": "Первая автоматическая копия; одно восстановление новой копии в отдельную БД (способ — решение владельца, платные ресурсы только с разрешения)."
     },
     {
       "id": "B09",
@@ -5409,7 +5455,9 @@
       "closed_parts": [
         "B09-WEB",
         "S8-08 7-day history expiry"
-      ]
+      ],
+      "awaiting": "S7-04: приём запроса на удаление Telegram-аккаунта (решение владельца). S8-08: ручные копии ≤ 30 дней, срок логов Railway, очистка логов ошибок в БД (30 дней) и обращений (12 месяцев). S5-08 — вместе с B09.",
+      "remaining_evidence": "B09_REMAINING"
     },
     {
       "id": "B10",
@@ -5745,7 +5793,7 @@
     "sylvex-ai-webapp": "b654563da9bfb8f7e836863e682473eeeae7d22c",
     "sylvex-ai-bot": "72d91b33a7d64ad5bed2b3c3bedb63fc8bb2662d"
   },
-  "last_controlled_change": "B08 resumed: Railway Pro, first Postgres volume backup 2.24 GB, schedule per owner",
-  "last_updated_atUTC": "2026-11-11T12:30:00+00:00",
-  "latest_work_phase": "B08_BACKUPS_ENABLED"
+  "last_controlled_change": "B08 schedule owner-confirmed; B09 remaining scope of S7-04/S8-08 recorded",
+  "last_updated_atUTC": "2026-11-11T13:00:00+00:00",
+  "latest_work_phase": "B09_SCOPED"
 }
