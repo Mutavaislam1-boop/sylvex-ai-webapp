@@ -21,6 +21,8 @@ const LIMIT = 30;
 
 type Finance = {
   payments: { kind: "credits" | "subscription"; currency: string; provider: string; count: number; amount: number; credits: number }[];
+  test_payments?: Finance["payments"]; unknown_payments?: Finance["payments"];
+  test_refunds?: Finance["refunds"]; unknown_refunds?: Finance["refunds"];
   revenue: Record<string, number>; refunds: { currency: string; count: number; amount: number }[];
   grants: { kind: "credits" | "subscription"; reason_code: string; count: number; credits: number }[];
   compensations: { kind: string; reason_code: string; count: number; credits: number }[];
@@ -37,6 +39,7 @@ function FinanceOverview() {
   return (
     <div className="stack">
       <div className="card"><PeriodPicker value={period} onChange={setPeriod} /></div>
+      <div className="notice small">{t("Test and unverified payments are excluded from real revenue. Balances and payment history are preserved.")}</div>
       {error ? <ErrorNotice message={error} onRetry={reload} /> : loading && !data ? <Loading /> : data && <>
         <div className="grid kpis">
           <Kpi label={t("Real revenue")} value={fmtMoneyMap(data.revenue)} sub={t("{n} payments", { n: fmtNum(data.payments.reduce((n, p) => n + p.count, 0)) })} />
@@ -78,6 +81,23 @@ function FinanceOverview() {
             <div className="small"><b>{t("Compensations and refunds")}:</b> {data.compensations.length
               ? data.compensations.map((c) => `${reasonLabel(c.reason_code)} · ${fmtNum(c.count)}${c.credits ? ` · ${fmtNum(c.credits)} ⚡` : ""}`).join("; ") : "—"}</div>
           </div>
+        </div>
+        <div className="grid two">
+          {[
+            { key: "test", title: t("Test payments"), rows: data.test_payments || [], refunds: data.test_refunds || [] },
+            { key: "unknown", title: t("Unverified payment mode"), rows: data.unknown_payments || [], refunds: data.unknown_refunds || [] },
+          ].filter((g) => g.rows.length || g.refunds.length).map((g) => <div key={g.key} className="card stack">
+            <h3>{g.title}</h3>
+            <div className="muted small">{t("Shown separately, not confirmed cash revenue. Older records are kept as recorded.")}</div>
+            {g.rows.length > 0 && <div className="table-wrap"><table>
+              <thead><tr><th>{t("Purchase")}</th><th>{t("Provider")}</th><th className="right">{t("Payments")}</th><th className="right">{t("Amount")}</th><th className="right">{t("Credits")}</th></tr></thead>
+              <tbody>{g.rows.map((p, i) => <tr key={i}>
+                <td>{p.kind === "subscription" ? t("Subscription") : t("Credit pack")}</td><td className="small">{p.provider}</td>
+                <td className="right">{fmtNum(p.count)}</td><td className="right">{fmtNum(p.amount)} {p.currency}</td><td className="right">{fmtNum(p.credits)}</td>
+              </tr>)}</tbody>
+            </table></div>}
+            {g.refunds.length > 0 && <div className="notice warn small">{t("Refunded payments")}: {g.refunds.map((r) => `${fmtNum(r.count)} · ${fmtNum(r.amount)} ${r.currency}`).join(", ")}</div>}
+          </div>)}
         </div>
         <div className="card stack">
           <h3>{t("AI API costs by provider (estimate)")}</h3>
@@ -145,7 +165,7 @@ function TopSpenders() {
   if (!data) return null;
   return (
     <div className="card">
-      <div className="muted small" style={{ marginBottom: 8 }}>{t("Ranked by credits bought. Money is shown per currency.")}</div>
+      <div className="muted small" style={{ marginBottom: 8 }}>{t("Recorded purchases across all modes. Amounts are shown per currency; real revenue is in Overview.")}</div>
       {data.items.length ? (
         <div className="table-wrap"><table>
           <thead><tr><th>#</th><th>{t("User")}</th><th className="right">{t("Credits bought")}</th><th>{t("Spent")}</th><th className="right">{t("Subscriptions")}</th><th className="right">{t("Credit packs")}</th></tr></thead>
@@ -182,3 +202,4 @@ export default function Payments() {
     </div>
   );
 }
+

@@ -378,6 +378,9 @@ STRIPE_DDL = (
         processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    "ALTER TABLE stripe_events ADD COLUMN IF NOT EXISTS livemode BOOLEAN",
+    "ALTER TABLE stripe_events ADD COLUMN IF NOT EXISTS purchase_charge_id TEXT",
+    "CREATE INDEX IF NOT EXISTS stripe_events_purchase_mode ON stripe_events (purchase_charge_id) WHERE purchase_charge_id IS NOT NULL",
 )
 
 
@@ -513,10 +516,21 @@ def event_processed(connect, event_id: str) -> bool:
 
 
 def record_event(connect, event: dict, outcome: str):
+    mode = event.get("livemode")
+    mode = mode if isinstance(mode, bool) else None
+    obj = (event.get("data") or {}).get("object") or {}
+    charge_id = None
+    if outcome in {"granted", "duplicate"}:
+        if event.get("type") == "invoice.paid":
+            charge_id = _id(obj.get("id"))
+        elif event.get("type") in {"checkout.session.completed", "checkout.session.async_payment_succeeded"} and obj.get("mode") != "subscription":
+            # The same canonical charge used by handle_event/finalize.
+            charge_id = _id(obj.get("payment_intent")) or _id(obj.get("id"))
     _run(connect, """
-        INSERT INTO stripe_events (event_id, event_type, outcome) VALUES (%s, %s, %s)
+        INSERT INTO stripe_events (event_id, event_type, outcome, livemode, purchase_charge_id)
+        VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (event_id) DO NOTHING
-    """, (str(event["id"]), str(event["type"]), outcome))
+    """, (str(event["id"]), str(event["type"]), outcome, mode, charge_id))
 
 
 # ---------------------------------------------------------------------------

@@ -220,7 +220,8 @@ export default function UserDetail({ refId }: { refId: string }) {
         <div className="kpi"><div className="kpi-label">{t("Balance")}</div><div className="kpi-value">{fmtNum(a.balance)}</div><div className="kpi-sub">{t("credits")}</div></div>
         <div className="kpi"><div className="kpi-label">{t("Subscription")}</div><div className="kpi-value">{a.subscription_until ? a.subscription : t("free")}</div>
           <div className="kpi-sub">{a.subscription_until ? t("until {date}", { date: fmtDate(a.subscription_until, false) }) : t("no active plan")}</div></div>
-        <div className="kpi"><div className="kpi-label">{t("Spent")}</div><div className="kpi-value" style={{ fontSize: 16 }}>{fmtMoneyMap(a.spent_by_currency)}</div>
+        <div className="kpi"><div className="kpi-label">{t("Recorded payments")}</div><div className="kpi-value" style={{ fontSize: 16 }}>{fmtMoneyMap(a.spent_by_currency)}</div>
+          <div className="muted small">{t("All modes; real revenue is in Payments.")}</div>
           <div className="kpi-sub">{t("Purchases: {n}", { n: fmtNum(a.total_purchases) })}</div></div>
         <div className="kpi"><div className="kpi-label">{t("Generations")}</div><div className="kpi-value">{fmtNum(a.total_generations)}</div></div>
       </div>
@@ -413,3 +414,4 @@ export default function UserDetail({ refId }: { refId: string }) {
     </div>
   );
 }
+

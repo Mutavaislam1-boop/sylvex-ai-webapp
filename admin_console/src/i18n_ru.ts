@@ -2,6 +2,16 @@
 // code. `npm run build` runs scripts/check-i18n.mjs, which fails when a
 // string has no entry here.
 export const RU: Record<string, string> = {
+  "Test and unverified payments are excluded from real revenue. Balances and payment history are preserved.": "Тестовые платежи и записи без подтверждённого режима не входят в реальную выручку. Балансы и история платежей сохраняются.",
+  "Test payments": "Тестовые платежи",
+  "Unverified payment mode": "Режим платежа не подтверждён",
+  "Shown separately, not confirmed cash revenue. Older records are kept as recorded.": "Показаны отдельно и не считаются подтверждённой выручкой. Старые записи сохранены без изменения.",
+  "Recorded purchases across all modes. Amounts are shown per currency; real revenue is in Overview.": "Покупки по истории во всех режимах. Суммы разделены по валютам; реальная выручка — в «Обзоре».",
+  "Recorded purchases": "Покупки по истории",
+  "{n} credits across all modes": "{n} кредитов во всех режимах",
+  "Test and unverified payments are excluded from real revenue. Currencies are never summed together.": "Тестовые платежи и записи без подтверждённого режима не входят в реальную выручку. Разные валюты не суммируются.",
+  "Recorded payments": "Платежи по истории",
+  "All modes; real revenue is in Payments.": "Все режимы; реальная выручка — в разделе «Платежи».",
   // --- navigation & page titles ---
   "Dashboard": "Дашборд",
   "Users": "Пользователи",

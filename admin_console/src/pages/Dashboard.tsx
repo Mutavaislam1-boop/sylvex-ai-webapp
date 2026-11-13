@@ -37,7 +37,7 @@ export default function Dashboard() {
         <Kpi label={t("Active subscriptions")} value={fmtNum(s.subscriptions)} sub={t("{n} purchased in total", { n: fmtNum(s.subscriptions_total) })} />
         <Kpi label={t("Generations today")} value={fmtNum(s.generations_today)} sub={t("{failed} failed · {running} running", { failed: fmtNum(s.failed_today), running: fmtNum(s.active_jobs) })} />
         <Kpi label={t("Generations total")} value={fmtNum(s.generations_total)} sub={t("{n}% success", { n: successRate })} />
-        <Kpi label={t("Purchases")} value={fmtNum(s.purchases_total)} sub={t("{n} credits bought", { n: fmtNum(s.credits_purchased_total) })} />
+        <Kpi label={t("Recorded purchases")} value={fmtNum(s.purchases_total)} sub={t("{n} credits across all modes", { n: fmtNum(s.credits_purchased_total) })} />
         <Kpi label={t("Credits on balances")} value={fmtNum(s.balance)} />
         <Kpi label={t("Error reports")} value={fmtNum(s.error_reports)} sub={t("{n} active admins", { n: fmtNum(s.admins) })} />
       </div>
@@ -45,7 +45,7 @@ export default function Dashboard() {
       <div className="grid two">
         <div className="card">
           <h3>{t("Revenue by currency")}</h3>
-          <div className="muted small" style={{ marginBottom: 10 }}>{t("Completed purchases. Currencies are never summed together.")}</div>
+          <div className="muted small" style={{ marginBottom: 10 }}>{t("Test and unverified payments are excluded from real revenue. Currencies are never summed together.")}</div>
           {Object.keys(s.revenue_by_currency || {}).length ? (
             <div className="table-wrap"><table>
               <thead><tr><th>{t("Currency")}</th><th className="right">{t("Amount")}</th></tr></thead>
@@ -95,3 +95,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

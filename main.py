@@ -57,6 +57,7 @@ from services import model_capabilities as model_capabilities_service
 from services import admin_identity
 from services import admin_auth
 from services import admin_rbac
+from services import payment_reporting
 from services import notifications as notifications_service
 from services import reviews as reviews_service
 from services import video_probe
@@ -12027,11 +12028,13 @@ async def admin_dashboard(request: Request):
             """)
             purchases_count, total_credits_purchased = cursor.fetchone()
             # Stars, USD cents, crypto... are different units: never summed.
-            cursor.execute("""
-                SELECT COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
-                FROM purchases WHERE status='completed' GROUP BY 1 ORDER BY 1
+            cash_mode = payment_reporting.payment_mode_sql(cursor)
+            cash_amount = payment_reporting.payment_amount_sql()
+            cursor.execute(f"""
+                SELECT COALESCE(NULLIF(p.currency,''),'unknown') AS currency, COALESCE(SUM({cash_amount}),0) AS amount
+                FROM purchases p WHERE p.status='completed' AND {cash_mode}='live' GROUP BY 1 ORDER BY 1
             """)
-            revenue_by_currency = {str(r[0]): int(r[1] or 0) for r in cursor.fetchall()}
+            revenue_by_currency = {str(r[0]): float(r[1] or 0) for r in cursor.fetchall()}
             cursor.execute("SELECT COUNT(*) FROM subscriptions")
             subscriptions_total = cursor.fetchone()[0]
             cursor.execute("SELECT COUNT(*) FROM prostudio_error_reports")
@@ -13180,11 +13183,12 @@ async def admin_user_detail(request: Request):
                 raise HTTPException(status_code=404, detail="user_not_found")
             cursor.execute("SELECT COUNT(*) FROM purchases WHERE telegram_id=%s", (target_id,))
             purchases_count = cursor.fetchone()[0]
-            cursor.execute("""
-                SELECT COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
-                FROM purchases WHERE telegram_id=%s AND status='completed' GROUP BY 1 ORDER BY 1
+            recorded_amount = payment_reporting.payment_amount_sql()
+            cursor.execute(f"""
+                SELECT COALESCE(NULLIF(p.currency,''),'unknown') AS currency, COALESCE(SUM({recorded_amount}),0) AS amount
+                FROM purchases p WHERE p.telegram_id=%s AND p.status='completed' GROUP BY 1 ORDER BY 1
             """, (target_id,))
-            spent_by_currency = {str(r[0]): int(r[1] or 0) for r in cursor.fetchall()}
+            spent_by_currency = {str(r[0]): float(r[1] or 0) for r in cursor.fetchall()}
             cursor.execute("SELECT COUNT(*) FROM prostudio_generation_jobs WHERE telegram_id=%s", (target_id,))
             generations_count = cursor.fetchone()[0]
             cursor.execute("SELECT current_view, platform, last_seen FROM app_presence WHERE telegram_id=%s", (target_id,))
@@ -13756,6 +13760,7 @@ async def admin_finance(request: Request):
                 return bool(cursor.fetchone()[0])
 
             payments, refunds, days = [], [], {}
+            mode_sql = payment_reporting.payment_mode_sql(cursor)
             buyers = new_buyers = 0
             if present("purchases"):
                 sub_join = "LEFT JOIN subscriptions s ON s.charge_id = p.charge_id" if present("subscriptions") else ""
@@ -13763,24 +13768,25 @@ async def admin_finance(request: Request):
                 cursor.execute(f"""
                     SELECT CASE WHEN {sub_flag} THEN 'subscription' ELSE 'credits' END AS kind,
                            COALESCE(NULLIF(p.currency, ''), 'unknown') AS currency, COALESCE(NULLIF(p.provider, ''), 'unknown') AS provider,
-                           COUNT(*) AS n, COALESCE(SUM(p.amount), 0) AS amount, COALESCE(SUM(p.credits), 0) AS credits
+                           {mode_sql} AS payment_mode, COUNT(*) AS n, COALESCE(SUM(p.amount), 0) AS amount, COALESCE(SUM(p.credits), 0) AS credits
                     FROM purchases p {sub_join}
                     WHERE p.status = 'completed' AND {_purchase_time_sql("p.")} >= %s::timestamp
                       AND {_purchase_time_sql("p.")} < %s::timestamp
-                    GROUP BY 1, 2, 3 ORDER BY 5 DESC
+                    GROUP BY 1, 2, 3, 4 ORDER BY 6 DESC
                 """, span)
-                payments = [{"kind": r[0], "currency": r[1], "provider": r[2], "count": int(r[3]), "amount": float(r[4]),
-                             "credits": int(r[5])} for r in cursor.fetchall()]
-                paid_at = _purchase_time_sql()
+                payments = [{"kind": r[0], "currency": r[1], "provider": r[2], "payment_mode": r[3], "count": int(r[4]), "amount": float(r[5]),
+                             "credits": int(r[6])} for r in cursor.fetchall()]
+                paid_at = _purchase_time_sql("p.")
                 cursor.execute(f"""
-                    SELECT COALESCE(NULLIF(currency, ''), 'unknown') AS currency, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount
-                    FROM purchases WHERE status IN ('refunded', 'refund', 'chargeback')
-                      AND {paid_at} >= %s::timestamp AND {paid_at} < %s::timestamp GROUP BY 1
+                    SELECT COALESCE(NULLIF(p.currency, ''), 'unknown') AS currency, COALESCE(p.provider,'') AS provider,
+                           COUNT(*) AS n, COALESCE(SUM(p.amount), 0) AS amount, {mode_sql} AS payment_mode
+                    FROM purchases p WHERE p.status IN ('refunded', 'refund', 'chargeback')
+                      AND {paid_at} >= %s::timestamp AND {paid_at} < %s::timestamp GROUP BY 1, 2, 5
                 """, span)
-                refunds = [{"currency": r[0], "count": int(r[1]), "amount": float(r[2])} for r in cursor.fetchall()]
+                refunds = [{"currency": r[0], "provider": r[1], "count": int(r[2]), "amount": float(r[3]), "payment_mode": r[4]} for r in cursor.fetchall()]
                 cursor.execute(f"""
                     SELECT to_char(date_trunc('day', {paid_at}), 'YYYY-MM-DD') AS day, COUNT(*) AS n
-                    FROM purchases WHERE status = 'completed' AND {paid_at} >= %s::timestamp AND {paid_at} < %s::timestamp GROUP BY 1
+                    FROM purchases p WHERE p.status = 'completed' AND {mode_sql}='live' AND {paid_at} >= %s::timestamp AND {paid_at} < %s::timestamp GROUP BY 1
                 """, span)
                 for r in cursor.fetchall():
                     days.setdefault(r[0], {"day": r[0], "payments": 0, "grants": 0})["payments"] = int(r[1])
@@ -13788,7 +13794,7 @@ async def admin_finance(request: Request):
                     SELECT COUNT(DISTINCT telegram_id) AS buyers,
                            COUNT(DISTINCT telegram_id) FILTER (WHERE first_paid >= %s::timestamp) AS new_buyers FROM (
                       SELECT telegram_id, MIN({paid_at}) OVER (PARTITION BY telegram_id) AS first_paid, {paid_at} AS paid_at
-                      FROM purchases WHERE status = 'completed') x
+                      FROM purchases p WHERE p.status = 'completed' AND {mode_sql}='live') x
                     WHERE paid_at >= %s::timestamp AND paid_at < %s::timestamp
                 """, [span[0]] + span)
                 r = cursor.fetchone()
@@ -13828,15 +13834,22 @@ async def admin_finance(request: Request):
             cursor.close()
             conn.close()
         # Card payments are stored in minor units (cents); Telegram Stars in stars.
-        def major(amount, currency):
-            return round(amount / 100, 2) if currency not in ("XTR", "unknown") else amount
         for row in payments + refunds:
-            row["amount"] = major(row["amount"], row["currency"])
+            if row["provider"].lower() == "stripe":
+                row["amount"] = round(row["amount"] / 100, 2)
+        test_payments = [p for p in payments if p["payment_mode"] == "test"]
+        unknown_payments = [p for p in payments if p["payment_mode"] == "unknown"]
+        payments = [p for p in payments if p["payment_mode"] == "live"]
+        test_refunds = [p for p in refunds if p["payment_mode"] == "test"]
+        unknown_refunds = [p for p in refunds if p["payment_mode"] == "unknown"]
+        refunds = [p for p in refunds if p["payment_mode"] == "live"]
         revenue = {}
         for p in payments:
             revenue[p["currency"]] = round(revenue.get(p["currency"], 0) + p["amount"], 2)
         return {
             "payments": payments, "revenue": revenue, "refunds": refunds, "grants": grants,
+            "test_payments": test_payments, "unknown_payments": unknown_payments,
+            "test_refunds": test_refunds, "unknown_refunds": unknown_refunds,
             "compensations": [g for g in grants if g["reason_code"] in ("error_compensation", "refund")],
             "ai_costs": ai_costs, "ai_cost_usd_estimate": round(sum(c["usd_estimate"] for c in ai_costs), 2),
             "credits": {"sold": sum(p["credits"] for p in payments), "granted": sum(g["credits"] for g in grants), "spent": spent},
@@ -14130,13 +14143,14 @@ async def admin_top_spenders(request: Request):
                     "payments_count": int(r[6] or 0), "spent_by_currency": {}} for i, r in enumerate(cursor.fetchall())]
             keys = [item["telegram_id"] for item in items]
             if keys:
-                cursor.execute("""
-                    SELECT telegram_id, COALESCE(NULLIF(currency,''),'unknown') AS currency, COALESCE(SUM(amount),0) AS amount
-                    FROM purchases WHERE status='completed' AND telegram_id = ANY(%s::bigint[]) GROUP BY 1, 2
+                recorded_amount = payment_reporting.payment_amount_sql()
+                cursor.execute(f"""
+                    SELECT p.telegram_id, COALESCE(NULLIF(p.currency,''),'unknown') AS currency, COALESCE(SUM({recorded_amount}),0) AS amount
+                    FROM purchases p WHERE p.status='completed' AND p.telegram_id = ANY(%s::bigint[]) GROUP BY 1, 2
                 """, (keys,))
                 by_key = {item["telegram_id"]: item for item in items}
                 for key, currency, amount in cursor.fetchall():
-                    by_key[key]["spent_by_currency"][str(currency)] = int(amount or 0)
+                    by_key[key]["spent_by_currency"][str(currency)] = float(amount or 0)
             return admin_identity.decorate(cursor, items, technical=_admin_technical(actor))
         finally:
             cursor.close()
