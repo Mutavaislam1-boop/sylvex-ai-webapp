@@ -662,14 +662,15 @@ def grant_renewal(connect, link: dict, invoice_id: str, amount_cents: int, curre
                                 + (%s || ' seconds')::interval,
                             to_timestamp(%s)::timestamp + (%s || ' days')::interval),
                         'active', %s)
-                RETURNING id
+                RETURNING id, expires_at
             """, (uid, link["plan_key"], PROVIDER, int(amount_cents), uid, int(period_seconds), int(period_end),
                   RENEWAL_GRACE_DAYS, str(invoice_id)))
-            subscription_row = cur.fetchone()[0]
+            subscription_row, subscription_expires_at = cur.fetchone()
             cur.execute("UPDATE subscriptions SET status = 'cancelled' WHERE telegram_id = %s AND status = 'active' AND id <> %s",
                         (uid, subscription_row))
-            cur.execute("UPDATE users SET subscription = %s, balance = COALESCE(balance, 0) + %s WHERE telegram_id = %s",
-                        (link["plan_key"], int(product["credits"]), uid))
+            cur.execute("UPDATE users SET subscription = %s WHERE telegram_id = %s",
+                        (link["plan_key"], uid))
+            shop_orders._add_credits(cur, uid, int(product["credits"]), "subscription", subscription_expires_at)
         conn.commit()
         return {"status": "granted", "reason": None, "credits": int(product["credits"]), "telegram_id": uid,
                 "plan_key": link["plan_key"]}
