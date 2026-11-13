@@ -260,9 +260,67 @@ def _related_scope_hold(cur, schema, request):
     return ""
 
 
+# These two text-only message shapes can be detached without deleting another
+# participant's record. Everything else keeps the existing REVIEW decision.
+_MESSAGE_FIELDS = {
+    "community_messages": {"id", "sender_id", "recipient_id", "body", "read_at", "created_at"},
+    "admin_messages": {"id", "admin_telegram_id", "user_telegram_id", "message", "telegram_sent", "created_at"},
+}
+
+
+def _can_erase_message(cur, schema, request, table, row):
+    if request.get("ecosystem") != "telegram" or table not in _MESSAGE_FIELDS:
+        return False
+    fields = schema.get(table, set())
+    required = {"id", "sender_id", "recipient_id", "body"} if table == "community_messages" else {
+        "id", "admin_telegram_id", "user_telegram_id", "message", "telegram_sent"}
+    if not required <= fields or fields - _MESSAGE_FIELDS[table]:
+        return False  # Do not silently leave a newly added personal field.
+    uid, account = request.get("subject_key"), request.get("account_id")
+    if not uid or not account or int(uid) <= 0 or int(account) <= 0:
+        return False
+    if table == "admin_messages":
+        if row.get("user_telegram_id") != uid or row.get("admin_telegram_id") == uid:
+            return False  # Erasing a staff author's history needs its own review.
+    elif uid not in (row.get("sender_id"), row.get("recipient_id")):
+        return False
+    cur.execute("SELECT 1 FROM sylvex_erasure_retained_rows WHERE request_id=%s AND table_name=%s "
+                "AND row_identity=%s AND expires_at>NOW()",
+                (str(request["request_id"]), table, core.row_identity(row)))
+    if cur.fetchone():
+        return False  # Preserve an already approved, exact retention exception.
+    cur.execute("SELECT cardinality(sylvex_erasure_reference_keys(%s::jsonb))>0",
+                (json.dumps(row, default=str),))
+    return cur.fetchone()[0] is False  # Unknown/media-bearing rows still require review.
+
+
+def _erase_messages(cur, schema, request):
+    uid = request["subject_key"]
+    # Account IDs and authenticated business keys are strictly positive.
+    # A negative account marker exists only in these message participant fields;
+    # no users/sylvex_accounts identity is created or reassigned. Distinct erased
+    # accounts keep distinct conversations, and re-registration cannot inherit one.
+    removed = -int(request["account_id"])
+    for table in _MESSAGE_FIELDS:
+        for row in core.owned_rows(cur, table, schema, request):
+            if not _can_erase_message(cur, schema, request, table, row):
+                continue
+            if table == "community_messages":
+                cur.execute("UPDATE community_messages SET "
+                            "body=CASE WHEN sender_id=%s THEN '' ELSE body END,"
+                            "sender_id=CASE WHEN sender_id=%s THEN %s ELSE sender_id END,"
+                            "recipient_id=CASE WHEN recipient_id=%s THEN %s ELSE recipient_id END "
+                            "WHERE id=%s", (uid, uid, removed, uid, removed, row["id"]))
+            else:
+                cur.execute("UPDATE admin_messages SET user_telegram_id=%s WHERE id=%s",
+                            (removed, row["id"]))
+
+
 def _check_reviewed_rows(cur, schema, request):
     for table in policy.REVIEW:
         for row in core.owned_rows(cur, table, schema, request):
+            if _can_erase_message(cur, schema, request, table, row):
+                continue
             cur.execute("SELECT 1 FROM sylvex_erasure_retained_rows WHERE request_id=%s AND table_name=%s "
                         "AND row_identity=%s AND expires_at>NOW()", (str(request["request_id"]),table,core.row_identity(row)))
             if not cur.fetchone():
@@ -272,6 +330,7 @@ def _check_reviewed_rows(cur, schema, request):
 
 def _purge_personal(cur, schema, request):
     uid, account = request["subject_key"], request["account_id"]
+    _erase_messages(cur, schema, request)
     # Child rows first; no unscoped cascade or DELETE users.
     if {"prostudio_media_outbox", "prostudio_generation_jobs"} <= set(schema):
         cur.execute("DELETE FROM prostudio_media_outbox o USING prostudio_generation_jobs j "

@@ -720,7 +720,7 @@ def plan_request(database_url, request_id, *, storage, journal=None, self_servic
                     journal.write(record)
                 else:
                     inventory_hold = True
-        from services.account_erasure_runner import _related_scope_hold
+        from services.account_erasure_runner import _related_scope_hold, _can_erase_message
         related_hold=_related_scope_hold(cur,schema,request)
         review=set()
         for table in list(policy.PERSONAL) + ["prostudio_generation_jobs", "site_visitors"]:
@@ -731,6 +731,8 @@ def plan_request(database_url, request_id, *, storage, journal=None, self_servic
             _manifest_rows(cur,request,rows,schema,storage)
         for table in policy.REVIEW:
             for row in owned_rows(cur, table, schema, request):
+                if _can_erase_message(cur, schema, request, table, row):
+                    continue
                 cur.execute("SELECT 1 FROM sylvex_erasure_retained_rows WHERE request_id=%s AND table_name=%s "
                             "AND row_identity=%s AND expires_at>NOW()", (str(request_id), table, row_identity(row)))
                 if not cur.fetchone():
