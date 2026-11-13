@@ -158,6 +158,8 @@
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function switchView(name) {
+    // Saved links from older clients must not open the retired section.
+    if (name === 'community') name = 'home';
     // Browser Mini App guest: Profile needs an account - the sign-in window
     // opens instead (no-op in Telegram).
     if (window.SYLVEX && window.SYLVEX.guardGuestView && window.SYLVEX.guardGuestView(name)) return;
@@ -189,7 +191,6 @@
       if (ci && window.SYLVEX.autoGrow) window.SYLVEX.autoGrow(ci);
     }
     if (name === 'history' && window.SYLVEX && window.SYLVEX.loadProfileGallery) window.SYLVEX.loadProfileGallery();
-    if (name === 'community' && window.SYLVEX && window.SYLVEX.loadCommunityFeed) window.SYLVEX.loadCommunityFeed();
     if (window.SYLVEX && window.SYLVEX.haptic) window.SYLVEX.haptic.select();
     if (window.SYLVEX && window.SYLVEX.updatePrice) window.SYLVEX.updatePrice();
     // Browser Mini App only: record the step for Back/Forward (no-op in Telegram).

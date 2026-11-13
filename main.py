@@ -8846,6 +8846,14 @@ async def delete_public_prostudio_gallery_item(message_id: int, telegram_id: int
     return {"ok": True}
 
 
+@app.api_route("/api/public/community", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+@app.api_route("/api/public/community/{legacy_path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def community_unavailable(legacy_path: str = ""):
+    # Retired in both Mini Apps. Keep existing records for their retention
+    # and erasure policies, but never dispatch an old client's operation.
+    return JSONResponse({"ok": False, "error": "community_unavailable"}, status_code=410)
+
+
 _COMMUNITY_SCHEMA_LOCK = threading.Lock()
 _COMMUNITY_SCHEMA_READY = False
 def ensure_community_tables():

@@ -32,8 +32,6 @@
       referrals_count: user.referrals_count !== undefined ? Number(user.referrals_count || 0) : Number(previous.referrals_count || 0),
       generations_count: user.generations_count !== undefined ? Number(user.generations_count || 0) : Number(previous.generations_count || 0),
       tokens_spent: user.tokens_spent !== undefined ? Number(user.tokens_spent || 0) : Number(previous.tokens_spent || 0),
-      community_posts_count: user.community_posts_count !== undefined ? Number(user.community_posts_count || 0) : Number(previous.community_posts_count || 0),
-      community_likes_count: user.community_likes_count !== undefined ? Number(user.community_likes_count || 0) : Number(previous.community_likes_count || 0),
       created_at: user.created_at || previous.created_at || null,
     };
     try { localStorage.setItem(identityCacheKey(user.telegram_id), JSON.stringify(value)); } catch {}
@@ -139,8 +137,6 @@
       generations_count: state.generations_count || state.total_generations || 0,
       tokens_spent: state.tokens_spent || 0,
       referrals_count: state.referrals_count || 0,
-      community_posts_count: state.community_posts_count || 0,
-      community_likes_count: state.community_likes_count || 0,
     };
     // A partial identity response must never replace an already-known account
     // balance with zero. Only an explicit finite server value is authoritative.
@@ -230,8 +226,6 @@
     setText('profileReferrals', Number(u.referrals_count || 0).toLocaleString());
     setText('profileGens', Number(u.generations_count || 0).toLocaleString());
     setText('profileSpent', Number(u.tokens_spent || 0).toLocaleString() + ' ⚡️');
-    setText('profilePosts', Number(u.community_posts_count || u.posts_count || 0).toLocaleString());
-    setText('profilePostLikes', Number(u.community_likes_count || u.post_likes_count || 0).toLocaleString());
     setText('tbGenToday', Number(u.generations_count || 0).toLocaleString());
     setText('tbStreak', Number(u.tokens_spent || 0).toLocaleString());
     if (u.created_at) {

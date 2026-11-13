@@ -119,9 +119,6 @@ HTML-страница Mini App. Комментарии подписывают э
         <a class="hsoc tt" href="https://www.tiktok.com/@sylvex_ai?_r=1&amp;_t=ZN-994zCEbwsvm" target="_blank" rel="noopener" aria-label="TikTok">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 3h-3v12.3a2.7 2.7 0 1 1-2.7-2.7v-3a5.7 5.7 0 1 0 5.7 5.7V9.2a7.5 7.5 0 0 0 4.5 1.5v-3A4.5 4.5 0 0 1 16 3z"/></svg>
         </a>
-        <button class="hsoc sx" type="button" onclick="switchView('community')" aria-label="SYLVEX Community">
-          <img src="assets/sylvex-community-logo.png" alt="">
-        </button>
       </div>
 
       <section class="home-idea-ai" id="homeIdeaAi" data-animated-content>
@@ -1155,36 +1152,6 @@ HTML-страница Mini App. Комментарии подписывают э
       </div>
     </section>
 
-    <section class="view" data-view="community">
-      <div class="community-app">
-        <aside class="community-sidebar">
-          <button class="community-brand" type="button" onclick="switchView('home')"><img src="assets/logo.png" alt=""><span><b>SYLVEX</b><small>Community</small></span></button>
-          <nav>
-            <button class="active" type="button"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v10h-6v-7H9v7H3Z"/></svg><span>Лента</span></button>
-            <button type="button" onclick="SYLVEX.openCommunityHub('chat',0)"><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg><span>Общий чат</span></button>
-            <button type="button" onclick="SYLVEX.openCommunityHub('messages')"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 7 9-7"/></svg><span>Сообщения</span></button>
-            <button type="button" onclick="SYLVEX.openCommunityHub('friends')"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M17 8h4M19 6v4"/></svg><span>Друзья</span></button>
-            <button type="button" onclick="switchView('home')"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v10h-6v-7H9v7H3Z"/></svg><span>Главный экран</span></button>
-          </nav>
-          <button class="community-exit community-side-user" type="button" onclick="SYLVEX.openCommunityUserCard()"><span class="community-avatar" id="communitySideAvatar">SY</span><span><b id="communitySideName">SYLVEX User</b><small>Открыть карточку</small></span></button>
-        </aside>
-        <div class="community-center">
-          <header class="community-topbar">
-            <button class="community-mobile-menu" type="button" onclick="SYLVEX.toggleCommunityMenu()"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-            <div class="community-top-title"><img src="assets/logo.png" alt=""><span><b>SYLVEX</b><small>Community</small></span></div>
-            <label class="community-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" placeholder="Поиск по сообществу…" oninput="SYLVEX.searchCommunity(this.value)"></label>
-            <div class="community-top-actions"><button type="button" onclick="SYLVEX.openCommunityHub('messages')"><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg></button><button class="community-notification-button" type="button" onclick="SYLVEX.openCommunityHub('notifications')"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><i id="communityNotificationBadge" hidden></i></button><button class="community-add" type="button" onclick="SYLVEX.openCommunityPublisher()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div>
-          </header>
-          <button class="community-user-card" id="communityUserCard" type="button" onclick="SYLVEX.openCommunityUserCard()"><span class="community-avatar community-rank-avatar" id="communityComposerAvatar">SY</span><span class="community-user-identity"><b id="communityCardName">SYLVEX User</b><small id="communityCardStatus">Новичок · активен</small></span><span class="community-user-stats"><i><b id="communityStatPosts">0</b><small>публикаций</small></i><i><b id="communityStatLikes">0</b><small>лайков</small></i><i><b id="communityStatFollowing">0</b><small>подписок</small></i><i><b id="communityStatFriends">0</b><small>друзей</small></i></span></button>
-          <button class="community-new-post" type="button" onclick="SYLVEX.openCommunityPublisher()">Создать публикацию</button>
-          <div class="community-feed" id="communityFeed"><div class="community-state">Загрузка публикаций…</div></div>
-        </div>
-        <aside class="community-right"><section><h3>Общий чат сообщества</h3><p>Общайтесь с авторами SYLVEX</p><div class="community-chat-preview"><span>AI Studio</span><small>Новая модель уже доступна!</small><span>Artemis</span><small>Какой промпт использован?</small></div><button type="button" onclick="SYLVEX.communityComingSoon('Общий чат')">Перейти в чат</button></section><section><h3>Популярные авторы</h3><div id="communityPopular"></div></section></aside>
-        <nav class="community-mobile-nav"><button class="active" type="button" onclick="SYLVEX.closeCommunityHub()"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="5" rx="1"/><rect x="4" y="12" width="16" height="8" rx="1"/></svg><span>Лента</span></button><button type="button" onclick="SYLVEX.openCommunityHub('chat',0)"><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg><span>Чат</span></button><button class="create" type="button" onclick="SYLVEX.openCommunityPublisher()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Добавить</span></button><button type="button" onclick="SYLVEX.openCommunityHub('friends')"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M14 20a5 5 0 0 1 7 0"/></svg><span>Друзья</span></button><button type="button" onclick="switchView('home')"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v10h-6v-7H9v7H3Z"/></svg><span>Главное</span></button></nav>
-        <button class="community-menu-backdrop" type="button" onclick="SYLVEX.toggleCommunityMenu(false)" aria-label="Закрыть меню"></button>
-      </div>
-    </section>
-
     <section class="view" data-view="history">
       <div class="section-title"><h3 data-i18n="gen_history">Generation history</h3><a onclick="SYLVEX.loadProfileGallery(true)">Обновить</a></div>
       <div class="profile-gallery-filters" id="profileGalleryFilters">
@@ -1529,8 +1496,6 @@ HTML-страница Mini App. Комментарии подписывают э
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
         <div class="mini" role="button" tabindex="0" onclick="switchView('history')"><div class="k">Генераций</div><div class="v" id="profileGens">0</div></div>
-        <div class="mini" role="button" tabindex="0" onclick="switchView('community')"><div class="k">Публикаций</div><div class="v" id="profilePosts">0</div></div>
-        <div class="mini" role="button" tabindex="0" onclick="switchView('community')"><div class="k">Лайков публикаций</div><div class="v" id="profilePostLikes">0</div></div>
       </div>
       <div class="section-title"><h3 data-i18n="account">Account</h3></div>
       <div class="list">
