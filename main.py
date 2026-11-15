@@ -7063,6 +7063,12 @@ def _persist_remote_media_url(url: str, category: str, provider: str = "") -> st
         suffix = pathlib.Path(urllib.parse.urlparse(download.get("url") or raw).path).suffix.lower()
         if not suffix or len(suffix) > 8:
             suffix = mimetypes.guess_extension(content_type) or {"images": ".png", "videos": ".mp4", "audio": ".mp3", "documents": ".bin", "thumbs": ".jpg"}.get(category, ".bin")
+        if (category == "images" and content_type in {"", "application/octet-stream"}
+                and suffix in {".jpg", ".jpeg", ".png", ".webp"}):
+            try:
+                content_type = validated_upload_path(temp_path, suffix)
+            except SecurityError:
+                pass  # Preserve existing handling for bytes that are not a valid image.
         filename = f"{uuid4().hex}{suffix}"
         object_key = generated_key(category, filename)
         # Never logs credentials/signed headers - only the request shape, so
