@@ -332,11 +332,18 @@ def _unknown_seedance_video_model_response(frontend_model: str):
 # ФОНОВАЯ ЗАДАЧА: _provider_processing
 # Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
 # =====================================================
+def _grok_video_endpoint(path: str):
+    endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations").rstrip("/")
+    if endpoint.endswith(("/generations", "/edits")):
+        endpoint = endpoint.rsplit("/", 1)[0]
+    return f"{endpoint}/{path}"
+
+
 def _provider_processing(provider: str, model_id: str, data: dict, endpoint: str):
-    task_id = _task_id_from_response(data)
+    task_id = str(data.get("request_id")) if provider == "grok" and data.get("request_id") else _task_id_from_response(data)
     poll_url = data.get("poll_url") or data.get("status_url") if isinstance(data, dict) else None
     if not poll_url and task_id:
-        poll_url = endpoint.rstrip("/") + "/" + task_id
+        poll_url = _grok_video_endpoint(task_id) if provider == "grok" else endpoint.rstrip("/") + "/" + task_id
     return _provider_success(provider, model_id, [], status="processing", task_id=task_id, poll_url=poll_url)
 
 
@@ -3340,17 +3347,12 @@ async def poll_video_generation(result: dict) -> dict:
         except Exception as exc:
             return _provider_error("veo", model_id, f"Provider polling failed: {exc}")
     if provider == "grok":
-        api_key = _get_env("XAI_API_KEY")
+        api_key = _get_env("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
         if not api_key:
             return _provider_error("grok", model_id, "Provider API key is missing: XAI_API_KEY")
         headers = {"Authorization": f"Bearer {api_key}"}
-        # xAI's video status contract has not been confirmed against live
-        # docs/credentials - this follows the REST convention shared by
-        # Sora/Runway (GET the submit endpoint + "/{task_id}") and parses
-        # the same broad status vocabulary the other branches above use.
-        # Verify and adjust once XAI_API_KEY access is available.
-        submit_endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
-        endpoint = str(result.get("poll_url") or f"{submit_endpoint.rstrip('/')}/{task_id}")
+        # xAI polls /videos/{request_id}, not /videos/generations/{id}.
+        endpoint = str(result.get("poll_url") or _grok_video_endpoint(str(task_id)))
         try:
             response = _request_get(endpoint, headers)
             data = _safe_provider_json_response(response, "grok", endpoint)
@@ -3435,7 +3437,7 @@ def _provider_result_from_response(provider: str, model_id: str, response, endpo
         if provider in {"grok", "runway"}:
             result["provider_response"] = data
         return result
-    if _task_id_from_response(data):
+    if _task_id_from_response(data) or (provider == "grok" and data.get("request_id")):
         return _provider_processing(provider, model_id, data, endpoint)
     return _provider_error(provider, model_id, "Provider returned no video URL or task id")
 
@@ -4753,6 +4755,10 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         prompt_image = body.get("start_image") or body.get("image_url") or ""
         video_to_video_models = {"aleph2", "gen4_aleph", "seedance2", "seedance2_fast", "seedance2_mini", "gemini_omni_flash"}
         is_video_to_video = provider_model in {"aleph2", "gen4_aleph"} or endpoint.endswith("/video_to_video") or (bool(input_video) and provider_model in video_to_video_models)
+        if (not is_video_to_video and not prompt_image
+                and provider_model in {"gen4.5", "happyhorse_1_0"}
+                and endpoint.endswith("/image_to_video")):
+            endpoint = endpoint.rsplit("/", 1)[0] + "/text_to_video"
         if is_video_to_video and not endpoint.endswith("/video_to_video"):
             endpoint = os.getenv("RUNWAY_VIDEO_TO_VIDEO_ENDPOINT", "https://api.dev.runwayml.com/v1/video_to_video")
         runway_body = {
@@ -5321,47 +5327,43 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
 # Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
 # =====================================================
 def _call_grok(model_id: str, prompt: str, payload: dict):
-    api_key = _get_env("XAI_API_KEY")
+    api_key = _get_env("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
     if not api_key:
         return _provider_error("grok", model_id, "Provider API key is missing: XAI_API_KEY")
     provider_model = _provider_model_for_video(model_id)
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "grok")
     body = _build_video_payload(model_id, prompt, payload)
-    # Build an explicit xAI-schema body instead of forwarding SYLVEX's raw
-    # internal payload (start_image/ratio/resolution/etc. are our own
-    # internal keys, not xAI's) - matches every other provider here. The
-    # exact field names below are our best-effort guess at xAI's video API
-    # contract; verify against xAI's published docs once accessible.
     grok_body = {"model": provider_model, "prompt": prompt or ""}
-    ratio = body.get("ratio")
-    if ratio:
-        grok_body["aspect_ratio"] = ratio
-    try:
-        duration = int(body.get("duration") or 0)
-    except (TypeError, ValueError):
-        duration = 0
-    if duration:
-        grok_body["duration"] = duration
-    # xAI's docs confirm a plain "resolution" field (e.g. "720p") on the same
-    # /v1/videos/generations endpoint - this was computed by
-    # _build_video_payload but never actually included in the request body.
-    resolution = body.get("resolution")
-    if resolution:
-        grok_body["resolution"] = resolution
-    # xAI's docs (docs.x.ai/developers/model-capabilities/video/generation)
-    # confirm generated videos include audio by default; pass
-    # generate_audio=False for a silent video - this was previously never
-    # sent at all, so the sound toggle had no effect on the request.
-    raw_options = payload.get("video_options") or payload.get("options") or {}
-    grok_body["generate_audio"] = bool(raw_options.get("sound"))
     input_video = _public_input_url(
         body.get("input_video") or body.get("video_url") or body.get("reference_video") or ""
     )
-    if input_video:
-        grok_body["video_url"] = input_video
+    endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
+    if model_id == "grok_video_edit" or input_video:
+        if not input_video:
+            return _provider_error("grok", model_id, "Для редактирования Grok Video нужно загрузить исходное видео")
+        # Editing inherits duration/aspect/resolution from the source video.
+        grok_body["video"] = {"url": input_video}
+        endpoint = _grok_video_endpoint("edits")
+    else:
+        ratio = body.get("ratio")
+        if ratio:
+            grok_body["aspect_ratio"] = ratio
+        try:
+            duration = int(body.get("duration") or 0)
+        except (TypeError, ValueError):
+            duration = 0
+        if duration:
+            grok_body["duration"] = duration
+        resolution = body.get("resolution")
+        if resolution:
+            grok_body["resolution"] = resolution
+        raw_options = payload.get("video_options") or payload.get("options") or {}
+        grok_body["generate_audio"] = bool(raw_options.get("sound"))
+        input_image = _public_input_url(body.get("start_image") or body.get("image_url") or "")
+        if input_image:
+            grok_body["image"] = {"url": input_image}
     try:
-        endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
