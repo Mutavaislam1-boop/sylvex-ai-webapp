@@ -32,6 +32,24 @@ ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
 WEBAPP_DIR = ROOT_DIR / "webapp"
 GENERATED_VIDEOS_DIR = WEBAPP_DIR / "generated" / "videos"
 
+# Kling discontinued these catalog effects on 2026-01-30.
+# https://kling.ai/document-api/apiReference/updateNotice
+KLING_OFFLINE_EFFECT_SCENES = frozenset({"hug", "kiss"})
+
+
+def kling_offline_effect_scene(model_id: str, payload: dict) -> str:
+    """Identify a retired Kling effect without submitting or reserving a job."""
+    if VIDEO_MODEL_CONFIG.get(model_id, {}).get("provider") != "kling":
+        return ""
+    opts = payload.get("video_options") or payload.get("options") or {}
+    template = opts.get("video_template") if isinstance(opts.get("video_template"), dict) else {}
+    mode = str(opts.get("generation_mode") or opts.get("mode") or payload.get("mode") or "").strip().lower()
+    is_effect = (model_id == "kling_effects" or opts.get("video_effects")
+                 or opts.get("is_kling_effect") or template.get("catalog_type") == "kling_effect"
+                 or mode in {"video_effects", "video effects"})
+    scene = str(opts.get("effect_scene") or template.get("effect_scene") or opts.get("motion_preset") or "").strip()
+    return scene if is_effect and scene in KLING_OFFLINE_EFFECT_SCENES else ""
+
 VIDEO_MODEL_CONFIG = {
     "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
     "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
@@ -4062,6 +4080,8 @@ def _call_luma(model_id: str, prompt: str, payload: dict):
 # Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
 # =====================================================
 def _call_kling(model_id: str, prompt: str, payload: dict):
+    if kling_offline_effect_scene(model_id, payload):
+        return _provider_error("kling", model_id, "This video effect is no longer available from Kling.")
     api_key = _get_env("KLING_API_KEY", "KLING_ACCESS_KEY")
     if not api_key:
         return _provider_error("kling", model_id, "Provider API key is missing: KLING_API_KEY")

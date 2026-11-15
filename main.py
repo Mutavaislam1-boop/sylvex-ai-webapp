@@ -52,7 +52,7 @@ from services import model_control
 from services import admin_security
 from services import grid_references as grid_references_service
 from services import sylvex_restore as sylvex_restore_service
-from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
+from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX, KLING_OFFLINE_EFFECT_SCENES as _KLING_OFFLINE_EFFECT_SCENES, kling_offline_effect_scene
 from services import model_capabilities as model_capabilities_service
 from services import admin_identity
 from services import admin_auth
@@ -24576,6 +24576,8 @@ def validate_video_feature_request(payload: dict) -> Optional[dict]:
     # - so the two can never independently drift.
     opts = payload.get("video_options") or payload.get("options") or {}
     model = (opts.get("model") or payload.get("model") or "").strip()
+    if kling_offline_effect_scene(model, payload):
+        return {"ok": False, "type": "video", "error": "This video effect is no longer available from Kling.", "code": "kling_effect_unavailable", "model": model}
     from services.catalog_video import is_catalog_video_edit
     if is_catalog_video_edit(opts) and not any(opts.get(key) for key in (
         "start_image", "image_url", "character_image", "reference_images", "referenceImageUrls", "characterReferences", "objectReferences",
@@ -27570,7 +27572,7 @@ def prostudio_kling_effects_library() -> list:
         if not isinstance(item, dict):
             continue
         effect_id = str(item.get("id") or item.get("effect_scene") or item.get("scene") or f"effect_{index + 1}").strip()
-        if not effect_id:
+        if not effect_id or effect_id in _KLING_OFFLINE_EFFECT_SCENES:
             continue
         title = str(item.get("title") or item.get("name") or effect_id).strip()
         effect_dir = WEBAPP_DIR / "providers" / "kling" / "effects" / effect_id
