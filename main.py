@@ -14259,6 +14259,7 @@ async def admin_messages_broadcast(request: Request):
 # to SYLVEX from an internal popup; admins answer from the console Inbox.
 # =====================================================
 NOTIFICATIONS_SCHEMA_READY = False
+_NOTIFICATIONS_SCHEMA_LOCK = threading.Lock()
 _NOTIFICATION_TASKS = set()
 
 
@@ -14266,17 +14267,20 @@ def ensure_notification_tables():
     global NOTIFICATIONS_SCHEMA_READY
     if NOTIFICATIONS_SCHEMA_READY or not DATABASE_URL:
         return
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        notifications_service.ensure_tables(cursor)
-        reviews_service.ensure_tables(cursor)
-        platform_usage_service.ensure_table(cursor)
-        conn.commit()
-        NOTIFICATIONS_SCHEMA_READY = True
-    finally:
-        cursor.close()
-        conn.close()
+    with _NOTIFICATIONS_SCHEMA_LOCK:
+        if NOTIFICATIONS_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            notifications_service.ensure_tables(cursor)
+            reviews_service.ensure_tables(cursor)
+            platform_usage_service.ensure_table(cursor)
+            conn.commit()
+            NOTIFICATIONS_SCHEMA_READY = True
+        finally:
+            cursor.close()
+            conn.close()
 
 
 def _notifications_run(work):
