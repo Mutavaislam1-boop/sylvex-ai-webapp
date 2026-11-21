@@ -161,7 +161,7 @@ def _direct_upload_origins() -> list[str]:
 
 
 def ensure_direct_upload_cors() -> bool:
-    """Install the narrow browser PUT policy once; fail closed to proxy upload."""
+    """Verify configured CORS; object credentials never administer the bucket."""
     global _direct_upload_cors_ready
     if not direct_upload_enabled():
         return False
@@ -171,27 +171,20 @@ def ensure_direct_upload_cors() -> bool:
         origins = _direct_upload_origins()
         if not origins:
             return False
+        import requests
+        endpoint = f"{R2_ENDPOINT}/{R2_BUCKET}/generated/cors-check"
         try:
-            try:
-                existing = r2_client().get_bucket_cors(Bucket=R2_BUCKET).get("CORSRules") or []
-            except Exception:
-                existing = []
-            rules = [rule for rule in existing if rule.get("ID") != "sylvex-direct-media"]
-            rules.append({
-                "ID": "sylvex-direct-media",
-                "AllowedOrigins": origins,
-                "AllowedMethods": ["GET", "HEAD", "PUT"],
-                "AllowedHeaders": ["content-type", "cache-control", "range"],
-                "ExposeHeaders": ["ETag", "Accept-Ranges", "Content-Length", "Content-Range", "Content-Type", "Content-Disposition"],
-                "MaxAgeSeconds": 3600,
-            })
-            r2_client().put_bucket_cors(
-                Bucket=R2_BUCKET,
-                CORSConfiguration={"CORSRules": rules},
-            )
+            for origin in origins:
+                response = requests.options(endpoint, headers={
+                    "Origin": origin, "Access-Control-Request-Method": "PUT",
+                    "Access-Control-Request-Headers": "content-type,cache-control",
+                }, timeout=10)
+                methods = {item.strip().upper() for item in response.headers.get("Access-Control-Allow-Methods", "").split(",")}
+                allowed_origin = response.headers.get("Access-Control-Allow-Origin")
+                if response.status_code >= 400 or allowed_origin != origin or "PUT" not in methods:
+                    return False
             _direct_upload_cors_ready = True
-        except Exception as exc:
-            print("R2 DIRECT UPLOAD CORS FAILED:", type(exc).__name__)
+        except requests.RequestException:
             return False
     return True
 
