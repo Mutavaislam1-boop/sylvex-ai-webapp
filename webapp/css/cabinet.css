@@ -6805,15 +6805,18 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-generate:disabled{opacity:.42;cursor:not-allowed}
 .photo-tool-spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:photoToolSpin .75s linear infinite}
 
-.photo-tool-catalog{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.photo-tool-dialog:has(.photo-tool-catalog:not(.photo-tool-icon-grid)){width:min(920px,calc(100vw - 32px),calc((100dvh - 140px)*1.3333))}
+.photo-tool-catalog{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .photo-tool-catalog-card{
-  min-width:0;border-radius:18px;border:1px solid var(--border);background:var(--surface);
-  color:var(--text);padding:9px;text-align:left;cursor:pointer
+  position:relative;min-width:0;aspect-ratio:1/1;overflow:hidden;border-radius:18px;
+  border:1px solid var(--border);background:var(--surface);color:#fff;padding:0;text-align:left;cursor:pointer
 }
-.photo-tool-catalog-card .photo-tool-demo{aspect-ratio:16/8}
-.photo-tool-catalog-card>span{display:flex;flex-direction:column;gap:4px;padding:10px 5px 5px}
-.photo-tool-catalog-card>span>b{font-size:15px}
-.photo-tool-catalog-card>span>small{font-size:11px;line-height:1.35;color:var(--text-dim)}
+.photo-tool-catalog-card .photo-tool-demo{width:100%;height:100%;aspect-ratio:auto;border-radius:0}
+.photo-tool-catalog-card .photo-tool-demo img{display:block;width:100%;height:100%;object-fit:cover}
+.photo-tool-catalog-card>span{position:absolute;inset:auto 0 0;display:flex;padding:28px 10px 10px;background:linear-gradient(transparent,rgba(0,0,0,.82))}
+.photo-tool-catalog-card>span>b{font-size:clamp(10px,1.5vw,15px);line-height:1.2;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+.photo-tool-catalog-card>span>small{display:none}
+.photo-tool-icon img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
 
 .photo-tool-modal.replace-object-mask-editor-modal{z-index:1000010;align-items:center;justify-content:center;padding:18px}
 .photo-tool-dialog.replace-object-mask-editor-dialog{width:min(980px,calc(100vw - 36px));height:min(760px,calc(100dvh - 36px));max-width:none;max-height:none;overflow:hidden;border-radius:22px;display:flex;flex-direction:column;align-items:center;box-sizing:border-box;padding:16px}
@@ -6949,7 +6952,9 @@ CSS-БЛОК: .generation-info-actions button
   .photo-tool-dialog{width:100%;max-height:92vh;padding:14px;border-radius:24px 24px 18px 18px}
   
   
-  .photo-tool-catalog{grid-template-columns:1fr}
+  .photo-tool-catalog{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+  .photo-tool-catalog-card{border-radius:10px}
+  .photo-tool-catalog-card>span{padding:18px 5px 6px}
   .photo-catalog-dialog{width:calc(100% - 10px);padding:8px;border-radius:18px}
   .photo-catalog-grid{column-count:4;column-gap:5px}
   .photo-catalog-card{margin-bottom:5px;border-radius:10px}
