@@ -4915,7 +4915,8 @@ let styleSheetCssInjected = false;
       chatSpaces[type] = { activeChatId:null, conversationId:null, messages:[] };
       chatCollections[type] = [];
     });
-    clearActiveProStudioJob();
+    generationScopes.clear();
+    transitionActiveGeneration('reset');
     loadStoredChatSpace(currentChatType());
     currentConvId = chatSpaces[currentChatType()].activeChatId || chatSpaces[currentChatType()].conversationId || null;
     chatMessages = (chatSpaces[currentChatType()].messages || []).slice();
@@ -5065,14 +5066,12 @@ function localizedGreeting() {
   // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
   // =====================================================
   function restoreChatSpace(type) {
-    const normalized = activeGenerationLocked() && activeGeneration.mode
-      ? activeGeneration.mode
-      : chatTypeForMode(type);
+    const normalized = chatTypeForMode(type);
     if (!chatSpaces[normalized]) return;
     loadStoredChatSpace(normalized);
     currentConvId = chatSpaces[normalized].activeChatId || chatSpaces[normalized].conversationId || null;
     chatMessages = (chatSpaces[normalized].messages || []).slice();
-    if (activeGenerationLocked()) ensureActiveGenerationPlaceholder(false);
+    if (activeGenerationLocked() && normalized === activeGeneration.mode && activeGeneration.model === pickStudioModel()) ensureActiveGenerationPlaceholder(false);
     renderChat();
     renderConvList();
     updateSendButton();
@@ -5125,7 +5124,7 @@ function localizedGreeting() {
   }
 
   function isRestorableServerJobStatus(status) {
-    return ['queued', 'processing'].includes(String(status || '').toLowerCase());
+    return isActiveGenerationStatus(status);
   }
 
   function activeGenerationButtonLabel(status) {
@@ -5136,8 +5135,11 @@ function localizedGreeting() {
     return 'sylvex-prostudio-active-generation-' + localAccountStorageOwner();
   }
 
+  const generationScopes = new Map();
+  function generationScope(mode, model, tool) { return [chatTypeForMode(mode), String(model || ''), String(tool || '')].join(':'); }
+  function currentGenerationScope() { return generationScope(currentChatType(), pickStudioModel()); }
   function activeGenerationLocked() {
-    return !!activeGeneration.locked;
+    return generationScopes.has(currentGenerationScope());
   }
 
   function isTextGenerationMode(mode) {
@@ -5248,12 +5250,13 @@ function localizedGreeting() {
   function transitionActiveGeneration(action, data) {
     const payload = data || {};
     if (action === 'begin') {
-      if (activeGeneration.locked) return false;
+      if (generationScopes.has(payload.generation_scope || generationScope(payload.mode || currentChatType(), payload.model || pickStudioModel(), payload.tool))) return false;
       activeGeneration.locked = true;
       activeGeneration.status = 'submitting';
       activeGeneration.mode = chatTypeForMode(payload.mode || currentChatType());
       activeGeneration.jobId = '';
       activeGeneration.model = payload.model || pickStudioModel();
+      activeGeneration.scope = payload.generation_scope || generationScope(activeGeneration.mode, activeGeneration.model, payload.tool);
       activeGeneration.startedAt = Number(payload.startedAt || Date.now());
       activeGeneration.requestId = payload.requestId || ('local_' + Date.now().toString(36));
       activeGeneration.loadingToken = '';
@@ -5261,8 +5264,22 @@ function localizedGreeting() {
       activeGeneration.historyPreview = false;
     } else if (action === 'restore' || action === 'job' || action === 'status') {
       const incomingJobId = String(payload.id || payload.job_id || payload.jobId || '');
-      if (activeGeneration.jobId && incomingJobId && activeGeneration.jobId !== incomingJobId) return false;
-      activeGeneration.locked = true;
+      if (activeGeneration.jobId && incomingJobId && activeGeneration.jobId !== incomingJobId) {
+        const existing = Array.from(generationScopes.entries()).find(([, job]) => job.jobId === incomingJobId);
+        const scope = payload.generation_scope || (existing && existing[0]) || generationScope(payload.mode || currentChatType(), payload.model || pickStudioModel(), payload.tool);
+        if (action === 'status' && !isActiveGenerationStatus(payload.status)) {
+          for (const [key, job] of generationScopes) if (job.jobId === incomingJobId) generationScopes.delete(key);
+        } else if (isActiveGenerationStatus(payload.status)) generationScopes.set(scope, {mode:payload.mode,model:payload.model,jobId:incomingJobId,status:payload.status});
+        updateSendButton();
+        return false;
+      }
+      if (action === 'job') {
+        generationScopes.delete(activeGeneration.scope || generationScope(activeGeneration.mode, activeGeneration.model));
+        activeGeneration.mode = chatTypeForMode(payload.mode || activeGeneration.mode);
+        activeGeneration.model = payload.model || activeGeneration.model;
+      }
+      if (action === 'job' || action === 'restore') activeGeneration.scope = payload.generation_scope || generationScope(payload.mode || activeGeneration.mode, payload.model || activeGeneration.model, payload.tool);
+      activeGeneration.locked = !payload.status || isActiveGenerationStatus(payload.status);
       if (payload.status) activeGeneration.status = String(payload.status);
       if (incomingJobId) activeGeneration.jobId = incomingJobId;
       if (!activeGeneration.mode && payload.mode) activeGeneration.mode = chatTypeForMode(payload.mode);
@@ -5271,23 +5288,15 @@ function localizedGreeting() {
       if (!activeGeneration.requestId) activeGeneration.requestId = incomingJobId || ('restore_' + Date.now().toString(36));
     } else if (action === 'reset') {
       Object.assign(activeGeneration, {
-        locked:false, status:'', mode:'', jobId:'', model:'', startedAt:0,
+        locked:false, status:'', mode:'', jobId:'', model:'', scope:'', startedAt:0,
         requestId:'', loadingToken:'', placeholderMessage:null,
         restoringMode:false, historyPreview:false,
       });
     }
 
-    document.body.classList.toggle('prostudio-job-locked', activeGeneration.locked);
-    const composer = document.getElementById('studioComposer');
-    const input = document.getElementById('chatInput');
-    if (composer) composer.setAttribute('aria-busy', activeGeneration.locked ? 'true' : 'false');
-    if (input) {
-      input.readOnly = activeGeneration.locked;
-      input.setAttribute('aria-disabled', activeGeneration.locked ? 'true' : 'false');
-    }
-    document.querySelectorAll('#studioComposer button, #studioComposer input, #studioComposer select').forEach((element) => {
-      element.setAttribute('aria-disabled', activeGeneration.locked ? 'true' : 'false');
-    });
+    document.body.classList.remove('prostudio-job-locked');
+    if (activeGeneration.locked) generationScopes.set((activeGeneration.scope || generationScope(activeGeneration.mode, activeGeneration.model)), {...activeGeneration});
+    else generationScopes.delete((activeGeneration.scope || generationScope(activeGeneration.mode, activeGeneration.model)));
     persistActiveGeneration();
     if (activeGeneration.placeholderMessage) {
       activeGeneration.placeholderMessage.generationStatus = activeGeneration.status;
@@ -5302,7 +5311,13 @@ function localizedGreeting() {
   }
 
   function clearActiveProStudioJob(jobId) {
-    if (jobId && activeGeneration.jobId && activeGeneration.jobId !== jobId) return;
+    for (const [key, job] of generationScopes) {
+      if (jobId ? job.jobId === jobId : key === currentGenerationScope()) generationScopes.delete(key);
+    }
+    if ((jobId && activeGeneration.jobId && activeGeneration.jobId !== jobId)
+        || (!jobId && activeGeneration.locked && (activeGeneration.scope || generationScope(activeGeneration.mode, activeGeneration.model)) !== currentGenerationScope())) {
+      updateSendButton(); return;
+    }
     transitionActiveGeneration('reset');
   }
 
@@ -5340,10 +5355,6 @@ function localizedGreeting() {
       const response = await fetch('/api/public/prostudio/active-job?telegram_id=' + encodeURIComponent(telegramId), { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (response.ok && data.ok && data.active && data.job && isRestorableServerJobStatus(data.job.status)) {
-        if (isTextGenerationMode(data.job.mode)) {
-          discardStaleGenerationPlaceholders();
-          return;
-        }
         applyActiveProStudioJob(data.job);
         if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) {
           activeGeneration.restoringMode = true;
@@ -5367,12 +5378,11 @@ function localizedGreeting() {
   // Опрашивает backend до финального статуса и обновляет карточку генерации в чате.
   // =====================================================
   function restoreActiveGenerationJobs(jobs) {
-    const activeJob = (jobs || []).find((job) => job && job.id
-      && !isTextGenerationMode(job.mode)
-      && isRestorableServerJobStatus(job.status));
-    if (!activeJob) return;
-    applyActiveProStudioJob(activeJob);
-    watchGenerationJob(activeJob.id, activeJob);
+    (jobs || []).filter(job => job && job.id && (isRestorableServerJobStatus(job.status)
+      || (job.status === 'completed' && ['pending','processing'].includes(job.result && job.result.storage_status)))).forEach(job => {
+      const current = {...job, status:job.status === 'completed' ? 'provider_processing' : job.status};
+      applyActiveProStudioJob(current); watchGenerationJob(current.id, current);
+    });
   }
 
   // =====================================================
@@ -5404,7 +5414,7 @@ function localizedGreeting() {
         if (err && err.name === 'AbortError') return;
         console.warn('[SYLVEX] generation watcher failed', jobId, err);
         if (err && err.terminalStatus) {
-          const index = activeGenerationPlaceholderIndex();
+          const index = chatMessages.findIndex(message => message && message.generationJobId === jobId);
           if (index >= 0) {
             chatMessages[index] = resolveFailureMessage(err, { mode: (jobInfo && jobInfo.mode) || '', jobId });
           }
@@ -5430,9 +5440,14 @@ function localizedGreeting() {
   });
 
   function renderRestoredActiveGenerationResult(result, jobInfo) {
+    const resultMode = chatTypeForMode(jobInfo.mode || result.type || 'image');
+    if (resultMode !== currentChatType() || (jobInfo.model && jobInfo.model !== pickStudioModel())
+        || (jobInfo.conversation_id && jobInfo.conversation_id !== currentConvId)) {
+      clearActiveProStudioJob(result.job_id || jobInfo.id); loadConversations(); toast('Генерация завершена'); return;
+    }
     const data = Object.assign({}, result || {});
     if (!data.frontend_model && jobInfo.model) data.frontend_model = jobInfo.model;
-    const mode = chatTypeForMode(activeGeneration.mode || jobInfo.mode || data.type || currentChatType());
+    const mode = chatTypeForMode(jobInfo.mode || data.type || activeGeneration.mode || currentChatType());
     activeGeneration.restoringMode = true;
     if (currentChatType() !== mode) updateComposerMode(mode);
     activeGeneration.restoringMode = false;
@@ -7630,7 +7645,7 @@ function generationThoughtTarget(thought) {
   if(thought.outcome==='ready')return GENERATION_THOUGHT_ORDER.length;
   let reached=0;
   GENERATION_THOUGHT_ORDER.forEach((stage,index)=>{if(stage!=='ready'&&Number.isFinite(thought.stages[stage]))reached=index+1;});
-  return reached;
+  return Math.min(reached, 3);
 }
 // A line saved before the paced ticks (no `shown`) is complete.
 function generationThoughtShown(thought) {
@@ -8653,7 +8668,7 @@ function openEditWorkspace(e,options={}) {
   }
 }
 function closeEditWorkspace(e,options={}) {
-  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  if(e){e.preventDefault();e.stopPropagation()}
   document.getElementById('editWorkspace')?._editSketch?.destroy();
   ++editSessionOpenVersion;void saveEditWorkspaceSession();
   const root=document.getElementById('editWorkspace');if(root){clearTimeout(root._editRefreshTimer);root._editObserver?.disconnect();root._editExpandCleanup?.();root._editNavigationCleanup?.();root._editStopChainMotion?.();clearTimeout(root._editAdvanceTimer);root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root._editSidebarCleanup?.();root.remove();}
@@ -9088,6 +9103,8 @@ async function recoverEditSessionJob(){
   }finally{if(s.sessionId===sessionId&&owner===editSessionOwner()){s.busy=false;renderEditWorkspace();void saveEditWorkspaceSession();}}
 }
 async function generateEditWorkspace(e){
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if(e){e.preventDefault();e.stopPropagation()}
   const state=editWorkspaceState;if(editWorkspaceLocked())return;
@@ -9120,19 +9137,19 @@ async function generateEditWorkspace(e){
     const thumbs=generatedThumbsFromResponse(providerResult);
     addGeneratedImages([state.resultUrl],thumbs);
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
-    if(historyIndex>=0)chatMessages[historyIndex]={role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)};
-    else chatMessages.push({role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)});
+    if(historyIndex>=0)generationMessages[historyIndex]={role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)};
+    else generationMessages.push({role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)});
     loadConversations();
     editWorkspaceToast('Генерация завершена');
   }catch(error){
     if(isSylvex)restore.guidesHidden=false;
     if(chainResult.status==='pending'&&(!chainResult.jobId||['failed','cancelled','timeout'].includes(error.terminalStatus)))chainResult.status='failed';
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
-    if(historyIndex>=0)chatMessages[historyIndex]=resolveFailureMessage(error,{mode:'image',prompt});
+    if(historyIndex>=0)generationMessages[historyIndex]=resolveFailureMessage(error,{mode:'image',prompt});
     editWorkspaceToast(translateGenerationError(error,'Could not edit the image.'));
   }finally{
     if(isSylvex)restore.absorbing=false;
-    state.busy=false;document.body.classList.remove('ai-generating');clearActiveProStudioJob();renderEditWorkspace();renderChat();rememberCurrentChatSpace();
+    state.busy=false;document.body.classList.remove('ai-generating');renderEditWorkspace();renderChat();rememberCurrentChatSpace();
   }
 }
 function useEditWorkspaceResult(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const node=editWorkspaceState.chain.find(item=>item.id===editWorkspaceState.activeNodeId&&item.status==='ready'&&item.url);if(!node)return;const url=node.url;closeEditWorkspace();switchView('tools');updateComposerMode('image');imageState.uploadedImageUrls=[url];imageState.referenceImageUrls=[url];imageState.referenceImageUrl=url;renderImageControls();renderComposerImageDraft();renderUploadedPhotoGrid();updateImageUploadButtonPreview()}
@@ -10303,6 +10320,8 @@ function clearTryOnPerson(e) {
 // the isolated request.
 // =====================================================
 async function generateTryOnTool(e) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const state = photoToolState.try_on;
@@ -10321,7 +10340,7 @@ async function generateTryOnTool(e) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({
+  const loadingIndex = generationMessages.push({
     role: 'ai',
     generationLoading: true,
     ...generationLoadingThought('image'),
@@ -10343,18 +10362,18 @@ async function generateTryOnTool(e) {
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
       metadata: imageGenerationMetadata(displayPrompt, [modelImageUrl].concat(garmentUrls), result, { tool: 'try_on' }),
     };
     resetTryOnState();
-    closePhotoToolModal();
+    if (activePhotoTool === generationTool) closePhotoToolModal();
     toast('Обработка завершена');
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+    generationMessages[loadingIndex] = resolveFailureMessage(error, {
       fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
       mode: 'image',
       prompt: displayPrompt,
@@ -10365,9 +10384,6 @@ async function generateTryOnTool(e) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
-      clearActiveProStudioJob(activeGeneration.jobId);
-    }
   }
 }
 
@@ -10429,14 +10445,12 @@ function closePhotoToolModal(e) {
   const modal = document.getElementById('photoToolModal');
   const navKey = 'photo:' + (activePhotoTool || 'list');
   const photoToolGenerationActive = !!(activePhotoTool && ((photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating) || (activePhotoTool === 'hair_beard' && hairBeardState.generatingReference) || (activePhotoTool === 'tattoo' && tattooState.generatingReference)));
-  // BUG-2: closing was already correctly blocked while a generation is in
-  // progress, but silently - the user got no feedback for why the close
-  // button/overlay click did nothing. Reuses the same toast + the exact
-  // wording Grid Mode already uses for this identical "an action is
-  // blocked by an active generation" case (see studioGridHasActiveRun()
-  // callers above).
   if (modal && photoToolGenerationActive) {
-    toast(activePhotoTool === 'enhance' ? 'Wait for the current analysis or restoration to finish.' : 'Сначала дождитесь завершения текущей генерации');
+    // Closing a tool hides its UI while retaining its task and input state.
+    modal.classList.remove('show');
+    window.SYLVEX?.browserNav?.closed(navKey);
+    const returnMode = photoToolReturnMode; photoToolReturnMode = null;
+    if (returnMode && returnMode !== studioMode) updateComposerMode(returnMode);
     return;
   }
   if (modal) {
@@ -10520,7 +10534,7 @@ function closePhotoToolModal(e) {
         // Reopened in the same tick (one tool straight into another): that
         // session keeps the return point instead of losing image mode under it.
         if (modal.classList.contains('show')) { photoToolReturnMode = returnMode; return; }
-        if (returnMode !== studioMode && !activeGenerationLocked()) updateComposerMode(returnMode);
+        if (returnMode !== studioMode) updateComposerMode(returnMode);
       }, 0);
     }
   }
@@ -10654,6 +10668,8 @@ function hairBeardOutputSize(sourceFile) {
 }
 
 async function generateTattooReference(e) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const promptText = String(tattooState.prompt || '').trim();
@@ -10666,7 +10682,7 @@ async function generateTattooReference(e) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;
+  const loadingIndex = generationMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;
   renderChat();
   try {
     const start = await callGenerate(prompt,null,refs,null,{
@@ -10681,12 +10697,12 @@ async function generateTattooReference(e) {
     const reference = {id:'tattoo_custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:promptText.length>28?promptText.slice(0,25).trim()+'…':promptText,referenceAsset:images[0],custom:true};
     tattooState.customReferences.push(reference);
     tattooState.selectedReferenceId = reference.id;
-    chatMessages[loadingIndex] = {role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,result,{modelId:HAIR_BEARD_IMAGE_MODEL,model:HAIR_BEARD_IMAGE_MODEL,provider:'openai',quality:'high',referenceImageUrls:refs.slice(),photo_tool:'tattoo_reference',catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false})};
+    generationMessages[loadingIndex] = {role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,result,{modelId:HAIR_BEARD_IMAGE_MODEL,model:HAIR_BEARD_IMAGE_MODEL,provider:'openai',quality:'high',referenceImageUrls:refs.slice(),photo_tool:'tattoo_reference',catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false})};
     renderPhotoToolModal();
     toast('Референс тату добавлен в каталог и галерею Pro Studio');
     loadConversations();
   } catch (error) {
-    chatMessages[loadingIndex] = resolveFailureMessage(error,{fallback:'Не удалось создать референс тату. Попробуйте ещё раз.',mode:'image',prompt});
+    generationMessages[loadingIndex] = resolveFailureMessage(error,{fallback:'Не удалось создать референс тату. Попробуйте ещё раз.',mode:'image',prompt});
     toast(translateGenerationError(error,'Не удалось создать референс тату'));
   } finally {
     tattooState.generatingReference = false;
@@ -10695,11 +10711,12 @@ async function generateTattooReference(e) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) clearActiveProStudioJob(activeGeneration.jobId);
   }
 }
 
 async function generateHairBeardReference(e) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const promptText = String(hairBeardState.referencePrompt || '').trim();
@@ -10714,7 +10731,7 @@ async function generateHairBeardReference(e) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({ role:'ai', generationLoading:true, ...generationLoadingThought('image') }) - 1;
+  const loadingIndex = generationMessages.push({ role:'ai', generationLoading:true, ...generationLoadingThought('image') }) - 1;
   renderChat();
   try {
     const start = await callGenerate(prompt, null, refs, null, {
@@ -10739,7 +10756,7 @@ async function generateHairBeardReference(e) {
     };
     hairBeardState.customPresets.push(preset);
     hairBeardState.selectedPresetId = preset.id;
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role:'ai', imageResultMini:true,
       metadata:imageGenerationMetadata(prompt, refs, result, { modelId:HAIR_BEARD_IMAGE_MODEL, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', quality:'high', referenceImageUrls:refs.slice(), photo_tool:'hair_beard_reference', catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false }),
     };
@@ -10747,7 +10764,7 @@ async function generateHairBeardReference(e) {
     toast('Референс добавлен в список и галерею Pro Studio');
     loadConversations();
   } catch (error) {
-    chatMessages[loadingIndex] = resolveFailureMessage(error, { fallback:'Не удалось создать референс. Попробуйте ещё раз.', mode:'image', prompt });
+    generationMessages[loadingIndex] = resolveFailureMessage(error, { fallback:'Не удалось создать референс. Попробуйте ещё раз.', mode:'image', prompt });
     toast(translateGenerationError(error, 'Не удалось создать референс'));
   } finally {
     hairBeardState.generatingReference = false;
@@ -10756,11 +10773,12 @@ async function generateHairBeardReference(e) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) clearActiveProStudioJob(activeGeneration.jobId);
   }
 }
 
 async function generatePhotoTool(e) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) {
     e.preventDefault();
@@ -10803,7 +10821,7 @@ async function generatePhotoTool(e) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({
+  const loadingIndex = generationMessages.push({
     role: 'ai',
     generationLoading: true,
     ...generationLoadingThought('image'),
@@ -10833,7 +10851,7 @@ async function generatePhotoTool(e) {
     const options = isIsolatedGptEditKind
       ? { modelId:HAIR_BEARD_IMAGE_MODEL, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', quality:'high', size:outputSize, referenceImageUrls:refs.slice(), photo_tool:kind, catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false }
       : Object.assign({}, imageOptionsPayload(refs), { photo_tool: kind });
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
       metadata: imageGenerationMetadata(prompt, refs, result, options),
@@ -10845,7 +10863,7 @@ async function generatePhotoTool(e) {
     } else {
       state.files = [];
       state.generating = false;
-      closePhotoToolModal();
+      if (activePhotoTool === generationTool) closePhotoToolModal();
       toast('Обработка завершена');
     }
     loadConversations();
@@ -10854,9 +10872,9 @@ async function generatePhotoTool(e) {
     if (error && (error.paywall || error.subscriptionRequired)) {
       // Refused before it started: the paywall window explains it, no row
       // stays behind and the tool keeps its files.
-      chatMessages.splice(loadingIndex, 1);
+      generationMessages.splice(loadingIndex, 1);
     } else {
-      chatMessages[loadingIndex] = resolveFailureMessage(error, {
+      generationMessages[loadingIndex] = resolveFailureMessage(error, {
         fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
         mode: 'image',
         prompt,
@@ -10868,13 +10886,12 @@ async function generatePhotoTool(e) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
-      clearActiveProStudioJob(activeGeneration.jobId);
-    }
   }
 }
 
 async function generateLogoTool(e, toolState, userBrief) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   if (!toolState || toolState.generating) return;
   const brief=String(userBrief||'').trim();
   if(!brief){toast('Опишите логотип');return;}
@@ -10887,7 +10904,7 @@ async function generateLogoTool(e, toolState, userBrief) {
   logoState.prompt=brief;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;
+  const loadingIndex=generationMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;
   renderChat();
   try{
     const imageOptions={
@@ -10908,14 +10925,14 @@ async function generateLogoTool(e, toolState, userBrief) {
     if(!images.length||!svgUrl)throw new Error('Модель не вернула SVG и PNG-preview');
     addGeneratedImages(images,thumbs);
     logoState.result={pngUrl:images[0],svgUrl,jobId:result.job_id||result.generation_id||result.charge_id||'',referenceId:selected?selected.id:null};
-    chatMessages[loadingIndex]={role:'ai',imageResultMini:true,metadata:Object.assign(imageGenerationMetadata(prompt,refs,result,imageOptions),{
+    generationMessages[loadingIndex]={role:'ai',imageResultMini:true,metadata:Object.assign(imageGenerationMetadata(prompt,refs,result,imageOptions),{
       photo_tool:'logo',logo_reference_id:selected?selected.id:'',logo_reference_name:selected?selected.name:'',
       catalog_reference_url:selected?selected.asset:'',svg_url:svgUrl,svg_download_url:svgUrl,
     })};
     toast('Логотип создан: PNG-preview и SVG сохранены');
     loadConversations();
   }catch(error){
-    chatMessages[loadingIndex]=resolveFailureMessage(error,{fallback:'Не удалось создать логотип. Попробуйте ещё раз.',mode:'image',prompt:userBrief});
+    generationMessages[loadingIndex]=resolveFailureMessage(error,{fallback:'Не удалось создать логотип. Попробуйте ещё раз.',mode:'image',prompt:userBrief});
     toast(translateGenerationError(error,'Не удалось создать логотип'));
   }finally{
     toolState.generating=false;
@@ -10924,7 +10941,7 @@ async function generateLogoTool(e, toolState, userBrief) {
     renderPhotoToolModal();
     renderChat();
     rememberCurrentChatSpace();
-    if(!activeGeneration.jobId||!isActiveGenerationStatus(activeGeneration.status))clearActiveProStudioJob(activeGeneration.jobId);
+
   }
 }
 
@@ -10938,6 +10955,8 @@ async function generateLogoTool(e, toolState, userBrief) {
 // the same generic pipeline every other Photo Tool already uses.
 // =====================================================
 async function generateReplaceObjectTool(state, instruction) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   const source=state.files[0]&&state.files[0].url;
   const replacement=state.files[1]&&state.files[1].url;
   if(!source||!replacement){toast('Загрузите исходное фото и предмет для замены');return}
@@ -10947,7 +10966,7 @@ async function generateReplaceObjectTool(state, instruction) {
   const references=[source,replacement],model='gpt_image_2_5_sunburst';
   const options={modelId:model,model,provider:'openai',quality:'high',size:'auto',count:1,tool:'replace_object',photo_tool:'replace_object',referenceImageUrls:references.slice(),referenceImages:references.slice()};
   state.generating=true;renderPhotoToolModal();document.body.classList.add('ai-generating');
-  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;renderChat();
+  const loadingIndex=generationMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')})-1;renderChat();
   try{
     const start=await callGenerate(displayPrompt,null,references,null,{
       isolateRequest:true,model,provider:'openai',imageOptions:Object.assign({},options,{
@@ -10958,19 +10977,21 @@ async function generateReplaceObjectTool(state, instruction) {
     const result=start.result||start,images=generatedUrlsFromResponse(result,'image'),thumbs=generatedThumbsFromResponse(result);
     if(!images.length)throw new Error('Модель не вернула изображение');
     addGeneratedImages(images,thumbs);
-    chatMessages[loadingIndex]={role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,references,result,Object.assign({},options,{mask_applied:true}))};
+    generationMessages[loadingIndex]={role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,references,result,Object.assign({},options,{mask_applied:true}))};
     toast('Предмет заменён');
     loadConversations();
   }catch(error){
-    chatMessages[loadingIndex]=resolveFailureMessage(error,{fallback:'Не удалось заменить предмет. Попробуйте ещё раз.',mode:'image',prompt:displayPrompt});
+    generationMessages[loadingIndex]=resolveFailureMessage(error,{fallback:'Не удалось заменить предмет. Попробуйте ещё раз.',mode:'image',prompt:displayPrompt});
     toast(translateGenerationError(error,'Не удалось заменить предмет'));
   }finally{
     state.generating=false;document.body.classList.remove('ai-generating');renderPhotoToolModal();renderChat();rememberCurrentChatSpace();
-    if(!activeGeneration.jobId||!isActiveGenerationStatus(activeGeneration.status))clearActiveProStudioJob(activeGeneration.jobId);
+
   }
 }
 
 async function generateRemoveObjectTool(state) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
     toast('Загрузите фото');
@@ -10989,7 +11010,7 @@ async function generateRemoveObjectTool(state) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({
+  const loadingIndex = generationMessages.push({
     role: 'ai',
     generationLoading: true,
     ...generationLoadingThought('image'),
@@ -11013,7 +11034,7 @@ async function generateRemoveObjectTool(state) {
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
       metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: 'remove_object' }),
@@ -11022,12 +11043,12 @@ async function generateRemoveObjectTool(state) {
     state.markedPhotoStrokes = [];
     state.markedPhotoSize = null;
     state.generating = false;
-    closePhotoToolModal();
+    if (activePhotoTool === generationTool) closePhotoToolModal();
     toast('Обработка завершена');
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+    generationMessages[loadingIndex] = resolveFailureMessage(error, {
       fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
       mode: 'image',
       prompt: displayPrompt,
@@ -11038,20 +11059,19 @@ async function generateRemoveObjectTool(state) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
-      clearActiveProStudioJob(activeGeneration.jobId);
-    }
   }
 }
 
 async function generateWatermarkRemovalTool(state) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) { toast('Загрузите фото'); return; }
   const displayPrompt = 'Удаление водяного знака на фото';
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')}) - 1;
+  const loadingIndex = generationMessages.push({role:'ai',generationLoading:true,...generationLoadingThought('image')}) - 1;
   renderChat();
   try {
     const start = await callGenerate(displayPrompt, null, [], null, {
@@ -11069,25 +11089,24 @@ async function generateWatermarkRemovalTool(state) {
     const thumbs = generatedThumbsFromResponse(result);
     if (!images.length) throw new Error('Модель не вернула изображение');
     addGeneratedImages(images, thumbs);
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role:'ai', imageResultMini:true,
       metadata:imageGenerationMetadata(displayPrompt, [sourceUrl], result, {tool:'watermark_removal',model:'gpt_image_2_5_sunburst',provider:'openai',quality:'high'}),
     };
     state.generating = false;
     state.files = [];
-    closePhotoToolModal();
+    if (activePhotoTool === generationTool) closePhotoToolModal();
     toast('Водяной знак удалён');
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {fallback:'Не удалось удалить водяной знак. Попробуйте ещё раз.',mode:'image',prompt:displayPrompt});
+    generationMessages[loadingIndex] = resolveFailureMessage(error, {fallback:'Не удалось удалить водяной знак. Попробуйте ещё раз.',mode:'image',prompt:displayPrompt});
     renderPhotoToolModal();
     toast(translateGenerationError(error, 'Не удалось удалить водяной знак'));
   } finally {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) clearActiveProStudioJob(activeGeneration.jobId);
   }
 }
 
@@ -11104,6 +11123,8 @@ async function generateWatermarkRemovalTool(state) {
 // drives rendering via the shared renderPhotoToolModal().
 // =====================================================
 async function generateRemoveBgTool(state) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
     toast('Загрузите фото');
@@ -11113,7 +11134,7 @@ async function generateRemoveBgTool(state) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({
+  const loadingIndex = generationMessages.push({
     role: 'ai',
     generationLoading: true,
     ...generationLoadingThought('image'),
@@ -11134,19 +11155,19 @@ async function generateRemoveBgTool(state) {
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
       metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: 'remove_background' }),
     };
     state.files = [];
     state.generating = false;
-    closePhotoToolModal();
+    if (activePhotoTool === generationTool) closePhotoToolModal();
     toast('Обработка завершена');
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+    generationMessages[loadingIndex] = resolveFailureMessage(error, {
       fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
       mode: 'image',
       prompt: displayPrompt,
@@ -11157,9 +11178,6 @@ async function generateRemoveBgTool(state) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
-      clearActiveProStudioJob(activeGeneration.jobId);
-    }
   }
 }
 
@@ -11183,6 +11201,8 @@ async function generateRemoveBgTool(state) {
 const ENHANCE_PHOTO_TOOL_KEY = 'enhance_photo';
 
 async function generateEnhancePhotoTool(state) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
     toast('Загрузите фото');
@@ -11192,7 +11212,7 @@ async function generateEnhancePhotoTool(state) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({
+  const loadingIndex = generationMessages.push({
     role: 'ai',
     generationLoading: true,
     ...generationLoadingThought('image'),
@@ -11213,19 +11233,19 @@ async function generateEnhancePhotoTool(state) {
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
       metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: ENHANCE_PHOTO_TOOL_KEY }),
     };
     state.files = [];
     state.generating = false;
-    closePhotoToolModal();
+    if (activePhotoTool === generationTool) closePhotoToolModal();
     toast('Обработка завершена');
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+    generationMessages[loadingIndex] = resolveFailureMessage(error, {
       fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
       mode: 'image',
       prompt: displayPrompt,
@@ -11236,9 +11256,6 @@ async function generateEnhancePhotoTool(state) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
-      clearActiveProStudioJob(activeGeneration.jobId);
-    }
   }
 }
 
@@ -11264,6 +11281,8 @@ const ANIMATE_PHOTO_TOOL_KEY = 'animate_photo';
 const ANIMATE_PHOTO_PROMPT_MAX_LENGTH = 250;
 
 async function generateAnimatePhotoTool(state) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
     toast('Загрузите фото');
@@ -11281,7 +11300,7 @@ async function generateAnimatePhotoTool(state) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({
+  const loadingIndex = generationMessages.push({
     role: 'ai',
     generationLoading: true,
     ...generationLoadingThought('video'),
@@ -11307,19 +11326,19 @@ async function generateAnimatePhotoTool(state) {
       provider: 'runway',
     });
     const result = start.result || start;
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
       metadata: generationResultMetadata('video', displayPrompt, result, [sourceUrl], { tool: ANIMATE_PHOTO_TOOL_KEY }),
     };
     state.files = [];
     state.generating = false;
-    closePhotoToolModal();
+    if (activePhotoTool === generationTool) closePhotoToolModal();
     toast('Обработка завершена');
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+    generationMessages[loadingIndex] = resolveFailureMessage(error, {
       fallback: 'Не удалось создать видео. Попробуйте ещё раз.',
       mode: 'video',
       prompt: displayPrompt,
@@ -11331,9 +11350,6 @@ async function generateAnimatePhotoTool(state) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
-      clearActiveProStudioJob(activeGeneration.jobId);
-    }
   }
 }
 
@@ -11422,6 +11438,8 @@ function clearCharacterReplaceIdentity(e) {
 // builds the isolated request.
 // =====================================================
 async function generateCharacterReplaceTool(e) {
+  const generationMessages = chatMessages;
+  const generationTool = activePhotoTool;
   if (guestNeedsAccount('create')) { if (e && e.preventDefault) e.preventDefault(); return; }
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const state = photoToolState.replace_character;
@@ -11440,7 +11458,7 @@ async function generateCharacterReplaceTool(e) {
   state.generating = true;
   renderPhotoToolModal();
   document.body.classList.add('ai-generating');
-  const loadingIndex = chatMessages.push({
+  const loadingIndex = generationMessages.push({
     role: 'ai',
     generationLoading: true,
     ...generationLoadingThought('image'),
@@ -11465,19 +11483,19 @@ async function generateCharacterReplaceTool(e) {
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    chatMessages[loadingIndex] = {
+    generationMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
       metadata: imageGenerationMetadata(displayPrompt, [sourceUrl, identityUrl], result, { tool: CHARACTER_REPLACE_TOOL_KEY }),
     };
     state.generating = false;
     resetCharacterReplaceState();
-    closePhotoToolModal();
+    if (activePhotoTool === generationTool) closePhotoToolModal();
     toast('Обработка завершена');
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+    generationMessages[loadingIndex] = resolveFailureMessage(error, {
       fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
       mode: 'image',
       prompt: displayPrompt,
@@ -11488,9 +11506,6 @@ async function generateCharacterReplaceTool(e) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
-    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
-      clearActiveProStudioJob(activeGeneration.jobId);
-    }
   }
 }
 
@@ -12351,13 +12366,13 @@ async function pollCreationJob(jobId, options, fallbackErrorText) {
     try {
       response = await fetch('/api/public/prostudio/job/' + encodeURIComponent(jobId), { cache: 'no-store' });
     } catch (error) {
-      if (++transientErrors > 80) throw error;
+      ++transientErrors;
       await wait(Math.min(8000, 1200 + transientErrors * 250));
       continue;
     }
     const job = await response.json().catch(() => ({}));
     if (!response.ok || !job.ok) {
-      if (++transientErrors > 80) throw new Error(translateGenerationError(job, fallbackErrorText));
+      ++transientErrors;
       await wait(Math.min(8000, 1200 + transientErrors * 250));
       continue;
     }
@@ -16848,11 +16863,11 @@ function imageModelButton(model) {
       size: backendMeta.size || options.size || options.ratio || '',
       count: backendMeta.count || options.count || 1,
       seed: seed === '' ? null : seed,
-      generation_cost: backendMeta.generation_cost || (result && result.generation_cost) || '',
+      generation_cost: (result && result.generation_cost) || backendMeta.generation_cost || '',
       cost_usd: backendMeta.cost_usd !== undefined ? backendMeta.cost_usd : (result && result.cost_usd),
       unit_cost_usd: backendMeta.unit_cost_usd !== undefined ? backendMeta.unit_cost_usd : (result && result.unit_cost_usd),
       cost: backendMeta.cost !== undefined ? backendMeta.cost : (result && result.cost),
-      cost_credits: backendMeta.cost_credits !== undefined ? backendMeta.cost_credits : (result && result.cost_credits),
+      cost_credits: result && result.cost_credits !== undefined ? result.cost_credits : backendMeta.cost_credits,
       unit_cost_credits: backendMeta.unit_cost_credits !== undefined ? backendMeta.unit_cost_credits : (result && result.unit_cost_credits),
       balance_charged: backendMeta.balance_charged !== undefined ? backendMeta.balance_charged : (result && result.balance_charged),
       balance_after: backendMeta.balance_after !== undefined ? backendMeta.balance_after : (result && result.balance_after),
@@ -22316,6 +22331,7 @@ function maybeShowVideoTemplateIntro(force) {
       });
       loadConversations();
     } catch (err) {
+      if (err && err.activeGeneration) return;
       if (isAccessRefusal(err)) {
         // Refused before it started: no rows stay behind; the paywall
         // window explains it and the template stays chosen where it was.
@@ -22326,9 +22342,9 @@ function maybeShowVideoTemplateIntro(force) {
       }
     } finally {
       document.body.classList.remove('ai-generating');
-      videoState = previousVideoState;
-      studioMode = previousStudioMode;
-      activeCat = previousActiveCat;
+      if (studioMode === 'video' && videoState.modelId === modelId && videoState.videoTemplate?.id === template.id) {
+        videoState = previousVideoState; studioMode = previousStudioMode; activeCat = previousActiveCat;
+      }
       renderChat();
       rememberCurrentChatSpace();
       if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
@@ -22401,10 +22417,6 @@ function maybeShowVideoTemplateIntro(force) {
     const requestedMode = chatTypeForMode(kind);
     if (requestedMode !== currentChatType() && document.querySelector('.view[data-view="tools"].active')) globalThis.SylvexAnalytics?.track('section_open', { section: requestedMode === 'music' || requestedMode === 'voice' ? requestedMode : 'pro_studio' });
     if (requestedMode !== currentChatType()) stopTextListen(false);
-    if (activeGenerationLocked() && !activeGeneration.restoringMode && activeGeneration.mode && requestedMode !== activeGeneration.mode) {
-      toast(activeGenerationButtonLabel(activeGeneration.status));
-      return;
-    }
     // Browser Mini App: switching mode (Photo -> Video -> Music, ...) closes
     // the keyboard and puts the Pro Studio block back down.
     if (requestedMode !== currentChatType() && S.isBrowserApp && S.isBrowserApp() && browserComposerWindowOpen()) hideMobileKeyboard();
@@ -22575,14 +22587,6 @@ function maybeShowVideoTemplateIntro(force) {
     if (on) { renderHistoryUserSummary(); renderConvList(); }
     d.classList.toggle('show', on);
     b.classList.toggle('show', on);
-    if (!on && activeGenerationLocked()) {
-      activeGeneration.historyPreview = false;
-      activeGeneration.restoringMode = true;
-      if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) updateComposerMode(activeGeneration.mode);
-      else restoreChatSpace(activeGeneration.mode || currentChatType());
-      activeGeneration.restoringMode = false;
-      ensureActiveGenerationPlaceholder(true);
-    }
   }
   function renderStudioGridDrawer() {
     const userHost=document.getElementById('studioGridDrawerUser'),list=document.getElementById('studioGridDrawerList');
@@ -22644,16 +22648,58 @@ function maybeShowVideoTemplateIntro(force) {
 // and active-generation errors already carry their own distinct handling
 // and are left untouched.
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
+  const origin = {mode:currentChatType(), model:pickStudioModel(), conversation:currentConvId,
+    messages:chatMessages, placeholder:chatMessages[generationOptions && generationOptions.loadingIndex],
+    options:generationOptions && generationOptions.imageOptions || videoOptionsOverride || null};
   const pendingIndex = generationOptions && generationOptions.loadingIndex;
-  if (Number.isInteger(pendingIndex) && chatMessages[pendingIndex]?.generationLoading) {
-    if (!activeGenerationLocked()) transitionActiveGeneration('begin', {mode:currentChatType(), model:pickStudioModel()});
+  if (Number.isInteger(pendingIndex) && (chatMessages[pendingIndex]?.generationLoading || chatMessages[pendingIndex]?.textLoading)) {
+    if (!activeGenerationLocked()) transitionActiveGeneration('begin', {mode:currentChatType(), model:generationOptions?.model || pickStudioModel(), tool:generationOptions?.imageOptions?.tool});
     adoptActiveGenerationPlaceholder(pendingIndex);
   }
   try {
     const start = await callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions);
+    if (origin.mode !== currentChatType() || origin.model !== pickStudioModel()
+        || (origin.conversation && origin.conversation !== currentConvId)) {
+      const result = start.result || start;
+      const message = origin.placeholder;
+      if (message) {
+        disposeGenerationPlaceholder(message);
+        const replacement = origin.mode === 'text' ? {role:'ai',text:result.text || ''} : {
+          role:'ai', imageResultMini:true, metadata:origin.mode === 'image'
+            ? imageGenerationMetadata(prompt, referenceImagesOverride || [], result, origin.options || {})
+            : generationResultMetadata(origin.mode, prompt, result, referenceImagesOverride || [], origin.options || {}),
+        };
+        Object.keys(message).forEach(key => delete message[key]); Object.assign(message,replacement);
+        const space = chatSpaces[origin.mode];
+        if (space && (!origin.conversation || space.conversationId === origin.conversation)) {
+          space.messages = origin.messages.slice();
+          try { localStorage.setItem(chatStorageKey(origin.mode), JSON.stringify(space)); } catch (_) {}
+        }
+      }
+      clearActiveProStudioJob(result.job_id || start.job_id);
+      loadConversations(); toast('Генерация завершена');
+      const detached = new Error('Генерация сохранена в исходном чате');
+      if (generationOptions?.isolateRequest) return start;
+      detached.activeGeneration = true; detached.generationEventSent = true; throw detached;
+    }
     if (!(start && start.job_id)) { try { emitGenerationResultOnce((start && start.result) || start || {}); } catch (_) {} }
     return start;
   } catch (err) {
+    if (origin.placeholder && !activeGeneration.jobId && activeGeneration.placeholderMessage === origin.placeholder) clearActiveProStudioJob();
+    if (err && err.terminalStatus && (origin.mode !== currentChatType() || origin.model !== pickStudioModel()
+        || (origin.conversation && origin.conversation !== currentConvId))) {
+      if (origin.placeholder) {
+        const failure = resolveFailureMessage(err, {mode:origin.mode, prompt, jobId:err.jobId});
+        disposeGenerationPlaceholder(origin.placeholder);
+        Object.keys(origin.placeholder).forEach(key => delete origin.placeholder[key]); Object.assign(origin.placeholder,failure);
+        const space = chatSpaces[origin.mode];
+        if (space && (!origin.conversation || space.conversationId === origin.conversation)) {
+          space.messages = origin.messages.slice();
+          try { localStorage.setItem(chatStorageKey(origin.mode), JSON.stringify(space)); } catch (_) {}
+        }
+      }
+      clearActiveProStudioJob(err.jobId); err.activeGeneration = true;
+    }
     if (!(err && err.generationEventSent)) { try { window.dispatchEvent(new CustomEvent('sylvex:generation-error', { detail: { message: String((err && err.message) || ''), jobId:err && err.jobId || '', terminalStatus:err && err.terminalStatus || '' } })); } catch (_) {} }
     if (err && typeof err === 'object' && !err.paywall && !err.activeGeneration && !err.subscriptionRequired) {
       if (!err.mode) err.mode = studioMode;
@@ -22809,7 +22855,7 @@ async function buildGenerationRequest(state) {
     text_options: input.textOptions || null,
     history: input.history || [],
     attachment: safeAttachment,
-    conversation_id: currentConvId,
+    conversation_id: input.conversationId === undefined ? currentConvId : input.conversationId,
     client_request_id: input.clientRequestId,
     language: uiLang(),
   };
@@ -22858,7 +22904,10 @@ async function buildGenerationRequest(state) {
 }
 
 async function callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
+  if (generationInputsUploading()) throw new Error('Дождитесь завершения загрузки исходных файлов');
   const requestMode = studioMode;
+  const requestConversation = currentConvId;
+  const requestMessages = chatMessages;
   const isDirectTextRequest = isTextGenerationMode(requestMode);
   let promptText = (prompt || '').trim();
   if (isVoiceMode() && voiceState.pronunciationRules && typeof voiceState.pronunciationRules === 'object') {
@@ -22899,7 +22948,7 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
   const musicOptions = isMusicMode() ? musicOptionsPayload() : null;
   // Only the Text chat itself may offer internal SYLVEX links.
   const textOptions = studioMode === 'text'
-    ? Object.assign(textOptionsPayload(), generationOptions && generationOptions.textDirect ? { sylvex_links: true, sylvex_catalog: sylvexModelCatalog() } : {})
+    ? Object.assign(textOptionsPayload(), isDirectTextRequest ? { sylvex_links: true, sylvex_catalog: sylvexModelCatalog() } : {})
     : null;
   const audioUploadsOverride = generationOptions && Array.isArray(generationOptions.audioUploads)
     ? generationOptions.audioUploads.slice()
@@ -22935,6 +22984,7 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     voiceOptions,
     textOptions,
     history,
+    conversationId: requestConversation,
     attachment: attachment || null,
     clientRequestId: (generationOptions && generationOptions.clientRequestId)
       || (mediaGenerationRequest && mediaGenerationRequest.clientRequestId)
@@ -22943,54 +22993,10 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
   });
   const payload = builtRequest.payload;
 
-  // Text requests are synchronous by design.  A browser or proxy must not keep
-  // the chat's lightweight "…" indicator alive indefinitely when that request
-  // gets stranded in transit.  Media generation keeps its existing job/polling
-  // lifecycle and is intentionally not given this client-side deadline.
-  const submissionTimeoutMs = isDirectTextRequest ? 75_000 : (isolateRequest ? 0 : 90_000);
-  const submissionController = submissionTimeoutMs ? new AbortController() : null;
-  let submissionTimedOut = false;
-  const submissionTimeout = submissionController
-    ? setTimeout(() => {
-        submissionTimedOut = true;
-        submissionController.abort();
-      }, submissionTimeoutMs)
-    : null;
-  const generateRequest = async () => {
-    try {
-      return await fetch('/api/public/prostudio/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-        },
-        cache: 'no-store',
-        body: builtRequest.serialized,
-        signal: submissionController ? submissionController.signal : undefined,
-      });
-    } catch (err) {
-      if (submissionTimedOut) {
-        const timeoutError = new Error('GENERATION_SUBMISSION_TIMEOUT');
-        if (isDirectTextRequest) timeoutError.textRequestTimeout = true;
-        else timeoutError.submissionTimeout = true;
-        throw timeoutError;
-      }
-      throw err;
-    }
-  };
-  let res;
-  try {
-    res = await generateRequest();
-  } catch (err) {
-    if (isDirectTextRequest && isNetworkLoadError(err)) {
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      res = await generateRequest();
-    } else {
-      throw err;
-    }
-  } finally {
-    if (submissionTimeout) clearTimeout(submissionTimeout);
-  }
+  const res = await fetch('/api/public/prostudio/generate', {
+    method:'POST', headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},
+    cache:'no-store', body:builtRequest.serialized,
+  });
 
   const j = await res.json().catch(() => ({}));
   if (res.status === 409 && j && j.active_job_id) {
@@ -23014,23 +23020,28 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
   }
   if (!res.ok || !j.ok) throw new Error(translateGenerationError(j, 'Генерация не прошла. Попробуйте повторить немного позже.'));
   if (j.conversation_id) {
-    currentConvId = j.conversation_id;
-    rememberCurrentChatSpace();
+    if (studioMode === requestMode && currentConvId === requestConversation) {
+      currentConvId = j.conversation_id; rememberCurrentChatSpace();
+    } else if (chatSpaces[chatTypeForMode(requestMode)]) {
+      const space = chatSpaces[chatTypeForMode(requestMode)];
+      if (!requestConversation || space.conversationId === requestConversation) {
+        space.activeChatId = space.conversationId = j.conversation_id;
+        space.messages = requestMessages.slice();
+      }
+    }
   }
   const returnedJobIdRaw = typeof j.job_id === 'string' ? j.job_id.trim() : '';
   const returnedJobId = /^[A-Za-z0-9_-]{1,128}$/.test(returnedJobIdRaw) ? returnedJobIdRaw : '';
-  if (!isDirectTextRequest && !returnedJobId) {
+  if (!returnedJobId) {
     throw new Error('Сервис принял запрос без номера задачи. Попробуйте повторить генерацию.');
   }
   if (returnedJobId) {
-    if (isDirectTextRequest) {
-      throw new Error('Текстовый запрос не был завершён. Попробуйте ещё раз.');
-    }
     transitionActiveGeneration('job', {
       id: returnedJobId,
       status: j.status || 'queued',
-      mode: currentChatType() || studioMode,
+      mode: requestMode,
       model: payload.model,
+      generation_scope: generationScope(requestMode, payload.model, imageOptions?.tool || videoOptions?.tool),
       requestId: payload.client_request_id,
       startedAt: Date.now(),
     });
@@ -23051,12 +23062,19 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     rememberCurrentChatSpace();
     if(typeof generationOptions?.onJobCreated==='function')generationOptions.onJobCreated(returnedJobId);
     window.dispatchEvent(new CustomEvent('sylvex:generation-job', {detail:{jobId:returnedJobId, status:j.status || 'queued', mode:currentChatType(), startedAt:activeGeneration.startedAt}}));
+    const submittedPlaceholder = requestMessages[Number(generationOptions && generationOptions.loadingIndex)];
+    if (submittedPlaceholder) {
+      submittedPlaceholder.generationJobId = returnedJobId;
+      if (submittedPlaceholder.thoughtKey) bindGenerationThought(returnedJobId, submittedPlaceholder.thoughtKey, submittedPlaceholder.thought);
+    }
+    generationSubmitting = false;
+    if (isDirectTextRequest) textRequestInFlight = false;
     submittedGenerationJobs.add(returnedJobId);
     try { j.result = await waitGeneration(returnedJobId, generationOptions || {}); }
     finally { submittedGenerationJobs.delete(returnedJobId); }
   }
 
-  return j;
+  return isDirectTextRequest ? (j.result || j) : j;
 }
 
 function errorMessage(value, fallback) {
@@ -23302,16 +23320,7 @@ async function waitGenerationJob(jobId, options) {
     signal.addEventListener('abort', abort, { once: true });
   });
   let transientErrors = 0;
-  const startedAt = Date.now();
-  const networkGraceMs = 15 * 60 * 1000;
-  const clientWatchdogMs = 45 * 60 * 1000;
   while (true) {
-    if (Date.now() - startedAt > clientWatchdogMs) {
-      const unconfirmed = new Error('Генерация выполняется дольше ожидаемого. Обновите статус, чтобы восстановить задачу.');
-      unconfirmed.terminalStatus = 'unconfirmed';
-      unconfirmed.jobId = jobId;
-      throw unconfirmed;
-    }
     let res;
     try {
       res = await fetch(
@@ -23321,12 +23330,6 @@ async function waitGenerationJob(jobId, options) {
     } catch (err) {
       if (signal && signal.aborted) throw err;
       transientErrors += 1;
-      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) {
-        const unconfirmed = new Error('Не удалось подтвердить состояние генерации. Обновите статус и попробуйте восстановить задачу.');
-        unconfirmed.terminalStatus = 'unconfirmed';
-        unconfirmed.jobId = jobId;
-        throw unconfirmed;
-      }
       await wait(Math.min(8000, 1500 + transientErrors * 250));
       continue;
     }
@@ -23337,13 +23340,11 @@ async function waitGenerationJob(jobId, options) {
     // =====================================================
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
-      transientErrors += 1;
-      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) {
-        const unconfirmed = new Error(translateGenerationError(job, 'Не удалось подтвердить состояние генерации. Обновите статус и попробуйте восстановить задачу.'));
-        unconfirmed.terminalStatus = 'unconfirmed';
-        unconfirmed.jobId = jobId;
-        throw unconfirmed;
+      if ([400,401,403,404].includes(res.status)) {
+        const error = new Error(translateGenerationError(job, 'Задача недоступна'));
+        error.jobId = jobId; error.terminalStatus = 'unavailable'; throw error;
       }
+      transientErrors += 1;
       await wait(Math.min(8000, 1500 + transientErrors * 250));
       continue;
     }
@@ -23354,6 +23355,7 @@ async function waitGenerationJob(jobId, options) {
     window.dispatchEvent(new CustomEvent('sylvex:generation-progress', {detail:{jobId, status:job.status, progress:job.progress || {}, mode:job.mode || ''}}));
 
     const status = String(job.status || '').toLowerCase();
+    if (options && typeof options.onStatus === 'function') options.onStatus(status);
     if (isActiveGenerationStatus(status)) {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
@@ -23364,6 +23366,8 @@ async function waitGenerationJob(jobId, options) {
     }
 
     if (status === 'completed') {
+      for (const [key, entry] of generationScopes) if (entry.jobId === jobId) generationScopes.delete(key);
+      updateSendButton();
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: 'completed',
@@ -23377,6 +23381,7 @@ async function waitGenerationJob(jobId, options) {
     }
 
     if (['failed', 'cancelled', 'canceled', 'timeout', 'timed_out'].includes(status)) {
+      clearActiveProStudioJob(jobId);
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: status === 'canceled' ? 'cancelled' : status,
@@ -23469,6 +23474,7 @@ async function waitGenerationJob(jobId, options) {
       loadConversations();
       toast('Генерация завершена');
     } catch (err) {
+      if (err && err.activeGeneration) return;
       if (err && err.paywall) {
         chatMessages[index] = buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, snapshot.imageOptions || null, videoOptions, snapshot.audioUploads || []);
       } else {
@@ -23505,7 +23511,7 @@ async function waitGenerationJob(jobId, options) {
     try {
       const result = await callGenerate(prompt, attachment, [], null, {
         clientRequestId: requestId,
-        textDirect: true,
+        loadingIndex: index,
       });
       if (!result || !result.text) throw new Error('Не удалось получить текстовый ответ.');
       chatMessages[index] = {
@@ -23519,6 +23525,7 @@ async function waitGenerationJob(jobId, options) {
       loadConversations();
       toast('Генерация завершена');
     } catch (err) {
+      if (err && err.activeGeneration) return;
       if (!(err && err.subscriptionRequired)) toast('Ошибка генерации');
       chatMessages[index] = (err && err.subscriptionRequired)
         ? buildSubscriptionRequiredMessage()
@@ -23617,6 +23624,7 @@ async function waitGenerationJob(jobId, options) {
       clearActiveProStudioJob();
       return;
     }
+    if (generationInputsUploading()) { toast('Дождитесь завершения загрузки исходных файлов'); return; }
     const attachment = currentModeAttachment();
     const referenceImages = isVideoMode()
       ? currentVideoReferenceImages()
@@ -24319,6 +24327,7 @@ async function waitGenerationJob(jobId, options) {
       toast('Генерация завершена');
     })
     .catch((err) => {
+      if (err && err.activeGeneration) return;
       chatMessages[target] = resolveFailureMessage(err, { prompt: prev.text || '' });
       toast('Ошибка генерации');
 
@@ -24791,7 +24800,7 @@ async function waitGenerationJob(jobId, options) {
       if (openingConversations.has(openKey)) return;
       if (id === currentConvId && nextType === currentChatType() && chatMessages.length && options.silent) return;
       openingConversations.add(openKey);
-      if (!activeGenerationLocked() && nextType !== currentChatType()) {
+      if (nextType !== currentChatType()) {
         rememberCurrentChatSpace();
         restoringChatSpace = true;
         updateComposerMode(nextType);
@@ -24870,19 +24879,13 @@ async function waitGenerationJob(jobId, options) {
         };
       });
       if (!chatMessages.length) chatMessages = [];
-      if (activeGenerationLocked()) {
-        activeGeneration.historyPreview = true;
-        currentConvId = chatSpaces[activeGeneration.mode]?.conversationId || null;
-        ensureActiveGenerationPlaceholder(false);
-      } else {
-        chatSpaces[nextType] = { activeChatId: currentConvId, conversationId: currentConvId, messages: chatMessages.slice() };
-        rememberCurrentChatSpace();
-      }
+      chatSpaces[nextType] = { activeChatId: currentConvId, conversationId: currentConvId, messages: chatMessages.slice() };
+      rememberCurrentChatSpace();
       renderChat();
       renderConvList();
       // While a job is active the drawer remains open so the user can inspect
       // old results. Closing the drawer explicitly restores the active mode.
-      if (!options.silent && !activeGenerationLocked()) toggleHistory();
+      if (!options.silent) toggleHistory();
     } catch {
     } finally {
       if (openKey) openingConversations.delete(openKey);
@@ -26605,6 +26608,13 @@ async function waitGenerationJob(jobId, options) {
       || structuredSelectionCount >= 2;
   }
 
+  function generationInputsUploading() {
+    if (isImageMode()) return !!(imageState.uploading && imageState.uploading.length);
+    if (isVideoMode()) return !!(videoState.editUploading || videoState.referenceUploading || (videoState.uploading && (!Array.isArray(videoState.uploading) || videoState.uploading.length)));
+    if (isMusicMode() || isVoiceMode()) return !!currentAudioState().uploading;
+    return !!(textState.attachment && textState.attachment.uploading);
+  }
+
   function updateSendButton() {
     // Draft persistence must never block the generation controls.
     try { saveComposerDraftIfChanged(); } catch {}
@@ -26626,7 +26636,7 @@ async function waitGenerationJob(jobId, options) {
       send.disabled = true;
       send.hidden = false;
       send.classList.add('has-active-job');
-      const activeLabel = activeGenerationButtonLabel(activeGeneration.status);
+      const activeLabel = activeGenerationButtonLabel(generationScopes.get(currentGenerationScope())?.status || activeGeneration.status);
       if (label) label.textContent = activeLabel;
       send.setAttribute('aria-label', activeLabel);
       send.title = activeLabel;
@@ -26659,12 +26669,12 @@ async function waitGenerationJob(jobId, options) {
       : has;
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
-      send.disabled = !canGenerate || textUploading || imageUploading;
+      send.disabled = !canGenerate || generationInputsUploading();
       send.hidden = false;
       send.setAttribute('aria-label', studioMode === 'text' ? 'Отправить сообщение' : 'Сгенерировать');
       send.title = studioMode === 'text' ? 'Отправить' : 'Сгенерировать';
     } else {
-      send.hidden = !has || textUploading || imageUploading;
+      send.hidden = !has || generationInputsUploading();
     }
   }
 
@@ -27475,16 +27485,8 @@ async function waitGenerationJob(jobId, options) {
     if (Array.isArray(value)) return value.map((item) => typeof item === 'string' ? item : (item.text || item.content || '')).filter(Boolean).join('\n');
     return typeof value === 'string' ? value : '';
   }
-  async function waitAiAssistantJob(jobId) {
-    while (true) {
-      const response = await fetch('/api/public/prostudio/job/'+encodeURIComponent(jobId), {cache:'no-store'});
-      const job = await response.json().catch(() => ({}));
-      if (!response.ok || !job.ok) throw new Error('Не удалось получить ответ');
-      if (job.status === 'completed') return job.result || {};
-      if (job.status === 'failed' || job.status === 'cancelled') throw new Error('AI-ассистент временно недоступен');
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
-  }
+  async function waitAiAssistantJob(jobId) { return waitGenerationJob(jobId); }
+
   async function sendAiAssistant(event) {
     event.preventDefault();
     const input = document.getElementById('aiAssistantInput');
@@ -28019,20 +28021,6 @@ async function waitGenerationJob(jobId, options) {
     document.addEventListener('touchmove', (event) => {
       if (event.touches && event.touches.length > 1) event.preventDefault();
     }, { passive:false });
-    document.addEventListener('click', (event) => {
-      if (!activeGenerationLocked()) return;
-      const target = event.target;
-      if (!target || !target.closest) return;
-      if (target.closest('#historyBtn, [data-view="history"], #histBackdrop, #histDrawer .hd-close, #histDrawer .hd-section')) return;
-      // Opening or folding a sent prompt changes nothing - it stays usable
-      // while a generation runs.
-      if (target.closest('.msg-prompt-toggle')) return;
-      if (target.closest('.view[data-view="tools"]')) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        toast(activeGenerationButtonLabel(activeGeneration.status));
-      }
-    }, true);
     // Force bottom composer model button to open the image model picker.
     const composerModelVal = document.getElementById('modelValComposer');
     const composerRoot = document.getElementById('studioComposer');
@@ -29910,7 +29898,7 @@ async function waitGenerationJob(jobId, options) {
   let studioGridSelectedIds = new Set();
   let studioGridPendingConnection = null;
   let studioGridBound = false;
-  let studioGridWorkflowRun = null;
+  const studioGridWorkflowRuns = new Map();
   const studioGridNodeRuns = new Map();
   let studioGridJobsRestored = false;
   let studioGridPlannerRunning = false;
@@ -30150,7 +30138,7 @@ async function waitGenerationJob(jobId, options) {
       return `<div class="sx-sidebar-history-row${item.temporary?' is-temporary':''}"><button type="button" class="sx-sidebar-history-item${current?' active':''}" data-grid-sidebar-project="${gridEscape(item.id)}" ${current?'aria-current="true" ':''}data-history-title="${title} · ${gridEscape(details)}"><span class="sx-sidebar-history-text"><span class="history-title-copy">${title}</span>${item.pinned?historyPinIcon():''}</span></button>${item.temporary?'':`<details class="history-item-menu"><summary aria-label="Project actions">•••</summary><div role="menu"><button type="button" role="menuitem" data-grid-project-action="rename" data-grid-project-id="${gridEscape(item.id)}">Rename</button><button type="button" role="menuitem" data-grid-project-action="pin" data-grid-project-id="${gridEscape(item.id)}">${item.pinned?'Unpin':'Pin'}</button><button type="button" role="menuitem" class="danger" data-grid-project-action="delete" data-grid-project-id="${gridEscape(item.id)}">Delete</button></div></details>`}</div>`;
     }).join(''):'<p class="sx-sidebar-history-empty">No saved Grid projects yet</p>';
     list.onclick=event=>{const action=event.target.closest('[data-grid-project-action]');if(action){event.preventDefault();event.stopPropagation();void manageStudioGridProject(action.dataset.gridProjectId,action.dataset.gridProjectAction);return}const button=event.target.closest('[data-grid-sidebar-project]');if(button)void openStudioGridProject(button.dataset.gridSidebarProject)};
-    const button=document.getElementById('studioGridSidebarNew');if(button)button.disabled=studioGridHasActiveRun();
+    const button=document.getElementById('studioGridSidebarNew');if(button)button.disabled=false;
     const status=history.querySelector('[data-grid-sync-status]');if(status)status.textContent=studioGridCloudSync||'Saved on this device';
   }
 
@@ -30238,7 +30226,7 @@ async function waitGenerationJob(jobId, options) {
   }
 
   function studioGridHasActiveRun() {
-    const state=loadStudioGridState();return !!studioGridWorkflowRun||state.nodes.some(node=>node.status==='RUNNING');
+    const state=loadStudioGridState();return studioGridWorkflowRuns.has(state.projectId)||state.nodes.some(node=>node.status==='RUNNING');
   }
 
   function renderStudioGridProjects() {
@@ -30276,7 +30264,7 @@ async function waitGenerationJob(jobId, options) {
   }
 
   function createStudioGridProject() {
-    if(studioGridHasActiveRun()){toast('Wait for the current generation to finish');return}
+
     const previous=studioGridSnapshot(loadStudioGridState());
     if(studioGridIsBlank(previous)&&!studioGridHasDraftContent(previous)){closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('This new project is already empty');return}
     if(studioGridIsBlank(previous)){clearTimeout(studioGridCloudSaveTimer);studioGridProjectSwitchRevision+=1;studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();studioGridJobsRestored=false;clearStudioGridConnectionMode();saveStudioGridState();closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('New Grid project created');return}
@@ -30302,7 +30290,7 @@ async function waitGenerationJob(jobId, options) {
   }
 
   async function openStudioGridProject(projectId) {
-    const current=loadStudioGridState();if(!projectId||projectId===current.projectId){closeStudioGridProjects();return}if(studioGridHasActiveRun()){toast('Wait for the current generation to finish');return}
+    const current=loadStudioGridState();if(!projectId||projectId===current.projectId){closeStudioGridProjects();return}
     const switchRevision=++studioGridProjectSwitchRevision;
     const currentSnapshot=studioGridSnapshot(current);archiveStudioGridProject(currentSnapshot);clearTimeout(studioGridCloudSaveTimer);if(studioGridAccountOwner())void queueStudioGridCloudSave(currentSnapshot);
     let stored=null;
@@ -30407,13 +30395,14 @@ async function waitGenerationJob(jobId, options) {
     return studioGridState;
   }
 
-  function saveStudioGridState() {
+  function saveStudioGridState(target=studioGridState) {
     ensureStudioGridStorageOwner();
-    if (!studioGridState) return;
-    try { localStorage.setItem(studioGridActiveStorageKey(), JSON.stringify(studioGridState)); } catch (_) {}
-    if(touchStudioGridProject(studioGridState)){
-      try { localStorage.setItem(studioGridProjectStorageKey(studioGridState.projectId),JSON.stringify(studioGridState)); } catch (_) {}
-      scheduleStudioGridCloudSave();
+    if (!target) return;
+    if (target === studioGridState) try { localStorage.setItem(studioGridActiveStorageKey(), JSON.stringify(target)); } catch (_) {}
+    if(touchStudioGridProject(target)){
+      try { localStorage.setItem(studioGridProjectStorageKey(target.projectId),JSON.stringify(target)); } catch (_) {}
+      if (target === studioGridState) scheduleStudioGridCloudSave();
+      else void queueStudioGridCloudSave(target);
     }
   }
 
@@ -30949,7 +30938,7 @@ async function waitGenerationJob(jobId, options) {
 
   function connectStudioGridNodes(fromId,fromPort,toId,toPort,fromSide='right',toSide='left'){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Этот вход несовместим с выбранным блоком');return false}if(gridConnectionCreatesCycle(fromId,toId)){toast('Соединение создаёт цикл и нарушает последовательность');return false}if(to.type==='task'){toast('Задача всегда является первым блоком');return false}const multi=(to.type==='montage'&&['video','audio'].includes(toPort))||(['image','video'].includes(to.type)&&toPort==='image');if(state.edges.some(edge=>edge.from===fromId&&edge.to===toId&&edge.fromPort===fromPort&&edge.toPort===toPort))return true;if(!multi)state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6),from:fromId,fromPort,to:toId,toPort,fromSide,toSide,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});const inputs=resolveGridNodeInputs(toId);reconcileGridVideoMode(to,inputs);if(to.status!=='RUNNING')to.status='READY';markStudioGridDownstreamStale(toId);saveStudioGridState();renderStudioGrid();return true}
 
-  function markStudioGridDownstreamStale(sourceId){const state=loadStudioGridState(),direct=new Set(state.edges.filter(edge=>edge.from===sourceId).map(edge=>edge.to)),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status!=='RUNNING')node.status='READY'})}direct.forEach(id=>{const node=state.nodes.find(item=>item.id===id);if(node){const inputs=resolveGridNodeInputs(id);reconcileGridVideoMode(node,inputs)}})}
+  function markStudioGridDownstreamStale(sourceId,state=loadStudioGridState()){const direct=new Set(state.edges.filter(edge=>edge.from===sourceId).map(edge=>edge.to)),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status!=='RUNNING')node.status='READY'})}direct.forEach(id=>{const node=state.nodes.find(item=>item.id===id);if(node){const inputs=resolveGridNodeInputs(id,state);reconcileGridVideoMode(node,inputs)}})}
 
   function autoLayoutStudioGrid(){const state=loadStudioGridState(),incoming=new Map(state.nodes.map(node=>[node.id,0]));state.edges.forEach(edge=>incoming.set(edge.to,(incoming.get(edge.to)||0)+1));const levels=new Map(),queue=state.nodes.filter(node=>(incoming.get(node.id)||0)===0).sort((a,b)=>(a.type==='task'?-1:b.type==='task'?1:0)).map(node=>node.id);queue.forEach(id=>levels.set(id,0));while(queue.length){const id=queue.shift(),level=levels.get(id)||0;state.edges.filter(edge=>edge.from===id).forEach(edge=>{levels.set(edge.to,Math.max(levels.get(edge.to)||0,level+1));incoming.set(edge.to,(incoming.get(edge.to)||1)-1);if(incoming.get(edge.to)===0)queue.push(edge.to)})}const grouped={};state.nodes.forEach(node=>{const level=levels.get(node.id)||0;(grouped[level]||(grouped[level]=[])).push(node)});const mobile=window.matchMedia('(max-width:700px)').matches;Object.keys(grouped).sort((a,b)=>Number(a)-Number(b)).forEach(key=>grouped[key].forEach((node,index)=>{if(mobile){node.x=60+index*310;node.y=90+Number(key)*340}else{node.x=80+Number(key)*350;node.y=100+index*310}}));state.edges.forEach(edge=>{edge.fromSide=mobile?'bottom':'right';edge.toSide=mobile?'top':'left'});if(mobile)state.mobile_layout_version=1;saveStudioGridState();renderStudioGrid();resetStudioGridView()}
 
@@ -31078,8 +31067,8 @@ async function waitGenerationJob(jobId, options) {
     return output;
   }
 
-  function resolveGridNodeInputs(nodeId) {
-    const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId),inputs={};
+  function resolveGridNodeInputs(nodeId,state=loadStudioGridState()) {
+    const node=state.nodes.find(item=>item.id===nodeId),inputs={};
     if(!node)return inputs;
     state.edges.filter(edge=>edge.to===nodeId).forEach(edge=>{
       const source=state.nodes.find(item=>item.id===edge.from);
@@ -31135,14 +31124,14 @@ async function waitGenerationJob(jobId, options) {
     return {ok:missing.length===0,missing};
   }
 
-  function gridMontagePayload(node,inputs){
+  function gridMontagePayload(node,inputs,state=loadStudioGridState()){
     const byKey=new Map((node.settings?.timeline||[]).filter(item=>item&&typeof item==='object').map(item=>[String(item.source_key||item.key||item.source_node_id||''),item]));
     const videos=(inputs.video?.values||[]).map((entry,index)=>{const value=entry.value||{},timeline=byKey.get(String(entry.planner_key||entry.source_node_id))||entry.timeline||{};return{url:value.url||value.preview_url,duration:Number(timeline.duration||value.metadata?.duration||value.settings?.duration||0),trim_start:Number(timeline.trim_start||0),order:Number(timeline.order||index+1)}}).filter(item=>item.url).sort((a,b)=>a.order-b.order);
     const audioTracks=(inputs.audio?.values||[]).map(entry=>{const value=entry.value||{},timeline=byKey.get(String(entry.planner_key||entry.source_node_id))||entry.timeline||{},role=String(timeline.role||entry.planner_role||(entry.source_type==='voice'?'voice':entry.source_type)||'music');return{url:value.url||value.preview_url,role,offset:Number(timeline.offset||timeline.start||0),volume:Number(timeline.volume??1)}}).filter(item=>item.url);
-    return {videos,audio_tracks:audioTracks,settings:{resolution:node.settings?.resolution||'1080p',transition:node.settings?.transition||'fade',ducking:node.settings?.ducking!==false},client_request_id:node.request_id||'',grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
+    return {videos,audio_tracks:audioTracks,settings:{resolution:node.settings?.resolution||'1080p',transition:node.settings?.transition||'fade',ducking:node.settings?.ducking!==false},client_request_id:node.request_id||'',grid_project_id:state.projectId,grid_node_id:node.id};
   }
 
-  function gridGenerationPayload(node,inputs) {
+  function gridGenerationPayload(node,inputs,state=loadStudioGridState()) {
     const settings=Object.assign({},node.settings||{}),mode=node.type,model=node.model||gridDefaultModel(mode),attachments=Array.isArray(node.attachments)?node.attachments:[],referenceContext=Array.isArray(node.reference_context)?node.reference_context:[],basePrompt=String(inputs.effective_prompt?.value||inputs.lyrics?.value||node.prompt||'').trim(),attachedImages=attachments.filter(item=>item.kind==='image').map(item=>item.url),attachedVideos=attachments.filter(item=>item.kind==='video').map(item=>item.url),attachedAudio=attachments.filter(item=>item.kind==='audio').map(item=>item.url);
     const referenceGuide=referenceContext.map((request,index)=>{const attached=attachments.find(item=>item.kind==='image'&&item.reference_id===request.id);if(attached)return`${index+1}. ${request.id}: use uploaded reference "${attached.name||request.label||'reference'}"${request.user_name?` for "${request.user_name}"`:''}. Preserve its exact identity.`;if(request.user_name)return`${index+1}. ${request.id}: the exact brand/subject name is "${request.user_name}". Preserve one consistent identity in every appearance.`;if(request.skipped)return`${index+1}. ${request.id}: create one original ${request.kind||'subject'} with concrete stable visual characteristics and reuse that identical design throughout.`;return''}).filter(Boolean).join('\n')||attachments.filter(item=>item.kind==='image'&&item.reference_id).map((item,index)=>`${index+1}. ${item.reference_id}: ${item.name||'uploaded reference'}`).join('\n');
     const prompt=referenceGuide&&['text','image','video','music','voice'].includes(mode)?`${basePrompt}\n\nREFERENCE IDENTITY MAP (mandatory):\n${referenceGuide}\nApply each entry only to its mapped subject and keep continuity across the complete project.`:basePrompt;
@@ -31164,7 +31153,7 @@ async function waitGenerationJob(jobId, options) {
     if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
     if(mode==='voice')voiceOptions=Object.assign({model,provider:/elevenlabs/i.test(model)?'elevenlabs':(/runway/i.test(model)?'runway':'gemini'),voice:settings.voice||'Kore',elevenlabs_voice:settings.voice||'21m00Tcm4TlvDq8ikWAM',elevenlabs_tool:'text_to_speech',target_language:settings.target_language||'auto',speaker_mode:'single',num_speakers:1,speaker_voices:[settings.voice||'Kore'],uploads:attachedAudio},settings);
     if(mode==='text')textOptions=Object.assign({},settings,{grid_direct_output:true});
-    return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:node.request_id||'',language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
+    return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:node.request_id||'',language:uiLang(),grid_project_id:state.projectId,grid_node_id:node.id};
   }
 
   // Returns a real credits number, or null when the estimate genuinely
@@ -31174,47 +31163,35 @@ async function waitGenerationJob(jobId, options) {
   // is unknown is not a free node, and silently treating it as $0 hides the
   // cost badge, drops it from the workflow total, and skips the client-side
   // insufficient-balance pre-check below as if it truly cost nothing.
-  async function estimateGridNodeCost(nodeId) {
-    const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task'||node.type==='text'||node.type==='montage')return 0;
-    try{const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridGenerationPayload(node,resolveGridNodeInputs(nodeId)))}),estimate=await response.json();if(response.ok&&estimate.ok){node.estimated_cost={credits:Number(estimate.credits||0),generation_cost:estimate.generation_cost||'',cost_usd:Number(estimate.cost_usd||0)};saveStudioGridState();renderStudioGrid();return node.estimated_cost.credits}}catch(_){}
-    node.estimated_cost={credits:null};saveStudioGridState();renderStudioGrid();
+  async function estimateGridNodeCost(nodeId,state=loadStudioGridState()) {
+    const node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task'||node.type==='text'||node.type==='montage')return 0;
+    try{const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridGenerationPayload(node,resolveGridNodeInputs(nodeId,state),state))}),estimate=await response.json();if(response.ok&&estimate.ok){node.estimated_cost={credits:Number(estimate.credits||0),generation_cost:estimate.generation_cost||'',cost_usd:Number(estimate.cost_usd||0)};saveStudioGridState(state);renderStudioGrid();return node.estimated_cost.credits}}catch(_){}
+    node.estimated_cost={credits:null};saveStudioGridState(state);renderStudioGrid();
     return null;
   }
 
   // Returns null (unknown) if ANY node's estimate is unknown, rather than
   // silently dropping that node's real (unknown, possibly nonzero) cost
   // from the sum - an understated total is worse than an honest "unknown".
-  async function estimateGridWorkflowCost() {
-    const nodes=loadStudioGridState().nodes.filter(node=>node.type!=='task'&&node.type!=='text'&&node.status!=='COMPLETED');
-    const costs=[];for(const node of nodes)costs.push(await estimateGridNodeCost(node.id));
+  async function estimateGridWorkflowCost(state=loadStudioGridState()) {
+    const nodes=state.nodes.filter(node=>node.type!=='task'&&node.type!=='text'&&node.status!=='COMPLETED');
+    const costs=[];for(const node of nodes)costs.push(await estimateGridNodeCost(node.id,state));
     if(costs.some(value=>value===null))return null;
     return costs.reduce((sum,value)=>sum+Number(value||0),0);
   }
 
   async function waitGridGeneration(jobId,onStatus) {
-    let transientErrors=0;
-    const startedAt=Date.now(),clientWatchdogMs=45*60*1000;
-    while(true){
-      if(Date.now()-startedAt>clientWatchdogMs){const error=new Error('Генерация выполняется дольше ожидаемого. Обновите статус, чтобы восстановить задачу.');error.terminalStatus='unconfirmed';error.jobId=jobId;throw error}
-      let response;
-      try{response=await fetch(`/api/public/prostudio/job/${encodeURIComponent(jobId)}`,{cache:'no-store'})}catch(error){if(++transientErrors>80)throw error;await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
-      const job=await response.json().catch(()=>({}));
-      if(!response.ok||!job.ok){if(++transientErrors>80)throw new Error(translateGenerationError(job,'Не удалось проверить статус генерации'));await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
-      transientErrors=0;if(onStatus)onStatus(job.status||'running');
-      if(job.status==='completed'){const result=job.result||{};result.job_id=result.job_id||job.job_id||jobId;result.generation_id=result.generation_id||job.generation_id||jobId;return result}
-      if(job.status==='failed'||job.status==='cancelled'){const error=new Error(translateGenerationError(job.error||job,'Генерация не прошла'));error.terminalStatus=job.status;throw error}
-      await new Promise(resolve=>setTimeout(resolve,1500));
-    }
+    return waitGenerationJob(jobId, {onStatus});
   }
 
-  async function executeGridNodeRequest(node,inputs,onJobCreated) {
+  async function executeGridNodeRequest(node,inputs,onJobCreated,state=loadStudioGridState()) {
     if(node.type==='montage'){
-      const response=await fetch('/api/public/prostudio/grid/montage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridMontagePayload(node,inputs))}),body=await response.json().catch(()=>({}));
+      const response=await fetch('/api/public/prostudio/grid/montage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridMontagePayload(node,inputs,state))}),body=await response.json().catch(()=>({}));
       if(!response.ok||!body.ok){const error=new Error(body.message||body.error||'Final montage failed');error.terminalStatus='failed';throw error}
       if(body.job_id){if(onJobCreated)onJobCreated(body.job_id);return {raw:await waitGridGeneration(body.job_id),generation_id:body.job_id}}
       return {raw:body,generation_id:body.generation_id||''};
     }
-    const payload=gridGenerationPayload(node,inputs),response=await fetch('/api/public/prostudio/generate',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify(payload)}),body=await response.json().catch(()=>({}));
+    const payload=gridGenerationPayload(node,inputs,state),response=await fetch('/api/public/prostudio/generate',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify(payload)}),body=await response.json().catch(()=>({}));
     if(response.status===402){const error=new Error(body.error||'Недостаточно токенов');error.insufficientBalance=true;error.requiredCredits=body.required_credits||0;throw error}
     if(response.status===409){const error=new Error('Дождитесь завершения другой генерации в Pro Studio');error.activeJobId=body.active_job_id||'';throw error}
     if(!response.ok||!body.ok){const error=new Error(body.message||translateGenerationError(body,'Генерация не прошла'));error.terminalStatus='failed';error.code=body.error||'';error.invalidFields=body.invalid_fields||[];throw error}
@@ -31239,12 +31216,12 @@ async function waitGenerationJob(jobId, options) {
     if (guestNeedsAccount('create')) return;
     if(studioGridNodeRuns.has(nodeId))return studioGridNodeRuns.get(nodeId);
     const promise=(async()=>{
-      const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task')return null;
-      const inputs=resolveGridNodeInputs(nodeId),validation=validateGridNodeInputs(node,inputs);
-      if(!validation.ok){node.status=options.workflow?'WAITING':'FAILED';node.error=`Не хватает: ${validation.missing.join(', ')}`;saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      const state=options.state||loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task')return null;
+      const inputs=resolveGridNodeInputs(nodeId,state),validation=validateGridNodeInputs(node,inputs);
+      if(!validation.ok){node.status=options.workflow?'WAITING':'FAILED';node.error=`Не хватает: ${validation.missing.join(', ')}`;saveStudioGridState(state);renderStudioGrid();if(!options.workflow)toast(node.error);return null}
       ensureStudioGridProjectTitle(state,node,inputs);
-      const estimatedCost=await estimateGridNodeCost(nodeId),knownBalance=S.user&&S.user.balance!==undefined&&S.user.balance!==null?Number(S.user.balance):null;
-      if(estimatedCost>0&&knownBalance!==null&&knownBalance<estimatedCost){node.status='FAILED';node.error='Недостаточно токенов';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      const estimatedCost=await estimateGridNodeCost(nodeId,state),knownBalance=S.user&&S.user.balance!==undefined&&S.user.balance!==null?Number(S.user.balance):null;
+      if(estimatedCost>0&&knownBalance!==null&&knownBalance<estimatedCost){node.status='FAILED';node.error='Недостаточно токенов';saveStudioGridState(state);renderStudioGrid();if(!options.workflow)toast(node.error);return null}
       // estimatedCost===null means the pre-check itself could not run (see
       // estimateGridNodeCost) - the real balance check still happens
       // server-side inside executeGridNodeRequest (402 handling below), so
@@ -31256,10 +31233,10 @@ async function waitGenerationJob(jobId, options) {
       // readable as "current" by a downstream node or by the preview while
       // this run is in flight or if it fails (see getGridNodeOutputValue/
       // gridNodePreview, both gated on status==='COMPLETED').
-      node.request_id=node.request_id||`grid_${loadStudioGridState().projectId}_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
-      node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
-      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';ensureStudioGridProjectTitle(state,node,{effective_prompt:{value:output.type==='text'?output.value:inputs.effective_prompt?.value||''}});markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
-      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if((error?.terminalStatus&&error.terminalStatus!=='unconfirmed')||error?.insufficientBalance)node.request_id='';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      node.request_id=node.request_id||`grid_${state.projectId}_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+      node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState(state);renderStudioGrid();
+      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState(state);renderStudioGrid()},state),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';ensureStudioGridProjectTitle(state,node,{effective_prompt:{value:output.type==='text'?output.value:inputs.effective_prompt?.value||''}});markStudioGridDownstreamStale(node.id,state);saveStudioGridState(state);renderStudioGrid();return output}
+      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();if((error?.terminalStatus&&error.terminalStatus!=='unconfirmed')||error?.insufficientBalance)node.request_id='';saveStudioGridState(state);renderStudioGrid();if(!options.workflow)toast(node.error);return null}
     })().finally(()=>studioGridNodeRuns.delete(nodeId));
     studioGridNodeRuns.set(nodeId,promise);return promise;
   }
@@ -31290,7 +31267,7 @@ async function waitGenerationJob(jobId, options) {
   function restoreStudioGridJobs() {
     if(studioGridJobsRestored)return;studioGridJobsRestored=true;const state=loadStudioGridState();
     if(['RUNNING','STOPPING'].includes(state.workflow?.status))state.workflow.status='IDLE';
-    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=translateGenerationError(error,'Не удалось восстановить генерацию');if(error?.terminalStatus&&error.terminalStatus!=='unconfirmed')node.request_id='';saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
+    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.result_versions=Array.isArray(node.result_versions)?node.result_versions:[];node.result_versions.push(JSON.parse(JSON.stringify(output)));node.result_versions=node.result_versions.slice(-50);node.selectedResultVersion=node.result_versions.length-1;node.request_id='';node.error='';saveStudioGridState(state);renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=translateGenerationError(error,'Не удалось восстановить генерацию');if(error?.terminalStatus&&error.terminalStatus!=='unconfirmed')node.request_id='';saveStudioGridState(state);renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState(state);renderStudioGrid();
   }
 
   function selectStudioGridResultVersion(nodeId,index){const node=loadStudioGridState().nodes.find(item=>item.id===nodeId),version=node?.result_versions?.[Number(index)];if(!node||!version)return;node.output=JSON.parse(JSON.stringify(version));node.selectedResultVersion=Number(index);node.status='COMPLETED';node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid()}
@@ -31298,11 +31275,11 @@ async function waitGenerationJob(jobId, options) {
   async function runStudioGridWorkflow() {
     if (guestNeedsAccount('create')) return;
     const state=loadStudioGridState();
-    if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();return}
+    if(studioGridWorkflowRuns.has(state.projectId)){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState(state);renderStudioGrid();return}
     const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
-    state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState();renderStudioGrid();
-    studioGridWorkflowRun=(async()=>{
-      const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');
+    state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState(state);renderStudioGrid();
+    const workflowRun=(async()=>{
+      const estimatedTotal=await estimateGridWorkflowCost(state);if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');
       const pending=new Set(order.filter(id=>{const node=state.nodes.find(item=>item.id===id);return node&&node.type!=='task'&&node.status!=='COMPLETED'})),active=new Map(),maxParallel=3;
       studioGridNodeRuns.forEach((promise,id)=>{if(pending.has(id)){active.set(id,Promise.resolve(promise).then(()=>id));pending.delete(id)}});
       while(pending.size||active.size){
@@ -31312,18 +31289,19 @@ async function waitGenerationJob(jobId, options) {
           if(!pending.has(id)||active.size>=maxParallel)continue;
           const node=state.nodes.find(item=>item.id===id);if(!node){pending.delete(id);continue}
           const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');
-          if(parents.some(parent=>['FAILED','CANCELLED'].includes(parent.status))){node.status='CANCELLED';node.error='Предыдущий узел не завершён';pending.delete(id);saveStudioGridState();renderStudioGrid();continue}
+          if(parents.some(parent=>['FAILED','CANCELLED'].includes(parent.status))){node.status='CANCELLED';node.error='Предыдущий узел не завершён';pending.delete(id);saveStudioGridState(state);renderStudioGrid();continue}
           if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';continue}
           const providerMedia=!['text','montage'].includes(node.type);if(providerMedia&&mediaActive)continue;
-          node.status='READY';node.error='';const promise=runGridNode(id,{workflow:true}).then(()=>id);active.set(id,promise);pending.delete(id);mediaActive=mediaActive||providerMedia;launched=true;
+          node.status='READY';node.error='';const promise=runGridNode(id,{workflow:true,state}).then(()=>id);active.set(id,promise);pending.delete(id);mediaActive=mediaActive||providerMedia;launched=true;
         }
         if(active.size){const finished=await Promise.race(active.values());active.delete(finished);continue}
-        if(!launched&&pending.size){pending.forEach(id=>{const node=state.nodes.find(item=>item.id===id);if(node){node.status='WAITING';node.error='Ожидание незавершённых зависимостей'}});saveStudioGridState();renderStudioGrid();break}
+        if(!launched&&pending.size){pending.forEach(id=>{const node=state.nodes.find(item=>item.id===id);if(node){node.status='WAITING';node.error='Ожидание незавершённых зависимостей'}});saveStudioGridState(state);renderStudioGrid();break}
       }
       if(state.workflow.stop_requested)state.nodes.filter(node=>node.type!=='task'&&['IDLE','READY','WAITING'].includes(node.status)).forEach(node=>{node.status='CANCELLED';node.error='Цепочка остановлена'});
-      const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING','CANCELLED'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')
-    })().finally(()=>{studioGridWorkflowRun=null});
-    return studioGridWorkflowRun;
+      const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING','CANCELLED'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();saveStudioGridState(state);renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')
+    })().finally(()=>{studioGridWorkflowRuns.delete(state.projectId)});
+    studioGridWorkflowRuns.set(state.projectId,workflowRun);
+    return workflowRun;
   }
 
   function initStudioGrid() {
