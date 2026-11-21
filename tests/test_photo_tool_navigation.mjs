@@ -1,23 +1,4 @@
-// Run with: node --test tests/test_photo_tool_close_blocked_feedback.mjs
-//
-// Regression tests for remediation item #17 (BUG-2):
-//
-// closePhotoToolModal() already correctly refused to close the Photo Tool
-// modal while a generation was actively in progress
-// (photoToolState[activePhotoTool].generating, or hairBeardState/
-// tattooState.generatingReference), but did so silently - the close
-// button/overlay click simply did nothing, with no feedback telling the
-// user why.
-//
-// Fix: the same blocked-by-active-generation branch now shows a toast
-// before returning, reusing both the existing toast() mechanism and the
-// exact wording Grid Mode already uses for the same kind of
-// "action blocked by an active generation" situation
-// ('Сначала дождитесь завершения текущей генерации' - see
-// studioGridHasActiveRun() call sites in cabinet.js).
-//
-// Exercises the REAL extracted function via node:vm (same pattern as
-// test_xss1_account_auth_escaping.mjs), not a reimplementation.
+// Closing a running tool preserves its state while allowing navigation.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -41,7 +22,6 @@ function extractFunction(src, name) {
 
 const CLOSE_FN_SRC = extractFunction(source, 'closePhotoToolModal');
 
-const BLOCKED_MESSAGE = 'Сначала дождитесь завершения текущей генерации';
 
 function makeModal() {
   const classes = new Set(['show']);
@@ -105,39 +85,39 @@ test('closing with no activePhotoTool at all still works unchanged', () => {
   assert.deepEqual(h.toastCalls, []);
 });
 
-test('close is blocked and shows feedback while a generic photo-tool generation is active', () => {
+test('close preserves pending state while a generic photo-tool generation is active', () => {
   const h = makeContext({
     activePhotoTool: 'watermark_removal',
     photoToolState: {watermark_removal: {generating: true}},
   });
   h.context.closePhotoToolModal(fakeEvent());
-  assert.equal(h.modal.classList.contains('show'), true, 'modal must stay open while generating');
-  assert.deepEqual(h.toastCalls, [BLOCKED_MESSAGE]);
+  assert.equal(h.modal.classList.contains('show'), false, 'modal closes while the server task continues');
+  assert.deepEqual(h.toastCalls, []);
 });
 
-test('close is blocked and shows feedback while hair_beard reference generation is active', () => {
+test('close preserves pending state while hair_beard reference generation is active', () => {
   const h = makeContext({
     activePhotoTool: 'hair_beard',
     photoToolState: {hair_beard: {generating: false}},
     hairBeardState: {generatingReference: true},
   });
   h.context.closePhotoToolModal(fakeEvent());
-  assert.equal(h.modal.classList.contains('show'), true);
-  assert.deepEqual(h.toastCalls, [BLOCKED_MESSAGE]);
+  assert.equal(h.modal.classList.contains('show'), false);
+  assert.deepEqual(h.toastCalls, []);
 });
 
-test('close is blocked and shows feedback while tattoo reference generation is active', () => {
+test('close preserves pending state while tattoo reference generation is active', () => {
   const h = makeContext({
     activePhotoTool: 'tattoo',
     photoToolState: {tattoo: {generating: false}},
     tattooState: {generatingReference: true},
   });
   h.context.closePhotoToolModal(fakeEvent());
-  assert.equal(h.modal.classList.contains('show'), true);
-  assert.deepEqual(h.toastCalls, [BLOCKED_MESSAGE]);
+  assert.equal(h.modal.classList.contains('show'), false);
+  assert.deepEqual(h.toastCalls, []);
 });
 
-test('each blocked close attempt shows feedback again (not just the first click)', () => {
+test('repeated close attempts do not cancel a pending task', () => {
   const h = makeContext({
     activePhotoTool: 'replace_object',
     photoToolState: {replace_object: {generating: true}},
@@ -145,19 +125,19 @@ test('each blocked close attempt shows feedback again (not just the first click)
   h.context.closePhotoToolModal(fakeEvent());
   h.context.closePhotoToolModal(fakeEvent());
   h.context.closePhotoToolModal(fakeEvent());
-  assert.equal(h.modal.classList.contains('show'), true);
-  assert.deepEqual(h.toastCalls, [BLOCKED_MESSAGE, BLOCKED_MESSAGE, BLOCKED_MESSAGE]);
+  assert.equal(h.modal.classList.contains('show'), false);
+  assert.deepEqual(h.toastCalls, []);
 });
 
-test('once generation finishes, closing the same tool works normally with no stale feedback', () => {
+test('closing before and after completion remains available', () => {
   const state = {generating: true};
   const h = makeContext({activePhotoTool: 'logo', photoToolState: {logo: state}});
   h.context.closePhotoToolModal(fakeEvent());
-  assert.equal(h.modal.classList.contains('show'), true);
-  assert.deepEqual(h.toastCalls, [BLOCKED_MESSAGE]);
+  assert.equal(h.modal.classList.contains('show'), false);
+  assert.deepEqual(h.toastCalls, []);
 
   state.generating = false; // generation completes
   h.context.closePhotoToolModal(fakeEvent());
   assert.equal(h.modal.classList.contains('show'), false, 'must now close normally');
-  assert.deepEqual(h.toastCalls, [BLOCKED_MESSAGE], 'no additional toast once it actually closes');
+  assert.deepEqual(h.toastCalls, [], 'no additional toast once it actually closes');
 });

@@ -1,78 +1,50 @@
-"""Text generation must stay on its direct, non-queued path, and a failed
-non-critical side effect (saving conversation history) must never turn an
-already-successful, already-billed generation into an error response."""
-import pytest
+"""Admission registers durable jobs without running providers in the HTTP request."""
+import asyncio
+from types import SimpleNamespace
+import unittest
+
+from test_generation_lifecycle import functions
 
 
-class FakeRequest:
-    def __init__(self, payload):
-        self._payload = payload
+class AdmissionTests(unittest.IsolatedAsyncioTestCase):
+    def endpoint(self, create):
+        class SecurityError(Exception):
+            pass
+        class ActiveJobError(Exception):
+            pass
+        return functions('main.py', {'public_prostudio_generate'},
+            asyncio=asyncio, TEXT_ATTACHMENT_BYTES_KEY='_attachment_bytes',
+            grid_references_service=SimpleNamespace(resolve_grid_catalog_references=lambda *args:0),
+            WEBAPP_URL='https://synthetic', normalize_grid_video_request=lambda _:None,
+            _core_account_owner=lambda request,payload:42, _json_list=lambda value:value or [],
+            model_control=SimpleNamespace(norm=lambda value:value),_disabled_model_ids=lambda:[],
+            get_user_state=lambda _: {'subscription_status':'active','balance':1000},
+            text_media_attachment=lambda _:False,text_output_cap=lambda _:100,
+            video_editor_request=lambda _:False,is_enhance_video_request=lambda _:False,
+            calculate_generation_price=lambda _: {'credits':1,'pricing_available':True,'price_snapshot':{'final_credits':1}},
+            is_internal_ui_model=lambda _:False,PROSTUDIO_WORKER_ENABLED=True,
+            prostudio_debug=lambda *args,**kwargs:None,log_user_event=lambda *args:None,
+            create_prostudio_generation_job=create,SecurityError=SecurityError,ActiveProstudioJobError=ActiveJobError,
+            JSONResponse=lambda data,status_code:SimpleNamespace(data=data,status_code=status_code))
 
-    async def json(self):
-        return dict(self._payload)
+    async def test_text_is_registered_in_same_queue_before_http_response(self):
+        created=[]
+        endpoint=self.endpoint(lambda payload:created.append(payload) or 'durable-job')
+        async def payload(): return {'mode':'text','model':'gpt-5.5','prompt':'hello','telegram_id':42,'client_request_id':'same-request'}
+        response=await endpoint.public_prostudio_generate(SimpleNamespace(json=payload,state=SimpleNamespace()))
+        self.assertEqual(response,{'ok':True,'job_id':'durable-job','generation_id':'durable-job','status':'queued'})
+        self.assertEqual(created[0]['client_request_id'],'same-request')
+        self.assertTrue(created[0]['skip_telegram'])
+        self.assertEqual(created[0]['price_snapshot']['final_credits'],1)
 
-
-@pytest.fixture
-def app(monkeypatch):
-    import main
-    monkeypatch.setattr(main, "get_user_state", lambda telegram_id, **k: {"subscription_status": "active", "balance": 1000})
-    monkeypatch.setattr(main, "calculate_generation_price", lambda payload: {
-        "credits": 1, "pricing_available": True, "price_snapshot": {"final_credits": 1}, "generation_cost": "1 ⚡",
-    })
-    monkeypatch.setattr(main, "get_active_prostudio_job", lambda telegram_id: {})
-    monkeypatch.setattr(main, "reserve_direct_text_generation", lambda telegram_id, credits: "gen-1")
-    monkeypatch.setattr(main, "release_direct_text_generation", lambda generation_id: None)
-    monkeypatch.setattr(main, "charge_generation_balance", lambda telegram_id, generation_id, result, payload: {
-        "charged": True, "balance_after": 999,
-    })
-    return main
-
-
-def _payload():
-    return {
-        "telegram_id": 42,
-        "mode": "text",
-        "prompt": "hello",
-        "model": "gpt-5.5",
-        "provider": "sylvex-router",
-    }
-
-
-@pytest.mark.asyncio
-async def test_history_save_failure_does_not_fail_a_successful_generation(app, monkeypatch):
-    monkeypatch.setattr(app, "text_generation", lambda payload: {"ok": True, "text": "hi there"})
-
-    def broken_save(payload, result):
-        raise RuntimeError("history db is down")
-
-    monkeypatch.setattr(app, "save_prostudio_message", broken_save)
-
-    response = await app.public_prostudio_generate(FakeRequest(_payload()))
-
-    assert isinstance(response, dict), f"expected the successful result dict, got {response!r}"
-    assert response.get("ok") is True
-    assert response.get("text") == "hi there"
-    assert response.get("conversation_id") == ""
+    async def test_video_missing_required_prompt_is_rejected_before_reservation_or_dispatch(self):
+        created=[]
+        endpoint=self.endpoint(lambda payload:created.append(payload))
+        async def payload(): return {'mode':'video','model':'kling','prompt':'','telegram_id':42,'video_options':{'input_video':'already-uploaded'}}
+        response=await endpoint.public_prostudio_generate(SimpleNamespace(json=payload,state=SimpleNamespace()))
+        self.assertEqual(response.status_code,400);self.assertEqual(response.data['error'],'prompt_required')
+        self.assertFalse(created)
 
 
-@pytest.mark.asyncio
-async def test_text_generation_does_not_create_a_queued_job(app, monkeypatch):
-    monkeypatch.setattr(app, "text_generation", lambda payload: {"ok": True, "text": "hi there"})
-    monkeypatch.setattr(app, "save_prostudio_message", lambda payload, result: "conv-1")
-    create_job_calls = []
-    monkeypatch.setattr(app, "create_prostudio_generation_job", lambda payload: create_job_calls.append(payload) or "job-x")
-
-    response = await app.public_prostudio_generate(FakeRequest(_payload()))
-
-    assert response.get("ok") is True
-    assert response.get("status") != "queued"
-    assert not create_job_calls, "text must never go through the async job queue"
-
-
-@pytest.mark.asyncio
-async def test_provider_failure_still_returns_an_error_response(app, monkeypatch):
-    monkeypatch.setattr(app, "text_generation", lambda payload: {"ok": False, "error": "provider exploded"})
-
-    response = await app.public_prostudio_generate(FakeRequest(_payload()))
-
-    assert getattr(response, "status_code", None) == 502
+if __name__ == '__main__':
+    unittest.main()

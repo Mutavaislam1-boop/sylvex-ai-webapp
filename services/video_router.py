@@ -1,3 +1,4 @@
+from services.provider_polling import read_status
 from services.safe_io import safe_get, safe_client_get, safe_local_path, read_upload, validated_upload_type
 # =====================================================
 # АВТОДОКУМЕНТАЦИЯ SYLVEX: services/video_router.py
@@ -1069,7 +1070,7 @@ def _request_json(url: str, headers: dict, payload: dict):
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def _request_get(url: str, headers: dict):
-    return safe_get(url, headers=headers, timeout=60)
+    return read_status(lambda: safe_get(url, headers=headers, timeout=60))
 
 
 # =====================================================
@@ -2257,36 +2258,23 @@ def _seedance_poll_task(task_id: str, headers: dict):
 # Проверяет статус внешней задачи у AI-провайдера.
 # При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
-def _seedance_poll_until_ready(task_id: str, headers: dict, max_attempts: int = None, interval_seconds: int = None):
-    try:
-        attempts = int(max_attempts or os.getenv("BYTEPLUS_SEEDANCE_POLL_ATTEMPTS") or 60)
-    except Exception:
-        attempts = 60
-    try:
-        interval = int(interval_seconds or os.getenv("BYTEPLUS_SEEDANCE_POLL_INTERVAL") or 5)
-    except Exception:
-        interval = 5
-    attempts = max(1, min(attempts, 60))
-    interval = max(1, interval)
-
+def _seedance_poll_until_ready(task_id: str, headers: dict):
     last_result = None
-    for attempt in range(1, attempts + 1):
-        result = _seedance_poll_task(task_id, headers)
-        last_result = result
-        video_url = result.get("video_url") or ""
-        print("SEEDANCE VIDEO POLL:", {
-            "attempt": attempt,
-            "task_id": task_id,
-            "status": result.get("status") or ("error" if not result.get("ok") else ""),
-            "has_video_url": bool(video_url),
-            "video_url": video_url,
-        })
-        if not result.get("ok"):
-            return result
-        if result.get("status") == "completed" and video_url:
-            return result
-        if attempt < attempts:
-            time.sleep(interval)
+    attempt = 1
+    result = _seedance_poll_task(task_id, headers)
+    last_result = result
+    video_url = result.get("video_url") or ""
+    print("SEEDANCE VIDEO POLL:", {
+        "attempt": attempt,
+        "task_id": task_id,
+        "status": result.get("status") or ("error" if not result.get("ok") else ""),
+        "has_video_url": bool(video_url),
+        "video_url": video_url,
+    })
+    if not result.get("ok"):
+        return result
+    if result.get("status") == "completed" and video_url:
+        return result
 
     if last_result and last_result.get("ok"):
         last_result["status"] = "processing"
@@ -2308,16 +2296,6 @@ def _seedance_poll_until_ready(task_id: str, headers: dict, max_attempts: int = 
 # Проверяет статус внешней задачи у AI-провайдера.
 # При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
-def _poll_attempt_settings(prefix: str, default_attempts: int = 60, default_interval: int = 5):
-    try:
-        attempts = int(os.getenv(f"{prefix}_POLL_ATTEMPTS") or default_attempts)
-    except Exception:
-        attempts = default_attempts
-    try:
-        interval = int(os.getenv(f"{prefix}_POLL_INTERVAL") or default_interval)
-    except Exception:
-        interval = default_interval
-    return max(1, min(attempts, 60)), max(1, interval)
 
 
 # =====================================================
@@ -2325,12 +2303,6 @@ def _poll_attempt_settings(prefix: str, default_attempts: int = 60, default_inte
 # Проверяет статус внешней задачи у AI-провайдера.
 # При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
-def _kling_poll_attempt_settings(default_attempts: int = 60, default_interval: int = 5):
-    attempts, interval = _poll_attempt_settings("KLING", default_attempts, default_interval)
-    # Kling Motion Control can stay in "submitted" for more than 50 seconds.
-    # Keep env overrides useful for longer waits, but never let a short
-    # production value end an accepted provider task before it can finish.
-    return max(attempts, default_attempts), interval
 
 
 # =====================================================
@@ -2589,7 +2561,7 @@ def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_
     )
     settings = {
         "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
-        "audio": "original" if base_video and preserve_base_audio else ("off" if base_video else ("original" if has_video and body.get("sound") else "off")),
+        "audio": ("original" if has_video and (body.get("sound") or preserve_base_audio) else "native" if model == "kling-3.0-omni" and body.get("sound") else "off"),
     }
     if not base_video:
         settings["duration"] = _kling_duration(body.get("duration"), duration_values)
@@ -2720,38 +2692,35 @@ def _kling_status(data: dict):
 # При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
 def _kling_poll_until_ready(task_id: str, headers: dict):
-    attempts, interval = _kling_poll_attempt_settings(120, 5)
     last_result = None
-    for attempt in range(1, attempts + 1):
-        endpoint = _kling_task_endpoint(task_id)
-        response = _request_get(endpoint, headers)
-        data = _safe_provider_json_response(response, "kling", endpoint)
-        _log_provider_response("kling", "POLL", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
-        status_code = getattr(response, "status_code", None) or 0
-        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
-            return _provider_parse_error("kling", task_id, data)
-        state = _kling_status(data)
-        video_url = _kling_extract_video_url(data)
-        print("KLING VIDEO POLL:", {
-            "attempt": attempt,
-            "task_id": task_id,
-            "status": state,
-            "has_video_url": bool(video_url),
-            "video_url": video_url or "",
-        })
-        # Kling's own text2video/image2video API returns task_status "succeed"
-        # (not "succeeded") on completion - confirmed against current Kling
-        # API docs. The other three Kling poll variants below already check
-        # for "succeed"; this one was missing it, so a genuinely completed
-        # video kept polling as "processing" until the job was eventually
-        # recovered as stale, even though Kling had already delivered it.
-        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
-            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
-        if state in {"failed", "error", "cancelled"}:
-            return _provider_parse_error("kling", task_id, data)
-        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
-        if attempt < attempts:
-            time.sleep(interval)
+    attempt = 1
+    endpoint = _kling_task_endpoint(task_id)
+    response = _request_get(endpoint, headers)
+    data = _safe_provider_json_response(response, "kling", endpoint)
+    _log_provider_response("kling", "POLL", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
+    status_code = getattr(response, "status_code", None) or 0
+    if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+        return _provider_parse_error("kling", task_id, data)
+    state = _kling_status(data)
+    video_url = _kling_extract_video_url(data)
+    print("KLING VIDEO POLL:", {
+        "attempt": attempt,
+        "task_id": task_id,
+        "status": state,
+        "has_video_url": bool(video_url),
+        "video_url": video_url or "",
+    })
+    # Kling's own text2video/image2video API returns task_status "succeed"
+    # (not "succeeded") on completion - confirmed against current Kling
+    # API docs. The other three Kling poll variants below already check
+    # for "succeed"; this one was missing it, so a genuinely completed
+    # video kept polling as "processing" until the job was eventually
+    # recovered as stale, even though Kling had already delivered it.
+    if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
+        return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+    if state in {"failed", "error", "cancelled"}:
+        return _provider_parse_error("kling", task_id, data)
+    last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_task_endpoint(task_id))
 
 
@@ -2761,32 +2730,29 @@ def _kling_poll_until_ready(task_id: str, headers: dict):
 # При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
 def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
-    attempts, interval = _kling_poll_attempt_settings(60, 5)
     last_result = None
-    for attempt in range(1, attempts + 1):
-        endpoint = _kling_legacy_task_endpoint(task_id, kind)
-        response = _request_get(endpoint, headers)
-        data = _safe_provider_json_response(response, "kling", endpoint)
-        _log_provider_response("kling", "POLL_LEGACY", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
-        status_code = getattr(response, "status_code", None) or 0
-        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
-            return _provider_parse_error("kling", task_id, data)
-        state = _kling_status(data)
-        video_url = _kling_extract_video_url(data)
-        print("KLING LEGACY VIDEO POLL:", {
-            "attempt": attempt,
-            "task_id": task_id,
-            "status": state,
-            "has_video_url": bool(video_url),
-            "video_url": video_url or "",
-        })
-        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
-            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
-        if state in {"failed", "error", "cancelled"}:
-            return _provider_parse_error("kling", task_id, data)
-        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
-        if attempt < attempts:
-            time.sleep(interval)
+    attempt = 1
+    endpoint = _kling_legacy_task_endpoint(task_id, kind)
+    response = _request_get(endpoint, headers)
+    data = _safe_provider_json_response(response, "kling", endpoint)
+    _log_provider_response("kling", "POLL_LEGACY", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
+    status_code = getattr(response, "status_code", None) or 0
+    if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+        return _provider_parse_error("kling", task_id, data)
+    state = _kling_status(data)
+    video_url = _kling_extract_video_url(data)
+    print("KLING LEGACY VIDEO POLL:", {
+        "attempt": attempt,
+        "task_id": task_id,
+        "status": state,
+        "has_video_url": bool(video_url),
+        "video_url": video_url or "",
+    })
+    if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
+        return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+    if state in {"failed", "error", "cancelled"}:
+        return _provider_parse_error("kling", task_id, data)
+    last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_legacy_task_endpoint(task_id, kind))
 
 
@@ -2795,32 +2761,29 @@ def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
 # Проверяет статус официальной задачи Kling Video Effects.
 # =====================================================
 def _kling_effects_poll_until_ready(task_id: str, headers: dict):
-    attempts, interval = _kling_poll_attempt_settings(60, 5)
     last_result = None
-    for attempt in range(1, attempts + 1):
-        endpoint = _kling_effects_task_endpoint(task_id)
-        response = _request_get(endpoint, headers)
-        data = _safe_provider_json_response(response, "kling", endpoint)
-        _log_provider_response("kling", "POLL_EFFECTS", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
-        status_code = getattr(response, "status_code", None) or 0
-        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
-            return _provider_parse_error("kling", task_id, data)
-        state = _kling_status(data)
-        video_url = _kling_extract_video_url(data)
-        print("KLING EFFECTS VIDEO POLL:", {
-            "attempt": attempt,
-            "task_id": task_id,
-            "status": state,
-            "has_video_url": bool(video_url),
-            "video_url": video_url or "",
-        })
-        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
-            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
-        if state in {"failed", "error", "cancelled"}:
-            return _provider_parse_error("kling", task_id, data)
-        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
-        if attempt < attempts:
-            time.sleep(interval)
+    attempt = 1
+    endpoint = _kling_effects_task_endpoint(task_id)
+    response = _request_get(endpoint, headers)
+    data = _safe_provider_json_response(response, "kling", endpoint)
+    _log_provider_response("kling", "POLL_EFFECTS", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
+    status_code = getattr(response, "status_code", None) or 0
+    if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+        return _provider_parse_error("kling", task_id, data)
+    state = _kling_status(data)
+    video_url = _kling_extract_video_url(data)
+    print("KLING EFFECTS VIDEO POLL:", {
+        "attempt": attempt,
+        "task_id": task_id,
+        "status": state,
+        "has_video_url": bool(video_url),
+        "video_url": video_url or "",
+    })
+    if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
+        return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+    if state in {"failed", "error", "cancelled"}:
+        return _provider_parse_error("kling", task_id, data)
+    last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_effects_task_endpoint(task_id))
 
 
@@ -2829,32 +2792,29 @@ def _kling_effects_poll_until_ready(task_id: str, headers: dict):
 # Проверяет статус официальной задачи Kling Lip Sync.
 # =====================================================
 def _kling_lip_sync_poll_until_ready(task_id: str, headers: dict):
-    attempts, interval = _kling_poll_attempt_settings(60, 5)
     last_result = None
-    for attempt in range(1, attempts + 1):
-        endpoint = _kling_lip_sync_task_endpoint(task_id)
-        response = _request_get(endpoint, headers)
-        data = _safe_provider_json_response(response, "kling", endpoint)
-        _log_provider_response("kling", "POLL_LIP_SYNC", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
-        status_code = getattr(response, "status_code", None) or 0
-        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
-            return _provider_parse_error("kling", task_id, data)
-        state = _kling_status(data)
-        video_url = _kling_extract_video_url(data)
-        print("KLING LIP SYNC VIDEO POLL:", {
-            "attempt": attempt,
-            "task_id": task_id,
-            "status": state,
-            "has_video_url": bool(video_url),
-            "video_url": video_url or "",
-        })
-        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
-            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
-        if state in {"failed", "error", "cancelled"}:
-            return _provider_parse_error("kling", task_id, data)
-        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
-        if attempt < attempts:
-            time.sleep(interval)
+    attempt = 1
+    endpoint = _kling_lip_sync_task_endpoint(task_id)
+    response = _request_get(endpoint, headers)
+    data = _safe_provider_json_response(response, "kling", endpoint)
+    _log_provider_response("kling", "POLL_LIP_SYNC", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
+    status_code = getattr(response, "status_code", None) or 0
+    if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+        return _provider_parse_error("kling", task_id, data)
+    state = _kling_status(data)
+    video_url = _kling_extract_video_url(data)
+    print("KLING LIP SYNC VIDEO POLL:", {
+        "attempt": attempt,
+        "task_id": task_id,
+        "status": state,
+        "has_video_url": bool(video_url),
+        "video_url": video_url or "",
+    })
+    if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
+        return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+    if state in {"failed", "error", "cancelled"}:
+        return _provider_parse_error("kling", task_id, data)
+    last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_lip_sync_task_endpoint(task_id))
 
 
@@ -2882,33 +2842,30 @@ def _luma_task_endpoint(task_id: str):
 # При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
 def _luma_poll_until_ready(task_id: str, headers: dict):
-    attempts, interval = _poll_attempt_settings("LUMA", 60, 5)
     last_result = None
-    for attempt in range(1, attempts + 1):
-        endpoint = _luma_task_endpoint(task_id)
-        response = _request_get(endpoint, headers)
-        data = _safe_provider_json_response(response, "luma", endpoint)
-        status_code = getattr(response, "status_code", None) or 0
-        if status_code >= 400 or data.get("ok") is False:
-            return _provider_parse_error("luma", task_id, data)
-        state = str(data.get("state") or data.get("status") or "").lower()
-        generation_stages.report_provider_state(state)
-        urls = _normalize_video_urls(data)
-        video_url = (data.get("assets") or {}).get("video") or (urls[0] if urls else "")
-        print("LUMA VIDEO POLL:", {
-            "attempt": attempt,
-            "task_id": task_id,
-            "status": state,
-            "has_video_url": bool(video_url),
-            "video_url": video_url or "",
-        })
-        if state in {"completed", "succeeded", "success", "done"} and video_url:
-            return _provider_success("luma", task_id, [video_url], status="completed", task_id=task_id)
-        if state in {"failed", "error", "cancelled"}:
-            return _provider_parse_error("luma", task_id, data)
-        last_result = _provider_success("luma", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
-        if attempt < attempts:
-            time.sleep(interval)
+    attempt = 1
+    endpoint = _luma_task_endpoint(task_id)
+    response = _request_get(endpoint, headers)
+    data = _safe_provider_json_response(response, "luma", endpoint)
+    status_code = getattr(response, "status_code", None) or 0
+    if status_code >= 400 or data.get("ok") is False:
+        return _provider_parse_error("luma", task_id, data)
+    state = str(data.get("state") or data.get("status") or "").lower()
+    generation_stages.report_provider_state(state)
+    urls = _normalize_video_urls(data)
+    video_url = (data.get("assets") or {}).get("video") or (urls[0] if urls else "")
+    print("LUMA VIDEO POLL:", {
+        "attempt": attempt,
+        "task_id": task_id,
+        "status": state,
+        "has_video_url": bool(video_url),
+        "video_url": video_url or "",
+    })
+    if state in {"completed", "succeeded", "success", "done"} and video_url:
+        return _provider_success("luma", task_id, [video_url], status="completed", task_id=task_id)
+    if state in {"failed", "error", "cancelled"}:
+        return _provider_parse_error("luma", task_id, data)
+    last_result = _provider_success("luma", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
     return last_result or _provider_success("luma", task_id, [], status="processing", task_id=task_id, poll_url=_luma_task_endpoint(task_id))
 
 
@@ -2982,6 +2939,7 @@ def _provider_error(provider: str, model_id: str, detail: str):
     user_message = translate_provider_error(detail, provider=provider, model=model_id)
     return {
         "ok": False,
+        "status": "failed",
         "type": "video",
         "provider": provider,
         "model": model_id,
@@ -3109,6 +3067,7 @@ def _provider_parse_error(provider: str, model_id: str, data: dict):
     user_message = translate_provider_error(raw_message or data, provider=provider, model=model_id)
     result = {
         "ok": False,
+        "status": "failed",
         "type": "video",
         "provider": provider,
         "model": model_id,
@@ -3141,7 +3100,7 @@ async def poll_video_generation(result: dict) -> dict:
         api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "ARK_API_KEY")
         if not api_key:
             return _provider_error("bytedance", model_id, "Provider API key is missing: BYTEDANCE_API_KEY")
-        return _seedance_poll_until_ready(str(task_id), _seedance_headers(api_key), max_attempts=1, interval_seconds=1)
+        return _seedance_poll_until_ready(str(task_id), _seedance_headers(api_key))
     if provider == "kling":
         api_key = _get_env("KLING_API_KEY", "KLING_ACCESS_KEY")
         if not api_key:
@@ -3631,38 +3590,35 @@ def _heygen_files_from_payload(body: dict, payload: dict):
 def _heygen_poll_until_ready(session_id: str = "", video_id: str = "", headers: dict = None):
     headers = headers or {}
     base = _heygen_base_url()
-    attempts, interval = _poll_attempt_settings("HEYGEN", 90, 5)
     last_result = None
     current_video_id = video_id or ""
-    for attempt in range(1, attempts + 1):
-        if not current_video_id and session_id:
-            session_url = f"{base}/v3/video-agents/{session_id}"
-            session_response = _request_get(session_url, headers)
-            session_data = _safe_provider_json_response(session_response, "heygen", session_url)
-            _log_provider_response("heygen", "SESSION_POLL", session_url, {"session_id": session_id, "attempt": attempt}, session_response, session_data)
-            if getattr(session_response, "status_code", 0) >= 400 or session_data.get("ok") is False:
-                return _provider_parse_error("heygen", session_id, session_data)
-            current_video_id = _heygen_video_id_from_session(session_data)
-            status = _heygen_video_status(session_data) or "processing"
-            last_result = _provider_success("heygen", session_id, [], status=status, task_id=session_id, poll_url=session_url)
+    attempt = 1
+    if not current_video_id and session_id:
+        session_url = f"{base}/v3/video-agents/{session_id}"
+        session_response = _request_get(session_url, headers)
+        session_data = _safe_provider_json_response(session_response, "heygen", session_url)
+        _log_provider_response("heygen", "SESSION_POLL", session_url, {"session_id": session_id, "attempt": attempt}, session_response, session_data)
+        if getattr(session_response, "status_code", 0) >= 400 or session_data.get("ok") is False:
+            return _provider_parse_error("heygen", session_id, session_data)
+        current_video_id = _heygen_video_id_from_session(session_data)
+        status = _heygen_video_status(session_data) or "processing"
+        last_result = _provider_success("heygen", session_id, [], status=status, task_id=session_id, poll_url=session_url)
 
-        if current_video_id:
-            video_url = f"{base}/v3/videos/{current_video_id}"
-            video_response = _request_get(video_url, headers)
-            video_data = _safe_provider_json_response(video_response, "heygen", video_url)
-            _log_provider_response("heygen", "VIDEO_POLL", video_url, {"video_id": current_video_id, "attempt": attempt}, video_response, video_data)
-            if getattr(video_response, "status_code", 0) >= 400 or video_data.get("ok") is False:
-                return _provider_parse_error("heygen", current_video_id, video_data)
-            status = _heygen_video_status(video_data) or "processing"
-            ready_url = _heygen_video_url_from_data(video_data)
-            if status in {"completed", "done", "success"} and ready_url:
-                return _provider_success("heygen", current_video_id, [ready_url], status="completed", task_id=current_video_id)
-            if status in {"failed", "error"}:
-                return _provider_parse_error("heygen", current_video_id, video_data)
-            last_result = _provider_success("heygen", current_video_id, [], status="processing", task_id=current_video_id, poll_url=video_url)
+    if current_video_id:
+        video_url = f"{base}/v3/videos/{current_video_id}"
+        video_response = _request_get(video_url, headers)
+        video_data = _safe_provider_json_response(video_response, "heygen", video_url)
+        _log_provider_response("heygen", "VIDEO_POLL", video_url, {"video_id": current_video_id, "attempt": attempt}, video_response, video_data)
+        if getattr(video_response, "status_code", 0) >= 400 or video_data.get("ok") is False:
+            return _provider_parse_error("heygen", current_video_id, video_data)
+        status = _heygen_video_status(video_data) or "processing"
+        ready_url = _heygen_video_url_from_data(video_data)
+        if status in {"completed", "done", "success"} and ready_url:
+            return _provider_success("heygen", current_video_id, [ready_url], status="completed", task_id=current_video_id)
+        if status in {"failed", "error"}:
+            return _provider_parse_error("heygen", current_video_id, video_data)
+        last_result = _provider_success("heygen", current_video_id, [], status="processing", task_id=current_video_id, poll_url=video_url)
 
-        if attempt < attempts:
-            time.sleep(interval)
     return last_result or _provider_success("heygen", session_id or current_video_id, [], status="processing", task_id=session_id or current_video_id)
 
 
