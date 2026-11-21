@@ -291,12 +291,14 @@ let imageState = {
 
 const PHOTO_TOOL_CONFIG = {
   try_on: {
+    preview: '/webapp/assets/tool-icons/tool-01.png',
     title: 'Виртуальная примерка',
     shortTitle: 'Try‑On',
     description: 'Выберите персонажа, фото из медиа или загрузите своё, затем добавьте от одной до трёх фотографий одежды.',
     demo: '/webapp/assets/photo-tools/try-on/demo.mp4',
   },
   remove_bg: {
+    preview: '/webapp/assets/tool-icons/tool-02.png',
     title: 'Удаление фона',
     shortTitle: 'Удаление фона',
     description: 'Загрузите одно изображение. Объект останется без исходного фона.',
@@ -306,12 +308,14 @@ const PHOTO_TOOL_CONFIG = {
     demo: '/webapp/assets/photo-tools/remove-background/demo.mp4',
   },
   replace_character: {
+    preview: '/webapp/assets/tool-icons/tool-03.png',
     title: 'Замена персонажа',
     shortTitle: 'Замена персонажа',
     description: 'Загрузите основное фото, затем выберите персонажа, фото из истории или загрузите новое лицо для замены.',
     demo: '/webapp/assets/photo-tools/replace-character/demo.mp4',
   },
   enhance: {
+    preview: '/webapp/assets/tool-icons/tool-04.png',
     title: 'Enhance Photo',
     shortTitle: 'Enhance Photo',
     description: 'Enhance image quality automatically with Topaz.',
@@ -320,14 +324,14 @@ const PHOTO_TOOL_CONFIG = {
     labels: ['Source image'],
     demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
   },
-  animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
-  tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
-  logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите изображение, опишите логотип и при желании выберите визуальный референс.', min:0, max:1, labels:['Загрузить своё изображение'], preview:'assets/quick-tools/logo-placement.jpg' },
-  remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото, нажмите на него и отметьте предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg' },
-  watermark_removal: { title:'Удаление водяных знаков', shortTitle:'Удалить водяной знак', description:'Загрузите фото — водяные знаки, логотипы и надписи будут удалены, а изображение восстановлено.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg' },
-  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Загрузите фото и предмет для замены, затем нажмите на фото и отметьте область.', min:2, max:2, labels:['Основное фото','Предмет для замены'], preview:'assets/quick-tools/replace-object.jpg' },
-  hair_beard: { title:'Причёска и борода', shortTitle:'Причёска и борода', description:'Загрузите портрет и выберите форму причёски или растительности на лице.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/replace-character.jpg' },
-  face_retouch: { title:'Ретушь лица', shortTitle:'Ретушь лица', description:'Естественно улучшите кожу и лицо без изменения личности.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/enhance-photo.jpg' },
+  animate_photo: { preview:'/webapp/assets/tool-icons/tool-05.png', title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
+  tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/tool-icons/tool-06.png' },
+  logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите изображение, опишите логотип и при желании выберите визуальный референс.', min:0, max:1, labels:['Загрузить своё изображение'], preview:'/webapp/assets/tool-icons/tool-07.png' },
+  remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото, нажмите на него и отметьте предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'/webapp/assets/tool-icons/tool-08.png' },
+  watermark_removal: { title:'Удаление водяных знаков', shortTitle:'Удалить водяной знак', description:'Загрузите фото — водяные знаки, логотипы и надписи будут удалены, а изображение восстановлено.', min:1, max:1, labels:['Исходное фото'], preview:'/webapp/assets/tool-icons/tool-09.png' },
+  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Загрузите фото и предмет для замены, затем нажмите на фото и отметьте область.', min:2, max:2, labels:['Основное фото','Предмет для замены'], preview:'/webapp/assets/tool-icons/tool-10.png' },
+  hair_beard: { title:'Причёска и борода', shortTitle:'Причёска и борода', description:'Загрузите портрет и выберите форму причёски или растительности на лице.', min:1, max:1, labels:['Портрет'], preview:'/webapp/assets/tool-icons/tool-11.png' },
+  face_retouch: { title:'Ретушь лица', shortTitle:'Ретушь лица', description:'Естественно улучшите кожу и лицо без изменения личности.', min:1, max:1, labels:['Портрет'], preview:'/webapp/assets/tool-icons/tool-12.png' },
   edit_workspace: { title:'Edit', shortTitle:'Edit', description:'Полноэкранный редактор изображения с настройками камеры и света.', min:1, max:1, labels:['Исходное изображение'], preview:'assets/quick-tools/enhance-photo.jpg' },
 };
 const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((key) => [key, { files: [], generating: false }]));
@@ -9472,9 +9476,9 @@ function hideEditOnThisScreen() {
 function photoToolIconGridHtml() {
   const icon = (key) => (typeof S.photoToolIconHtml === 'function' ? S.photoToolIconHtml(key) : '');
   return '<div class="photo-tool-catalog photo-tool-icon-grid">'
-    + Object.entries(PHOTO_TOOL_CONFIG).filter(([key]) => !(key === 'edit_workspace' && hideEditOnThisScreen())).map(([key, config]) =>
+    + Object.entries(PHOTO_TOOL_CONFIG).filter(([key]) => key !== 'edit_workspace').map(([key, config]) =>
       '<button type="button" class="photo-tool-icon-tile" onclick="SYLVEX.openPhotoToolModal(event,\'' + key + '\')">'
-      + '<span class="photo-tool-icon">' + icon(key) + '</span><b>' + S.escapeHtml(config.shortTitle) + '</b></button>'
+      + '<span class="photo-tool-icon"><img src="' + S.escapeHtml(config.preview) + '" alt="" loading="lazy" decoding="async"></span><b>' + S.escapeHtml(config.shortTitle) + '</b></button>'
     ).join('')
     + mediaToolBlocks.map((block) =>
       '<button type="button" class="photo-tool-icon-tile" onclick="SYLVEX.openMediaToolBlock(event,' + Number(block.id) + ')">'
@@ -9489,7 +9493,7 @@ function renderPhotoToolCatalog() {
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструменты</small><h3>Что сделать с фотографией?</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + (S.isStandardStudio && S.isStandardStudio() ? photoToolIconGridHtml() : ('<div class="photo-tool-catalog">'
-    + Object.entries(PHOTO_TOOL_CONFIG).filter(([key]) => !(key === 'edit_workspace' && hideEditOnThisScreen())).map(([key, config]) =>
+    + Object.entries(PHOTO_TOOL_CONFIG).filter(([key]) => key !== 'edit_workspace').map(([key, config]) =>
       '<button type="button" class="photo-tool-catalog-card" onclick="SYLVEX.openPhotoToolModal(event,\'' + key + '\')">'
       + photoToolCatalogPreviewHtml(config)
       + '<span><b>' + S.escapeHtml(config.shortTitle) + '</b><small>' + S.escapeHtml(config.description) + '</small></span>'
@@ -17640,18 +17644,18 @@ function imageModelButton(model) {
   // =====================================================
   const HOME_QUICK_TOOLS = [
     {key:'edit_workspace',title:'Edit',note:'Полноэкранное редактирование',image:'assets/quick-tools/enhance-photo.jpg'},
-    {key:'try_on',title:'Try‑On',note:'Виртуальная примерка',image:'assets/quick-tools/try-on.jpg'},
-    {key:'remove_bg',title:'Удаление фона',note:'Чистый фон за один шаг',image:'assets/quick-tools/remove-background.jpg'},
-    {key:'replace_character',title:'Замена персонажа',note:'Сохранение сцены и позы',image:'assets/quick-tools/replace-character.jpg'},
-    {key:'enhance',title:'Улучшение фото',note:'Детализация и качество',image:'assets/quick-tools/enhance-photo.jpg'},
-    {key:'animate_photo',title:'Оживление фото',note:'Фото превращается в видео',image:'assets/quick-tools/animate-photo.jpg'},
-    {key:'tattoo',title:'Тату',note:'Реалистичное нанесение',image:'assets/quick-tools/tattoo.jpg'},
-    {key:'logo',title:'Лого',note:'Размещение на изображении',image:'assets/quick-tools/logo-placement.jpg'},
-    {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',image:'assets/quick-tools/remove-object.jpg'},
-    {key:'watermark_removal',title:'Удаление водяных знаков',note:'Чистое восстановление фото',image:'assets/quick-tools/remove-object.jpg'},
-    {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',image:'assets/quick-tools/replace-object.jpg'},
-    {key:'hair_beard',title:'Причёска и борода',note:'Стиль, форма и цвет волос',image:'assets/quick-tools/replace-character.jpg'},
-    {key:'face_retouch',title:'Ретушь лица',note:'Естественная коррекция кожи',image:'assets/quick-tools/enhance-photo.jpg'},
+    {key:'try_on',title:'Try‑On',note:'Виртуальная примерка',image:'/webapp/assets/tool-icons/tool-01.png'},
+    {key:'remove_bg',title:'Удаление фона',note:'Чистый фон за один шаг',image:'/webapp/assets/tool-icons/tool-02.png'},
+    {key:'replace_character',title:'Замена персонажа',note:'Сохранение сцены и позы',image:'/webapp/assets/tool-icons/tool-03.png'},
+    {key:'enhance',title:'Улучшение фото',note:'Детализация и качество',image:'/webapp/assets/tool-icons/tool-04.png'},
+    {key:'animate_photo',title:'Оживление фото',note:'Фото превращается в видео',image:'/webapp/assets/tool-icons/tool-05.png'},
+    {key:'tattoo',title:'Тату',note:'Реалистичное нанесение',image:'/webapp/assets/tool-icons/tool-06.png'},
+    {key:'logo',title:'Лого',note:'Размещение на изображении',image:'/webapp/assets/tool-icons/tool-07.png'},
+    {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',image:'/webapp/assets/tool-icons/tool-08.png'},
+    {key:'watermark_removal',title:'Удаление водяных знаков',note:'Чистое восстановление фото',image:'/webapp/assets/tool-icons/tool-09.png'},
+    {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',image:'/webapp/assets/tool-icons/tool-10.png'},
+    {key:'hair_beard',title:'Причёска и борода',note:'Стиль, форма и цвет волос',image:'/webapp/assets/tool-icons/tool-11.png'},
+    {key:'face_retouch',title:'Ретушь лица',note:'Естественная коррекция кожи',image:'/webapp/assets/tool-icons/tool-12.png'},
   ];
   // Home quick tools shown on this screen (Edit is left out on a mobile browser).
   function homeQuickTools() {
