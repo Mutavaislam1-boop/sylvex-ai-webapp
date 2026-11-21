@@ -1,3 +1,4 @@
+from services.provider_polling import read_async_status
 from services.safe_io import safe_get, safe_client_get, safe_local_path, read_upload, validated_upload_type
 # =====================================================
 # АВТОДОКУМЕНТАЦИЯ SYLVEX: services/audio_router.py
@@ -21,6 +22,11 @@ import time
 import wave
 from typing import Any, Optional
 from uuid import uuid4
+
+async def _audio_status_get(client, url, **kwargs):
+    return await read_async_status(lambda: safe_client_get(client, url, **kwargs))
+
+
 
 import httpx
 
@@ -886,7 +892,7 @@ async def _download_runway_audio(client: httpx.AsyncClient, audio_url: str) -> s
         return ""
     if str(audio_url).startswith("/webapp/"):
         return str(audio_url)
-    response = await safe_client_get(client, audio_url)
+    response = await _audio_status_get(client, audio_url)
     if response.status_code >= 400 or not response.content:
         return ""
     ext = _audio_extension_from_response(audio_url, response.headers.get("content-type") or "")
@@ -914,7 +920,7 @@ async def _load_provider_media(client: httpx.AsyncClient, media_url: str) -> tup
         content = local_path.read_bytes()
         content_type = mimetypes.guess_type(str(local_path))[0] or "audio/mpeg"
         return content, local_path.name or "input-audio.mp3", content_type
-    response = await safe_client_get(client, value)
+    response = await _audio_status_get(client, value)
     if response.status_code >= 400 or not response.content:
         return b"", "input-audio.mp3", "audio/mpeg"
     content_type = response.headers.get("content-type") or mimetypes.guess_type(value)[0] or "audio/mpeg"
@@ -1249,7 +1255,7 @@ async def lyria_music_generation(payload: dict, frontend_model: str, provider_mo
     request_body: dict[str, Any] = {"model": provider_model, "input": prompt}
     if provider_model == "lyria-3-pro-preview":
         request_body["response_format"] = {"type": "audio"}
-    async with httpx.AsyncClient(timeout=600.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             response = await client.post(endpoint, headers={"x-goog-api-key": api_key, "Content-Type": "application/json"}, json=request_body)
         except Exception as exc:
@@ -1378,7 +1384,7 @@ async def _send_generated_audio_to_telegram(
         })
         return False
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             if storage_key_from_url(str(audio_url)):
                 audio_content = storage_read_bytes(str(audio_url))
@@ -1388,7 +1394,7 @@ async def _send_generated_audio_to_telegram(
                 audio_content = local_path.read_bytes() if local_path.exists() else b""
                 content_type = "audio/wav" if local_path.suffix.lower() == ".wav" else "audio/mpeg"
             else:
-                audio_response = await safe_client_get(client, audio_url)
+                audio_response = await _audio_status_get(client, audio_url)
                 if audio_response.status_code >= 400 or not audio_response.content:
                     print("TELEGRAM AUDIO SEND:", {
                         "telegram_id": telegram_id,
@@ -1488,7 +1494,7 @@ async def _openai_translate_document(text: str, target_language: str) -> tuple[s
         "temperature": 0.2,
     }
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
             response = await client.post(endpoint, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=body)
     except Exception as exc:
         return "", str(exc)
@@ -1581,7 +1587,7 @@ async def elevenlabs_music_generation(payload: dict, frontend_model: str) -> dic
     reference = music_reference_audio(music_options)
     headers = {"xi-api-key": api_key}
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
             if reference:
                 content, filename, content_type = await _load_provider_media(client, reference["url"])
                 if not content:
@@ -1709,7 +1715,7 @@ async def audio_generation(payload: dict) -> dict:
         "make_instrumental": submit_body.get("make_instrumental"),
     })
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             submit_response = await client.post(
                 generate_endpoint,
@@ -1740,26 +1746,23 @@ async def audio_generation(payload: dict) -> dict:
         generation_stages.report("accepted")
         generation_stages.report_provider_state(submit_status)
 
-        attempts = int(os.getenv("AUDIO_API_POLL_ATTEMPTS", "60"))
         interval = float(os.getenv("AUDIO_API_POLL_INTERVAL", "5"))
         last_data = submit_data
         feed_url = feed_endpoint
 
-        for attempt in range(1, attempts + 1):
+        attempt = 0
+        while True:
+            attempt += 1
             try:
-                poll_response = await safe_client_get(client, 
+                poll_response = await _audio_status_get(client,
                     feed_url,
                     headers=_audio_headers(api_key),
                     params={"workId": work_id},
                 )
                 poll_data = await safe_audio_json_response(poll_response, provider, feed_url)
-            except Exception as exc:
-                poll_data = {
-                    "ok": False,
-                    "error": "Audio API polling request failed",
-                    "details": repr(exc),
-                }
-                poll_response = None
+            except (httpx.TransportError, ValueError):
+                await asyncio.sleep(interval)
+                continue
 
             last_data = poll_data
             poll_status_code = getattr(poll_response, "status_code", None)
@@ -1784,8 +1787,7 @@ async def audio_generation(payload: dict) -> dict:
             if status in {"failed", "error", "cancelled", "canceled"}:
                 return _audio_error(provider, frontend_model, provider_model, poll_data, workId=work_id, status=status, endpoint=feed_url, status_code=getattr(poll_response, "status_code", None), response=poll_data)
 
-            if attempt < attempts:
-                await asyncio.sleep(interval)
+            await asyncio.sleep(interval)
 
         return {
             "ok": True,
@@ -1939,16 +1941,18 @@ async def _poll_elevenlabs_dubbing(
     payload: dict,
     initial_response: Any,
 ) -> dict:
-    attempts = int(os.getenv("ELEVENLABS_DUBBING_POLL_ATTEMPTS", "120"))
+
     interval = float(os.getenv("ELEVENLABS_DUBBING_POLL_INTERVAL", "5"))
     status_url = f"{ELEVENLABS_BASE_URL}/v1/dubbing/{dubbing_id}"
     audio_url = f"{ELEVENLABS_BASE_URL}/v1/dubbing/{dubbing_id}/audio/{target_lang}"
     last_data = initial_response
     generation_stages.report("accepted")
 
-    for attempt in range(1, attempts + 1):
+    attempt = 0
+    while True:
+        attempt += 1
         try:
-            response = await safe_client_get(client, status_url, headers=_elevenlabs_headers(None))
+            response = await _audio_status_get(client, status_url, headers=_elevenlabs_headers(None))
             data = await safe_audio_json_response(response, "elevenlabs", status_url)
         except Exception as exc:
             return _audio_error("elevenlabs", frontend_model, provider_model, exc, type="voice", endpoint=status_url, dubbing_id=dubbing_id, details=repr(exc))
@@ -1967,7 +1971,7 @@ async def _poll_elevenlabs_dubbing(
             return _audio_error("elevenlabs", frontend_model, provider_model, data, type="voice", endpoint=status_url, status_code=response.status_code, response=data, dubbing_id=dubbing_id)
 
         if status in {"dubbed", "done", "completed", "complete", "succeeded", "success"}:
-            audio_response = await safe_client_get(client, audio_url, headers={"xi-api-key": _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY"), "Accept": "audio/mpeg"})
+            audio_response = await _audio_status_get(client, audio_url, headers={"xi-api-key": _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY"), "Accept": "audio/mpeg"})
             if audio_response.status_code >= 400 or not audio_response.content:
                 return _audio_error("elevenlabs", frontend_model, provider_model, await safe_audio_json_response(audio_response, "elevenlabs", audio_url), type="voice", endpoint=audio_url, status_code=audio_response.status_code, dubbing_id=dubbing_id)
             return await _completed_elevenlabs_voice_response(
@@ -1983,10 +1987,8 @@ async def _poll_elevenlabs_dubbing(
         if status in {"failed", "error", "errored"} or (isinstance(data, dict) and data.get("error")):
             return _audio_error("elevenlabs", frontend_model, provider_model, data, type="voice", endpoint=status_url, status=status, response=data, dubbing_id=dubbing_id)
 
-        if attempt < attempts:
-            await asyncio.sleep(interval)
+        await asyncio.sleep(interval)
 
-    return _audio_error("elevenlabs", frontend_model, provider_model, "ElevenLabs dubbing polling timed out", type="voice", endpoint=status_url, response=last_data, dubbing_id=dubbing_id)
 
 
 # =====================================================
@@ -2083,7 +2085,7 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
             if next_page_token:
                 params["next_page_token"] = next_page_token
             try:
-                response = await safe_client_get(client, f"{ELEVENLABS_BASE_URL}/v2/voices", headers=_elevenlabs_headers(None), params=params)
+                response = await _audio_status_get(client, f"{ELEVENLABS_BASE_URL}/v2/voices", headers=_elevenlabs_headers(None), params=params)
                 data = await safe_audio_json_response(response, "elevenlabs", f"{ELEVENLABS_BASE_URL}/v2/voices")
             except Exception as exc:
                 print("ELEVENLABS VOICES FAILED:", repr(exc))
@@ -2221,7 +2223,7 @@ async def elevenlabs_clone_voice_from_audio(
         "name": safe_name,
         "telegram_id": telegram_id,
     })
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             response = await client.post(
                 endpoint,
@@ -2330,7 +2332,7 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         # Clips are joined as one MP3 stream.
         output_format = ELEVENLABS_DEFAULT_OUTPUT_FORMAT if ELEVENLABS_DEFAULT_OUTPUT_FORMAT.startswith("mp3_") else "mp3_44100_128"
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             if tool == "dubbing":
                 media_url = _runway_input_media_url(payload)
@@ -2706,14 +2708,16 @@ async def _poll_runway_voice_task(
     initial_response: Any,
 ) -> dict:
     task_url = f"{RUNWAY_API_BASE_URL}/v1/tasks/{task_id}"
-    attempts = int(os.getenv("RUNWAY_AUDIO_POLL_ATTEMPTS", "90"))
+
     interval = float(os.getenv("RUNWAY_AUDIO_POLL_INTERVAL", "2"))
     last_data = initial_response
     generation_stages.report("accepted")
 
-    for attempt in range(1, attempts + 1):
+    attempt = 0
+    while True:
+        attempt += 1
         try:
-            response = await safe_client_get(client, task_url, headers=_runway_headers(api_key))
+            response = await _audio_status_get(client, task_url, headers=_runway_headers(api_key))
             data = await safe_audio_json_response(response, "runway", task_url)
         except Exception as exc:
             return _audio_error("runway", frontend_model, provider_model, exc, type="voice", endpoint=task_url, task_id=task_id, details=repr(exc))
@@ -2750,10 +2754,8 @@ async def _poll_runway_voice_task(
         if status in {"failed", "failure", "error", "cancelled", "canceled"}:
             return _audio_error("runway", frontend_model, provider_model, data, type="voice", endpoint=task_url, status=status, response=data, task_id=task_id)
 
-        if attempt < attempts:
-            await asyncio.sleep(interval)
+        await asyncio.sleep(interval)
 
-    return _audio_error("runway", frontend_model, provider_model, "Runway TTS polling timed out", type="voice", endpoint=task_url, response=last_data, task_id=task_id)
 
 
 # =====================================================
@@ -2815,7 +2817,7 @@ async def runway_voice_generation(payload: dict) -> dict:
         "has_media": bool((request_body.get("media") or {}).get("uri") or request_body.get("audioUri")),
     })
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             response = await client.post(endpoint, headers=_runway_headers(api_key), json=request_body)
         except Exception as exc:
@@ -2860,7 +2862,7 @@ async def fetch_runway_voices() -> dict:
     endpoint = f"{RUNWAY_API_BASE_URL}/v1/voices"
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            response = await safe_client_get(client, endpoint, headers=_runway_headers(api_key))
+            response = await _audio_status_get(client, endpoint, headers=_runway_headers(api_key))
             data = await safe_audio_json_response(response, "runway", endpoint)
         except Exception as exc:
             print("RUNWAY VOICES FAILED:", repr(exc))
@@ -2998,7 +3000,7 @@ async def voice_generation(payload: dict) -> dict:
         "effective_speaker_mode": effective_speaker_mode,
         "has_prompt": bool(request_body.get("input")),
     })
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             response = await client.post(GEMINI_TTS_ENDPOINT, headers=headers, json=request_body)
         except Exception as exc:
@@ -3089,7 +3091,7 @@ async def gemini_tts_voice_preview(payload: dict) -> dict:
         "voice": voice,
         "text_length": len(sample_text),
     })
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
         try:
             response = await client.post(GEMINI_TTS_ENDPOINT, headers=headers, json=request_body)
         except Exception as exc:
